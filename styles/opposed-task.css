@@ -1,0 +1,168 @@
+.sta2e-opposed-setup,
+.sta2e-opposed-task {
+  color: var(--op-text);
+  font-family: var(--op-font);
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-header {
+  position: relative;
+}
+
+.sta2e-opposed-task .sta2e-op-roll,
+.sta2e-opposed-task .sta2e-op-cancel {
+  border-radius: 10px !important;
+}
+
+.sta2e-opposed-setup .op-slot,
+.sta2e-opposed-task .sta2e-opposed-resolution,
+.sta2e-opposed-task .sta2e-opposed-card-side,
+.sta2e-opposed-task .sta2e-opposed-card-summary {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.sta2e-opposed-setup .op-slot-pick,
+.sta2e-opposed-setup .op-reuse-last,
+.sta2e-opposed-setup .op-clear-recent,
+.sta2e-opposed-setup .op-recent,
+.sta2e-opposed-task .sta2e-op-roll,
+.sta2e-opposed-task .sta2e-op-cancel,
+.sta2e-opposed-task .sta2e-add-to-pool {
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.sta2e-opposed-setup .op-slot-pick:hover,
+.sta2e-opposed-setup .op-reuse-last:hover,
+.sta2e-opposed-setup .op-clear-recent:hover,
+.sta2e-opposed-task .sta2e-op-roll:hover,
+.sta2e-opposed-task .sta2e-op-cancel:hover,
+.sta2e-opposed-task .sta2e-add-to-pool:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--op-primary) 35%, transparent);
+}
+
+.sta2e-opposed-setup .op-slot-pick:hover,
+.sta2e-opposed-setup .op-reuse-last:hover,
+.sta2e-opposed-setup .op-clear-recent:hover,
+.sta2e-opposed-task .sta2e-op-roll:hover,
+.sta2e-opposed-task .sta2e-op-cancel:hover,
+.sta2e-opposed-task .sta2e-add-to-pool:hover {
+  background: color-mix(in srgb, var(--op-panel) 70%, var(--op-button-accent, var(--op-primary))) !important;
+  border-color: var(--op-button-accent, var(--op-primary)) !important;
+  color: color-mix(in srgb, var(--op-button-accent, var(--op-primary)) 78%, white) !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"],
+.sta2e-opposed-setup[data-theme="lcars-tng-blue"],
+.sta2e-opposed-task[data-theme="lcars-tng"],
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] {
+  filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--op-primary) 24%, transparent));
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-sidebar {
+  border-radius: 26px 6px 6px 26px !important;
+}
+
+.sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-header,
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-header {
+  border-radius: 0 !important;
+}
+
+.sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-resolution,
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-resolution {
+  background-image: none !important;
+}
+
+.sta2e-opposed-setup[data-theme="tos-panel"],
+.sta2e-opposed-task[data-theme="tos-panel"] {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  background-image: none !important;
+  border-width: 2px !important;
+  border-radius: 0 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 0 0 1px #111;
+}
+
+.sta2e-opposed-setup[data-theme="tos-panel"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-setup[data-theme="tos-panel"] .sta2e-opposed-setup-titlebox,
+.sta2e-opposed-setup[data-theme="tos-panel"] .op-slot,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-opposed-card-header,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-opposed-resolution {
+  border-radius: 0 !important;
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)) !important;
+}
+
+.sta2e-opposed-setup[data-theme="tos-panel"] .op-slot-pick,
+.sta2e-opposed-setup[data-theme="tos-panel"] .op-reuse-last,
+.sta2e-opposed-setup[data-theme="tos-panel"] .op-recent,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-op-roll,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-op-cancel,
+.sta2e-opposed-task[data-theme="tos-panel"] .sta2e-add-to-pool {
+  border-radius: 2px !important;
+  font-family: "Helvetica Neue", Arial, sans-serif !important;
+}
+
+.sta2e-opposed-setup[data-theme="tmp-console"],
+.sta2e-opposed-task[data-theme="tmp-console"] {
+  border-radius: 6px !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-primary) 25%, transparent), 0 8px 20px rgba(0,0,0,0.35);
+}
+
+.sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-titlebox,
+.sta2e-opposed-setup[data-theme="tmp-console"] .op-slot,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-header,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-resolution {
+  border-radius: 10px !important;
+}
+
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-header {
+  border-radius: 0 !important;
+}
+
+.sta2e-opposed-setup[data-theme="ent-panel"],
+.sta2e-opposed-task[data-theme="ent-panel"] {
+  border-radius: 4px !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 12px 28px rgba(0,0,0,0.28);
+}
+
+.sta2e-opposed-setup[data-theme="ent-panel"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-setup[data-theme="ent-panel"] .sta2e-opposed-setup-titlebox,
+.sta2e-opposed-setup[data-theme="ent-panel"] .op-slot,
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-header,
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-resolution {
+  border-radius: 4px !important;
+}
+
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-header {
+  border-radius: 0 !important;
+}
+
+.sta2e-opposed-setup[data-theme="klingon"],
+.sta2e-opposed-task[data-theme="klingon"] {
+  box-shadow: 0 0 0 1px rgba(90, 0, 0, 0.9), 0 10px 24px rgba(0,0,0,0.45);
+}
+
+.sta2e-opposed-setup[data-theme="klingon"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-task[data-theme="klingon"] .sta2e-opposed-card-header {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--op-primary) 85%, #220000), #200000) !important;
+}
+
+.sta2e-opposed-setup[data-theme="romulan"],
+.sta2e-opposed-task[data-theme="romulan"] {
+  box-shadow: 0 0 0 1px rgba(0, 40, 18, 0.9), 0 10px 24px rgba(0,0,0,0.4);
+}
+
+.sta2e-opposed-setup[data-theme="romulan"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-task[data-theme="romulan"] .sta2e-opposed-card-header {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--op-primary) 80%, #001206), #00160a) !important;
+}

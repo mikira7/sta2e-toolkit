@@ -1,0 +1,99 @@
+{{!-- sta2e-toolkit | campaign-manager.hbs --}}
+<div class="sta2e-manager">
+
+  <p class="sta2e-manager__hint">Drag to reorder. Theme auto-switches the HUD when this campaign is active.</p>
+
+  <ul id="sta2e-campaign-list" class="sta2e-manager__list">
+    {{#each campaigns}}
+    <li class="sta2e-manager__row" data-campaign-id="{{id}}" draggable="true">
+
+      {{!-- Row 1: drag handle | name | delete --}}
+      <span class="sta2e-manager__drag-handle" title="Drag to reorder">⠿</span>
+
+      <input
+        class="sta2e-manager__name-input"
+        type="text"
+        value="{{name}}"
+        data-campaign-name="{{id}}"
+        placeholder="Campaign / ship name"
+        title="Campaign name"
+      />
+
+      <button
+        type="button"
+        class="sta2e-manager__delete-btn"
+        data-action="deleteCampaign"
+        data-delete-campaign="{{id}}"
+        title="Delete campaign"
+      >🗑</button>
+
+      {{!-- Row 2: era + theme + stardate + rate/hint --}}
+      <div class="sta2e-manager__sub-row">
+
+        <select class="sta2e-manager__era-select" data-campaign-era="{{id}}" title="Era">
+          <option value="tng"     {{#if (eq era "tng")}}selected{{/if}}>TNG/DS9/VOY</option>
+          <option value="tos"     {{#if (eq era "tos")}}selected{{/if}}>TOS/TMP</option>
+          <option value="ent"     {{#if (eq era "ent")}}selected{{/if}}>ENT Era</option>
+          <option value="klingon" {{#if (eq era "klingon")}}selected{{/if}}>⚔ Klingon (YK)</option>
+          <option value="romulan" {{#if (eq era "romulan")}}selected{{/if}}>△ Romulan (AS)</option>
+          <option value="custom"  {{#if (eq era "custom")}}selected{{/if}}>Custom</option>
+        </select>
+
+        <select class="sta2e-manager__theme-select" data-campaign-theme="{{id}}" title="HUD Theme">
+          <option value="blue"           {{#if (eq theme "blue")}}selected{{/if}}>⬡ Starfleet Blue</option>
+          <option value="lcars-tng"      {{#if (eq theme "lcars-tng")}}selected{{/if}}>▣ LCARS Orange</option>
+          <option value="lcars-tng-blue" {{#if (eq theme "lcars-tng-blue")}}selected{{/if}}>▣ LCARS Blue-Grey</option>
+          <option value="tos-panel"      {{#if (eq theme "tos-panel")}}selected{{/if}}>▦ TOS Panel</option>
+          <option value="ent-panel"      {{#if (eq theme "ent-panel")}}selected{{/if}}>⬛ ENT Panel</option>
+          <option value="tmp-console"    {{#if (eq theme "tmp-console")}}selected{{/if}}>▤ TMP Console</option>
+          <option value="klingon"        {{#if (eq theme "klingon")}}selected{{/if}}>⚔ Klingon</option>
+          <option value="romulan"        {{#if (eq theme "romulan")}}selected{{/if}}>△ Romulan</option>
+        </select>
+
+        {{#if isENT}}
+        <span class="sta2e-manager__ent-note">Pre-stardate era — calendar only</span>
+        {{else}}
+        <div class="sta2e-manager__field-group">
+          <label class="sta2e-manager__field-label">Stardate</label>
+          <input
+            class="sta2e-manager__stardate-input"
+            type="number"
+            value="{{stardate}}"
+            step="0.1"
+            data-campaign-startdate="{{id}}"
+            title="Current stardate"
+          />
+        </div>
+        {{/if}}
+
+        {{#if isCustom}}
+        <div class="sta2e-manager__field-group">
+          <label class="sta2e-manager__field-label">Rate/day</label>
+          <input
+            class="sta2e-manager__rate-input"
+            type="number"
+            value="{{dailyRate}}"
+            step="0.1"
+            min="0.1"
+            data-campaign-rate="{{id}}"
+            title="Stardate units per in-game day"
+          />
+        </div>
+        {{else}}
+        <span class="sta2e-manager__era-hint">
+          {{#if (eq era "tos")}}~0.274/day{{/if}}
+          {{#if (eq era "tng")}}~2.74/day{{/if}}
+        </span>
+        {{/if}}
+
+      </div>{{!-- .sta2e-manager__sub-row --}}
+
+    </li>
+    {{/each}}
+  </ul>
+
+  <div class="sta2e-manager__footer">
+    <button type="button" class="sta2e-btn sta2e-btn--primary" data-action="addCampaign">＋ Add Campaign</button>
+  </div>
+
+</div>

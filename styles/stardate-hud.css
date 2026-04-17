@@ -1,0 +1,2685 @@
+/* ============================================================
+   sta2e-toolkit | stardate-hud.css
+   Four HUD themes — each era-accurate to its Star Trek period.
+   ============================================================ */
+
+/* ============================================================
+   HUD WRAPPER — fixed top-center, all themes
+   ============================================================ */
+
+#sta2e-hud-wrapper {
+  /* positioning handled by #sta2e-hud-container — wrapper is just a flow child */
+  white-space: nowrap;
+  pointer-events: all;
+  transform: translateY(0);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity   0.2s ease;
+  opacity: 1;
+}
+
+/* ============================================================
+   THEME 1: STARFLEET BLUE (modern default)
+   ============================================================ */
+
+.sta2e-theme-blue {
+  --hud-border:       rgba(99, 179, 237, 0.4);
+  --hud-bg:           rgba(8, 14, 24, 0.92);
+  --hud-glow:         rgba(0, 120, 200, 0.3);
+  --hud-text:         #a8d8f0;
+  --hud-text-dim:     #5a8aaa;
+  --hud-accent:       #7dd3fc;
+  --hud-sep:          #2a4a62;
+  --hud-btn-border:   rgba(99, 179, 237, 0.28);
+  --hud-btn-hover-bg: rgba(99, 179, 237, 0.18);
+  --hud-btn-color:    #7ab8d8;
+  --hud-select-color: #c8e8f8;
+}
+
+.sta2e-hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  pointer-events: all;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  font-family: "Roboto Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: var(--hud-text);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 14px var(--hud-glow);
+  user-select: none;
+}
+
+/* Selectively apply sta2e-hud default styles only to standard theme */
+.sta2e-tos.sta2e-hud,
+.sta2e-tmp.sta2e-hud,
+.sta2e-lcars.sta2e-hud {
+  background: none;
+  border: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  box-shadow: none;
+  padding: 0;
+  gap: 0;
+}
+
+.sta2e-hud__select {
+  background: transparent;
+  border: 1px solid var(--hud-btn-border);
+  border-radius: 4px;
+  color: var(--hud-select-color);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 4px;
+  cursor: pointer;
+  max-width: 140px;
+}
+
+.sta2e-hud__display {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.sta2e-hud__label    { font-size: 10px; color: var(--hud-text-dim); letter-spacing: 0.08em; }
+.sta2e-hud__stardate { font-size: 14px; font-weight: 700; color: var(--hud-accent); letter-spacing: 0.04em; }
+.sta2e-hud__sep      { color: var(--hud-sep); }
+.sta2e-hud__date     { color: var(--hud-text); font-size: 12px; }
+.sta2e-hud__time     { color: var(--hud-text); font-size: 12px; font-weight: 500; }
+.sta2e-hud__override { font-size: 11px; cursor: help; filter: drop-shadow(0 0 3px rgba(255,200,50,0.8)); }
+.sta2e-hud__empty-msg { color: var(--hud-text-dim); font-style: italic; }
+
+.sta2e-hud__btn {
+  background: transparent;
+  border: 1px solid var(--hud-btn-border);
+  border-radius: 4px;
+  color: var(--hud-btn-color);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.sta2e-hud__btn:hover { background: var(--hud-btn-hover-bg); color: var(--hud-select-color); }
+.sta2e-hud__btn--icon {
+  padding: 2px 5px; font-size: 13px;
+  border-color: transparent; color: var(--hud-text-dim);
+}
+.sta2e-hud__btn--icon:hover { color: var(--hud-text); border-color: var(--hud-btn-border); }
+
+/* ============================================================
+   THEME 2: LCARS TNG (2364+ — orange/tan/purple rounded panels)
+   ============================================================ */
+
+.sta2e-theme-lcars-tng {
+  --lcars-bg:          #000000;
+  --lcars-primary:     #ff9900;
+  --lcars-secondary:   #cc88ff;
+  --lcars-tertiary:    #ffcc66;
+  --lcars-text-dim:    #aa6600;
+  --lcars-display-bg:  #000814;
+  --lcars-display-txt: #ffcc88;
+  --lcars-stardate:    #ffffff;
+  --lcars-glow:        rgba(255,153,0,0.35);
+  --lcars-cap-r:       22px;
+  --lcars-h:           36px;
+  --lcars-font:        "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
+}
+
+
+/* ============================================================
+   THEME 2b: LCARS TNG BLUE-GREY (cool blue/slate variant)
+   Seen in some TNG episodes and DS9/VOY — cooler, more subdued palette.
+   ============================================================ */
+
+.sta2e-theme-lcars-tng-blue {
+  --lcars-bg:          #000508;
+  --lcars-primary:     #6699cc;   /* cool slate blue */
+  --lcars-secondary:   #99bbdd;   /* pale blue-grey */
+  --lcars-tertiary:    #aaccee;   /* light blue */
+  --lcars-text-dim:    #446688;
+  --lcars-display-bg:  #000810;
+  --lcars-display-txt: #99ccee;
+  --lcars-stardate:    #ddeeff;
+  --lcars-glow:        rgba(80,140,200,0.35);
+  --lcars-cap-r:       22px;
+  --lcars-h:           36px;
+  --lcars-font:        "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
+}
+
+.sta2e-lcars {
+  display: inline-flex;
+  align-items: stretch;
+  pointer-events: all;
+  height: var(--lcars-h);
+  user-select: none;
+  font-family: var(--lcars-font);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  filter: drop-shadow(0 3px 10px var(--lcars-glow));
+}
+
+/* Left rounded cap */
+.lcars__cap {
+  background: var(--lcars-primary);
+  width: 54px;
+  min-width: 54px;
+  /* Round left side only — right edge is a flat 90° cut into the bar */
+  border-radius: var(--lcars-cap-r) 0 0 var(--lcars-cap-r);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 3px;
+}
+
+.lcars__cap-label {
+  font-size: 7px;
+  color: var(--lcars-bg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.lcars__elbow {
+  width: 4px;
+  background: var(--lcars-secondary);
+  margin: 0;
+  align-self: stretch;
+  flex-shrink: 0;
+  border-radius: 1px;
+}
+
+.lcars__segment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--lcars-bg);
+  border-top: 2px solid var(--lcars-primary);
+  border-bottom: 2px solid var(--lcars-primary);
+  margin-right: 0;
+}
+
+.lcars__segment--campaign { padding: 0 6px; min-width: 120px; }
+
+.lcars__segment--display {
+  background: var(--lcars-display-bg);
+  border-top-color: var(--lcars-tertiary);
+  border-bottom-color: var(--lcars-tertiary);
+  padding: 0 12px;
+  gap: 8px;
+  flex: 1;
+  margin-right: 0;
+}
+
+.lcars__segment--controls {
+  border-top-color: var(--lcars-secondary);
+  border-bottom-color: var(--lcars-secondary);
+  gap: 3px; padding: 0 5px;
+}
+
+.lcars__segment--tools {
+  border-top-color: var(--lcars-secondary);
+  border-bottom-color: var(--lcars-secondary);
+  padding: 0 5px; gap: 3px;
+}
+
+.lcars__endcap {
+  width: 20px;
+  min-width: 20px;
+  background: var(--lcars-secondary);
+  border-radius: 0 var(--lcars-cap-r) var(--lcars-cap-r) 0;
+  /* No clip-path — clean rounded right cap */
+}
+
+.lcars__label    { font-size: 9px; color: var(--lcars-text-dim); letter-spacing: 0.1em; font-weight: 700; }
+.lcars__stardate { font-size: 15px; font-weight: 700; color: var(--lcars-stardate); letter-spacing: 0.05em; }
+.lcars__date     { font-size: 11px; color: var(--lcars-display-txt); letter-spacing: 0.04em; }
+.lcars__time     { font-size: 11px; color: var(--lcars-display-txt); font-weight: 700; letter-spacing: 0.06em; }
+.lcars__sep      { width: 1px; background: var(--lcars-text-dim); align-self: stretch; margin: 4px 0; opacity: 0.4; }
+.lcars__override { font-size: 11px; cursor: help; filter: drop-shadow(0 0 4px rgba(255,200,50,0.9)); }
+.lcars__empty    { color: var(--lcars-text-dim); font-size: 11px; letter-spacing: 0.1em; padding: 0 8px; }
+
+.lcars__select {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--lcars-text-dim);
+  color: var(--lcars-primary);
+  font-family: var(--lcars-font);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  padding: 0 2px;
+  max-width: 130px;
+  outline: none;
+}
+.lcars__select option { background: #111; color: var(--lcars-primary); }
+
+.lcars__btn {
+  background: var(--lcars-secondary);
+  border: none;
+  border-radius: 3px;
+  color: var(--lcars-bg);
+  font-family: var(--lcars-font);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: filter 0.12s;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.lcars__btn:hover  { filter: brightness(1.25); }
+.lcars__btn:active { filter: brightness(0.85); }
+.lcars__btn--icon {
+  background: transparent;
+  border: 1px solid var(--lcars-primary);
+  color: var(--lcars-primary);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.lcars__btn--icon:hover { background: rgba(255,153,0,0.15); }
+
+/* ============================================================
+   THEME 3: TOS PANEL (2260s — boxy physical-button aesthetic)
+   Dark grey metal frame, gold/amber primary, red & green accents.
+   Grid of square buttons like the actual Enterprise bridge panels.
+   ============================================================ */
+
+.sta2e-tos {
+  pointer-events: all;
+  user-select: none;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.8));
+}
+
+.tos__panel-frame {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: 38px;
+
+  background:    #2a2a2a;
+  border:        2px solid #1a1a1a;
+  border-top:    none;
+  border-bottom: 3px solid #111;
+  border-radius: 0 0 4px 4px;
+
+  /* Brushed metal look via gradient */
+  background-image: linear-gradient(
+    180deg,
+    #363636 0%,
+    #2a2a2a 40%,
+    #222222 100%
+  );
+
+  /* Inset bevel */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(0,0,0,0.5),
+    0 4px 16px rgba(0,0,0,0.7);
+
+  font-family: "Helvetica Neue", "Arial", sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Vertical metal strut divider between sections */
+.tos__strut {
+  width: 5px;
+  align-self: stretch;
+  background: linear-gradient(90deg, #1a1a1a 0%, #3a3a3a 50%, #1a1a1a 100%);
+  border-left:  1px solid #111;
+  border-right: 1px solid #444;
+  flex-shrink: 0;
+}
+
+/* Campaign selector block */
+.tos__block--campaign {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 8px;
+  min-width: 110px;
+  gap: 1px;
+}
+
+.tos__block-label {
+  font-size: 8px;
+  color: #888;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.tos__select {
+  background: #1a1a1a;
+  border: 1px solid #555;
+  border-radius: 2px;
+  color: #e8c860;           /* amber text on dark */
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 3px;
+  max-width: 120px;
+  outline: none;
+  cursor: pointer;
+}
+.tos__select option { background: #1a1a1a; color: #e8c860; }
+
+/* Grid of square buttons — the TOS signature */
+.tos__btn-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 4px 5px;
+  align-items: center;
+}
+
+/* Base TOS button — square, beveled, backlit look */
+.tos__btn {
+  border: none;
+  border-radius: 2px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 3px 6px;
+  min-width: 28px;
+  white-space: nowrap;
+  transition: filter 0.1s;
+
+  /* Raised bevel */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.35),
+    inset 0 -1px 0 rgba(0,0,0,0.5),
+    0 1px 3px rgba(0,0,0,0.6);
+}
+
+/* Amber/gold button */
+.tos__btn--amber {
+  background: linear-gradient(180deg, #e8c030 0%, #c8a010 60%, #aa8808 100%);
+  color: #1a1200;
+}
+
+/* Red button */
+.tos__btn--red {
+  background: linear-gradient(180deg, #e83020 0%, #c81808 60%, #a81000 100%);
+  color: #fff0ee;
+}
+
+/* Green button */
+.tos__btn--green {
+  background: linear-gradient(180deg, #40cc30 0%, #28aa18 60%, #188808 100%);
+  color: #001a00;
+}
+
+.tos__btn:hover  { filter: brightness(1.2); }
+.tos__btn:active { filter: brightness(0.8); box-shadow: inset 0 2px 3px rgba(0,0,0,0.6); }
+
+/* Main readout — green CRT phosphor text on black */
+.tos__display-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 10px;
+  gap: 1px;
+  background: #0a0a0a;
+  border-left:  2px solid #111;
+  border-right: 2px solid #111;
+  align-self: stretch;
+  min-width: 220px;
+}
+
+.tos__display-label {
+  font-size: 8px;
+  color: #558844;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+.tos__display-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Amber stardate — amber/gold on black, slightly glowing */
+.tos__stardate {
+  font-family: "Courier New", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: #e8c860;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 6px rgba(232,200,96,0.6);
+}
+
+.tos__readout {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: #88bb66;
+  letter-spacing: 0.03em;
+}
+
+.tos__readout-sep { color: #446633; font-size: 11px; }
+
+.tos__time {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: #88bb66;
+  font-weight: 600;
+}
+
+.tos__indicator {
+  font-size: 10px;
+  cursor: help;
+}
+.tos__indicator--yellow { color: #e8c860; filter: drop-shadow(0 0 3px rgba(232,200,96,0.8)); }
+
+.tos__empty {
+  color: #666;
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  padding: 0 10px;
+  letter-spacing: 0.08em;
+}
+
+/* ============================================================
+   THEME 4: TMP CONSOLE (2270s — sleek oval buttons, green mono display)
+   Near-black panels, blue-white oval touch buttons (Okudagram precursor),
+   green phosphor monochrome display areas.
+   ============================================================ */
+
+.sta2e-tmp {
+  pointer-events: all;
+  user-select: none;
+  filter: drop-shadow(0 4px 14px rgba(0,0,0,0.85));
+}
+
+.tmp__console-frame {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  gap: 0;
+
+  background: linear-gradient(180deg, #141820 0%, #0d1016 100%);
+  border: 1px solid #1e2838;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+
+  box-shadow:
+    inset 0 1px 0 rgba(100,150,255,0.08),
+    0 4px 16px rgba(0,0,0,0.8);
+
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Left ID stripe — thin vertical color band */
+.tmp__id-stripe {
+  width: 26px;
+  align-self: stretch;
+  background: linear-gradient(180deg, #3a6090 0%, #1e3a60 100%);
+  border-right: 1px solid #0a1828;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 3px;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(180,210,255,0.7);
+  writing-mode: horizontal-tb;
+  flex-shrink: 0;
+}
+
+/* Campaign oval block */
+.tmp__oval-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 8px;
+  min-width: 110px;
+  border-right: 1px solid #1e2838;
+  gap: 1px;
+}
+
+.tmp__oval-label {
+  font-size: 7px;
+  color: #3a5a80;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+.tmp__select {
+  background: #080d14;
+  border: 1px solid #2a3a50;
+  border-radius: 8px;   /* oval feel */
+  color: #7ab4e8;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 8px;
+  max-width: 120px;
+  outline: none;
+  cursor: pointer;
+}
+.tmp__select option { background: #080d14; color: #7ab4e8; }
+
+/* Row of oval buttons */
+.tmp__oval-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-right: 1px solid #1e2838;
+}
+
+/* TMP oval button — the defining TMP UI element */
+.tmp__btn {
+  background: linear-gradient(180deg, #2a4a78 0%, #1a3060 100%);
+  border: 1px solid #3a5a90;
+  border-radius: 10px;    /* oval pill */
+  color: #b8d8f8;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.1s;
+
+  box-shadow:
+    inset 0 1px 0 rgba(180,210,255,0.2),
+    inset 0 -1px 0 rgba(0,0,0,0.4),
+    0 1px 4px rgba(0,0,0,0.6);
+}
+
+.tmp__btn--alt {
+  background: linear-gradient(180deg, #1e4a38 0%, #102e22 100%);
+  border-color: #2a6a48;
+  color: #88ffcc;
+}
+
+.tmp__btn:hover  { filter: brightness(1.3); }
+.tmp__btn:active { filter: brightness(0.8); }
+
+/* Green monochrome display — phosphor CRT */
+.tmp__display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  align-self: stretch;
+  background: #020806;
+  border-left:  1px solid #0a1808;
+  border-right: 1px solid #0a1808;
+  min-width: 230px;
+  flex: 1;
+}
+
+.tmp__display-label {
+  font-size: 8px;
+  color: #2a6a40;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Bright green monochrome stardate */
+.tmp__stardate {
+  font-family: "Courier New", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: #44ee88;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(50,220,100,0.7), 0 0 2px rgba(50,220,100,0.4);
+}
+
+.tmp__date {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: #22aa55;
+  letter-spacing: 0.03em;
+}
+
+.tmp__time {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: #22aa55;
+  font-weight: 600;
+}
+
+.tmp__sep { color: #1a6035; font-size: 11px; }
+
+.tmp__indicator {
+  font-size: 12px;
+  color: #44ee88;
+  cursor: help;
+  filter: drop-shadow(0 0 4px rgba(50,220,100,0.8));
+}
+
+.tmp__empty {
+  color: #2a6a40;
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  padding: 0 10px;
+  letter-spacing: 0.08em;
+}
+
+/* ============================================================
+   SHARED DIALOG STYLES (all themes use same dialogs)
+   ============================================================ */
+
+.sta2e-btn {
+  background: rgba(10, 20, 35, 0.7);
+  border: 1px solid rgba(99, 179, 237, 0.3);
+  border-radius: 4px;
+  color: #7ab8d8;
+  font-family: "Roboto Mono", monospace;
+  font-size: 12px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sta2e-btn:hover { background: rgba(99,179,237,0.15); color: #c8e8f8; border-color: rgba(99,179,237,0.6); }
+
+.sta2e-btn--primary { background: rgba(50,120,200,0.25); border-color: rgba(99,179,237,0.5); color: #a8d8f0; }
+.sta2e-btn--primary:hover { background: rgba(50,120,200,0.45); color: #e0f4ff; }
+
+.era-tng    { background: rgba(50,120,200,0.3);  color: #7dd3fc; border: 1px solid rgba(50,120,200,0.5);  padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+.era-tos    { background: rgba(200,130,30,0.3);  color: #f6c57a; border: 1px solid rgba(200,130,30,0.5);  padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+.era-custom { background: rgba(100,180,100,0.3); color: #86efac; border: 1px solid rgba(100,180,100,0.5); padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+
+/* ============================================================
+   DATE EDITOR DIALOG
+   ============================================================ */
+
+.sta2e-editor {
+  padding: 10px 14px 14px;
+  font-family: "Roboto Mono", monospace;
+  font-size: 12px;
+  color: #cce;
+}
+
+.sta2e-editor__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(99, 179, 237, 0.2);
+}
+
+.sta2e-editor__campaign-name { font-size: 14px; font-weight: 700; color: #7dd3fc; }
+.sta2e-editor__era-badge     { font-size: 10px; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.08em; }
+
+.sta2e-editor__section { margin-bottom: 14px; }
+
+.sta2e-editor__section h4 {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #5a8aaa;
+  margin: 10px 0 6px;
+  text-transform: uppercase;
+}
+
+.sta2e-editor__grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.sta2e-editor__grid label { font-size: 11px; color: #7a9ab8; white-space: nowrap; text-align: right; }
+
+.sta2e-editor__grid input,
+.sta2e-editor__grid select {
+  background: rgba(10, 20, 35, 0.7);
+  border: 1px solid rgba(99, 179, 237, 0.35);
+  border-radius: 4px;
+  color: #c8e8f8;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 7px;
+  width: 100%;
+  min-width: 55px;
+  box-sizing: border-box;
+}
+.sta2e-editor__grid input:focus,
+.sta2e-editor__grid select:focus { outline: none; border-color: rgba(99,179,237,0.7); }
+
+.sta2e-editor__input--wide { grid-column: span 3; }
+.sta2e-editor__input--full { grid-column: span 3; }
+
+.sta2e-editor__preview {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: rgba(10, 20, 35, 0.5);
+  border: 1px solid rgba(99, 179, 237, 0.2);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #7ab8d8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sta2e-editor__preview strong { color: #7dd3fc; font-size: 15px; font-weight: 700; }
+
+.sta2e-editor__section--override { border-top: 1px solid rgba(99,179,237,0.15); padding-top: 10px; }
+.sta2e-editor__override-row      { margin-bottom: 6px; }
+
+.sta2e-editor__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #94c8e0;
+  cursor: pointer;
+}
+
+.sta2e-editor__footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid rgba(99,179,237,0.15);
+  margin-top: 4px;
+}
+
+/* ============================================================
+   CAMPAIGN MANAGER DIALOG
+   ============================================================ */
+
+.sta2e-manager { padding: 8px 14px 14px; font-family: "Roboto Mono", monospace; font-size: 12px; }
+
+.sta2e-manager__hint { font-size: 11px; color: #5a8aaa; margin: 0 0 10px; font-style: italic; }
+
+.sta2e-manager__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+
+.sta2e-manager__row {
+  display: grid;
+  grid-template-columns: 18px 1fr 24px;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 6px 8px;
+  background: rgba(10, 20, 35, 0.5);
+  border: 1px solid rgba(99, 179, 237, 0.15);
+  border-radius: 4px;
+}
+
+/* Name row spans full width between handle and delete btn */
+.sta2e-manager__name-input {
+  grid-column: 2 / 3;
+  grid-row: 1;
+}
+
+/* Sub-row: era + theme + stardate + rate/hint — all in one flex row */
+.sta2e-manager__sub-row {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sta2e-manager__row:hover    { background: rgba(10,20,35,0.75); }
+.sta2e-manager__row.dragging { opacity: 0.5; border-style: dashed; }
+
+.sta2e-manager__drag-handle { cursor: grab; color: #3a5a72; font-size: 14px; text-align: center; }
+.sta2e-manager__drag-handle:active { cursor: grabbing; }
+
+.sta2e-manager__name-input {
+  background: transparent;
+  border: 1px solid rgba(99,179,237,0.2);
+  border-radius: 3px;
+  color: #c8e8f8;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.sta2e-manager__name-input:focus { outline: none; border-color: rgba(99,179,237,0.6); }
+
+.sta2e-manager__era-select,
+.sta2e-manager__theme-select {
+  background: rgba(10,20,35,0.6);
+  border: 1px solid rgba(99,179,237,0.25);
+  border-radius: 3px;
+  color: #94c8e0;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sta2e-manager__field-group { display: flex; flex-direction: column; gap: 2px; }
+
+.sta2e-manager__field-label {
+  font-size: 9px;
+  color: #5a8aaa;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sta2e-manager__stardate-input,
+.sta2e-manager__rate-input {
+  background: rgba(10,20,35,0.6);
+  border: 1px solid rgba(99,179,237,0.2);
+  border-radius: 3px;
+  color: #7dd3fc;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 5px;
+  width: 80px;
+  box-sizing: border-box;
+}
+.sta2e-manager__stardate-input:focus,
+.sta2e-manager__rate-input:focus { outline: none; border-color: rgba(99,179,237,0.6); }
+
+.sta2e-manager__era-hint  { font-size: 10px; color: #3a5a72; white-space: nowrap; text-align: center; }
+
+.sta2e-manager__delete-btn {
+  background: transparent;
+  border: none;
+  color: #5a4040;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+  text-align: center;
+  transition: color 0.15s;
+}
+.sta2e-manager__delete-btn:hover { color: #e05050; }
+
+.sta2e-manager__footer { margin-top: 12px; display: flex; justify-content: flex-end; }
+
+/* ============================================================
+   WARP TRAVEL CHAT CARD
+   ============================================================ */
+
+.sta2e-warp-card {
+  font-family: "Roboto Mono", monospace;
+  font-size: 12px;
+  background: rgba(8,15,28,0.85);
+  border: 1px solid rgba(99,179,237,0.3);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #a8d8f0;
+}
+.sta2e-warp-card h3 { margin: 0 0 8px; font-size: 13px; color: #7dd3fc; border-bottom: 1px solid rgba(99,179,237,0.2); padding-bottom: 6px; }
+.sta2e-warp-card table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+.sta2e-warp-card td { padding: 2px 4px; vertical-align: top; }
+.sta2e-warp-card td:first-child { color: #5a8aaa; white-space: nowrap; padding-right: 10px; }
+.sta2e-warp-card hr { border: none; border-top: 1px solid rgba(99,179,237,0.2); margin: 6px 0; }
+
+/* ============================================================
+   THEME 5: ENT PANEL (2150s — dark gunmetal, industrial early Starfleet)
+   NX-01 aesthetic: charcoal/dark grey panels, amber readouts on dark
+   displays, rounded-rect touchscreen bezels, utilitarian feel.
+   No stardates — Earth calendar date and time only.
+   ============================================================ */
+
+.sta2e-ent {
+  pointer-events: all;
+  user-select: none;
+  filter: drop-shadow(0 4px 14px rgba(0,0,0,0.9));
+}
+
+.ent__frame {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  gap: 0;
+
+  /* Dark gunmetal — layered gradient for depth */
+  background: linear-gradient(180deg, #2c2c2e 0%, #1e1e20 50%, #161618 100%);
+  border: 1px solid #111;
+  border-top: none;
+  border-bottom: 3px solid #0a0a0a;
+  border-radius: 0 0 5px 5px;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    inset 0 -1px 0 rgba(0,0,0,0.6),
+    0 4px 18px rgba(0,0,0,0.85);
+
+  font-family: "Helvetica Neue", "Arial", sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+/* UESPA/early Starfleet ID block — gunmetal darker inset */
+.ent__id-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 0 10px;
+  align-self: stretch;
+  background: linear-gradient(180deg, #1a1a1c 0%, #111113 100%);
+  border-right: 2px solid #0a0a0a;
+  min-width: 52px;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.ent__id-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #cc8833;         /* warm amber — early Starfleet color */
+  letter-spacing: 0.1em;
+}
+
+.ent__id-sub {
+  font-size: 7px;
+  color: #555;
+  letter-spacing: 0.08em;
+}
+
+/* Vertical strut — raised edge between sections */
+.ent__strut {
+  width: 4px;
+  align-self: stretch;
+  background: linear-gradient(90deg, #111 0%, #2a2a2a 50%, #111 100%);
+  border-left:  1px solid #0a0a0a;
+  border-right: 1px solid #333;
+  flex-shrink: 0;
+}
+
+/* Field label + control block */
+.ent__field-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 8px;
+  gap: 1px;
+  min-width: 100px;
+}
+
+.ent__field-label {
+  font-size: 7px;
+  color: #555;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.ent__select {
+  background: #111;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #cc8833;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
+  max-width: 120px;
+  outline: none;
+  cursor: pointer;
+}
+.ent__select option { background: #111; color: #cc8833; }
+
+/* Button row */
+.ent__btn-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+}
+
+/* ENT button — rounded rect, the early touchscreen look */
+.ent__btn {
+  background: linear-gradient(180deg, #3a3a3e 0%, #252528 100%);
+  border: 1px solid #4a4a4e;
+  border-radius: 4px;
+  color: #cc8833;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.1s, background 0.1s;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.1),
+    inset 0 -1px 0 rgba(0,0,0,0.5),
+    0 1px 3px rgba(0,0,0,0.6);
+}
+
+.ent__btn--dim {
+  color: #886622;
+  border-color: #333;
+}
+
+.ent__btn:hover  { filter: brightness(1.3); background: linear-gradient(180deg, #4a4a50 0%, #303035 100%); }
+.ent__btn:active { filter: brightness(0.8); box-shadow: inset 0 2px 3px rgba(0,0,0,0.7); }
+
+/* Main date/time display — thick-bezelled touchscreen readout */
+.ent__display {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 12px;
+  align-self: stretch;
+  background: #0c0c0e;
+  border: 2px solid #222;
+  border-top: none;
+  border-bottom: none;
+  min-width: 200px;
+  flex: 1;
+  gap: 1px;
+}
+
+.ent__display-label {
+  font-size: 7px;
+  color: #443322;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+}
+
+.ent__display-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Amber readout — NX-01 display color */
+.ent__date {
+  font-family: "Courier New", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: #dd9944;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(200,140,40,0.5);
+}
+
+.ent__time {
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  color: #aa6622;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.ent__sep { color: #443322; font-size: 12px; }
+
+.ent__indicator {
+  font-size: 11px;
+  color: #dd9944;
+  cursor: help;
+  filter: drop-shadow(0 0 3px rgba(200,140,40,0.8));
+}
+
+.ent__empty {
+  color: #443322;
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  padding: 0 10px;
+  letter-spacing: 0.08em;
+}
+
+/* ── Era badge for ENT in dialogs ─────────────────────────────────────── */
+.era-ent {
+  background: rgba(160, 90, 20, 0.3);
+  color: #cc8833;
+  border: 1px solid rgba(160, 90, 20, 0.5);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+/* ── Campaign manager ENT note ────────────────────────────────────────── */
+.sta2e-manager__ent-note {
+  font-size: 10px;
+  color: #cc8833;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  padding: 2px 4px;
+  opacity: 0.8;
+}
+
+/* ── Date editor ENT note ─────────────────────────────────────────────── */
+.sta2e-editor__ent-note {
+  font-size: 11px;
+  color: #cc8833;
+  background: rgba(160, 90, 20, 0.12);
+  border: 1px solid rgba(160, 90, 20, 0.3);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  letter-spacing: 0.03em;
+}
+
+/* ============================================================
+   PLAYER READ-ONLY HUD
+   Clean display bar — no buttons, no dropdowns.
+   Inherits color palette from active campaign theme.
+   ============================================================ */
+
+.sta2e-player-hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  pointer-events: none;   /* fully passive — players can't click anything */
+
+  border: 1px solid var(--player-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: var(--player-bg);
+  box-shadow: 0 2px 14px var(--player-glow);
+  backdrop-filter: blur(4px);
+
+  font-family: var(--player-font, "Roboto Mono", "Courier New", monospace);
+  font-size: 12px;
+  user-select: none;
+}
+
+/* ── Player element styles ───────────────────────────────── */
+
+.sta2e-player__ship {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--player-ship);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sta2e-player__label {
+  font-size: 9px;
+  color: var(--player-dim);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
+.sta2e-player__stardate {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--player-accent);
+  letter-spacing: 0.04em;
+}
+
+.sta2e-player__date {
+  font-size: 12px;
+  color: var(--player-text);
+  letter-spacing: 0.02em;
+}
+
+.sta2e-player__time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--player-text);
+  letter-spacing: 0.04em;
+}
+
+.sta2e-player__sep {
+  color: var(--player-sep);
+  font-size: 11px;
+}
+
+.sta2e-player__override {
+  font-size: 10px;
+  filter: drop-shadow(0 0 3px rgba(255,200,50,0.8));
+}
+
+/* ── Theme variable mappings ─────────────────────────────── */
+
+/* Starfleet Blue */
+.sta2e-player-theme-blue {
+  --player-border:  rgba(99, 179, 237, 0.4);
+  --player-bg:      rgba(8, 14, 24, 0.92);
+  --player-glow:    rgba(0, 120, 200, 0.3);
+  --player-ship:    #94c8e8;
+  --player-dim:     #5a8aaa;
+  --player-accent:  #7dd3fc;
+  --player-text:    #a8d8f0;
+  --player-sep:     #2a4a62;
+}
+
+/* LCARS TNG Orange */
+.sta2e-player-theme-lcars-tng {
+  --player-border:  rgba(255, 153, 0, 0.45);
+  --player-bg:      rgba(0, 0, 0, 0.92);
+  --player-glow:    rgba(255, 153, 0, 0.3);
+  --player-ship:    #ffcc66;
+  --player-dim:     #aa6600;
+  --player-accent:  #ffffff;
+  --player-text:    #ffcc88;
+  --player-sep:     #553300;
+  --player-font:    "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
+}
+
+/* LCARS TNG Blue-Grey */
+.sta2e-player-theme-lcars-tng-blue {
+  --player-border:  rgba(102, 153, 204, 0.45);
+  --player-bg:      rgba(0, 5, 8, 0.92);
+  --player-glow:    rgba(80, 140, 200, 0.3);
+  --player-ship:    #aaccee;
+  --player-dim:     #446688;
+  --player-accent:  #ddeeff;
+  --player-text:    #99ccee;
+  --player-sep:     #223344;
+  --player-font:    "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
+}
+
+/* TOS Panel */
+.sta2e-player-theme-tos-panel {
+  --player-border:  rgba(60, 60, 60, 0.9);
+  --player-bg:      rgba(22, 22, 22, 0.95);
+  --player-glow:    rgba(0, 0, 0, 0.6);
+  --player-ship:    #e8c860;
+  --player-dim:     #558844;
+  --player-accent:  #e8c860;
+  --player-text:    #88bb66;
+  --player-sep:     #446633;
+  --player-font:    "Courier New", monospace;
+}
+
+/* TMP Console */
+.sta2e-player-theme-tmp-console {
+  --player-border:  rgba(30, 40, 56, 0.9);
+  --player-bg:      rgba(8, 12, 18, 0.95);
+  --player-glow:    rgba(50, 180, 100, 0.2);
+  --player-ship:    #66ddaa;
+  --player-dim:     #2a6a40;
+  --player-accent:  #44ee88;
+  --player-text:    #22aa55;
+  --player-sep:     #1a6035;
+  --player-font:    "Courier New", monospace;
+}
+
+/* ENT Panel */
+.sta2e-player-theme-ent-panel {
+  --player-border:  rgba(50, 50, 50, 0.9);
+  --player-bg:      rgba(18, 18, 20, 0.95);
+  --player-glow:    rgba(0, 0, 0, 0.7);
+  --player-ship:    #cc8833;
+  --player-dim:     #443322;
+  --player-accent:  #dd9944;
+  --player-text:    #aa6622;
+  --player-sep:     #332211;
+  --player-font:    "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ============================================================
+   PLAYER THEME-MATCHED STATIC ELEMENTS
+   Ship name spans and read-only labels for each theme's
+   player builder — no interactive states needed.
+   ============================================================ */
+
+/* LCARS — ship name replaces the campaign dropdown */
+.lcars__ship-name {
+  font-family: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--lcars-text, #fff);
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+/* TOS — ship name in the vessel block */
+.tos__ship-name {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #e8c860;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* TMP — ship name in the oval block */
+.tmp__ship-name {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #44ee88;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 0 6px rgba(50, 220, 100, 0.5);
+}
+
+/* ENT — ship name in the field block */
+.ent__ship-name {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cc8833;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   HUD CONTAINER + SHOW/HIDE TAB
+   The container sits fixed at top-center and holds both the
+   persistent tab and the collapsible bar wrapper.
+   ============================================================ */
+
+#sta2e-hud-container {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;   /* container itself is pass-through */
+}
+
+/* Collapsed: slide the wrapper fully out of view upward */
+#sta2e-hud-container.sta2e-hud--collapsed #sta2e-hud-wrapper {
+  transform: translateY(-110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Show/hide tab ────────────────────────────────────────── */
+
+#sta2e-hud-tab {
+  pointer-events: all;
+  position: relative;
+  z-index: 1;             /* sits above the sliding wrapper */
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 10px;
+  padding: 0;
+  cursor: pointer;
+  border: none;
+  outline: none;
+
+  /* Subtle recessed tab shape — visible against any scene */
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 0 0 6px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-left:   1px solid rgba(255,255,255,0.05);
+  border-right:  1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+
+  color: rgba(255,255,255,0.35);
+  font-size: 6px;
+  line-height: 1;
+  letter-spacing: 0;
+
+  transition: height 0.15s ease,
+              color  0.15s ease,
+              background 0.15s ease;
+}
+
+#sta2e-hud-tab:hover {
+  height: 14px;
+  color: rgba(255,255,255,0.75);
+  background: rgba(0,0,0,0.75);
+}
+
+/* When collapsed the tab is the only thing showing — make it
+   slightly taller so it's findable */
+#sta2e-hud-container.sta2e-hud--collapsed #sta2e-hud-tab {
+  height: 14px;
+  color: rgba(255,255,255,0.5);
+  background: rgba(0,0,0,0.65);
+  border-radius: 0 0 8px 8px;
+}
+
+#sta2e-hud-container.sta2e-hud--collapsed #sta2e-hud-tab:hover {
+  height: 18px;
+  color: rgba(255,255,255,0.9);
+  background: rgba(0,0,0,0.85);
+}
+
+/* ── Pin button active states ─────────────────────────────── */
+
+/* Standard / Blue — pin lit up when active */
+.sta2e-hud__btn--pin-active {
+  color: #f6ad55 !important;
+  border-color: rgba(246, 173, 85, 0.5) !important;
+  background: rgba(246, 173, 85, 0.12) !important;
+  text-shadow: 0 0 6px rgba(246, 173, 85, 0.6);
+}
+
+/* LCARS — pin lit in orange when active */
+.lcars__btn--pin-active {
+  background: var(--lcars-orange, #ff9900) !important;
+  color: #000 !important;
+}
+
+/* TMP — pin in green (matches display) when active */
+.tmp__btn--pin-active {
+  color: #44ee88 !important;
+  border-color: rgba(68, 238, 136, 0.6) !important;
+  box-shadow: 0 0 8px rgba(68, 238, 136, 0.3),
+              inset 0 0 4px rgba(68, 238, 136, 0.15) !important;
+}
+
+
+
+
+/* ============================================================
+   CONDITION ALERT WIDGET
+   Fixed at top ~70% from left. Mirrors HUD tab/collapse style.
+
+   Structure (top → bottom):
+     #sta2e-alert-container
+       #sta2e-alert-tab          — show/hide chevron
+       #sta2e-alert-widget       — slides away on collapse
+         .sta2e-alert__body      — two bars + centred text
+           .sta2e-alert__bar-block  (left)
+           .sta2e-alert__text-block — ALERT / Condition X
+           .sta2e-alert__bar-block  (right)
+         .sta2e-alert__toggles   — small square buttons
+   ============================================================ */
+
+/* ── Outer container ── */
+#sta2e-alert-container {
+  position: fixed;
+  top: 0;
+  left: 70%;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  width: 174px;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.85));
+}
+
+/* ── Tab — always visible ── */
+#sta2e-alert-tab {
+  pointer-events: all;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 10px;
+  padding: 0;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: rgba(0,0,0,0.55);
+  border-radius: 0 0 6px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-left:   1px solid rgba(255,255,255,0.05);
+  border-right:  1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  color: rgba(255,255,255,0.35);
+  font-size: 6px;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  transition: height 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+#sta2e-alert-tab:hover {
+  height: 14px;
+  color: rgba(255,255,255,0.75);
+  background: rgba(0,0,0,0.75);
+}
+
+/* Collapsed tab */
+#sta2e-alert-container.sta2e-alert--collapsed #sta2e-alert-tab {
+  height: 14px;
+  color: rgba(255,255,255,0.5);
+  background: rgba(0,0,0,0.65);
+  border-radius: 0 0 8px 8px;
+}
+#sta2e-alert-container.sta2e-alert--collapsed #sta2e-alert-tab:hover {
+  height: 18px;
+  color: rgba(255,255,255,0.9);
+  background: rgba(0,0,0,0.85);
+}
+
+/* ── Widget — slides away when collapsed ── */
+#sta2e-alert-widget {
+  pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 174px;
+  background: rgba(6,8,14,0.94);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 4px 16px rgba(0,0,0,0.8);
+  overflow: hidden;
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease;
+}
+
+#sta2e-alert-container.sta2e-alert--collapsed #sta2e-alert-widget {
+  transform: translateY(-110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Alert body: two bars flanking centred text ── */
+.sta2e-alert__body {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+  padding: 6px 6px 4px;
+}
+
+/* Solid colour bars — equal flex on each side */
+.sta2e-alert__bar-block {
+  flex: none;
+  width: 12px;
+  border-radius: 2px;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Centred text block */
+.sta2e-alert__text-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 108px;
+  min-width: 108px;
+  max-width: 108px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* ── ALERT heading ── */
+.sta2e-alert__heading {
+  font-family: "Antonio", "Trebuchet MS", sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  line-height: 1;
+  text-align: center;
+}
+
+/* ── Condition subline ── */
+.sta2e-alert__subline {
+  font-family: "Antonio", "Trebuchet MS", sans-serif;
+  font-size: 8.5px;
+  font-weight: 400;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1;
+  margin-top: 3px;
+}
+
+/* ── Toggle row — all 4 always shown, active is dimmed ── */
+.sta2e-alert__toggles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px 6px 6px;
+}
+
+.sta2e-alert__toggle {
+  flex: 1;
+  height: 22px;
+  min-width: 30px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: filter 0.12s, border-color 0.12s, box-shadow 0.12s, opacity 0.12s;
+  flex-shrink: 0;
+}
+.sta2e-alert__toggle:disabled { cursor: default; }
+
+/* Label inside each toggle */
+.sta2e-alert__toggle-label {
+  font-family: "Antonio", "Trebuchet MS", sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Dim resting state */
+.sta2e-alert__toggle--green  { background: #0d2218; border-color: #1a3d25; }
+.sta2e-alert__toggle--blue   { background: #08152a; border-color: #0d2040; }
+.sta2e-alert__toggle--yellow { background: #1e1800; border-color: #2e2400; }
+.sta2e-alert__toggle--red    { background: #1e0806; border-color: #2e100e; }
+
+.sta2e-alert__toggle--green  .sta2e-alert__toggle-label { color: #2a6640; }
+.sta2e-alert__toggle--blue   .sta2e-alert__toggle-label { color: #1a4488; }
+.sta2e-alert__toggle--yellow .sta2e-alert__toggle-label { color: #554400; }
+.sta2e-alert__toggle--red    .sta2e-alert__toggle-label { color: #661a16; }
+
+/* Active (current condition) — visibly suppressed */
+.sta2e-alert__toggle--active {
+  opacity: 0.35;
+}
+
+/* GM hover on inactive toggles */
+.sta2e-alert__toggle--green:not(:disabled):not(.sta2e-alert__toggle--active):hover {
+  background: #1e4d30; border-color: #44cc66;
+  box-shadow: 0 0 6px rgba(60,200,80,0.6);
+}
+.sta2e-alert__toggle--green:not(:disabled):not(.sta2e-alert__toggle--active):hover .sta2e-alert__toggle-label { color: #44cc66; }
+
+.sta2e-alert__toggle--blue:not(:disabled):not(.sta2e-alert__toggle--active):hover {
+  background: #0e2a55; border-color: #4499ff;
+  box-shadow: 0 0 6px rgba(60,140,255,0.6);
+}
+.sta2e-alert__toggle--blue:not(:disabled):not(.sta2e-alert__toggle--active):hover .sta2e-alert__toggle-label { color: #4499ff; }
+
+.sta2e-alert__toggle--yellow:not(:disabled):not(.sta2e-alert__toggle--active):hover {
+  background: #3d3000; border-color: #ffcc00;
+  box-shadow: 0 0 6px rgba(255,200,0,0.6);
+}
+.sta2e-alert__toggle--yellow:not(:disabled):not(.sta2e-alert__toggle--active):hover .sta2e-alert__toggle-label { color: #ffcc00; }
+
+.sta2e-alert__toggle--red:not(:disabled):not(.sta2e-alert__toggle--active):hover {
+  background: #3d1210; border-color: #ff3322;
+  box-shadow: 0 0 6px rgba(255,40,20,0.6);
+}
+.sta2e-alert__toggle--red:not(:disabled):not(.sta2e-alert__toggle--active):hover .sta2e-alert__toggle-label { color: #ff3322; }
+
+/* ============================================================
+   PER-CONDITION COLOURS — bars, text, animations
+   Green: static. Blue/Yellow/Red: flash.
+   ============================================================ */
+
+/* GREEN — static, no flash */
+.sta2e-alert__bar-block--green {
+  background: #116622;
+  box-shadow: 0 0 6px rgba(30,160,60,0.5);
+}
+.sta2e-alert__heading--green,
+.sta2e-alert__subline--green  { color: #44cc66; }
+
+/* BLUE — steady pulse */
+.sta2e-alert__bar-block--blue {
+  background: #1155cc;
+  box-shadow: 0 0 8px rgba(40,100,220,0.6);
+  animation: sta2e-bar-blue-pulse 1.8s ease-in-out infinite;
+}
+.sta2e-alert__heading--blue,
+.sta2e-alert__subline--blue {
+  color: #4499ff;
+  animation: sta2e-text-pulse 1.8s ease-in-out infinite;
+}
+
+/* YELLOW — medium pulse */
+.sta2e-alert__bar-block--yellow {
+  background: #cc9900;
+  box-shadow: 0 0 8px rgba(200,150,0,0.6);
+  animation: sta2e-bar-yellow-pulse 1.4s ease-in-out infinite;
+}
+.sta2e-alert__heading--yellow,
+.sta2e-alert__subline--yellow {
+  color: #ffcc00;
+  animation: sta2e-text-pulse 1.4s ease-in-out infinite;
+}
+
+/* RED — fast pulse */
+.sta2e-alert__bar-block--red {
+  background: #cc2200;
+  box-shadow: 0 0 10px rgba(200,30,0,0.8);
+  animation: sta2e-bar-red-pulse 1.1s ease-in-out infinite;
+}
+.sta2e-alert__heading--red,
+.sta2e-alert__subline--red {
+  color: #ff4433;
+  animation: sta2e-text-pulse 1.1s ease-in-out infinite;
+}
+
+/* ── Keyframes ── */
+@keyframes sta2e-text-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+@keyframes sta2e-bar-blue-pulse {
+  0%, 100% { background: #1155cc; box-shadow: 0 0 8px rgba(40,100,220,0.6); }
+  50%       { background: #3377ff; box-shadow: 0 0 14px rgba(60,140,255,0.9); }
+}
+
+@keyframes sta2e-bar-yellow-pulse {
+  0%, 100% { background: #cc9900; box-shadow: 0 0 8px rgba(200,150,0,0.6); }
+  50%       { background: #ffcc00; box-shadow: 0 0 16px rgba(255,210,0,1.0); }
+}
+
+@keyframes sta2e-bar-red-pulse {
+  0%, 100% { background: #cc2200; box-shadow: 0 0 10px rgba(200,30,0,0.8); }
+  50%       { background: #ff3311; box-shadow: 0 0 18px rgba(255,50,10,1.0); }
+}
+
+/* ============================================================
+   ALERT CONDITION PULSE BAR
+   Thin line just below the Stardate HUD. Absent on green.
+   Blue: steady. Yellow: slow pulse. Red: fast pulse.
+   ============================================================ */
+
+#sta2e-hud-container::after {
+  content: "";
+  display: block;
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 0 0 2px 2px;
+  background: transparent;
+  box-shadow: none;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+  pointer-events: none;
+}
+
+#sta2e-hud-container.sta2e-alert-bar--blue::after {
+  background: #2277dd;
+  box-shadow: 0 0 8px 2px rgba(40,110,220,0.8), 0 0 18px 4px rgba(40,110,220,0.35);
+}
+
+#sta2e-hud-container.sta2e-alert-bar--yellow::after {
+  background: #ccaa00;
+  box-shadow: 0 0 8px 2px rgba(200,160,0,0.8), 0 0 18px 4px rgba(200,160,0,0.35);
+  animation: sta2e-yellowbar-pulse 1.4s ease-in-out infinite;
+}
+
+#sta2e-hud-container.sta2e-alert-bar--red::after {
+  background: #ff2200;
+  box-shadow: 0 0 10px 2px rgba(255,30,0,0.9), 0 0 22px 5px rgba(255,30,0,0.45);
+  animation: sta2e-redbar-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes sta2e-yellowbar-pulse {
+  0%, 100% { background: #ccaa00; box-shadow: 0 0 8px 2px rgba(200,160,0,0.8), 0 0 18px 4px rgba(200,160,0,0.35); }
+  50%       { background: #ffcc00; box-shadow: 0 0 14px 4px rgba(255,210,0,1.0), 0 0 28px 8px rgba(255,210,0,0.5); }
+}
+
+@keyframes sta2e-redbar-pulse {
+  0%, 100% { background: #ff2200; box-shadow: 0 0 10px 2px rgba(255,30,0,0.9), 0 0 22px 5px rgba(255,30,0,0.45); }
+  50%       { background: #ff5533; box-shadow: 0 0 16px 5px rgba(255,60,20,1.0), 0 0 32px 10px rgba(255,30,0,0.6); }
+}
+
+/* ============================================================
+   ALERT WIDGET — PER-THEME OVERRIDES
+   Scoped to #sta2e-alert-container[data-theme="X"]
+   Overrides: widget frame, tab, bar blocks, text colours,
+   toggle resting/hover states.
+   Condition pulse colours (green/blue/yellow/red) are
+   preserved — only the chrome/shell changes.
+   ============================================================ */
+
+/* ── THEME: blue (default Starfleet) ── */
+#sta2e-alert-container[data-theme="blue"] #sta2e-alert-widget {
+  background: rgba(8, 14, 24, 0.93);
+  border-color: rgba(99, 179, 237, 0.35);
+  box-shadow: inset 0 1px 0 rgba(99,179,237,0.06), 0 4px 16px rgba(0,80,160,0.5);
+}
+#sta2e-alert-container[data-theme="blue"] #sta2e-alert-tab {
+  background: rgba(8, 14, 24, 0.75);
+  border-color: rgba(99,179,237,0.25);
+  color: rgba(100,180,240,0.5);
+}
+#sta2e-alert-container[data-theme="blue"] #sta2e-alert-tab:hover {
+  background: rgba(8,14,24,0.92);
+  color: rgba(100,180,240,0.9);
+}
+
+/* ── THEME: lcars-tng (orange LCARS) ── */
+#sta2e-alert-container[data-theme="lcars-tng"] #sta2e-alert-widget {
+  background: #000000;
+  border-color: #cc7700;
+  border-left-width: 4px;
+  border-right-width: 4px;
+  box-shadow: 0 4px 16px rgba(255,153,0,0.25);
+}
+#sta2e-alert-container[data-theme="lcars-tng"] #sta2e-alert-tab {
+  background: #ff9900;
+  border-color: #ff9900;
+  color: #000;
+  font-weight: 700;
+}
+#sta2e-alert-container[data-theme="lcars-tng"] #sta2e-alert-tab:hover {
+  background: #ffaa22;
+  color: #000;
+}
+#sta2e-alert-container[data-theme="lcars-tng"] .sta2e-alert__toggle {
+  border-radius: 4px;
+}
+#sta2e-alert-container[data-theme="lcars-tng"] .sta2e-alert__toggle-label {
+  font-family: "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
+  letter-spacing: 0.1em;
+}
+
+/* ── THEME: lcars-tng-blue (cool blue LCARS) ── */
+#sta2e-alert-container[data-theme="lcars-tng-blue"] #sta2e-alert-widget {
+  background: #000508;
+  border-color: #4477aa;
+  border-left-width: 4px;
+  border-right-width: 4px;
+  box-shadow: 0 4px 16px rgba(80,140,200,0.25);
+}
+#sta2e-alert-container[data-theme="lcars-tng-blue"] #sta2e-alert-tab {
+  background: #6699cc;
+  border-color: #6699cc;
+  color: #000;
+  font-weight: 700;
+}
+#sta2e-alert-container[data-theme="lcars-tng-blue"] #sta2e-alert-tab:hover {
+  background: #88bbee;
+  color: #000;
+}
+#sta2e-alert-container[data-theme="lcars-tng-blue"] .sta2e-alert__toggle {
+  border-radius: 4px;
+}
+#sta2e-alert-container[data-theme="lcars-tng-blue"] .sta2e-alert__toggle-label {
+  font-family: "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
+  letter-spacing: 0.1em;
+}
+
+/* ── THEME: tos-panel ── */
+#sta2e-alert-container[data-theme="tos-panel"] #sta2e-alert-widget {
+  background: linear-gradient(180deg, #363636 0%, #2a2a2a 40%, #222222 100%);
+  border: 2px solid #1a1a1a;
+  border-top: none;
+  border-bottom: 3px solid #111;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.7);
+}
+#sta2e-alert-container[data-theme="tos-panel"] #sta2e-alert-tab {
+  background: #2a2a2a;
+  border-color: #444;
+  color: rgba(200,200,200,0.5);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#sta2e-alert-container[data-theme="tos-panel"] #sta2e-alert-tab:hover {
+  background: #3a3a3a;
+  color: rgba(220,220,220,0.9);
+}
+#sta2e-alert-container[data-theme="tos-panel"] .sta2e-alert__heading,
+#sta2e-alert-container[data-theme="tos-panel"] .sta2e-alert__subline {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#sta2e-alert-container[data-theme="tos-panel"] .sta2e-alert__toggle {
+  border-radius: 1px;
+}
+#sta2e-alert-container[data-theme="tos-panel"] .sta2e-alert__toggle-label {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 7.5px;
+}
+/* TOS strut-style divider on bars */
+#sta2e-alert-container[data-theme="tos-panel"] .sta2e-alert__bar-block {
+  border-left:  1px solid #111;
+  border-right: 1px solid #444;
+}
+
+/* ── THEME: tmp-console ── */
+#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-widget {
+  background: linear-gradient(180deg, #141820 0%, #0d1016 100%);
+  border: 1px solid #1e2838;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  box-shadow: inset 0 1px 0 rgba(100,150,255,0.08), 0 4px 16px rgba(0,0,0,0.8);
+}
+#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-tab {
+  background: linear-gradient(180deg, #3a6090 0%, #1e3a60 100%);
+  border-color: #1e3a60;
+  color: rgba(180,210,255,0.8);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-tab:hover {
+  background: linear-gradient(180deg, #4a70a0 0%, #2e4a70 100%);
+  color: rgba(200,225,255,1.0);
+}
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__heading,
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__subline {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__toggle {
+  border-radius: 8px;  /* TMP oval buttons */
+}
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__toggle-label {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 7.5px;
+}
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__bar-block {
+  border-right: 1px solid #1e2838;
+}
+
+/* ── THEME: ent-panel ── */
+#sta2e-alert-container[data-theme="ent-panel"] #sta2e-alert-widget {
+  background: linear-gradient(180deg, #2c2c2e 0%, #1e1e20 50%, #161618 100%);
+  border: 1px solid #111;
+  border-top: none;
+  border-bottom: 3px solid #0a0a0a;
+  border-radius: 0 0 5px 5px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.6), 0 4px 18px rgba(0,0,0,0.85);
+}
+#sta2e-alert-container[data-theme="ent-panel"] #sta2e-alert-tab {
+  background: linear-gradient(180deg, #1a1a1c 0%, #111113 100%);
+  border-color: #0a0a0a;
+  color: rgba(180,130,50,0.7);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#sta2e-alert-container[data-theme="ent-panel"] #sta2e-alert-tab:hover {
+  background: linear-gradient(180deg, #252528 0%, #1a1a1c 100%);
+  color: rgba(210,160,70,0.95);
+}
+#sta2e-alert-container[data-theme="ent-panel"] .sta2e-alert__heading,
+#sta2e-alert-container[data-theme="ent-panel"] .sta2e-alert__subline {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#sta2e-alert-container[data-theme="ent-panel"] .sta2e-alert__toggle {
+  border-radius: 3px;
+}
+#sta2e-alert-container[data-theme="ent-panel"] .sta2e-alert__toggle-label {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 7.5px;
+  letter-spacing: 0.06em;
+}
+#sta2e-alert-container[data-theme="ent-panel"] .sta2e-alert__bar-block {
+  border-left:  1px solid #0a0a0a;
+  border-right: 1px solid #3a3a3e;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   KLINGON PANEL — angular struts, crimson/black, aggressive typography
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.sta2e-kling.sta2e-hud {
+  background: #0a0000;
+  border-bottom: 2px solid #881100;
+  box-shadow: 0 2px 12px rgba(180,0,0,0.4);
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  gap: 0;
+  overflow: visible;
+  font-family: 'Arial Narrow', 'Roboto Condensed', sans-serif;
+}
+
+/* Angled strut bookends */
+.kling__strut {
+  background: #cc1111;
+  min-width: 10px;
+  clip-path: polygon(0 0, 100% 0, 80% 100%, 0 100%);
+  display: flex;
+  align-items: center;
+  padding: 0 14px 0 6px;
+}
+.kling__strut--label {
+  min-width: 90px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #fff;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, 85% 100%, 0 100%);
+}
+.kling__strut--end {
+  min-width: 18px;
+  clip-path: polygon(20% 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.kling__slash {
+  color: #881100;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.kling__campaign-block {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  background: #120000;
+  border-left: 2px solid #441100;
+  border-right: 2px solid #441100;
+}
+
+.kling__select {
+  background: #120000;
+  color: #ddaa88;
+  border: none;
+  font-size: 10px;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  outline: none;
+  max-width: 130px;
+}
+.kling__select option { background: #120000; color: #ddaa88; }
+
+.kling__controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px;
+  background: #0f0000;
+  border-left: 1px solid #2a0000;
+  border-right: 1px solid #2a0000;
+}
+
+.kling__btn {
+  background: #220000;
+  color: #cc4400;
+  border: 1px solid #550000;
+  font-size: 8px;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 5px;
+  cursor: pointer;
+  text-transform: uppercase;
+  clip-path: polygon(4% 0, 100% 0, 96% 100%, 0 100%);
+  transition: background 0.1s, color 0.1s;
+}
+.kling__btn:hover  { background: #440000; color: #ff4422; }
+.kling__btn:active { background: #cc1111; color: #fff; }
+.kling__btn--active { background: #550000; color: #ff6644; border-color: #cc1111; }
+
+.kling__display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: #0e0000;
+  border-left: 2px solid #cc1111;
+  border-right: 2px solid #cc1111;
+  flex: 1;
+}
+
+.kling__label  { font-size: 7px; color: #662200; letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; }
+.kling__date   { font-size: 13px; font-weight: 700; color: #ddaa88; letter-spacing: 0.04em; }
+.kling__time   { font-size: 11px; color: #884400; font-weight: 700; letter-spacing: 0.06em; }
+.kling__sep    { font-size: 8px; color: #550000; }
+.kling__indicator { font-size: 10px; color: #ff4400; }
+.kling__display--empty { color: #441100; font-size: 10px; letter-spacing: 0.1em; padding: 0 8px; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ROMULAN PANEL — geometric diamonds, cold green, clinical precision
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.sta2e-rom.sta2e-hud {
+  background: #000a00;
+  border-bottom: 2px solid #1a6633;
+  box-shadow: 0 2px 12px rgba(0,150,60,0.25);
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  gap: 0;
+  overflow: visible;
+  font-family: 'Arial Narrow', 'Roboto Condensed', sans-serif;
+}
+
+/* Header block — cold dark green rectangle */
+.rom__header {
+  background: #1a6633;
+  color: #000a00;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  min-width: 80px;
+  border-right: 1px solid #22aa44;
+}
+
+/* Diamond separators */
+.rom__diamond {
+  color: #1a6633;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 3px;
+}
+
+.rom__campaign-block {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  background: #000f00;
+  border-top: 1px solid #0d3319;
+  border-bottom: 1px solid #0d3319;
+}
+
+.rom__select {
+  background: #000f00;
+  color: #88cc88;
+  border: none;
+  font-size: 10px;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  outline: none;
+  max-width: 130px;
+}
+.rom__select option { background: #000f00; color: #88cc88; }
+
+.rom__controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px;
+  background: #000c00;
+  border-top: 1px solid #0d3319;
+  border-bottom: 1px solid #0d3319;
+}
+
+.rom__btn {
+  background: #001400;
+  color: #44dd88;
+  border: 1px solid #1a5533;
+  font-size: 8px;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: background 0.1s, color 0.1s;
+}
+.rom__btn:hover  { background: #002800; color: #66ffaa; border-color: #22aa44; }
+.rom__btn:active { background: #22aa44; color: #000a00; }
+.rom__btn--active { background: #001f00; color: #44dd88; border-color: #22aa44; }
+
+.rom__display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: #000e00;
+  border-left: 2px solid #22aa44;
+  border-right: 2px solid #22aa44;
+  border-top: 1px solid #0d3319;
+  border-bottom: 1px solid #0d3319;
+  flex: 1;
+}
+
+.rom__label    { font-size: 7px; color: #226633; letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; }
+.rom__date     { font-size: 13px; font-weight: 700; color: #88cc88; letter-spacing: 0.04em; }
+.rom__time     { font-size: 11px; color: #336633; font-weight: 700; letter-spacing: 0.06em; }
+.rom__sep      { font-size: 8px; color: #1a6633; }
+.rom__indicator { font-size: 10px; color: #44dd88; }
+.rom__display--empty { color: #1a4422; font-size: 10px; letter-spacing: 0.1em; padding: 0 8px; }
+
+.rom__footer {
+  background: linear-gradient(90deg, #22aa44 0%, #1a6633 50%, #22aa44 100%);
+  min-width: 16px;
+  border-left: 1px solid #22aa44;
+}
+
+/* ── Alert HUD: Klingon theme ── */
+#sta2e-alert-container[data-theme="klingon"] #sta2e-alert-widget {
+  background: linear-gradient(180deg, #1a0000 0%, #0f0000 50%, #0a0000 100%);
+  border: 1px solid #550000;
+  border-top: none;
+  border-bottom: 3px solid #cc1111;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgba(255,50,0,0.08), 0 4px 18px rgba(150,0,0,0.6);
+}
+#sta2e-alert-container[data-theme="klingon"] #sta2e-alert-tab {
+  background: linear-gradient(180deg, #220000 0%, #150000 100%);
+  border-color: #440000;
+  color: rgba(200,80,0,0.8);
+  clip-path: polygon(4% 0, 96% 0, 100% 100%, 0% 100%);
+}
+#sta2e-alert-container[data-theme="klingon"] #sta2e-alert-tab:hover {
+  background: linear-gradient(180deg, #330000 0%, #220000 100%);
+  color: rgba(255,100,30,0.95);
+}
+#sta2e-alert-container[data-theme="klingon"] .sta2e-alert__toggle {
+  border-radius: 0;
+}
+#sta2e-alert-container[data-theme="klingon"] .sta2e-alert__bar-block {
+  border-right: 1px solid #330000;
+}
+
+/* ── Alert HUD: Romulan theme ── */
+#sta2e-alert-container[data-theme="romulan"] #sta2e-alert-widget {
+  background: linear-gradient(180deg, #001400 0%, #000e00 50%, #000a00 100%);
+  border: 1px solid #1a5533;
+  border-top: none;
+  border-bottom: 3px solid #22aa44;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgba(0,180,60,0.08), 0 4px 18px rgba(0,120,40,0.4);
+}
+#sta2e-alert-container[data-theme="romulan"] #sta2e-alert-tab {
+  background: linear-gradient(180deg, #001800 0%, #000f00 100%);
+  border-color: #0d3319;
+  color: rgba(50,160,80,0.8);
+}
+#sta2e-alert-container[data-theme="romulan"] #sta2e-alert-tab:hover {
+  background: linear-gradient(180deg, #002200 0%, #001500 100%);
+  color: rgba(68,221,136,0.95);
+}
+#sta2e-alert-container[data-theme="romulan"] .sta2e-alert__toggle {
+  border-radius: 0;
+}
+#sta2e-alert-container[data-theme="romulan"] .sta2e-alert__bar-block {
+  border-left:  1px solid #0d3319;
+  border-right: 1px solid #1a5533;
+}
+
+
+/* ============================================================
+   TRANSPORTER CONTROL DIALOG
+   sta2e-toolkit | transporter.js
+   All colours use CSS custom properties injected at render time
+   from the active LC theme tokens via _buildThemeVars() in
+   transporter.js, so the dialog respects era/faction themes.
+   ============================================================ */
+
+/* ── Theme variable defaults (TNG LCARS fallback) ── */
+.sta2e-tp-dialog {
+  --tp-bg:          #000814;
+  --tp-panel:       #000d1a;
+  --tp-primary:     #ff9900;
+  --tp-secondary:   #cc88ff;
+  --tp-tertiary:    #ffcc66;
+  --tp-text:        #ffcc88;
+  --tp-text-dim:    #aa6600;
+  --tp-border:      #cc6600;
+  --tp-border-dim:  #331a00;
+  --tp-red:         #ff3333;
+  --tp-green:       #66cc66;
+  --tp-font:        'Arial Narrow', 'Roboto Condensed', sans-serif;
+  font-family:      var(--tp-font);
+  background:       var(--tp-bg);
+  color:            var(--tp-text);
+}
+
+/* ── Header ── */
+.sta2e-tp-header {
+  display: flex;
+  align-items: center;
+  background: var(--tp-primary);
+  border-radius: 30px 0 0 0;
+  padding: 6px 18px 6px 12px;
+  margin-bottom: 2px;
+  gap: 12px;
+}
+.sta2e-tp-header-pill {
+  background: var(--tp-bg);
+  color: var(--tp-primary);
+  border-radius: 20px;
+  padding: 3px 14px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+.sta2e-tp-header-title {
+  color: var(--tp-bg);
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  font-weight: bold;
+  flex: 1;
+}
+.sta2e-tp-header-stardate {
+  color: var(--tp-bg);
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+
+/* ── Body layout ── */
+.sta2e-tp-body { display: flex; }
+
+.sta2e-tp-sidebar {
+  width: 28px;
+  background: var(--tp-border);
+  border-radius: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 6px;
+  min-height: 100%;
+  flex-shrink: 0;
+}
+.sta2e-tp-sidebar-right {
+  width: 28px;
+  background: var(--tp-text-dim);
+  border-radius: 0 0 20px 0;
+}
+.sta2e-tp-sidebar::before,
+.sta2e-tp-sidebar::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tp-bg);
+  display: block;
+}
+
+.sta2e-tp-content {
+  flex: 1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  min-width: 0;
+}
+.sta2e-tp-col-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.sta2e-tp-col-right {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 2px solid var(--tp-border-dim);
+  padding-left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Section labels ── */
+.sta2e-tp-section-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--tp-border);
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--tp-border);
+  padding-bottom: 2px;
+}
+
+/* ── Controls ── */
+.sta2e-tp-controls {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.sta2e-tp-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--tp-tertiary);
+  margin-bottom: 3px;
+}
+.sta2e-tp-select,
+.sta2e-tp-input {
+  background: var(--tp-panel) !important;
+  border: 1px solid var(--tp-primary);
+  color: var(--tp-primary);
+  border-radius: 4px;
+  padding: 4px 28px 4px 8px;
+  font-family: var(--tp-font);
+  font-size: 13px;
+  letter-spacing: 1px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-repeat: no-repeat !important;
+  background-position: right 8px center !important;
+}
+.sta2e-tp-select option { background: var(--tp-panel) !important; color: var(--tp-primary) !important; }
+.sta2e-tp-select:focus,
+.sta2e-tp-input:focus   { outline: none; border-color: var(--tp-tertiary); }
+.sta2e-tp-input         { width: 80px; padding: 4px 8px; background-image: none !important; }
+.sta2e-tp-grid-note     { font-size: 9px; color: var(--tp-text-dim); letter-spacing: 1px; margin-top: 2px; }
+
+/* ── Drop zone ── */
+.sta2e-tp-drop-zone {
+  border: 2px dashed var(--tp-border);
+  border-radius: 6px;
+  padding: 14px;
+  min-height: 120px;
+  background: var(--tp-panel);
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+}
+.sta2e-tp-drop-zone.drag-over {
+  border-color: var(--tp-tertiary);
+  background: color-mix(in srgb, var(--tp-primary) 8%, var(--tp-panel));
+}
+.sta2e-tp-drop-hint {
+  color: var(--tp-text-dim);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin: 6px 0 10px;
+}
+
+/* ── Token list ── */
+.sta2e-tp-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  min-height: 40px;
+}
+.sta2e-tp-token-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  background: var(--tp-panel);
+  border-radius: 4px;
+  border: 1px solid var(--tp-border);
+  border-left: 3px solid var(--tp-primary);
+}
+.sta2e-tp-token-item img {
+  width: 30px;
+  height: 30px;
+  border-radius: 3px;
+  border: 1px solid var(--tp-border);
+}
+.sta2e-tp-token-name    { font-size: 12px; color: var(--tp-tertiary); letter-spacing: 1px; }
+.sta2e-tp-token-badge   { font-size: 8px; padding: 2px 5px; border-radius: 3px; letter-spacing: 1px; text-transform: uppercase; }
+.sta2e-tp-token-badge.linked   { background: rgba(76,175,80,0.2);  color: #4CAF50; border: 1px solid #4CAF50; }
+.sta2e-tp-token-badge.wildcard { background: rgba(255,152,0,0.2);  color: #FF9800; border: 1px solid #FF9800; }
+
+.sta2e-tp-quantity-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--tp-border-dim);
+}
+.sta2e-tp-qty-btn {
+  cursor: pointer;
+  background: var(--tp-panel);
+  border: 1px solid var(--tp-border);
+  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--tp-primary);
+  user-select: none;
+  transition: background 0.1s;
+}
+.sta2e-tp-qty-btn:hover  { background: color-mix(in srgb, var(--tp-primary) 12%, var(--tp-panel)); }
+.sta2e-tp-qty-display    { min-width: 22px; text-align: center; font-weight: bold; color: var(--tp-primary); font-size: 13px; }
+.sta2e-tp-remove-btn     { cursor: pointer; color: var(--tp-red); font-weight: bold; margin-left: 6px; padding: 0 5px; font-size: 14px; }
+.sta2e-tp-remove-btn:hover { opacity: 0.75; }
+
+.sta2e-tp-footer-bar {
+  height: 6px;
+  background: linear-gradient(to right, var(--tp-primary), var(--tp-border), var(--tp-primary));
+  border-radius: 0 0 4px 4px;
+  margin-top: 8px;
+}
+
+/* ── Buffer panel ── */
+.sta2e-tp-buffer-empty {
+  color: var(--tp-border-dim);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+  padding-top: 20px;
+}
+.sta2e-tp-buffer-summary {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--tp-border);
+}
+.sta2e-tp-purge-all {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--tp-red);
+  border: 1px solid var(--tp-red);
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.sta2e-tp-purge-all:hover { background: color-mix(in srgb, var(--tp-red) 15%, transparent); }
+
+.sta2e-tp-buffer-group {
+  background: var(--tp-panel);
+  border: 1px solid var(--tp-border);
+  border-left: 4px solid var(--tp-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.sta2e-tp-buffer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--tp-primary) 8%, var(--tp-panel));
+  border-bottom: 1px solid var(--tp-border-dim);
+}
+.sta2e-tp-buffer-icon  { font-size: 14px; }
+.sta2e-tp-buffer-title { flex: 1; font-size: 11px; letter-spacing: 2px; color: var(--tp-tertiary); text-transform: uppercase; }
+.sta2e-tp-buffer-meta  { font-size: 9px; color: var(--tp-text-dim); letter-spacing: 1px; }
+.sta2e-tp-buffer-names { padding: 5px 10px 6px; font-size: 10px; color: var(--tp-text); letter-spacing: 1px; }
+.sta2e-tp-buffer-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
+
+.sta2e-tp-group-btn {
+  cursor: pointer;
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid;
+  font-family: var(--tp-font);
+  background: transparent;
+  transition: background 0.12s;
+}
+.sta2e-tp-group-restore { color: var(--tp-green); border-color: var(--tp-green); }
+.sta2e-tp-group-restore:hover { background: color-mix(in srgb, var(--tp-green) 12%, transparent); }
+.sta2e-tp-group-purge   { color: var(--tp-red); border-color: var(--tp-red); }
+.sta2e-tp-group-purge:hover   { background: color-mix(in srgb, var(--tp-red) 12%, transparent); }
+
+/* ============================================================
+   Wildcard Namer config dialog
+   ============================================================ */
+.wn-config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  height: 100%;
+  box-sizing: border-box;
+}
+.wn-hint {
+  font-size: 0.85em;
+  color: #888;
+  margin: 0;
+}
+.wn-rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  flex: 1;
+}
+.wn-rules-table th,
+.wn-rules-table td {
+  padding: 4px 6px;
+  border: 1px solid #444;
+  vertical-align: middle;
+}
+.wn-rules-table th {
+  background: #2a2a2a;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.wn-rules-table input[type="text"],
+.wn-rules-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.wn-col-pack { min-width: 160px; }
+.wn-empty-row td {
+  text-align: center;
+  color: #888;
+  font-style: italic;
+  padding: 1rem;
+}
+.wn-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 1px solid #444;
+  padding-top: 0.5rem;
+}
+.wn-footer-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.wn-btn-save {
+  background: #2a5fa5;
+  color: #fff;
+  border-color: #1a4f95;
+}
+.wn-btn-save:hover { background: #1a4f95; }
+
+

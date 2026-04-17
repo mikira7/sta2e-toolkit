@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 512 512">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 100px;
+        fill-rule: evenodd;
+      }
+    </style>
+  </defs>
+  <path id="Line_1" data-name="Line 1" class="cls-1" d="M255.333,106H256V406h-0.667V106Z"/>
+  <path id="Line_1_copy" data-name="Line 1 copy" class="cls-1" d="M406,256.16v0.669H106V256.16H406Z"/>
+</svg>

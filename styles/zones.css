@@ -1,0 +1,411 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   sta2e-toolkit | zones.css
+   Styles for the zone floating toolbar, editing tools, and properties dialog.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Floating Zone Toolbar ─────────────────────────────────────────────── */
+
+#sta2e-zone-toolbar {
+  position: fixed;
+  top: 80px;
+  left: 120px;
+  z-index: 100;
+  background: #1a1a1a;
+  border: 1px solid #555;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  font-family: "Signika", "Palatino Linotype", serif;
+  min-width: 180px;
+  color: #ddd;
+  user-select: none;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #444;
+  border-radius: 6px 6px 0 0;
+  cursor: move;
+  font-size: 0.85em;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  color: #f90;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-close:hover {
+  color: #ff4444;
+}
+
+/* Tool buttons — row of icon buttons */
+#sta2e-zone-toolbar .sta2e-zone-toolbar-tools {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #333;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-tools button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #bbb;
+  cursor: pointer;
+  padding: 8px;
+  font-size: 1em;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-tools button:hover {
+  background: #333;
+  color: #fff;
+  border-color: #666;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-tools button.active {
+  background: #f90;
+  color: #000;
+  border-color: #f90;
+}
+
+/* Action buttons — stacked text buttons */
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px 8px;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #bbb;
+  cursor: pointer;
+  padding: 5px 10px;
+  font-size: 0.78em;
+  letter-spacing: 0.03em;
+  transition: background 0.15s, color 0.15s;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button:hover {
+  background: #333;
+  color: #fff;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button i {
+  width: 14px;
+  text-align: center;
+  font-size: 0.9em;
+}
+
+/* ── Zone Properties Dialog ────────────────────────────────────────────── */
+
+.sta2e-zone-properties .form-group {
+  margin-bottom: 10px;
+}
+
+.sta2e-zone-properties .form-group label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #ccc;
+  font-size: 0.9em;
+  letter-spacing: 0.05em;
+}
+
+.sta2e-zone-properties input[type="text"],
+.sta2e-zone-properties input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sta2e-zone-properties input[type="color"] {
+  width: 60px;
+  height: 30px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.sta2e-zone-properties .notes {
+  font-size: 0.8em;
+  color: #888;
+  margin-top: 3px;
+}
+
+/* ── Zone Tags ─────────────────────────────────────────────────────────── */
+
+.sta2e-zone-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 4px;
+}
+
+.sta2e-zone-tags label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85em;
+  color: #bbb;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.sta2e-zone-tags label.checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
+/* ── Zone Properties — v2 additions ────────────────────────────────────── */
+
+.sta2e-zone-properties select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sta2e-zone-properties input[type="range"] {
+  accent-color: #f90;
+}
+
+/* ── Hazard section ────────────────────────────────────────────────────── */
+
+.sta2e-zone-hazards-section label {
+  display: block;
+  font-weight: bold;
+  color: #ccc;
+  font-size: 0.9em;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.sta2e-zone-hazards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sta2e-hazard-row {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.sta2e-hazard-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  color: #f90;
+  font-size: 0.82em;
+}
+
+.sta2e-hazard-row-header strong {
+  color: #f90;
+}
+
+.sta2e-remove-hazard {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 0.85em;
+}
+
+.sta2e-remove-hazard:hover {
+  color: #ff4444;
+}
+
+.sta2e-hazard-row .form-group {
+  margin-bottom: 5px;
+}
+
+.sta2e-hazard-row .form-group label {
+  display: block;
+  color: #999;
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.sta2e-add-hazard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #1e2a1e;
+  border: 1px dashed #446644;
+  border-radius: 4px;
+  color: #66aa66;
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 0.78em;
+  letter-spacing: 0.05em;
+}
+
+.sta2e-add-hazard:hover {
+  background: #223322;
+  color: #88cc88;
+  border-color: #66aa66;
+}
+
+/* ── Zone Quick Info Panel ─────────────────────────────────────────────── */
+
+#sta2e-zone-info-panel {
+  position: fixed;
+  z-index: 10000;
+  background: #1a1a1a;
+  border: 1px solid #555;
+  border-top: 3px solid #f90;
+  border-radius: 0 0 5px 5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+  padding: 8px 12px;
+  min-width: 180px;
+  max-width: 220px;
+  font-family: "Signika", "Palatino Linotype", serif;
+  pointer-events: none;
+}
+
+.sta2e-zone-info-title {
+  color: #f90;
+  font-weight: bold;
+  font-size: 0.85em;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #333;
+}
+
+.sta2e-zone-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75em;
+  color: #bbb;
+  padding: 2px 0;
+}
+
+.sta2e-zone-info-row span:first-child {
+  color: #888;
+  margin-right: 8px;
+}
+
+.sta2e-zone-info-row span:last-child {
+  color: #ddd;
+  text-align: right;
+}
+
+.sta2e-zone-info-hazard span {
+  color: #ff6644 !important;
+}
+
+/* ── Zone Drag Panel ───────────────────────────────────────────────────── */
+
+#sta2e-zone-drag-panel {
+  position: fixed;
+  z-index: 10001;
+  background: rgba(10, 10, 20, 0.92);
+  border: 1px solid #444;
+  border-left: 3px solid #f90;
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.7);
+  padding: 8px 12px;
+  min-width: 160px;
+  font-family: "Arial Narrow", "Roboto Condensed", sans-serif;
+  pointer-events: none;
+}
+
+.sta2e-zdp-zone {
+  color: #f90;
+  font-size: 1.1em;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 2px;
+}
+
+.sta2e-zdp-band {
+  color: #ccc;
+  font-size: 0.7em;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.sta2e-zdp-momentum {
+  color: #cc88ff;
+  font-size: 0.7em;
+  margin-bottom: 3px;
+}
+
+.sta2e-zdp-impulse,
+.sta2e-zdp-warp {
+  font-size: 0.68em;
+  margin-top: 2px;
+}
+
+/* ── Square stamp cursor ───────────────────────────────────────────────── */
+
+.sta2e-zone-toolbar-tools button[data-zone-tool="square"] {
+  /* Same style as hex, active state handled by .active class */
+}
+
+/* ── Import/Export toolbar buttons ────────────────────────────────────── */
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button[data-zone-action="exportZones"],
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button[data-zone-action="importZones"] {
+  color: #99ccff;
+  border-color: #336699;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button[data-zone-action="exportZones"]:hover,
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button[data-zone-action="importZones"]:hover {
+  background: #1a2a3a;
+  color: #bbddff;
+}
+
+/* ── Config Scene button ───────────────────────────────────────────────── */
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-actions button[data-zone-action="configScene"] {
+  color: #ffcc66;
+  border-color: #885500;
+}
+
+/* ── Scene config STA2e Zones fieldset ─────────────────────────────────── */
+
+#scene-config fieldset:has(legend:contains("STA2e")),
+.app fieldset legend {
+  /* Standard Foundry fieldset styling — no override needed */
+}
+
+/* ── Zone Monitor Widget ─────────────────────────────────────────────── */
+
+#sta2e-zone-monitor .sta2e-zm-body::-webkit-scrollbar {
+  width: 4px;
+}
+#sta2e-zone-monitor .sta2e-zm-body::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 2px;
+}
+#sta2e-zone-monitor .sta2e-zm-body::-webkit-scrollbar-track {
+  background: transparent;
+}

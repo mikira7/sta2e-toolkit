@@ -1,0 +1,179 @@
+{{!-- sta2e-toolkit | date-editor.hbs --}}
+<div class="sta2e-editor">
+
+  <div class="sta2e-editor__header">
+    <span class="sta2e-editor__campaign-name">{{campaign.name}}</span>
+    <span class="sta2e-editor__era-badge era-{{campaign.era}}">
+      {{#if isTNG}}TNG/DS9/VOY{{/if}}
+      {{#if isTOS}}TOS/TMP{{/if}}
+      {{#if isENT}}ENT ERA{{/if}}
+      {{#if isKlingon}}⚔ KLINGON (YK){{/if}}
+      {{#if isRomulan}}△ ROMULAN (AS){{/if}}
+      {{#if isCustom}}CUSTOM{{/if}}
+    </span>
+  </div>
+
+  {{!-- CALENDAR-DRIVEN: TNG and TOS — includes stardate field --}}
+  {{#if isCalendarDriven}}
+  {{#unless isENT}}
+  {{#unless isFaction}}
+  <div class="sta2e-editor__section">
+    <h4>Enter Stardate — or set date fields below</h4>
+    <div class="sta2e-editor__grid">
+      <label>Stardate</label>
+      <input type="number" name="stardate-manual" value="{{campaign.stardate}}" step="0.1" class="sta2e-editor__input--wide" placeholder="e.g. 49523.7" />
+    </div>
+    <h4>Calendar Date</h4>
+    <div class="sta2e-editor__grid">
+      <label>Year</label>
+      <input type="number" name="year" value="{{year}}" min="{{eraYearMin}}" max="{{eraYearMax}}" class="sta2e-editor__input--wide" />
+      <label>Month</label>
+      <input type="number" name="month" value="{{month}}" min="1" max="12" />
+      <label>Day</label>
+      <input type="number" name="day" value="{{day}}" min="1" max="31" />
+    </div>
+    <h4>Time</h4>
+    <div class="sta2e-editor__grid">
+      <label>Hours</label>
+      <input type="number" name="hours" value="{{hours}}" min="0" max="23" />
+      <label>Minutes</label>
+      <input type="number" name="minutes" value="{{minutes}}" min="0" max="59" />
+    </div>
+    <div class="sta2e-editor__preview">
+      Calculated Stardate: <strong id="sta2e-stardate-preview">—</strong>
+    </div>
+  </div>
+  {{/unless}}
+  {{/unless}}
+
+  {{!-- ENT ERA — calendar only, no stardates --}}
+  {{#if isENT}}
+  <div class="sta2e-editor__section">
+    <p class="sta2e-editor__ent-note">⚠ Pre-stardate era — Earth calendar only. No stardate is tracked.</p>
+    <h4>Earth Date</h4>
+    <div class="sta2e-editor__grid">
+      <label>Year</label>
+      <input type="number" name="year" value="{{year}}" min="{{eraYearMin}}" max="{{eraYearMax}}" class="sta2e-editor__input--wide" />
+      <label>Month</label>
+      <input type="number" name="month" value="{{month}}" min="1" max="12" />
+      <label>Day</label>
+      <input type="number" name="day" value="{{day}}" min="1" max="31" />
+    </div>
+    <h4>Time</h4>
+    <div class="sta2e-editor__grid">
+      <label>Hours</label>
+      <input type="number" name="hours" value="{{hours}}" min="0" max="23" />
+      <label>Minutes</label>
+      <input type="number" name="minutes" value="{{minutes}}" min="0" max="59" />
+    </div>
+  </div>
+  {{/if}}
+
+  {{!-- KLINGON ERA — Earth date input, shows derived YK date --}}
+  {{#if isKlingon}}
+  <div class="sta2e-editor__section">
+    <p class="sta2e-editor__ent-note" style="color:#cc4400;">⚔ Klingon calendar — enter Earth date, Year of Kahless is derived automatically.</p>
+    <h4>Earth Date (converted to YK)</h4>
+    <div class="sta2e-editor__grid">
+      <label>Year (CE)</label>
+      <input type="number" name="year" value="{{year}}" min="{{eraYearMin}}" max="{{eraYearMax}}" class="sta2e-editor__input--wide" />
+      <label>Month</label>
+      <input type="number" name="month" value="{{month}}" min="1" max="12" />
+      <label>Day</label>
+      <input type="number" name="day" value="{{day}}" min="1" max="31" />
+    </div>
+    <h4>Time</h4>
+    <div class="sta2e-editor__grid">
+      <label>Hours</label>
+      <input type="number" name="hours" value="{{hours}}" min="0" max="23" />
+      <label>Minutes</label>
+      <input type="number" name="minutes" value="{{minutes}}" min="0" max="59" />
+    </div>
+    <div class="sta2e-editor__preview" style="color:#cc4400;">
+      Year of Kahless: <strong id="sta2e-faction-preview">—</strong>
+    </div>
+  </div>
+  {{/if}}
+
+  {{!-- ROMULAN ERA — Earth date input, shows derived AS date --}}
+  {{#if isRomulan}}
+  <div class="sta2e-editor__section">
+    <p class="sta2e-editor__ent-note" style="color:#22aa44;">△ Romulan calendar — enter Earth date, After Settlement year is derived automatically.</p>
+    <h4>Earth Date (converted to AS)</h4>
+    <div class="sta2e-editor__grid">
+      <label>Year (CE)</label>
+      <input type="number" name="year" value="{{year}}" min="{{eraYearMin}}" max="{{eraYearMax}}" class="sta2e-editor__input--wide" />
+      <label>Month</label>
+      <input type="number" name="month" value="{{month}}" min="1" max="12" />
+      <label>Day</label>
+      <input type="number" name="day" value="{{day}}" min="1" max="31" />
+    </div>
+    <h4>Time</h4>
+    <div class="sta2e-editor__grid">
+      <label>Hours</label>
+      <input type="number" name="hours" value="{{hours}}" min="0" max="23" />
+      <label>Minutes</label>
+      <input type="number" name="minutes" value="{{minutes}}" min="0" max="59" />
+    </div>
+    <div class="sta2e-editor__preview" style="color:#22aa44;">
+      After Settlement: <strong id="sta2e-faction-preview">—</strong>
+    </div>
+  </div>
+  {{/if}}
+
+  {{/if}}
+
+  {{!-- CUSTOM ERA --}}
+  {{#if isCustom}}
+  <div class="sta2e-editor__section">
+    <h4>Stardate</h4>
+    <div class="sta2e-editor__grid">
+      <label>Stardate</label>
+      <input type="number" name="stardate" value="{{campaign.stardate}}" step="0.1" class="sta2e-editor__input--wide" />
+      <label>Units / Day</label>
+      <input type="number" name="dailyRate" value="{{campaign.dailyRate}}" step="0.1" min="0.1" />
+    </div>
+    <h4>Time</h4>
+    <div class="sta2e-editor__grid">
+      <label>Hours</label>
+      <input type="number" name="hours" value="{{hours}}" min="0" max="23" />
+      <label>Minutes</label>
+      <input type="number" name="minutes" value="{{minutes}}" min="0" max="59" />
+    </div>
+    <h4>Date Label <em style="font-weight:normal;font-size:10px;">(cosmetic only)</em></h4>
+    <div class="sta2e-editor__grid">
+      <label>Date</label>
+      <input type="text" name="calendarDate" value="{{campaign.calendarDate}}" placeholder="YYYY-MM-DD" class="sta2e-editor__input--full" />
+    </div>
+  </div>
+  {{/if}}
+
+  {{!-- SCENE OVERRIDE --}}
+  {{#if hasScene}}
+  <div class="sta2e-editor__section sta2e-editor__section--override">
+    <h4>Scene Override</h4>
+    <div class="sta2e-editor__override-row">
+      <label class="sta2e-editor__checkbox-label">
+        <input type="checkbox" id="sta2e-scene-override-toggle" data-action="toggleOverride" {{#if sceneOverride}}checked{{/if}} />
+        Pin this scene to a specific campaign
+      </label>
+    </div>
+    {{#if sceneOverride}}
+    <div class="sta2e-editor__grid" style="margin-top:6px;">
+      <label>Campaign</label>
+      <select id="sta2e-scene-campaign-select" class="sta2e-editor__input--full">
+        {{#each allCampaigns}}
+          <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
+        {{/each}}
+      </select>
+    </div>
+    {{/if}}
+  </div>
+  {{/if}}
+
+  <div class="sta2e-editor__footer">
+    <button type="button" class="sta2e-btn sta2e-btn--primary" data-action="applyDate">Apply</button>
+    <button type="button" class="sta2e-btn" data-action="close">Cancel</button>
+  </div>
+
+</div>

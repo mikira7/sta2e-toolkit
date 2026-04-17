@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 512 512">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: currentColor;
+        fill-rule: evenodd;
+      }
+      .cls-1, .cls-2 {
+        fill-rule: evenodd;
+      }
+      .cls-2 {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 20px;
+      }
+    </style>
+  </defs>
+  <path id="Triangle_1" data-name="Triangle 1" class="cls-1" d="M256,292c-69.945,0-154.854-71.22-154.854-71.22H410.854S325.945,292,256,292Z"/>
+  <path id="Line_1" data-name="Line 1" class="cls-2" d="M196.391,202.49l-0.208-1h118.45l-0.32,1H196.391Z"/>
+  <path id="Line_1_copy" data-name="Line 1 copy" class="cls-2" d="M184.987,172.99l-0.248-1H326.582l-0.383,1H184.987Z"/>
+  <path id="Line_1_copy_2" data-name="Line 1 copy 2" class="cls-2" d="M171.5,144.99l-0.295-1H339.722l-0.455,1H171.5Z"/>
+  <path id="Line_1_copy_3" data-name="Line 1 copy 3" class="cls-2" d="M157.946,113.99l-0.344-1H353.878l-0.531,1h-195.4Z"/>
+  <path id="Line_1_copy_4" data-name="Line 1 copy 4" class="cls-2" d="M142.6,82.99l-0.4-1H368.776l-0.612,1H142.6Z"/>
+  <path id="Line_1_copy_5" data-name="Line 1 copy 5" class="cls-2" d="M318.128,309.974l0.208,1H199.971l0.32-1H318.128Z"/>
+  <path id="Line_1_copy_6" data-name="Line 1 copy 6" class="cls-2" d="M329.523,339.369l0.249,0.995H188.031l0.383-.995H329.523Z"/>
+  <path id="Line_1_copy_7" data-name="Line 1 copy 7" class="cls-2" d="M343,367.27l0.295,0.994H174.9l0.455-.994H343Z"/>
+  <path id="Line_1_copy_8" data-name="Line 1 copy 8" class="cls-2" d="M356.544,398.159l0.344,1H160.755l0.53-1H356.544Z"/>
+  <path id="Line_1_copy_9" data-name="Line 1 copy 9" class="cls-2" d="M371.876,429.049l0.4,0.994h-226.4l0.612-.994h225.4Z"/>
+</svg>

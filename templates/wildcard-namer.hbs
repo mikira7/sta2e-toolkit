@@ -1,0 +1,62 @@
+<div class="wn-config">
+  <p class="wn-hint">
+    When a wildcard (unlinked) token is placed, the module checks the actor's traits against
+    these rules in order. The first match rolls the linked table and renames the token.
+  </p>
+
+  <table class="wn-rules-table">
+    <thead>
+      <tr>
+        <th>Actor Trait</th>
+        <th>Source</th>
+        <th class="wn-col-pack">Pack ID</th>
+        <th>Table Name</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each rules as |rule idx|}}
+      <tr class="wn-rule-row">
+        <td>
+          <input type="text" data-field="trait" value="{{rule.trait}}" placeholder="e.g. Klingon Starship" />
+        </td>
+        <td>
+          <select data-field="tableSource">
+            <option value="world"      {{#if (eq rule.tableSource "world")}}selected{{/if}}>World</option>
+            <option value="compendium" {{#if (eq rule.tableSource "compendium")}}selected{{/if}}>Compendium</option>
+          </select>
+        </td>
+        <td class="wn-pack-field">
+          <input type="text" data-field="packId" value="{{rule.packId}}" placeholder="e.g. world.my-tables" />
+        </td>
+        <td>
+          <input type="text" data-field="tableName" value="{{rule.tableName}}" placeholder="e.g. Klingon Ship Names" />
+        </td>
+        <td>
+          <button type="button" data-action="deleteRule" data-index="{{idx}}" title="Remove rule">
+            <i class="fas fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+      {{/each}}
+      {{#unless rules.length}}
+      <tr class="wn-empty-row">
+        <td colspan="5">No rules configured. Click <strong>Add Rule</strong> to get started.</td>
+      </tr>
+      {{/unless}}
+    </tbody>
+  </table>
+
+  <div class="wn-footer">
+    <button type="button" data-action="addRule">
+      <i class="fas fa-plus"></i> Add Rule
+    </button>
+    <div class="wn-footer-actions">
+      <button type="button" data-action="cancel">Cancel</button>
+      <button type="button" data-action="save" class="wn-btn-save">
+        <i class="fas fa-save"></i> Save
+      </button>
+    </div>
+  </div>
+</div>
+

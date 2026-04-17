@@ -1,0 +1,59 @@
+{
+  "id": "sta2e-toolkit",
+  "title": "STA 2e Toolkit",
+  "description": "A toolkit for Star Trek Adventures 2nd Edition. Includes a Stardate HUD with multi-campaign support, era switching (TOS/TNG), warp travel integration, Zone grid creation, Transporter to spawning character or remove characters.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14",
+    "maximum": "14"
+  },
+  "authors": [
+    {
+      "name": "Mikira",
+      "flags": {}
+    }
+  ],
+  "esmodules": [
+    "scripts/main.js"
+  ],
+  "styles": [
+    "styles/stardate-hud.css",
+    "styles/opposed-task.css",
+    "styles/zones.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "packs": [
+    {
+      "name": "sta2e-macros",
+      "label": "STA 2e Macros",
+      "path": "packs/sta2e-macros",
+      "type": "Macro",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      },
+      "flags": {}
+    }
+  ],
+  "relationships": {
+    "optional": [
+      { "id": "token-attacher", "type": "module" },
+      { "id": "sequencer", "type": "module" },
+      { "id": "JB2A_DnD5e", "type": "module" },
+      { "id": "jb2a_patreon", "type": "module" },
+      { "id": "tokenmagic", "type": "module" }
+    ]
+  },
+  "socket": true,
+  "flags": {},
+  "url": "https://github.com/mikira7/sta2e-toolkit",
+  "manifest": "https://raw.githubusercontent.com/mikira7/sta2e-toolkit/main/module.json",
+  "download": "https://github.com/mikira7/sta2e-toolkit/releases/latest/download/module.zip"
+}

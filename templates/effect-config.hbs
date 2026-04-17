@@ -1,0 +1,213 @@
+{{!-- sta2e-toolkit | effect-config.hbs --}}
+<div class="ec-wrap">
+
+  <style>
+  .ec-wrap { display:flex; flex-direction:column; height:100%; font-family:var(--font-primary,sans-serif); background:#1a1e2a; color:#c0c8e0; }
+  .ec-tab-bar { display:flex; flex-wrap:wrap; gap:2px; padding:6px 8px 0; background:#0e1118; border-bottom:2px solid #0099cc; }
+  .ec-tab-btn { padding:5px 14px; background:#1a1e2a; border:1px solid #2a3050; border-bottom:none; color:#7090b0; font-size:11px; font-weight:700; letter-spacing:.06em; cursor:pointer; border-radius:2px 2px 0 0; transition:background .12s,color .12s; }
+  .ec-tab-btn:hover { background:#222840; color:#a0c0d8; }
+  .ec-tab-btn.active { background:#0099cc; color:#fff; border-color:#0099cc; }
+  .ec-panels { flex:1; overflow-y:auto; padding:8px; }
+  .ec-tab-panel { display:none; }
+  .ec-tab-panel.active { display:block; }
+  .ec-table { width:100%; border-collapse:collapse; font-size:10px; margin-bottom:6px; }
+  .ec-table thead tr { background:#0e1118; color:#0099cc; font-size:9px; letter-spacing:.08em; text-transform:uppercase; }
+  .ec-table th { padding:4px 6px; text-align:left; font-weight:700; border-bottom:1px solid #2a3050; }
+  .ec-table tbody tr { border-bottom:1px solid #1e2438; }
+  .ec-table tbody tr:nth-child(even) { background:#1c2133; }
+  .ec-table tbody tr:hover { background:#202840; }
+  .ec-label { padding:4px 6px; font-weight:700; color:#d0d8f0; min-width:140px; }
+  .ec-slot  { padding:4px 6px; color:#6080a0; font-size:9px; min-width:36px; }
+  .ec-input-cell { padding:2px 3px; }
+  .ec-input-cell input { width:100%; min-width:140px; background:#0e1118; border:1px solid #2a3050; color:#c0c8e0; padding:3px 5px; font-size:10px; border-radius:2px; box-sizing:border-box; }
+  .ec-input-cell input:focus { outline:none; border-color:#0099cc; }
+  .ec-input-cell.ec-na { color:#3a4060; font-size:9px; padding-left:8px; }
+  .ec-btn-cell { padding:2px 2px 2px 0; width:22px; }
+  .ec-browse-btn, .ec-del-btn { padding:2px 5px; background:#1a2040; border:1px solid #2a3050; color:#6080a0; cursor:pointer; border-radius:2px; font-size:11px; line-height:1.2; transition:background .1s,color .1s; }
+  .ec-browse-btn:hover { background:#0099cc22; color:#0099cc; border-color:#0099cc; }
+  .ec-del-btn:hover    { background:#cc000022; color:#cc6060;  border-color:#cc6060; }
+  .ec-default-hint { font-size:8px; color:#3a5070; margin-top:1px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }
+  .ec-delay-cell { padding:3px 6px; }
+  .ec-delay-input { width:80px; text-align:right; background:#0e1118; border:1px solid #2a3050; color:#c0c8e0; padding:3px 5px; font-size:10px; border-radius:2px; box-sizing:border-box; }
+  .ec-delay-input:focus { outline:none; border-color:#0099cc; }
+  .ec-delay-unit { font-size:9px; color:#6080a0; font-weight:700; letter-spacing:.04em; }
+  .ec-timing-row td { border-top:1px solid #2a3050; background:#131727 !important; }
+  .ec-custom-section { margin-top:12px; border-top:1px solid #2a3050; padding-top:8px; }
+  .ec-custom-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; font-size:10px; font-weight:700; color:#7090b0; letter-spacing:.08em; text-transform:uppercase; }
+  .ec-add-btn { padding:3px 10px; background:#004466; border:1px solid #0099cc; color:#0099cc; cursor:pointer; border-radius:2px; font-size:10px; font-weight:700; transition:background .1s; }
+  .ec-add-btn:hover { background:#005577; }
+  .ec-custom-hint { font-size:9px; color:#4060a0; margin:0 0 4px; line-height:1.4; }
+  .ec-custom-table .ec-input-cell input { min-width:90px; }
+  .ec-footer { display:flex; justify-content:flex-end; gap:8px; padding:8px 10px; background:#0e1118; border-top:1px solid #2a3050; }
+  .ec-btn-cancel, .ec-btn-save { padding:5px 18px; font-size:11px; font-weight:700; border-radius:2px; cursor:pointer; letter-spacing:.04em; transition:background .12s; }
+  .ec-btn-cancel { background:#1a1e2a; border:1px solid #3a4060; color:#7090b0; }
+  .ec-btn-cancel:hover { background:#222840; }
+  .ec-btn-save { background:#0099cc; border:1px solid #00bbff; color:#fff; }
+  .ec-btn-save:hover { background:#00aadd; }
+  </style>
+
+  {{!-- Tab bar --}}
+  <div class="ec-tab-bar">
+    {{#each tabs}}
+    <button type="button" class="ec-tab-btn {{#if @first}}active{{/if}}" data-tab="{{id}}">
+      {{icon}} {{label}}
+    </button>
+    {{/each}}
+  </div>
+
+  {{!-- Tab panels --}}
+  <div class="ec-panels">
+  {{#each tabs}}
+  <div class="ec-tab-panel {{#if @first}}active{{/if}}" data-tab="{{id}}"
+    {{#if customKey}}data-custom-key="{{customKey}}"{{/if}}>
+
+    {{!-- Main rows table --}}
+    {{#if rows.length}}
+    <table class="ec-table">
+      <thead>
+        <tr>
+          <th>Weapon / Task</th>
+          <th>Slot</th>
+          <th colspan="2">Sound Path</th>
+          <th colspan="2">Animation Override</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each rows}}
+        <tr class="ec-row{{#if (ne delayValue null)}} ec-timing-row{{/if}}">
+          <td class="ec-label">{{label}}</td>
+          <td class="ec-slot">{{slot}}</td>
+
+          {{#if (ne delayValue null)}}
+          {{!-- Timing delay — number input spanning both Sound and Animation columns --}}
+          <td class="ec-delay-cell" colspan="4">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="number" min="0" step="100" class="ec-delay-input"
+                data-delay-key="{{delayKey}}" value="{{delayValue}}" />
+              <span class="ec-delay-unit">ms</span>
+              {{#if defaultHint}}<span class="ec-default-hint" style="max-width:none;white-space:normal;">{{defaultHint}}</span>{{/if}}
+            </div>
+          </td>
+          {{else}}
+
+          {{!-- Sound --}}
+          {{#if (ne soundValue null)}}
+          <td class="ec-input-cell">
+            <input type="text" data-snd-key="{{sndKey}}" value="{{soundValue}}"
+              placeholder="path/to/sound.ogg" />
+          </td>
+          <td class="ec-btn-cell">
+            <button type="button" class="ec-browse-btn" data-fp-type="audio" title="Browse audio">📁</button>
+          </td>
+          {{else}}
+          <td class="ec-input-cell ec-na" colspan="2"><span>—</span></td>
+          {{/if}}
+
+          {{!-- Animation --}}
+          {{#if (ne animValue null)}}
+          <td class="ec-input-cell">
+            <input type="text" data-anim-key="{{animKey}}" value="{{animValue}}"
+              placeholder="Override — leave blank to use default"
+              {{#if defaultHint}}title="{{defaultHint}}"{{/if}} />
+            {{#if defaultHint}}
+            <div class="ec-default-hint">{{defaultHint}}</div>
+            {{/if}}
+          </td>
+          <td class="ec-btn-cell">
+            <button type="button" class="ec-browse-btn" data-fp-type="video" title="Browse animation">📁</button>
+          </td>
+          {{else}}
+          <td class="ec-input-cell ec-na" colspan="2"><span>—</span></td>
+          {{/if}}
+
+          {{/if}}{{!-- /delayValue --}}
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{/if}}
+
+    {{!-- Custom weapon entries (only tabs with customKey) --}}
+    {{#if customKey}}
+    <div class="ec-custom-section">
+      <div class="ec-custom-header">
+        <span>⚙ Custom Weapon Entries</span>
+        <button type="button" class="ec-add-btn" data-action="addCustomRow">＋ Add Entry</button>
+      </div>
+      <p class="ec-custom-hint">
+        Match weapons by name fragment. Leave sound/animation blank to skip that slot.
+      </p>
+      <table class="ec-table ec-custom-table">
+        <thead>
+          <tr>
+            <th>Name Pattern</th>
+            <th colspan="2">Hit Sound</th>
+            <th colspan="2">Miss Sound</th>
+            <th colspan="2">Hit Animation</th>
+            <th colspan="2">Miss Animation</th>
+            <th colspan="2">Impact Animation</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody class="ec-custom-tbody">
+          {{#each customRows}}
+          <tr class="ec-custom-row">
+            <td><input type="text" data-field="namePattern" value="{{namePattern}}"
+              placeholder="e.g. bat'leth" style="width:100%;" /></td>
+            <td class="ec-input-cell">
+              <input type="text" data-field="soundHit" value="{{soundHit}}"
+                placeholder="path/to/hit.ogg" />
+            </td>
+            <td class="ec-btn-cell">
+              <button type="button" class="ec-browse-btn" data-fp-type="audio" title="Browse audio">📁</button>
+            </td>
+            <td class="ec-input-cell">
+              <input type="text" data-field="soundMiss" value="{{soundMiss}}"
+                placeholder="path/to/miss.ogg" />
+            </td>
+            <td class="ec-btn-cell">
+              <button type="button" class="ec-browse-btn" data-fp-type="audio" title="Browse audio">📁</button>
+            </td>
+            <td class="ec-input-cell">
+              <input type="text" data-field="animHit" value="{{animHit}}"
+                placeholder="jb2a.* or file.webm" />
+            </td>
+            <td class="ec-btn-cell">
+              <button type="button" class="ec-browse-btn" data-fp-type="video" title="Browse animation">📁</button>
+            </td>
+            <td class="ec-input-cell">
+              <input type="text" data-field="animMiss" value="{{animMiss}}"
+                placeholder="jb2a.* or file.webm" />
+            </td>
+            <td class="ec-btn-cell">
+              <button type="button" class="ec-browse-btn" data-fp-type="video" title="Browse animation">📁</button>
+            </td>
+            <td class="ec-input-cell">
+              <input type="text" data-field="animImpact" value="{{animImpact}}"
+                placeholder="jb2a.* or file.webm"
+                title="Impact / hit-flash animation played on the target when the attack connects" />
+            </td>
+            <td class="ec-btn-cell">
+              <button type="button" class="ec-browse-btn" data-fp-type="video" title="Browse animation">📁</button>
+            </td>
+            <td>
+              <button type="button" class="ec-del-btn" data-action="deleteCustomRow" title="Remove">🗑</button>
+            </td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    </div>
+    {{/if}}
+
+  </div>{{!-- /ec-tab-panel --}}
+  {{/each}}
+  </div>{{!-- /ec-panels --}}
+
+  {{!-- Footer --}}
+  <div class="ec-footer">
+    <button type="button" class="ec-btn-cancel" data-action="cancel">Cancel</button>
+    <button type="button" class="ec-btn-save"   data-action="save">💾 Save</button>
+  </div>
+
+</div>

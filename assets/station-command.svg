@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 512 512">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: currentColor;
+        fill-rule: evenodd;
+      }
+    </style>
+  </defs>
+  <path id="Star_1" data-name="Star 1" class="cls-1" d="M257,25l34.927,278.737L407,325l-93.179,46.117,35.848,109.6L256.5,412.76l-93.169,67.959,35.848-109.6L106,326l115.073-22.263Z"/>
+</svg>
