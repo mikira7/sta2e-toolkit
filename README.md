@@ -29,6 +29,9 @@ A FoundryVTT module for **Star Trek Adventures 2nd Edition** (the `sta` game sys
 - [JB2A Animations](https://github.com/Jules-Bens-Aa/JB2A_DnD5e)
 - [Token Magic FX](https://github.com/Feu-Secret/Tokenmagic)
 
+##Localization
+- **English** - English is the only avaialble language, There are no plans to add additional languages at the moment.
+
 ## Installation
 
 Paste this manifest URL into FoundryVTT → Add-on Modules → Install Module:
