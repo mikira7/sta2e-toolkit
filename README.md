@@ -1,6 +1,6 @@
 # STA 2e Toolkit
 
-A FoundryVTT module for **Star Trek Adventures 2nd Edition** (the `sta` game system).
+A FoundryVTT module for **Star Trek Adventures 2nd Edition** (Using the Star Trek Adventures `sta` game system).
 
 ## Features
 
