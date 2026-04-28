@@ -183,6 +183,43 @@ function applyShipCardLockToHtml(html, flags = {}) {
 // init — register settings first
 // ---------------------------------------------------------------------------
 
+function _canWriteWorldSettings() {
+  return game.permissions?.SETTINGS_MODIFY?.includes(game.user.role) ?? game.user.isGM;
+}
+
+async function _setStaTrackerPoolValue(resource, value) {
+  const nextValue = Math.max(0, Number(value) || 0);
+  const Tracker = game.STATracker?.constructor ?? null;
+
+  if (Tracker && (Tracker.UserHasPermissionFor?.(resource) || !_canWriteWorldSettings())) {
+    await Tracker.DoUpdateResource(resource, nextValue);
+    if ((Tracker.ValueOf(resource) ?? 0) === nextValue) return true;
+  }
+
+  if (!_canWriteWorldSettings()) return false;
+
+  await game.settings.set("sta", resource, nextValue);
+  try {
+    Tracker?.SendUpdateMessage?.(Tracker.MessageType?.UpdateResource, resource, nextValue);
+    Tracker?.UpdateTracker?.();
+  } catch (err) {
+    console.warn(`STA2e Toolkit | Could not refresh STA ${resource} tracker after direct setting write:`, err);
+  }
+  return true;
+}
+
+async function _adjustStaTrackerPoolValue(resource, delta) {
+  const Tracker = game.STATracker?.constructor ?? null;
+  const current = Tracker
+    ? (Tracker.ValueOf(resource) ?? 0)
+    : (() => {
+        try { return game.settings.get("sta", resource) ?? 0; }
+        catch { return 0; }
+      })();
+
+  return _setStaTrackerPoolValue(resource, current + delta);
+}
+
 Hooks.once("init", () => {
   console.log("STA 2e Toolkit | Initializing");
   registerSettings();
@@ -550,6 +587,13 @@ Hooks.once("ready", async () => {
   // Re-apply sheet theme whenever the GM switches HUD theme
   Hooks.on("updateSetting", (setting) => {
     if (setting.key === "sta2e-toolkit.hudTheme") _applySheetTheme();
+
+    // Auto-save pool values to the active campaign whenever the STA tracker changes.
+    // This keeps savedMomentum/savedThreat current so that switching campaigns
+    // (via scene pin or switchCampaign) restores the right values.
+    if ((setting.key === "sta.momentum" || setting.key === "sta.threat") && _canWriteWorldSettings()) {
+      game.sta2eToolkit?.campaignStore?.syncPoolsFromTracker?.();
+    }
   });
 
   // Register condition auto-clear hooks
@@ -847,17 +891,11 @@ Hooks.once("ready", async () => {
     else if (msg.action === "adjustThreatFromRoll" && game.user.isGM) {
       const { delta } = msg;
       if (!delta || typeof delta !== "number") return;
-      const _ST = game.STATracker?.constructor ?? null;
-      if (_ST) {
-        const current = _ST.ValueOf("threat") ?? 0;
-        await _ST.DoUpdateResource("threat", Math.max(0, current + delta));
-      } else {
-        try {
-          const current = game.settings.get("sta", "threat") ?? 0;
-          await game.settings.set("sta", "threat", Math.max(0, current + delta));
-        } catch(e) {
-          console.error("STA2e Toolkit | adjustThreatFromRoll failed:", e);
-        }
+      try {
+        const updated = await _adjustStaTrackerPoolValue("threat", delta);
+        if (!updated) console.warn("STA2e Toolkit | adjustThreatFromRoll ignored: no connected GM can write STA threat.");
+      } catch(e) {
+        console.error("STA2e Toolkit | adjustThreatFromRoll failed:", e);
       }
     }
 
@@ -935,6 +973,52 @@ Hooks.on("settingChanged", (namespace, key, value) => {
   }
 });
 
+function _hasExplicitOwnerPermission(document, userId) {
+  const ownerLevel = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+  const explicit = document?.ownership?.[userId];
+  return Number(explicit) >= ownerLevel;
+}
+
+function _tokenMatchesPrimaryActor(token, primaryActor) {
+  if (!token || !primaryActor) return false;
+  const actor = token.actor ?? token.document?.actor ?? null;
+  return actor?.id === primaryActor.id
+    || actor?.uuid === primaryActor.uuid
+    || token.document?.actorId === primaryActor.id;
+}
+
+function _findExplicitlyOwnedSceneToken() {
+  const tokens = canvas.tokens?.placeables ?? [];
+  const userId = game.user.id;
+  const primaryActor = game.user.character ?? null;
+
+  const explicitlyOwned = tokens.filter(token =>
+    _hasExplicitOwnerPermission(token.document, userId)
+    || _hasExplicitOwnerPermission(token.actor, userId)
+  );
+
+  return explicitlyOwned.find(token => _tokenMatchesPrimaryActor(token, primaryActor))
+    ?? explicitlyOwned[0]
+    ?? tokens.find(token => _tokenMatchesPrimaryActor(token, primaryActor))
+    ?? null;
+}
+
+function _schedulePrimaryCharacterSelection() {
+  if (game.user.isGM) return;
+  if (!canvas?.ready) return;
+  if (!game.settings.get("sta2e-toolkit", "forcePrimaryCharacterSelection")) return;
+
+  setTimeout(() => {
+    if (!canvas?.ready || game.user.isGM) return;
+    if (!game.settings.get("sta2e-toolkit", "forcePrimaryCharacterSelection")) return;
+
+    const token = _findExplicitlyOwnedSceneToken();
+    if (!token) return;
+
+    token.control({ releaseOthers: true });
+  }, 250);
+}
+
 // ---------------------------------------------------------------------------
 // canvasReady — fires for ALL users when the active scene changes.
 // If the new scene has a pinned campaign, make it the world active campaign.
@@ -1002,19 +1086,30 @@ Hooks.on("canvasReady", async () => {
   // Refresh zone monitor for new scene
   toolkit.zoneMonitor?._debouncedRefresh();
 
+  _schedulePrimaryCharacterSelection();
+
   if (game.user.isGM) {
     const pinnedId = canvas?.scene?.getFlag("sta2e-toolkit", "campaignOverride") ?? null;
     if (pinnedId) {
       const campaign = toolkit.campaignStore.getCampaignById(pinnedId);
       if (campaign) {
-        await toolkit.campaignStore.setActiveCampaign(pinnedId);
+        // Save + switch happen immediately; pool restore is deferred by one tick
+        // so the STA system's own canvasReady hooks finish before we write to
+        // sta.momentum / sta.threat (avoids the STA tracker overwriting us).
+        await toolkit.campaignStore.setActiveCampaign(pinnedId, { deferRestore: true });
         // HUD re-render is triggered by setActiveCampaign → no extra call needed
         return;
       }
     }
   }
 
-  // No pin on this scene (or player client) — just re-render with current active
+  // No pin on this scene (or player client) — re-render with current active.
+  // On the GM client, also restore the active campaign's saved pools so the
+  // tracker reflects wherever that campaign left off.
+  if (game.user.isGM) {
+    const activeId = toolkit.campaignStore.getActiveCampaignId();
+    if (activeId) await toolkit.campaignStore._silentRestorePools(activeId);
+  }
   toolkit.hud?.render();
 
   // Restore persistent breach FX for any breach-flagged ships on this scene.
@@ -2931,9 +3026,12 @@ Hooks.once("ready", () => {
               } else if (actor) {
                 // Ground character: default move 1 zone, sprint up to 2 zones
                 const sprintOk = zn <= 2;
-                context.distance.total += sprintOk
+                const moveOk   = zn <= 1;
+                context.distance.total += moveOk
                   ? ` 🟢 Move OK`
-                  : ` 🔴 Move: ${zn}/2`;
+                  : sprintOk
+                    ? ` 🟡 Sprint (${zn}/2)`
+                    : ` 🔴 Over range (${zn}/2)`;
               }
             }
           }
@@ -2945,6 +3043,4 @@ Hooks.once("ready", () => {
 
     return context;
   };
-
-  console.log("STA2e Toolkit | Elevation-aware ruler patch applied.");
 });

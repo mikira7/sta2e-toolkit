@@ -160,6 +160,343 @@ function poolButtonHtml(pool, amount, tokenId = "") {
 // Checks for any item whose name contains "cloaking device" (case-insensitive).
 // STA 2e stores talents as items — type may be "talent", "starshiptalent", or
 // "talent2e" depending on system version, so we match by name only.
+const _ROLL_EDIT_SYSTEM_LABELS = {
+  communications: "Communications",
+  computers: "Computers",
+  engines: "Engines",
+  sensors: "Sensors",
+  structure: "Structure",
+  weapons: "Weapons",
+};
+
+const _ROLL_EDIT_DEPT_LABELS = {
+  command: "Command",
+  conn: "Conn",
+  security: "Security",
+  engineering: "Engineering",
+  science: "Science",
+  medicine: "Medicine",
+};
+
+function _rollEditLabel(labels, key) {
+  if (!key) return "";
+  return labels[key] ?? `${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+}
+
+function _rollEditValue(collection, key, fallback = 0) {
+  const raw = collection?.[key];
+  return Number(raw?.value ?? raw ?? fallback) || 0;
+}
+
+function _rollEditShipDataFromActor(actorId) {
+  const actor = game.actors.get(actorId);
+  if (!actor?.system?.systems) return null;
+  return {
+    label: actor.name,
+    actorId: actor.id,
+    systems: actor.system.systems ?? {},
+    depts: actor.system.departments ?? {},
+    hasAdvancedSensors: actor.items?.some(i => {
+      const n = i.name.toLowerCase();
+      return n.includes("advanced sensor suites") || n.includes("advanced sensors");
+    }) ?? false,
+    sensorsBreaches: actor.system?.systems?.sensors?.breaches ?? 0,
+  };
+}
+
+function _rollEditGetShipSource(rollData, selectedShipIdx) {
+  const ships = rollData.availableShips ?? [];
+  if (selectedShipIdx >= 0 && ships[selectedShipIdx]) return ships[selectedShipIdx];
+  return _rollEditShipDataFromActor(rollData.weaponContext?.shipActorId ?? rollData.actorId);
+}
+
+function _rollEditRecomputeDie(die, target, compThresh, critThresh) {
+  if (!die || typeof die.value !== "number") return die;
+  if (die.proceduralForced || die.autoSuccessTradeForced) {
+    return { ...die, success: true, crit: false, complication: false, critThreshold: critThresh };
+  }
+  const success = die.value <= target;
+  return {
+    ...die,
+    success,
+    crit: success && die.value <= critThresh,
+    complication: die.value >= compThresh,
+    critThreshold: critThresh,
+  };
+}
+
+function _rollEditCountSuccesses(dice = []) {
+  return dice.reduce((sum, die) => sum + (die?.success ? (die.crit ? 2 : 1) : 0), 0);
+}
+
+function _rollEditApplyChanges(rollData, formData) {
+  const next = foundry.utils.deepClone(rollData);
+  const newlyRolledShipDice = [];
+  const complicationRange = Math.min(5, Math.max(1, Number(formData.complicationRange) || 1));
+  const compThresh = 21 - complicationRange;
+
+  next.difficulty = Math.max(0, Number(formData.difficulty) || 0);
+  next.complicationRange = complicationRange;
+  next.compThresh = compThresh;
+
+  if (next.officerName) {
+    next.hasDedicatedFocus = !!formData.hasDedicatedFocus;
+    next.hasFocus = !!formData.hasFocus || next.hasDedicatedFocus;
+  }
+
+  const crewDept = Number(next.crewDept ?? Math.max(1, next.crewCritThresh ?? 1)) || 1;
+  const crewAttr = Number(next.crewAttr ?? ((next.crewTarget ?? 0) - crewDept)) || 0;
+  next.crewAttr = crewAttr;
+  next.crewDept = crewDept;
+  next.crewTarget = crewAttr + crewDept;
+  next.crewCritThresh = next.officerName
+    ? next.hasDedicatedFocus
+      ? Math.min(20, Math.max(1, crewDept * 2))
+      : next.hasFocus
+        ? Math.max(1, crewDept)
+        : 1
+    : Math.max(1, crewDept);
+
+  next.crewDice = (next.crewDice ?? []).map(d =>
+    _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh)
+  );
+  next.crewAssistDice = (next.crewAssistDice ?? []).map(d =>
+    _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh)
+  );
+  next.namedAssistDice = (next.namedAssistDice ?? []).map(d => ({
+    ...d,
+    complication: typeof d.value === "number" ? d.value >= compThresh : !!d.complication,
+  }));
+  next.apAssistDice = (next.apAssistDice ?? []).map(d => ({
+    ...d,
+    complication: typeof d.value === "number" ? d.value >= compThresh : !!d.complication,
+  }));
+
+  const crewFailed = _rollEditCountSuccesses(next.crewDice ?? []) === 0;
+  next.crewFailed = crewFailed;
+  next.shipAssist = !!formData.shipAssist;
+
+  const selectedShipIdx = Number(formData.selectedShipIdx);
+  next.selectedShipIdx = Number.isFinite(selectedShipIdx) ? selectedShipIdx : (next.selectedShipIdx ?? -1);
+  const shipSource = _rollEditGetShipSource(next, next.selectedShipIdx);
+  const systems = shipSource?.systems ?? {};
+  const depts = shipSource?.depts ?? {};
+  const systemKeys = Object.keys(systems);
+  const deptKeys = Object.keys(depts);
+  next.shipSystemKey = systemKeys.includes(formData.shipSystemKey)
+    ? formData.shipSystemKey
+    : systemKeys.includes(next.shipSystemKey)
+      ? next.shipSystemKey
+      : (systemKeys[0] ?? next.shipSystemKey ?? null);
+  next.shipDeptKey = deptKeys.includes(formData.shipDeptKey)
+    ? formData.shipDeptKey
+    : deptKeys.includes(next.shipDeptKey)
+      ? next.shipDeptKey
+      : (deptKeys[0] ?? next.shipDeptKey ?? null);
+  next.shipName = shipSource?.label ?? next.shipName ?? null;
+  next.shipSystems = _rollEditValue(systems, next.shipSystemKey, next.shipSystems ?? 0);
+  next.shipDept = _rollEditValue(depts, next.shipDeptKey, next.shipDept ?? 0);
+  next.shipTarget = next.shipSystems + next.shipDept;
+  next.shipCritThresh = Math.max(1, next.shipDept);
+  next.hasAdvancedSensors = !!shipSource?.hasAdvancedSensors;
+  next.sensorsBreaches = shipSource?.sensorsBreaches ?? next.sensorsBreaches ?? 0;
+  next.advancedSensorsActive = next.hasAdvancedSensors
+    && next.shipSystemKey === "sensors"
+    && (next.sensorsBreaches ?? 0) === 0;
+
+  if (crewFailed || !next.shipAssist) {
+    if (crewFailed) {
+      next.crewAssistDice = [];
+      next.namedAssistDice = [];
+      next.apAssistDice = [];
+    }
+    next._editSuppressedShipDice = (next.shipDice?.length ? next.shipDice : next._editSuppressedShipDice) ?? [];
+    next.shipDice = [];
+    return { rollData: next, newlyRolledShipDice };
+  }
+
+  const requiredShipDice = next.advancedSensorsActive ? 2 : 1;
+  let shipDice = (next.shipDice?.length ? next.shipDice : (next._editSuppressedShipDice ?? [])).map(d =>
+    _rollEditRecomputeDie(d, next.shipTarget, compThresh, next.shipCritThresh)
+  );
+  if (shipDice.length > requiredShipDice) shipDice = shipDice.slice(0, requiredShipDice);
+  if (shipDice.length < requiredShipDice) {
+    const missing = requiredShipDice - shipDice.length;
+    const newDice = next.reservePower && shipDice.length === 0
+      ? [
+          {
+            value: 1,
+            success: true,
+            crit: true,
+            complication: false,
+            critThreshold: next.shipCritThresh,
+            reservePowerForced: true,
+          },
+          ...rollPool(Math.max(0, missing - 1), next.shipTarget, compThresh, next.shipCritThresh)
+            .map(d => ({ ...d, reservePowerComp: d.complication })),
+        ]
+      : rollPool(missing, next.shipTarget, compThresh, next.shipCritThresh);
+    newlyRolledShipDice.push(...newDice);
+    shipDice = [...shipDice, ...newDice].slice(0, requiredShipDice);
+  }
+  next.shipDice = shipDice;
+  next._editSuppressedShipDice = [];
+  return { rollData: next, newlyRolledShipDice };
+}
+
+async function _openRollCardEditDialog(rollData) {
+  const ships = rollData.availableShips ?? [];
+  const selectedShipIdx = Number.isFinite(Number(rollData.selectedShipIdx)) ? Number(rollData.selectedShipIdx) : -1;
+  const initialShipSource = _rollEditGetShipSource(rollData, selectedShipIdx);
+  const initialSystems = initialShipSource?.systems ?? {};
+  const initialDepts = initialShipSource?.depts ?? {};
+  const shipOptions = ships.length > 0
+    ? `<option value="-1"${selectedShipIdx < 0 ? " selected" : ""}>No ship assist</option>` + ships.map((ship, idx) =>
+        `<option value="${idx}"${idx === selectedShipIdx ? " selected" : ""}>${ship.label}</option>`
+      ).join("")
+    : "";
+  const systemOptions = Object.keys(initialSystems).map(key =>
+    `<option value="${key}"${key === rollData.shipSystemKey ? " selected" : ""}>${_rollEditLabel(_ROLL_EDIT_SYSTEM_LABELS, key)} (${_rollEditValue(initialSystems, key)})</option>`
+  ).join("");
+  const deptOptions = Object.keys(initialDepts).map(key =>
+    `<option value="${key}"${key === rollData.shipDeptKey ? " selected" : ""}>${_rollEditLabel(_ROLL_EDIT_DEPT_LABELS, key)} (${_rollEditValue(initialDepts, key)})</option>`
+  ).join("");
+
+  return foundry.applications.api.DialogV2.wait({
+    window: { title: "Edit Dice Results" },
+    content: `
+      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:8px;font-family:${LC.font};">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Difficulty
+            <input id="sta2e-edit-difficulty" type="number" min="0" value="${rollData.difficulty ?? 0}"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Comp. Range
+            <input id="sta2e-edit-complication" type="number" min="1" max="5" value="${rollData.complicationRange ?? 1}"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+        </div>
+        ${rollData.officerName ? `
+        <div style="display:flex;gap:12px;align-items:center;padding:6px 8px;border:1px solid ${LC.borderDim};background:rgba(255,153,0,0.04);">
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+            <input id="sta2e-edit-focus" type="checkbox" ${rollData.hasFocus ? "checked" : ""}> Has Focus
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+            <input id="sta2e-edit-dedicated" type="checkbox" ${rollData.hasDedicatedFocus ? "checked" : ""}> Dedicated Focus
+          </label>
+        </div>` : ""}
+        <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;border:1px solid ${LC.borderDim};">
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:${LC.text};">
+            <input id="sta2e-edit-ship-assist" type="checkbox" ${rollData.shipAssist ? "checked" : ""}> Ship assists this roll
+          </label>
+          ${ships.length > 0 ? `
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Assisting Ship
+            <select id="sta2e-edit-ship-select"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+              ${shipOptions}
+            </select>
+          </label>` : ""}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+              System
+              <select id="sta2e-edit-ship-system"
+                style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+                ${systemOptions}
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+              Department
+              <select id="sta2e-edit-ship-dept"
+                style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+                ${deptOptions}
+              </select>
+            </label>
+          </div>
+          <div id="sta2e-edit-advanced-sensors" style="font-size:9px;color:${LC.textDim};letter-spacing:0.06em;"></div>
+        </div>
+      </div>`,
+    buttons: [
+      {
+        action: "save",
+        label: "Save Corrections",
+        icon: "fas fa-check",
+        default: true,
+        callback: (_event, _button, dlg) => ({
+          difficulty: dlg.element.querySelector("#sta2e-edit-difficulty")?.value,
+          complicationRange: dlg.element.querySelector("#sta2e-edit-complication")?.value,
+          hasFocus: !!dlg.element.querySelector("#sta2e-edit-focus")?.checked,
+          hasDedicatedFocus: !!dlg.element.querySelector("#sta2e-edit-dedicated")?.checked,
+          shipAssist: !!dlg.element.querySelector("#sta2e-edit-ship-assist")?.checked,
+          selectedShipIdx: dlg.element.querySelector("#sta2e-edit-ship-select")?.value ?? String(selectedShipIdx),
+          shipSystemKey: dlg.element.querySelector("#sta2e-edit-ship-system")?.value,
+          shipDeptKey: dlg.element.querySelector("#sta2e-edit-ship-dept")?.value,
+        }),
+      },
+      { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+    ],
+    render: (_event, dlg) => {
+      const shipSelect = dlg.element.querySelector("#sta2e-edit-ship-select");
+      const shipAssist = dlg.element.querySelector("#sta2e-edit-ship-assist");
+      const sysSelect = dlg.element.querySelector("#sta2e-edit-ship-system");
+      const deptSelect = dlg.element.querySelector("#sta2e-edit-ship-dept");
+      const advNotice = dlg.element.querySelector("#sta2e-edit-advanced-sensors");
+      const dedicated = dlg.element.querySelector("#sta2e-edit-dedicated");
+      const focus = dlg.element.querySelector("#sta2e-edit-focus");
+      dedicated?.addEventListener("change", () => {
+        if (dedicated.checked && focus) focus.checked = true;
+      });
+
+      const syncAdvancedSensors = () => {
+        if (!advNotice) return;
+        const idx = Number(shipSelect?.value ?? selectedShipIdx);
+        const shipSource = _rollEditGetShipSource(rollData, Number.isFinite(idx) ? idx : selectedShipIdx);
+        const active = !!shipSource?.hasAdvancedSensors
+          && sysSelect?.value === "sensors"
+          && (shipSource?.sensorsBreaches ?? 0) === 0;
+        if (active) {
+          advNotice.textContent = "Advanced Sensor Suites active: ship rolls 2 dice.";
+          advNotice.style.color = LC.green;
+        } else if (shipSource?.hasAdvancedSensors) {
+          advNotice.textContent = (shipSource?.sensorsBreaches ?? 0) > 0
+            ? `Advanced Sensor Suites unavailable: Sensors has ${shipSource.sensorsBreaches} breach${shipSource.sensorsBreaches === 1 ? "" : "es"}.`
+            : "Advanced Sensor Suites available when Sensors is selected.";
+          advNotice.style.color = LC.textDim;
+        } else {
+          advNotice.textContent = "";
+        }
+      };
+
+      const repopulateShipFields = () => {
+        const idx = Number(shipSelect?.value ?? selectedShipIdx);
+        if (shipAssist && shipSelect) shipAssist.checked = idx >= 0;
+        const shipSource = _rollEditGetShipSource(rollData, Number.isFinite(idx) ? idx : selectedShipIdx);
+        const systems = shipSource?.systems ?? {};
+        const depts = shipSource?.depts ?? {};
+        const prevSys = sysSelect?.value ?? rollData.shipSystemKey;
+        const prevDept = deptSelect?.value ?? rollData.shipDeptKey;
+        if (sysSelect) {
+          sysSelect.innerHTML = Object.keys(systems).map((key, i) =>
+            `<option value="${key}"${key === prevSys || (!prevSys && i === 0) ? " selected" : ""}>${_rollEditLabel(_ROLL_EDIT_SYSTEM_LABELS, key)} (${_rollEditValue(systems, key)})</option>`
+          ).join("");
+        }
+        if (deptSelect) {
+          deptSelect.innerHTML = Object.keys(depts).map((key, i) =>
+            `<option value="${key}"${key === prevDept || (!prevDept && i === 0) ? " selected" : ""}>${_rollEditLabel(_ROLL_EDIT_DEPT_LABELS, key)} (${_rollEditValue(depts, key)})</option>`
+          ).join("");
+        }
+        syncAdvancedSensors();
+      };
+
+      shipSelect?.addEventListener("change", repopulateShipFields);
+      sysSelect?.addEventListener("change", syncAdvancedSensors);
+      repopulateShipFields();
+    },
+  });
+}
+
 export function hasCloakingDevice(actor) {
   return actor.items.some(i =>
     i.name.toLowerCase().includes("cloaking device")
@@ -15131,6 +15468,36 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
   // ── Player ship — Reroll (Working Results card) ───────────────────────────
   // Available to ALL users so each officer can use their own reroll abilities.
+  // GM correction pass for unconfirmed Working Results cards.
+  html.querySelectorAll(".sta2e-edit-roll-card").forEach(btn => {
+    if (!game.user.isGM || message.getFlag("sta2e-toolkit", "confirmed")) {
+      btn.remove();
+      return;
+    }
+    btn.addEventListener("click", async () => {
+      try {
+        const payload = message.getFlag("sta2e-toolkit", "rollData")
+          ?? JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+        if (payload.confirmed || payload.isAssistRoll) return;
+        const formData = await _openRollCardEditDialog(payload);
+        if (!formData || formData === "cancel") return;
+        const { rollData: newRollData, newlyRolledShipDice } = _rollEditApplyChanges(payload, formData);
+        if (newlyRolledShipDice.length > 0) {
+          const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
+          const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
+          await dsnShowPool(newlyRolledShipDice, speaker);
+        }
+        await message.update({
+          content: buildPlayerRollCardHtml(newRollData),
+          "flags.sta2e-toolkit.rollData": newRollData,
+        });
+      } catch(err) {
+        console.error("STA2e Toolkit | edit roll card error:", err);
+        ui.notifications.error("Could not edit roll card — see console.");
+      }
+    });
+  });
+
   html.querySelectorAll(".sta2e-player-reroll").forEach(btn => {
     // Disable immediately if this card was already confirmed — the roll is final.
     if (message.getFlag("sta2e-toolkit", "confirmed")) {
@@ -15279,7 +15646,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             canvas.tokens?.get(payload.tokenId) ? ChatMessage.getSpeaker({ token: canvas.tokens.get(payload.tokenId) }) : null
           );
           btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "default"; btn.textContent = "✓ Rerolled";
-          await message.update({ content: buildPlayerRollCardHtml(newRollData) });
+          await message.update({
+            content: buildPlayerRollCardHtml(newRollData),
+            "flags.sta2e-toolkit.rollData": newRollData,
+          });
           return;
         }
 
@@ -15403,7 +15773,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           await dsnShowPool(synced.newShipDice, speaker);
         }
 
-        await message.update({ content: buildPlayerRollCardHtml(newRollData) });
+        await message.update({
+          content: buildPlayerRollCardHtml(newRollData),
+          "flags.sta2e-toolkit.rollData": newRollData,
+        });
       } catch(err) {
         console.error("STA2e Toolkit | player reroll error:", err);
         ui.notifications.error("Reroll failed — see console.");

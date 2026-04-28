@@ -11,6 +11,8 @@
  *   default                     → LCARS orange
  */
 
+import { getLcCssVars, getLcTokens } from "./lcars-theme.js";
+
 // ============================================================
 // Shared physics & formatting
 // ============================================================
@@ -134,6 +136,8 @@ const TNG_PRESETS = [
 ];
 
 function buildLCARSContent(ctx) {
+  const LC = getLcTokens();
+  const cssVars = getLcCssVars("lc", LC);
   const { nameShip, nameDest, tokenDistance3D, tokenFlatDistance, tokenElevDiff } = ctx;
   const tokenDistStr = tokenDistance3D !== null ? tokenDistance3D.toFixed(2) : "";
   const tokenSubStat = tokenDistance3D !== null
@@ -154,7 +158,7 @@ function buildLCARSContent(ctx) {
   return `
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Antonio:wght@400;700&display=swap');
-  .lc-wrap{background:#000;font-family:'Antonio','Trebuchet MS',sans-serif;color:#fff;border-radius:6px;overflow:hidden;}
+  .lc-wrap{${cssVars}background:var(--lc-bg);font-family:'Antonio','Trebuchet MS',sans-serif;color:var(--lc-text-bright);border-radius:6px;overflow:hidden;}
   .lc-wrap *{box-sizing:border-box;}
   .lc-head{height:64px;display:flex;align-items:center;flex-shrink:0;background:#ff9900;border-radius:6px 0 0 0;padding:0 20px;}
   .lc-head-title{color:#000;font-size:1em;letter-spacing:4px;font-weight:bold;flex:1;display:flex;align-items:center;}
@@ -213,6 +217,17 @@ function buildLCARSContent(ctx) {
   .lc-foot{height:36px;display:flex;align-items:center;flex-shrink:0;background:#ff9900;border-radius:0 0 0 6px;padding:0 16px;}
   .lc-foot-txt{color:#000;font-size:0.66em;letter-spacing:2px;flex:1;}
   .lc-foot-tag{background:#cc7700;color:#000;font-size:0.66em;letter-spacing:2px;padding:0 14px;height:24px;display:flex;align-items:center;border-radius:3px;}
+  .lc-head,.lc-foot{background:var(--lc-primary);}
+  .lc-head-title,.lc-foot-txt,.lc-foot-tag,.lc-sendbtn:hover,.lc-pill:hover,.lc-mainbtn{color:var(--lc-bg);}
+  .lc-route{background:var(--lc-panel);border-bottom-color:var(--lc-primary);}
+  .lc-route-lbl,.lc-arrow,.lc-sec-txt,.lc-time,.lc-sendbtn,.lc-pill,.lc-num-input,.lc-cresult .cr-warp,.lc-sd-arrow{color:var(--lc-primary);}
+  .lc-route-name,.lc-dist-val,.lc-cresult{color:var(--lc-text-bright);}
+  .lc-dist-bar,.lc-sec-bar,.lc-pip,.lc-mainbtn{background:var(--lc-primary);}
+  .lc-dist-lbl,.lc-dist-unit,.lc-dist-override{color:var(--lc-secondary);}
+  .lc-dist-override,.lc-pill,.lc-num-input{border-color:var(--lc-primary);}
+  .lc-sendbtn:hover,.lc-pill:hover{background:var(--lc-primary);border-color:var(--lc-primary);}
+  .lc-sd-input:focus,.lc-num-input:focus,.lc-dist-override:focus{border-color:var(--lc-tertiary);}
+  .lc-foot-tag{background:color-mix(in srgb,var(--lc-primary) 72%,black);}
 </style>
 
 <div class="lc-wrap" id="lc-wrap">

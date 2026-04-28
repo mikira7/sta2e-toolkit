@@ -128,6 +128,15 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register("sta2e-toolkit", "forcePrimaryCharacterSelection", {
+    name:    "STA2E.Settings.ForcePrimaryCharacterSelection.Name",
+    hint:    "STA2E.Settings.ForcePrimaryCharacterSelection.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
+
   game.settings.register("sta2e-toolkit", "showMinutes", {
     name: "STA2E.Settings.ShowMinutes.Name",
     hint: "STA2E.Settings.ShowMinutes.Hint",

@@ -1,192 +1,141 @@
 /**
  * sta2e-toolkit | lcars-theme.js
  *
- * Shared LCARS design token resolver.
- * Returns a full LC token set matched to the currently active campaign theme,
- * falling back to TNG Classic if no campaign is active.
- *
- * Usage:
- *   import { getLcTokens } from "./lcars-theme.js";
- *   const LC = getLcTokens();   // call at render time, not module load time
+ * Shared design token resolver for LCARS-era and faction-themed widgets.
+ * Call these helpers at render time so scene-pinned campaigns can affect UI.
  */
 
 const FONT = "'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif";
 
-// ── Per-theme token overrides ─────────────────────────────────────────────────
-
 const THEMES = {
-
-  // TNG / DS9 / VOY — warm orange LCARS
+  blue: {
+    bg: "#06111d", panel: "#081927", primary: "#f0a43a", secondary: "#c8942c",
+    tertiary: "#d8b45f", text: "#f2c77a", textDim: "#b8842e", textBright: "#ffffff",
+    border: "#a66f20", borderDim: "#3d2b12", green: "#66aa88", yellow: "#d8c86a",
+    orange: "#ff9900", red: "#ff4455", font: FONT,
+  },
   "lcars-tng": {
-    bg:         "#000814",
-    panel:      "#000d1a",
-    primary:    "#ff9900",   // orange
-    secondary:  "#cc88ff",   // purple
-    tertiary:   "#ffcc66",   // tan/gold
-    text:       "#ffcc88",
-    textDim:    "#aa6600",
-    textBright: "#ffffff",
-    border:     "#cc6600",
-    borderDim:  "#331a00",
-    green:      "#66cc66",
-    yellow:     "#ffcc00",
-    orange:     "#ff6600",
-    red:        "#ff3333",
-    font:       FONT,
+    bg: "#000000", panel: "#050505", primary: "#f6a726", secondary: "#c0a200",
+    tertiary: "#f2c77a", text: "#f6c36d", textDim: "#b78a20", textBright: "#f2f2f2",
+    border: "#f6a726", borderDim: "#403000", green: "#48c76b", yellow: "#ffef3a",
+    orange: "#f47c20", red: "#d92222", font: FONT,
   },
-
-  // TNG Blue-Grey — cooler, slate-blue variant seen in some TNG displays
   "lcars-tng-blue": {
-    bg:         "#00050f",
-    panel:      "#000a1a",
-    primary:    "#5599ff",   // cool blue
-    secondary:  "#99ccff",   // light blue accent
-    tertiary:   "#aabbdd",   // slate
-    text:       "#c8deff",
-    textDim:    "#4466aa",
-    textBright: "#ffffff",
-    border:     "#3366cc",
-    borderDim:  "#0a1a33",
-    green:      "#55ddaa",
-    yellow:     "#ffdd55",
-    orange:     "#ff8833",
-    red:        "#ff4455",
-    font:       FONT,
+    bg: "#000000", panel: "#02080d", primary: "#f0a43a", secondary: "#008c56",
+    tertiary: "#d8b45f", text: "#f2c77a", textDim: "#b8842e", textBright: "#ffffff",
+    border: "#a66f20", borderDim: "#3d2b12", green: "#00a565", yellow: "#d8ca62",
+    orange: "#f1a23a", red: "#b51424", font: FONT,
   },
-
-  // TOS — boxy, illuminated panels, gold/amber/green
   "tos-panel": {
-    bg:         "#0a0800",
-    panel:      "#141000",
-    primary:    "#ddaa00",   // gold/amber
-    secondary:  "#cc4400",   // red-orange accent
-    tertiary:   "#88cc44",   // green
-    text:       "#eecc77",
-    textDim:    "#886600",
-    textBright: "#ffffff",
-    border:     "#aa8800",
-    borderDim:  "#2a2000",
-    green:      "#88cc44",
-    yellow:     "#ffdd00",
-    orange:     "#ff6600",
-    red:        "#ff2200",
-    font:       FONT,
+    bg: "#0a0800", panel: "#141000", primary: "#ddaa00", secondary: "#cc4400",
+    tertiary: "#88cc44", text: "#eecc77", textDim: "#886600", textBright: "#ffffff",
+    border: "#aa8800", borderDim: "#2a2000", green: "#88cc44", yellow: "#ffdd00",
+    orange: "#ff6600", red: "#ff2200", font: FONT,
   },
-
-  // TMP — sleek blue-white, monochrome blue-green
   "tmp-console": {
-    bg:         "#000810",
-    panel:      "#000d1c",
-    primary:    "#33aadd",   // teal-blue
-    secondary:  "#55ddcc",   // cyan accent
-    tertiary:   "#99ddee",
-    text:       "#aaddee",
-    textDim:    "#336677",
-    textBright: "#ffffff",
-    border:     "#226688",
-    borderDim:  "#051522",
-    green:      "#44ddaa",
-    yellow:     "#eedd44",
-    orange:     "#ff8833",
-    red:        "#ff3344",
-    font:       FONT,
+    bg: "#000000", panel: "#001008", primary: "#00d27a", secondary: "#00aef0",
+    tertiary: "#ed2f76", text: "#3df09d", textDim: "#0d7c4c", textBright: "#e8fff5",
+    border: "#00aef0", borderDim: "#003a2a", green: "#00d27a", yellow: "#e9e95a",
+    orange: "#f69b2e", red: "#e82938", font: FONT,
   },
-
-  // ENT — dark gunmetal, industrial, muted blue/grey
   "ent-panel": {
-    bg:         "#080a0c",
-    panel:      "#0e1215",
-    primary:    "#4488bb",   // muted steel blue
-    secondary:  "#6699aa",   // grey-blue
-    tertiary:   "#8899aa",
-    text:       "#99bbcc",
-    textDim:    "#3a5566",
-    textBright: "#ddeeff",
-    border:     "#335566",
-    borderDim:  "#101820",
-    green:      "#44aa77",
-    yellow:     "#ccaa33",
-    orange:     "#cc6633",
-    red:        "#cc2233",
-    font:       FONT,
+    bg: "#000000", panel: "#2e2e2e", primary: "#c7c7c7", secondary: "#3d3d3d",
+    tertiary: "#7aaec4", text: "#d0d0d0", textDim: "#5e5e5e", textBright: "#f0f0f0",
+    border: "#c7c7c7", borderDim: "#373737", green: "#a7d46c", yellow: "#f0e800",
+    orange: "#c47b00", red: "#9b0000", font: FONT,
   },
-
-  // Klingon — deep crimson/black, harsh and aggressive
-  "klingon": {
-    bg:         "#0a0000",
-    panel:      "#120000",
-    primary:    "#cc1111",   // blood red
-    secondary:  "#ff4422",   // orange-red accent
-    tertiary:   "#884400",   // dark burnt orange
-    text:       "#ddaa88",
-    textDim:    "#662200",
-    textBright: "#ffffff",
-    border:     "#881100",
-    borderDim:  "#2a0000",
-    green:      "#886600",   // desaturated — Klingons don't do friendly green
-    yellow:     "#cc8800",
-    orange:     "#ff4400",
-    red:        "#ff1100",
-    font:       FONT,
+  klingon: {
+    bg: "#0a0000", panel: "#120000", primary: "#cc1111", secondary: "#ff4422",
+    tertiary: "#884400", text: "#ddaa88", textDim: "#662200", textBright: "#ffffff",
+    border: "#881100", borderDim: "#2a0000", green: "#886600", yellow: "#cc8800",
+    orange: "#ff4400", red: "#ff1100", font: FONT,
   },
-
-  // Romulan — cold dark green, precise and clinical
-  "romulan": {
-    bg:         "#000a00",
-    panel:      "#000f00",
-    primary:    "#22aa44",   // Romulan green
-    secondary:  "#44dd88",   // bright green accent
-    tertiary:   "#669966",   // muted sage
-    text:       "#88cc88",
-    textDim:    "#226633",
-    textBright: "#ccffcc",
-    border:     "#1a6633",
-    borderDim:  "#001a00",
-    green:      "#44dd88",
-    yellow:     "#aacc33",
-    orange:     "#cc6622",
-    red:        "#cc2233",
-    font:       FONT,
+  romulan: {
+    bg: "#000a00", panel: "#000f00", primary: "#22aa44", secondary: "#44dd88",
+    tertiary: "#669966", text: "#88cc88", textDim: "#226633", textBright: "#ccffcc",
+    border: "#1a6633", borderDim: "#001a00", green: "#44dd88", yellow: "#aacc33",
+    orange: "#cc6622", red: "#cc2233", font: FONT,
   },
 };
 
-// ── Public API ────────────────────────────────────────────────────────────────
+const ERA_THEME_DEFAULTS = {
+  tng: "lcars-tng",
+  tos: "tos-panel",
+  tmp: "tmp-console",
+  ent: "ent-panel",
+  klingon: "klingon",
+  romulan: "romulan",
+  custom: "lcars-tng-blue",
+};
 
-/**
- * Returns the LC token set for the currently active campaign theme.
- * Safe to call at any time after Foundry is ready; falls back to TNG Classic.
- *
- * @returns {object} LC design tokens
- */
-export function getLcTokens() {
+const THEME_TEMPLATES = {
+  blue: "starfleet-blue",
+  "lcars-tng": "tng-lcars",
+  "lcars-tng-blue": "tech-lcars",
+  "tos-panel": "tos-console",
+  "tmp-console": "tmp-grid",
+  "ent-panel": "ent-stream",
+  klingon: "klingon-tactical",
+  romulan: "romulan-grid",
+};
+
+export function themeForEra(era) {
+  return ERA_THEME_DEFAULTS[era] ?? "lcars-tng";
+}
+
+export function getActiveLcThemeKey() {
   let themeKey = "lcars-tng";
   try {
-    // Primary: active campaign theme via the toolkit API
-    const store    = game?.sta2eToolkit?.campaignStore;
+    const store = game?.sta2eToolkit?.campaignStore;
     const campaign = store?.getActiveCampaign?.();
-    if (campaign?.theme) {
-      themeKey = campaign.theme;
-    } else {
-      // Fallback: global hudTheme setting
+    if (campaign?.theme) themeKey = campaign.theme;
+    else if (campaign?.era) themeKey = themeForEra(campaign.era);
+    else {
       const globalTheme = game?.settings?.get("sta2e-toolkit", "hudTheme");
       if (globalTheme) themeKey = globalTheme;
     }
   } catch {
-    // Foundry not ready yet — use default
+    // Foundry not ready yet.
   }
-  return THEMES[themeKey] ?? THEMES["lcars-tng"];
+  return THEMES[themeKey] ? themeKey : "lcars-tng";
 }
 
-/**
- * Map of all available theme keys → display names.
- * Matches the choices registered in settings.js.
- */
+export function getLcTokens() {
+  return THEMES[getActiveLcThemeKey()] ?? THEMES["lcars-tng"];
+}
+
+export function getLcThemeTemplate(themeKey = getActiveLcThemeKey()) {
+  return THEME_TEMPLATES[themeKey] ?? "tng-lcars";
+}
+
+export function getLcCssVars(prefix = "lc", tokens = getLcTokens()) {
+  const pairs = {
+    bg: tokens.bg,
+    panel: tokens.panel,
+    primary: tokens.primary,
+    secondary: tokens.secondary,
+    tertiary: tokens.tertiary,
+    text: tokens.text,
+    "text-dim": tokens.textDim,
+    "text-bright": tokens.textBright,
+    border: tokens.border,
+    "border-dim": tokens.borderDim,
+    green: tokens.green,
+    yellow: tokens.yellow,
+    orange: tokens.orange,
+    red: tokens.red,
+    font: tokens.font,
+  };
+  return Object.entries(pairs).map(([key, value]) => `--${prefix}-${key}:${value};`).join("");
+}
+
 export const THEME_NAMES = {
-  "lcars-tng":      "LCARS TNG Classic",
+  blue: "Starfleet Blue",
+  "lcars-tng": "LCARS TNG Classic",
   "lcars-tng-blue": "LCARS TNG Blue-Grey",
-  "tos-panel":      "TOS Panel",
-  "tmp-console":    "TMP Console",
-  "ent-panel":      "ENT Panel",
-  "klingon":        "Klingon",
-  "romulan":        "Romulan",
+  "tos-panel": "TOS Panel",
+  "tmp-console": "TMP Console",
+  "ent-panel": "ENT Panel",
+  klingon: "Klingon",
+  romulan: "Romulan",
 };

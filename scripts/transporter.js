@@ -12,11 +12,12 @@
  * are used when available; free-tier paths with .tint() are used otherwise.
  */
 
-import { getLcTokens } from "./lcars-theme.js";
+import { getLcCssVars, getLcTokens } from "./lcars-theme.js";
 import {
   formatStardate, formatCalendarDate,
   formatKlingonDate, formatRomulanDate,
 } from "./stardate-calc.js";
+import { TransporterVFX } from "./transporter-vfx.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -31,7 +32,7 @@ function _getCurrentDateLabel() {
     if (!campaign) return null;
 
     const era   = campaign.era;
-    const theme = (() => {
+    const theme = campaign.theme ?? (() => {
       try { return game.settings.get(MODULE, "hudTheme"); } catch { return "lcars-tng"; }
     })();
 
@@ -75,18 +76,7 @@ function _buildThemeVars() {
   // Base variables applied to all themes
   const baseVars = `
     .sta2e-tp-dialog {
-      --tp-bg:         ${LC.bg};
-      --tp-panel:      ${LC.panel};
-      --tp-primary:    ${LC.primary};
-      --tp-secondary:  ${LC.secondary};
-      --tp-tertiary:   ${LC.tertiary};
-      --tp-text:       ${LC.text};
-      --tp-text-dim:   ${LC.textDim};
-      --tp-border:     ${LC.border};
-      --tp-border-dim: ${LC.borderDim};
-      --tp-red:        ${LC.red};
-      --tp-green:      ${LC.green};
-      --tp-font:       ${LC.font};
+      ${getLcCssVars("tp", LC)}
     }
     .sta2e-tp-dialog .sta2e-tp-select {
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='${arrow}'/%3E%3C/svg%3E") !important;
@@ -754,6 +744,13 @@ function _isPatronJb2a() {
   return game.modules.get("jb2a_patreon")?.active ?? false;
 }
 
+// ── VFX engine selector ───────────────────────────────────────────────────────
+
+function _isNativeVFX() {
+  try { return game.settings.get(MODULE, "vfxEngine") === "native"; }
+  catch { return false; }
+}
+
 // ── VFX playback ──────────────────────────────────────────────────────────────
 // Uses patron effect stack when jb2aTier === "patron", otherwise falls back
 // to the free blue stack with a faction tint applied to each layer.
@@ -983,14 +980,18 @@ async function _beamOutSelected(transporterType, effects) {
   _playSound(config.sound);
 
   for (const token of controlled) {
-    _playEffect(token, transporterType, effects);
-    _applyTransporterMagic(token, transporterType);
+    if (_isNativeVFX()) {
+      TransporterVFX.beamOut(token, transporterType);
+    } else {
+      _playEffect(token, transporterType, effects);
+      _applyTransporterMagic(token, transporterType);
+    }
     setTimeout(async () => {
       try {
-        await token.document.update({ alpha: 0 }, { animate: true, animation: { duration: 800 } });
+        await token.document.update({ alpha: 0 }, { animate: true, animation: { duration: 1800 } });
         setTimeout(async () => { try { await token.document.delete(); } catch { /**/ } }, 1000);
       } catch (e) { console.error("Transporter beam-out error:", e); }
-    }, 2400);
+    }, 3200);
   }
 }
 
@@ -1309,23 +1310,33 @@ async function _beamInQueue(selectedTokens, transporterType, spacing, effects, p
     try {
       const [created] = await canvas.scene.createEmbeddedDocuments("Token", [newTokenData]);
       if (!created) throw new Error("Token creation returned nothing.");
-      setTimeout(async () => {
-        try {
-          const td = created.document ?? created;
-          // Apply sparkle rain right as the token begins to fade in so it's
-          // visible from the very first frame of materialisation.
+      if (_isNativeVFX()) {
+        // Native VFX: beamIn drives the full materialisation sequence —
+        // mesh alpha, glow filters, and document sync are all handled internally.
+        // A 50 ms yield ensures the canvas token is registered before we animate it.
+        setTimeout(() => {
           const tk = canvas.tokens.get(created.id);
-          if (tk) _applyTransporterMagic(tk, transporterType);
-          await td.update({ alpha: 1 }, { animate: true, animation: { duration: 800 } });
-          // Let the effect shimmer briefly after fully materialising, then
-          // clean up.  (800 ms fade + ~1 s visible = 1800 ms)
-          setTimeout(() => {
-            const tk2 = canvas.tokens.get(created.id);
-            if (tk2) _removeTransporterMagic(tk2);
-          }, 1800);
-        } catch { /**/ }
-      }, 2000);
-      _playEffect(created, transporterType, effects);
+          if (tk) TransporterVFX.beamIn(tk, transporterType);
+        }, 50);
+      } else {
+        setTimeout(async () => {
+          try {
+            const td = created.document ?? created;
+            // Apply sparkle rain right as the token begins to fade in so it's
+            // visible from the very first frame of materialisation.
+            const tk = canvas.tokens.get(created.id);
+            if (tk) _applyTransporterMagic(tk, transporterType);
+            await td.update({ alpha: 1 }, { animate: true, animation: { duration: 800 } });
+            // Let the effect shimmer briefly after fully materialising, then
+            // clean up.  (800 ms fade + ~1 s visible = 1800 ms)
+            setTimeout(() => {
+              const tk2 = canvas.tokens.get(created.id);
+              if (tk2) _removeTransporterMagic(tk2);
+            }, 1800);
+          } catch { /**/ }
+        }, 2000);
+        _playEffect(created, transporterType, effects);
+      }
     } catch (e) {
       console.error(`Transporter: error spawning ${info.displayName}:`, e);
       ui.notifications.error(`Failed to spawn ${info.displayName}.`);
@@ -1454,23 +1465,30 @@ async function _spawnGroupEntries(group, transporterType, spacing, effects, patt
     try {
       const [created] = await canvas.scene.createEmbeddedDocuments("Token", [newTokenData]);
       if (!created) throw new Error("Token creation returned nothing.");
-      setTimeout(async () => {
-        try {
-          const td = created.document ?? created;
-          // Apply sparkle rain right as the token begins to fade in so it's
-          // visible from the very first frame of materialisation.
+      if (_isNativeVFX()) {
+        setTimeout(() => {
           const tk = canvas.tokens.get(created.id);
-          if (tk) _applyTransporterMagic(tk, effectType);
-          await td.update({ alpha: 1 }, { animate: true, animation: { duration: 800 } });
-          // Let the effect shimmer briefly after fully materialising, then
-          // clean up.  (800 ms fade + ~1 s visible = 1800 ms)
-          setTimeout(() => {
-            const tk2 = canvas.tokens.get(created.id);
-            if (tk2) _removeTransporterMagic(tk2);
-          }, 1800);
-        } catch { /**/ }
-      }, 2000);
-      _playEffect(created, effectType, effects);
+          if (tk) TransporterVFX.beamIn(tk, effectType);
+        }, 50);
+      } else {
+        setTimeout(async () => {
+          try {
+            const td = created.document ?? created;
+            // Apply sparkle rain right as the token begins to fade in so it's
+            // visible from the very first frame of materialisation.
+            const tk = canvas.tokens.get(created.id);
+            if (tk) _applyTransporterMagic(tk, effectType);
+            await td.update({ alpha: 1 }, { animate: true, animation: { duration: 800 } });
+            // Let the effect shimmer briefly after fully materialising, then
+            // clean up.  (800 ms fade + ~1 s visible = 1800 ms)
+            setTimeout(() => {
+              const tk2 = canvas.tokens.get(created.id);
+              if (tk2) _removeTransporterMagic(tk2);
+            }, 1800);
+          } catch { /**/ }
+        }, 2000);
+        _playEffect(created, effectType, effects);
+      }
     } catch (e) {
       console.error(`Transporter: error restoring ${entry.name}:`, e);
       ui.notifications.error(`Failed to restore ${entry.name}.`);
@@ -2002,6 +2020,21 @@ function _buildInnerHTML(groups, transporterEffects, adjustedSpacing, gridScaleF
 // Registers the beam buffer storage setting and all sound path settings.
 
 export function registerTransporterSettings() {
+  // Visual effects engine selector
+  game.settings.register(MODULE, "vfxEngine", {
+    name:    "Transporter Visual Effects Engine",
+    hint:    "Native: uses Foundry v14's built-in VFX API — no Sequencer or JB2A required. "
+           + "Sequencer: plays JB2A assets via the Sequencer module (classic behaviour).",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      sequencer: "Sequencer + JB2A (default)",
+      native:    "Native Foundry v14 VFX (experimental)",
+    },
+    default: "sequencer",
+  });
+
   // Internal: beam buffer storage — world-scoped so all GMs share it
   game.settings.register(MODULE, "transporterBeamBuffer", {
     name:    "Transporter Beam Buffer",

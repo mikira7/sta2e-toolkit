@@ -126,6 +126,8 @@
   "STA2E.Settings.ZoneMovementLog.Hint": "Post a chat message when a token moves between zones. Can be overridden per-scene.",
   "STA2E.Settings.ElevationRuler.Name": "Token Hover — 3D Distance Label",
   "STA2E.Settings.ElevationRuler.Hint": "When a token is selected and you hover over another token, show the true 3D distance (√(horizontal² + Δelevation²)) as a floating label on the canvas.",
+  "STA2E.Settings.ForcePrimaryCharacterSelection.Name": "Scene Change — Select Explicitly Owned Character",
+  "STA2E.Settings.ForcePrimaryCharacterSelection.Hint": "When players enter a scene, select only a token they explicitly own. Tokens shared through All Players ownership are ignored; the assigned primary character is used as a fallback.",
   "STA2E.Settings.ShowMinutes.Name": "Show Minutes on HUD",
   "STA2E.Settings.ShowMinutes.Hint": "Display HH:MM on the Stardate HUD. If disabled, only hours are shown.",
   "STA2E.Settings.HudVisibility.Name": "HUD Visible To",

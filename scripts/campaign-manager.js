@@ -3,6 +3,8 @@
  * Campaign Manager dialog — ApplicationV2, Foundry v13 native.
  */
 
+import { themeForEra } from "./lcars-theme.js";
+
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
@@ -27,7 +29,7 @@ export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
     return {
       campaigns: store.getCampaigns().map(c => ({
         ...c,
-        eraLabel: { tng: "TNG/DS9/VOY", tos: "TOS/TMP", ent: "ENT Era", custom: "Custom" }[c.era] ?? "TNG",
+        eraLabel: { tng: "TNG/DS9/VOY", tos: "TOS/TMP", ent: "ENT Era", klingon: "Klingon", romulan: "Romulan", custom: "Custom" }[c.era] ?? "TNG",
         isCustom: c.era === "custom",
         isENT: c.era === "ent"
       }))
@@ -51,7 +53,7 @@ export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
       select.addEventListener("change", async (e) => {
         const newEra = e.target.value;
         const id     = e.target.dataset.campaignEra;
-        const update = { era: newEra };
+        const update = { era: newEra, theme: themeForEra(newEra) };
         // Seed sensible defaults when switching to ENT — calendar only, no stardate
         if (newEra === "ent") {
           const existing = game.sta2eToolkit.campaignStore.getCampaignById(id);

@@ -2471,6 +2471,9 @@ export function buildPlayerRollCardHtml(rollData) {
   };
 
   const p = encodeURIComponent(JSON.stringify(rollData));
+  // Include the edit action in stored card HTML so the GM sees it even when a
+  // player created or rerolled the card. Non-GM clients remove it at render time.
+  const canGmEditCard = !confirmed && !isAssistRoll;
 
   // Determine if Bold/Cautious reroll is valid:
   // Bold (Disc)    — requires at least 1 Threat added to the GM pool during this roll.
@@ -2681,6 +2684,16 @@ export function buildPlayerRollCardHtml(rollData) {
   </div>` : `
   <div class="sta2e-working-actions sta2e-working-actions--confirm"
     style="padding:6px 10px;border-top:1px solid ${LC.borderDim};">
+    ${canGmEditCard ? `
+    <button class="sta2e-edit-roll-card"
+      data-payload="${p}"
+      style="width:100%;padding:5px 10px;margin-bottom:5px;
+        background:rgba(255,153,0,0.08);
+        border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+        font-family:${LC.font};font-size:10px;font-weight:700;
+        color:${LC.primary};letter-spacing:0.06em;">
+      Edit Results
+    </button>` : ""}
     <button class="sta2e-player-confirm"
       data-payload="${p}"
       style="width:100%;padding:7px 10px;
@@ -3205,6 +3218,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       shipTarget: state.shipTarget,
       crewCritThresh: state.crewCritThresh,
       shipCritThresh: state.shipCritThresh,
+      crewAttr: state.crewAttr,
+      crewDept: state.crewDept,
+      shipSystems: state.shipSystems,
+      shipDept: state.shipDept,
       compThresh: state.compThresh ?? 20,
       // Assist rolls always show the die regardless of success — "crew failed" concept
       // doesn't apply when the whole point is to display the single rolled die.
@@ -3239,6 +3256,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       officerName: state.officer?.name ?? null,
       officerAttrKey: state.officerAttrKey ?? null,
       officerDiscKey: state.officerDiscKey ?? null,
+      hasFocus: state.hasFocus ?? false,
+      hasDedicatedFocus: state.hasDedicatedFocus ?? false,
       crewTarget: state.crewTarget,
       complicationRange: state.complicationRange ?? 1,
       shipName: (state.availableShips?.length > 0 && state.selectedShipIdx >= 0)
@@ -3251,6 +3270,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       advancedSensorsActive: state.advancedSensorsActive ?? false,
       reservePower: state.reservePower ?? false,
       sheetMode: state.sheetMode ?? false,
+      availableShips: state.availableShips ?? [],
+      selectedShipIdx: state.selectedShipIdx ?? -1,
       playerMode: state.playerMode ?? false,
       isAssistRoll: state.isAssistRoll ?? false,
       assistOfficerName: state.isAssistRoll ? (state.officer?.name ?? actor.name) : null,

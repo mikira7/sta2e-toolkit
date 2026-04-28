@@ -23,7 +23,7 @@
  * assist pipeline feeds the primary pool per STA2e rules.
  */
 
-import { getLcTokens } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
 import { openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { readOfficerStats } from "./crew-manifest.js";
 import { CombatHUD } from "./combat-hud.js";
@@ -36,14 +36,7 @@ const LC = new Proxy({}, {
 });
 
 function _getOpposedThemeKey() {
-  try {
-    const store = game?.sta2eToolkit?.campaignStore;
-    const campaign = store?.getActiveCampaign?.();
-    if (campaign?.theme) return campaign.theme;
-    return game.settings.get(MODULE, "hudTheme") ?? "lcars-tng";
-  } catch {
-    return "lcars-tng";
-  }
+  return getActiveLcThemeKey();
 }
 
 // Attribute / Discipline option tables — drives the dropdowns in the dialog.
@@ -109,7 +102,7 @@ export function openOpposedTaskSetup(prefill = {}) {
 
   const dialog = new foundry.applications.api.DialogV2({
     window: { title: "STA 2e · Opposed Task", resizable: true },
-    position: { width: 520 },
+    position: { width: 760 },
     content: html,
     buttons: [
       { action: "cancel", label: "Cancel" },
@@ -140,6 +133,8 @@ export function openOpposedTaskSetup(prefill = {}) {
 
 function _buildDialogHtml(state, { recent, lastSnap }) {
   const theme = _getOpposedThemeKey();
+  const template = getLcThemeTemplate(theme);
+  const themeVars = getLcCssVars("op");
   const attrOpts = (selectedKey) => ATTR_OPTIONS.map(a =>
     `<option value="${a.key}" ${selectedKey === a.key ? "selected" : ""}>${a.label}</option>`).join("");
   const discOpts = (selectedKey) => DISC_OPTIONS.map(d =>
@@ -162,10 +157,8 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
   const clearRecentDisabled = recent.length ? "" : "disabled";
 
   return `
-    <div class="sta2e-opposed-setup" data-theme="${theme}" style="
-      --op-bg:${LC.bg};--op-panel:${LC.panel};--op-primary:${LC.primary};--op-secondary:${LC.secondary};
-      --op-tertiary:${LC.tertiary};--op-text:${LC.text};--op-text-dim:${LC.textDim};--op-border:${LC.border};
-      --op-border-dim:${LC.borderDim};--op-font:${LC.font};
+    <div class="sta2e-opposed-setup" data-theme="${theme}" data-template="${template}" style="
+      ${themeVars}
       display:flex;flex-direction:column;gap:10px;font-family:${LC.font};color:${LC.text};
       background:${LC.bg};
       padding:10px;border:1px solid ${LC.border};border-left:8px solid ${LC.primary};
@@ -180,7 +173,7 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
           background:${LC.panel};border:1px solid ${LC.border};border-radius:4px 18px 18px 4px;
           padding:10px 12px;display:flex;flex-direction:column;justify-content:center;">
           <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:${LC.primary};font-weight:700;">
-            Opposed Task Setup
+            Opposed Task
           </div>
           <div style="font-size:11px;line-height:1.5;color:${LC.textDim};margin-top:4px;">
             Assign defender and attacker, suggest the core Attribute and Discipline, then post the card.
@@ -204,7 +197,7 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
         </select>
       </div>
 
-      <div style="display:block;">
+      <div class="op-task-field" style="display:block;">
         <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${LC.textDim};">
           Task Name
           <input type="text" class="op-task-name" value="${_esc(state.taskName)}"
@@ -212,23 +205,23 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
         </label>
       </div>
 
-      <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${LC.textDim};">
+      <label class="op-flavor-field" style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${LC.textDim};">
         Flavor
         <input type="text" class="op-flavor" value="${_esc(state.flavor)}"
           style="width:100%;background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};padding:8px 10px;border-radius:12px 3px 12px 3px;font-size:12px;"/>
       </label>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;">
+      <div class="op-comp-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;">
         ${_complicationSliderHtml("defender", "Defender", defCompRange, LC.primary)}
         ${_complicationSliderHtml("attacker", "Attacker", atkCompRange, LC.secondary)}
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+      <div class="op-slot-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
         ${_slotHtml("defender", "Defender", state.defenderActorId)}
         ${_slotHtml("attacker", "Attacker", state.attackerActorId)}
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="op-roll-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         ${_sideSuggestionHtml("defender", "Defender", state.defenderSuggestedAttr, state.defenderSuggestedDisc)}
         ${_sideSuggestionHtml("attacker", "Attacker", state.attackerSuggestedAttr, state.attackerSuggestedDisc)}
       </div>
@@ -238,7 +231,7 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
   function _sideSuggestionHtml(sideKey, label, attrKey, discKey) {
     const accent = sideKey === "defender" ? LC.primary : LC.secondary;
     return `
-      <div style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
+      <div class="op-panel op-panel--roll-pair" style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
         <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
           ${label} Roll Pair
         </div>
@@ -258,7 +251,7 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
 
   function _complicationSliderHtml(sideKey, label, value, accent) {
     return `
-      <div style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
+      <div class="op-panel op-panel--complication" style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
         <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
           ${label} Complication Range
         </div>
@@ -697,6 +690,8 @@ async function postOpposedTaskCard(snapshot) {
 
 function _renderCardHtml(d) {
   const theme = _getOpposedThemeKey();
+  const template = getLcThemeTemplate(theme);
+  const themeVars = getLcCssVars("op");
   const primary = LC.primary;
   const secondary = LC.secondary;
   const font = LC.font;
@@ -808,9 +803,9 @@ function _renderCardHtml(d) {
     : "";
 
   return `
-<div class="sta2e-opposed-task" data-task-id="${d.taskId}" data-theme="${theme}"
-  style="--op-bg:${LC.bg};--op-panel:${LC.panel};--op-primary:${LC.primary};--op-secondary:${LC.secondary};--op-tertiary:${LC.tertiary};--op-text:${LC.text};--op-text-dim:${LC.textDim};--op-border:${LC.border};--op-border-dim:${LC.borderDim};--op-font:${LC.font};background:${LC.bg};
-    border:1px solid ${border};border-left:6px solid ${primary};border-radius:0 0 18px 4px;font-family:${font};color:${LC.text};max-width:480px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.03), 0 10px 24px rgba(0,0,0,0.3);">
+<div class="sta2e-opposed-task" data-task-id="${d.taskId}" data-theme="${theme}" data-template="${template}"
+  style="${themeVars}background:${LC.bg};
+    border:1px solid ${border};border-left:6px solid ${primary};border-radius:0 0 18px 4px;font-family:${font};color:${LC.text};max-width:640px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.03), 0 10px 24px rgba(0,0,0,0.3);">
   <div class="sta2e-opposed-card-header" style="background:${primary};color:${LC.bg};padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
     <div style="font-size:11px;letter-spacing:0.14em;font-weight:700;text-transform:uppercase;">
       ${d.kindIcon} Opposed Task

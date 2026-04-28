@@ -9,6 +9,7 @@ import {
   getSceneZones, getZoneAtPoint as _getZoneAtPoint,
   getZoneDistance as _getZoneDistance,
 } from "./zone-data.js";
+import { TransporterVFX } from "./transporter-vfx.js";
 
 export class ToolkitAPI {
 
@@ -70,6 +71,58 @@ export class ToolkitAPI {
    */
   getCampaigns() {
     return this.campaignStore.getCampaigns();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pool persistence — Momentum & Threat auto-sync per campaign
+  //
+  // Pools are kept in sync automatically:
+  //   • Whenever sta.momentum or sta.threat changes in the STA tracker, the
+  //     new value is silently saved to the active campaign (wired in main.js).
+  //   • Whenever a campaign becomes active (scene change or switchCampaign),
+  //     its saved pool values are automatically restored into the tracker.
+  //
+  // The two methods below are provided for macros that want explicit control.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Manually snapshot the current live pool values into the active campaign.
+   * (Auto-sync makes this unnecessary in normal play; useful for edge cases.)
+   *
+   * @example
+   * await game.sta2eToolkit.savePoolsToActiveCampaign();
+   */
+  async savePoolsToActiveCampaign() {
+    await this.campaignStore.savePoolsToActiveCampaign();
+  }
+
+  /**
+   * Manually push a campaign's saved pool values back into the live tracker.
+   * (Normally happens automatically on campaign switch.)
+   *
+   * @param {string} id  Campaign id to restore pools from.
+   *
+   * @example
+   * await game.sta2eToolkit.restorePoolsFromCampaign("abc123");
+   */
+  async restorePoolsFromCampaign(id) {
+    await this.campaignStore.restorePoolsFromCampaign(id);
+  }
+
+  /**
+   * Switch the active campaign.
+   * Automatically restores the incoming campaign's saved Momentum and Threat.
+   * (Current pool values are already kept up-to-date by the auto-sync hook,
+   * so there's no need to explicitly save before switching.)
+   *
+   * @param {string} id  Campaign id to switch to.
+   *
+   * @example
+   * const campB = game.sta2eToolkit.getCampaigns().find(c => c.name === "Campaign B");
+   * await game.sta2eToolkit.switchCampaign(campB.id);
+   */
+  async switchCampaign(id) {
+    await this.campaignStore.setActiveCampaign(id);
   }
 
   // ---------------------------------------------------------------------------
@@ -359,6 +412,27 @@ export class ToolkitAPI {
       speaker: ChatMessage.getSpeaker(),
       flags: { "sta2e-toolkit": { type: "warpCard", delta: travelTime } }
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Transporter VFX — dev / test helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fire a native transporter VFX on all currently selected tokens.
+   * Use this from the browser console to preview the effect without
+   * opening the transporter dialog.
+   *
+   *   game.sta2eToolkit.testVFX("tngFed")          // beam-out (default)
+   *   game.sta2eToolkit.testVFX("klingon", "in")   // beam-in
+   *
+   * Valid types: voyFed tngFed tmpFed tosFed klingon cardassian romulan ferengi borg
+   *
+   * @param {string}        type   Faction key
+   * @param {"out"|"in"}    phase  "out" or "in"
+   */
+  testVFX(type = "tngFed", phase = "out") {
+    TransporterVFX.test(type, phase);
   }
 
   // ---------------------------------------------------------------------------

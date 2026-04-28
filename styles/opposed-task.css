@@ -1,16 +1,285 @@
 .sta2e-opposed-setup,
 .sta2e-opposed-task {
+  --op-glow: color-mix(in srgb, var(--op-primary) 32%, transparent);
+  --op-template-line: var(--op-tertiary);
   color: var(--op-text);
   font-family: var(--op-font);
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.sta2e-opposed-setup {
+  background:
+    linear-gradient(90deg, var(--op-primary) 0 14px, transparent 14px 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--op-panel) 82%, black), var(--op-bg)) !important;
+  border: 0 !important;
+  border-radius: 32px 6px 22px 6px !important;
+  box-shadow: 0 0 0 1px var(--op-border), 0 12px 30px rgba(0,0,0,0.42), 0 0 22px var(--op-glow) !important;
+  padding: 14px 16px 16px 28px !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.sta2e-opposed-setup > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sta2e-opposed-setup::after,
+.sta2e-opposed-task::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255,255,255,0.035) 0,
+    rgba(255,255,255,0.035) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+  mix-blend-mode: screen;
+  opacity: 0.18;
+}
+
+.sta2e-opposed-setup-header {
+  grid-template-columns: 156px minmax(0, 1fr) !important;
+  min-height: 118px;
+  margin-bottom: 2px;
+}
+
+.sta2e-opposed-setup-sidebar {
+  background:
+    linear-gradient(180deg, var(--op-primary) 0 58%, var(--op-secondary) 58% 72%, var(--op-tertiary) 72% 100%) !important;
+  border-radius: 30px 0 0 30px !important;
+}
+
+.sta2e-opposed-setup-sidebar::before,
+.sta2e-opposed-setup-sidebar::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  width: 56px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--op-bg);
+}
+
+.sta2e-opposed-setup-sidebar::before { top: 16px; }
+.sta2e-opposed-setup-sidebar::after { bottom: 16px; }
+
+.sta2e-opposed-setup-titlebox {
+  background:
+    linear-gradient(90deg, transparent 0 16px, var(--op-primary) 16px 52px, transparent 52px 100%),
+    var(--op-bg) !important;
+  border: 0 !important;
+  border-top: 4px solid var(--op-primary) !important;
+  border-bottom: 4px solid var(--op-tertiary) !important;
+  border-radius: 0 24px 24px 0 !important;
+  min-height: 118px;
+}
+
+.sta2e-opposed-setup-toolbar,
+.sta2e-opposed-setup .op-task-field,
+.sta2e-opposed-setup .op-flavor-field,
+.sta2e-opposed-setup .op-comp-grid,
+.sta2e-opposed-setup .op-slot-grid,
+.sta2e-opposed-setup .op-roll-grid {
+  margin-left: 20px;
+}
+
+.sta2e-opposed-setup-toolbar {
+  justify-content: flex-end;
+  min-height: 30px;
+  padding-right: 6px;
+  border-top: 6px solid var(--op-secondary);
+  border-bottom: 6px solid var(--op-tertiary);
+  background: var(--op-bg);
+}
+
+.sta2e-opposed-setup .op-task-field,
+.sta2e-opposed-setup .op-flavor-field {
+  background: color-mix(in srgb, var(--op-panel) 74%, black);
+  border-left: 10px solid var(--op-primary);
+  padding: 8px 10px;
+}
+
+.sta2e-opposed-setup .op-flavor-field {
+  border-left-color: var(--op-tertiary);
+}
+
+.sta2e-opposed-setup .op-comp-grid {
+  grid-template-columns: 0.85fr 0.85fr 1fr !important;
+}
+
+.sta2e-opposed-setup .op-comp-grid::after {
+  content: "";
+  display: block;
+  min-height: 72px;
+  border-radius: 0 26px 26px 0;
+  background:
+    linear-gradient(90deg, var(--op-secondary) 0 42%, var(--op-bg) 42% 46%, var(--op-tertiary) 46% 100%);
+}
+
+.sta2e-opposed-setup .op-slot-grid {
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) !important;
+}
+
+.sta2e-opposed-setup .op-slot-grid::before {
+  content: "";
+  grid-column: 2;
+  grid-row: 1;
+  background: var(--op-tertiary);
+  border-radius: 999px;
+}
+
+.sta2e-opposed-setup .op-slot-grid > .op-slot:first-child { grid-column: 1; }
+.sta2e-opposed-setup .op-slot-grid > .op-slot:last-child { grid-column: 3; }
+
+.sta2e-opposed-setup .op-roll-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  border-top: 10px solid var(--op-primary);
+  padding-top: 8px;
+}
+
+.sta2e-opposed-setup input,
+.sta2e-opposed-setup select {
+  border-radius: 2px !important;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--op-primary) 45%, transparent);
+  text-transform: none;
+  min-height: 32px;
+}
+
+.sta2e-opposed-setup .op-slot,
+.sta2e-opposed-setup .op-panel {
+  border-radius: 18px 3px 18px 3px !important;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--op-primary) 18%, transparent), transparent 34%),
+    var(--op-panel) !important;
+  border-color: var(--op-border-dim) !important;
+}
+
+.sta2e-opposed-task {
+  position: relative;
+  border: 0 !important;
+  border-radius: 34px 4px 22px 4px !important;
+  box-shadow: 0 0 0 1px var(--op-border), 0 14px 30px rgba(0,0,0,0.46), 0 0 20px var(--op-glow) !important;
+  background:
+    linear-gradient(90deg, var(--op-primary) 0 46px, transparent 46px 100%),
+    var(--op-bg) !important;
+  padding-left: 46px;
+  min-width: min(640px, 100%);
+}
+
+.sta2e-opposed-task::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 72px;
+  width: 46px;
+  bottom: 42px;
+  background: var(--op-primary);
+  border-radius: 0 30px 30px 0;
+  z-index: 0;
+}
+
+.sta2e-opposed-task > * {
+  position: relative;
+  z-index: 1;
 }
 
 .sta2e-opposed-task .sta2e-opposed-card-header {
   position: relative;
+  background:
+    linear-gradient(90deg, var(--op-primary), var(--op-primary) 62%, var(--op-secondary) 62%, var(--op-secondary) 78%, var(--op-tertiary) 78%) !important;
+  border-radius: 22px 0 0 0 !important;
+  color: var(--op-bg) !important;
+  min-height: 42px;
+  padding-left: 18px !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-header::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  bottom: -7px;
+  width: 88px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--op-bg);
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-summary,
+.sta2e-opposed-task .sta2e-opposed-card-sides,
+.sta2e-opposed-task .sta2e-opposed-resolution,
+.sta2e-opposed-task .sta2e-opposed-card-actions {
+  background: color-mix(in srgb, var(--op-panel) 82%, black) !important;
+  margin-left: 8px;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-summary {
+  border-bottom: 1px solid var(--op-border-dim);
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-side {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--op-panel) 94%, white), var(--op-panel)) !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-sides {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) !important;
+  gap: 0 !important;
+  border: 0 !important;
+  padding: 10px 0;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-sides::after {
+  content: "";
+  grid-column: 2;
+  grid-row: 1;
+  background: var(--op-template-line);
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-side-defender { grid-column: 1; }
+.sta2e-opposed-task .sta2e-opposed-card-side-attacker { grid-column: 3; }
+
+.sta2e-opposed-task .sta2e-opposed-card-side {
+  min-height: 126px;
+  border: 0 !important;
+  padding: 12px 14px !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-sides::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  border: 2px solid color-mix(in srgb, var(--op-template-line) 60%, transparent);
+  opacity: 0.28;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-side img,
+.sta2e-opposed-setup .op-slot img {
+  border-radius: 12px 2px 12px 2px !important;
+  border-color: var(--op-tertiary) !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-footerbar {
+  height: 8px !important;
+  background: linear-gradient(90deg, var(--op-primary) 0 46%, var(--op-secondary) 46% 68%, var(--op-tertiary) 68%) !important;
 }
 
 .sta2e-opposed-task .sta2e-op-roll,
 .sta2e-opposed-task .sta2e-op-cancel {
-  border-radius: 10px !important;
+  border-radius: 999px 4px 999px 4px !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .sta2e-opposed-setup .op-slot,
@@ -55,17 +324,75 @@
 .sta2e-opposed-setup[data-theme="lcars-tng-blue"],
 .sta2e-opposed-task[data-theme="lcars-tng"],
 .sta2e-opposed-task[data-theme="lcars-tng-blue"] {
-  filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--op-primary) 24%, transparent));
+  --op-template-line: var(--op-tertiary);
+  filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--op-tertiary) 30%, transparent));
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"],
+.sta2e-opposed-task[data-theme="lcars-tng"] {
+  background:
+    linear-gradient(90deg, var(--op-primary) 0 44px, transparent 44px 100%),
+    linear-gradient(180deg, var(--op-primary) 0 18px, transparent 18px 100%),
+    var(--op-bg) !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng-blue"],
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] {
+  background:
+    linear-gradient(90deg, var(--op-secondary) 0 14px, transparent 14px 100%),
+    radial-gradient(circle at 96% 18%, color-mix(in srgb, var(--op-primary) 28%, transparent) 0 46px, transparent 48px),
+    linear-gradient(180deg, var(--op-bg), color-mix(in srgb, var(--op-panel) 70%, black)) !important;
 }
 
 .sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar,
 .sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-sidebar {
-  border-radius: 26px 6px 6px 26px !important;
+  border-radius: 36px 0 0 36px !important;
+  min-height: 114px !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar {
+  background:
+    linear-gradient(180deg, var(--op-primary) 0 50%, var(--op-bg) 50% 54%, var(--op-primary) 54% 100%) !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar::before {
+  width: 76px;
+  height: 48px;
+  right: 0;
+  top: 34px;
+  border-radius: 30px 0 0 30px;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar::after {
+  display: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-sidebar {
+  background:
+    linear-gradient(180deg, var(--op-secondary) 0 28%, var(--op-primary) 28% 72%, var(--op-secondary) 72% 100%) !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-titlebox,
+.sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-titlebox {
+  border-top-width: 6px !important;
+  border-bottom-width: 6px !important;
 }
 
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-header,
 .sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-header {
-  border-radius: 0 !important;
+  border-radius: 28px 0 0 0 !important;
+  min-height: 36px;
+  padding-left: 20px !important;
+}
+
+.sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-header {
+  background:
+    linear-gradient(90deg, var(--op-primary) 0 28%, var(--op-secondary) 28% 56%, #d0d0d0 56% 70%, var(--op-tertiary) 70%) !important;
+}
+
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-header {
+  background:
+    linear-gradient(90deg, var(--op-secondary) 0 34%, var(--op-primary) 34% 60%, var(--op-tertiary) 60% 78%, var(--op-secondary) 78%) !important;
 }
 
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-summary,
@@ -74,7 +401,223 @@
 .sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-summary,
 .sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-side,
 .sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-resolution {
-  background-image: none !important;
+  background-image:
+    linear-gradient(90deg, color-mix(in srgb, var(--op-tertiary) 12%, transparent), transparent 38%),
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(0,0,0,0.12)) !important;
+}
+
+.sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-sides::before,
+.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-sides::before {
+  border-radius: 20px 4px 20px 4px;
+  border-width: 3px;
+  opacity: 0.5;
+}
+
+/* TNG setup template: broad LCARS elbow + black control well. */
+.sta2e-opposed-setup[data-theme="lcars-tng"] {
+  gap: 8px !important;
+  padding: 70px 34px 14px 82px !important;
+  border-radius: 0 0 0 18px !important;
+  background: var(--op-bg) !important;
+  box-shadow: 0 0 0 1px var(--op-primary), 0 14px 28px rgba(0,0,0,0.55) !important;
+  min-height: 700px;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"]::after {
+  opacity: 0.08;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"]::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: min(430px, calc(100% - 280px));
+  height: 30px;
+  border-radius: 15px 0 0 15px;
+  background: var(--op-primary);
+  pointer-events: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-header {
+  display: block !important;
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  position: static;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar {
+  position: absolute !important;
+  left: 72px;
+  top: 76px;
+  width: 166px !important;
+  min-height: 82px !important;
+  border-radius: 58px 0 0 0 !important;
+  background: var(--op-bg) !important;
+  z-index: 2;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar::before {
+  display: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar > * {
+  display: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-titlebox {
+  position: absolute !important;
+  top: 16px;
+  right: 34px;
+  width: 268px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 38px 0 16px !important;
+  border: 0 !important;
+  border-radius: 0 15px 15px 0 !important;
+  background:
+    linear-gradient(90deg, var(--op-bg) 0 calc(100% - 30px), var(--op-primary) calc(100% - 30px) 100%) !important;
+  align-items: flex-end;
+  justify-content: flex-end !important;
+  z-index: 3;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-titlebox > div:first-child {
+  color: var(--op-primary) !important;
+  font-size: 24px !important;
+  line-height: 30px !important;
+  letter-spacing: 0.03em !important;
+  font-weight: 400 !important;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-titlebox > div:last-child {
+  display: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-toolbar,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-task-field,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-flavor-field,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-comp-grid,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-grid,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-roll-grid {
+  margin-left: 0;
+  position: relative;
+  z-index: 3;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-toolbar {
+  display: grid !important;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px !important;
+  min-height: 74px;
+  padding: 0 0 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--op-border-dim);
+  background: var(--op-bg);
+  align-items: end;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-recent {
+  grid-column: 1 / -1;
+  order: -1;
+  width: 100%;
+  border-radius: 0 !important;
+  min-height: 28px;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-reuse-last {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-clear-recent {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-reuse-last,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-clear-recent,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-pick {
+  border-radius: 999px !important;
+  min-width: 82px;
+  background: var(--op-primary) !important;
+  color: var(--op-bg) !important;
+  border-color: transparent !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-clear-recent {
+  background: var(--op-red) !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] button:not(:disabled):hover,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-reuse-last:not(:disabled):hover,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-clear-recent:not(:disabled):hover,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-pick:not(:disabled):hover {
+  background: #c9a6ff !important;
+  border-color: #c9a6ff !important;
+  color: var(--op-bg) !important;
+  box-shadow: 0 0 12px rgba(201,166,255,0.55) !important;
+  filter: none !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-task-field,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-flavor-field {
+  background: var(--op-bg);
+  border-left: 8px solid var(--op-primary);
+  padding: 8px 8px 8px 10px;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-flavor-field {
+  border-left-color: var(--op-tertiary);
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-comp-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  margin-top: 18px;
+  border-top: 20px solid var(--op-primary);
+  padding-top: 14px;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-comp-grid::after {
+  display: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-grid::before {
+  display: none;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-grid > .op-slot:first-child,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot-grid > .op-slot:last-child {
+  grid-column: auto;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-roll-grid {
+  border-top: 0;
+  padding-top: 8px;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-panel,
+.sta2e-opposed-setup[data-theme="lcars-tng"] .op-slot {
+  border: 2px solid var(--op-primary) !important;
+  border-radius: 12px 12px 12px 12px !important;
+  background: var(--op-bg) !important;
+  box-shadow: none !important;
+}
+
+.sta2e-opposed-setup[data-theme="lcars-tng"] input,
+.sta2e-opposed-setup[data-theme="lcars-tng"] select {
+  background: var(--op-bg) !important;
+  border: 1px solid var(--op-border) !important;
+  color: var(--op-text) !important;
+  box-shadow: none;
 }
 
 .sta2e-opposed-setup[data-theme="tos-panel"],
@@ -84,6 +627,43 @@
   border-width: 2px !important;
   border-radius: 0 !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 0 0 1px #111;
+}
+
+.sta2e-opposed-setup[data-theme="tos-panel"] {
+  background:
+    linear-gradient(90deg, #2b2b2b 0 28px, transparent 28px 100%),
+    repeating-linear-gradient(90deg, transparent 0 18px, rgba(255,255,255,0.035) 18px 20px),
+    #151515 !important;
+}
+
+.sta2e-opposed-task[data-theme="tos-panel"] {
+  background:
+    linear-gradient(90deg, #2b2b2b 0 16px, transparent 16px 100%),
+    #090909 !important;
+}
+
+.sta2e-opposed-setup[data-theme="tmp-console"],
+.sta2e-opposed-task[data-theme="tmp-console"],
+.sta2e-opposed-setup[data-theme="ent-panel"],
+.sta2e-opposed-task[data-theme="ent-panel"] {
+  text-transform: uppercase;
+}
+
+.sta2e-opposed-setup[data-theme="klingon"],
+.sta2e-opposed-task[data-theme="klingon"],
+.sta2e-opposed-setup[data-theme="romulan"],
+.sta2e-opposed-task[data-theme="romulan"] {
+  border-radius: 0 !important;
+}
+
+.sta2e-opposed-setup[data-theme="klingon"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-task[data-theme="klingon"] .sta2e-opposed-card-header {
+  clip-path: polygon(0 0, 96% 0, 100% 100%, 0 100%);
+}
+
+.sta2e-opposed-setup[data-theme="romulan"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-task[data-theme="romulan"] .sta2e-opposed-card-header {
+  clip-path: polygon(0 0, 100% 0, 94% 50%, 100% 100%, 0 100%);
 }
 
 .sta2e-opposed-setup[data-theme="tos-panel"] .sta2e-opposed-setup-sidebar,
@@ -109,8 +689,14 @@
 
 .sta2e-opposed-setup[data-theme="tmp-console"],
 .sta2e-opposed-task[data-theme="tmp-console"] {
-  border-radius: 6px !important;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-primary) 25%, transparent), 0 8px 20px rgba(0,0,0,0.35);
+  --op-template-line: var(--op-secondary);
+  border-radius: 8px !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-secondary) 70%, transparent), 0 8px 20px rgba(0,0,0,0.45);
+  background:
+    linear-gradient(90deg, var(--op-secondary) 0 7px, transparent 7px 100%),
+    repeating-linear-gradient(0deg, rgba(0,210,122,0.09) 0 2px, transparent 2px 11px),
+    radial-gradient(circle at 82% 28%, color-mix(in srgb, var(--op-primary) 16%, transparent), transparent 34%),
+    var(--op-bg) !important;
 }
 
 .sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-sidebar,
@@ -125,12 +711,33 @@
 
 .sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-header {
   border-radius: 0 !important;
+  background:
+    linear-gradient(90deg, var(--op-secondary) 0 32%, var(--op-primary) 32% 56%, var(--op-tertiary) 56% 70%, var(--op-green) 70%) !important;
+}
+
+.sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-sidebar {
+  background:
+    repeating-linear-gradient(180deg, var(--op-primary) 0 14px, var(--op-bg) 14px 18px, var(--op-secondary) 18px 30px, var(--op-bg) 30px 34px) !important;
+  border-radius: 14px 0 0 14px !important;
+}
+
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-resolution {
+  background:
+    linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--op-primary) 15%, transparent) 22px 24px, transparent 24px),
+    repeating-linear-gradient(180deg, rgba(0,210,122,0.055) 0 1px, transparent 1px 9px),
+    var(--op-panel) !important;
 }
 
 .sta2e-opposed-setup[data-theme="ent-panel"],
 .sta2e-opposed-task[data-theme="ent-panel"] {
-  border-radius: 4px !important;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 12px 28px rgba(0,0,0,0.28);
+  --op-template-line: var(--op-primary);
+  border-radius: 0 !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 12px 28px rgba(0,0,0,0.34);
+  background:
+    linear-gradient(90deg, #c9c9c9 0 8px, #383838 8px 34px, transparent 34px 100%),
+    var(--op-bg) !important;
 }
 
 .sta2e-opposed-setup[data-theme="ent-panel"] .sta2e-opposed-setup-sidebar,
@@ -145,24 +752,191 @@
 
 .sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-header {
   border-radius: 0 !important;
+  background:
+    linear-gradient(90deg, #c9c9c9 0 64%, var(--op-yellow) 64% 76%, var(--op-red) 76% 88%, var(--op-tertiary) 88%) !important;
+  color: #000 !important;
+}
+
+.sta2e-opposed-setup[data-theme="ent-panel"] .sta2e-opposed-setup-sidebar {
+  background:
+    linear-gradient(90deg, #c9c9c9 0 8px, #3b3b3b 8px 50%, #202020 50% 100%) !important;
+  border-radius: 0 !important;
+}
+
+.sta2e-opposed-setup[data-theme="ent-panel"] .sta2e-opposed-setup-sidebar::before {
+  top: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--op-tertiary);
+  box-shadow: 0 44px 0 var(--op-yellow), 0 88px 0 var(--op-red);
+}
+
+.sta2e-opposed-setup[data-theme="ent-panel"] .sta2e-opposed-setup-sidebar::after {
+  display: none;
+}
+
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="ent-panel"] .sta2e-opposed-resolution {
+  background:
+    linear-gradient(90deg, #d0d0d0 0 8px, #333 8px 32px, transparent 32px),
+    #050505 !important;
 }
 
 .sta2e-opposed-setup[data-theme="klingon"],
 .sta2e-opposed-task[data-theme="klingon"] {
+  --op-template-line: var(--op-primary);
   box-shadow: 0 0 0 1px rgba(90, 0, 0, 0.9), 0 10px 24px rgba(0,0,0,0.45);
+  background:
+    linear-gradient(135deg, transparent 0 16px, var(--op-primary) 16px 22px, transparent 22px),
+    linear-gradient(90deg, var(--op-primary) 0 10px, transparent 10px),
+    var(--op-bg) !important;
 }
 
 .sta2e-opposed-setup[data-theme="klingon"] .sta2e-opposed-setup-sidebar,
 .sta2e-opposed-task[data-theme="klingon"] .sta2e-opposed-card-header {
-  background-image: linear-gradient(180deg, color-mix(in srgb, var(--op-primary) 85%, #220000), #200000) !important;
+  background-image:
+    repeating-linear-gradient(135deg, var(--op-primary) 0 18px, var(--op-orange) 18px 26px, transparent 26px 34px),
+    linear-gradient(180deg, color-mix(in srgb, var(--op-primary) 85%, #220000), #200000) !important;
+}
+
+.sta2e-opposed-task[data-theme="klingon"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="klingon"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="klingon"] .sta2e-opposed-resolution {
+  background:
+    linear-gradient(135deg, transparent 0 14px, rgba(204,17,17,0.18) 14px 18px, transparent 18px 34px),
+    var(--op-panel) !important;
 }
 
 .sta2e-opposed-setup[data-theme="romulan"],
 .sta2e-opposed-task[data-theme="romulan"] {
+  --op-template-line: var(--op-secondary);
   box-shadow: 0 0 0 1px rgba(0, 40, 18, 0.9), 0 10px 24px rgba(0,0,0,0.4);
+  background:
+    linear-gradient(45deg, transparent 0 20px, color-mix(in srgb, var(--op-secondary) 40%, transparent) 20px 22px, transparent 22px 42px),
+    linear-gradient(90deg, var(--op-primary) 0 8px, transparent 8px),
+    var(--op-bg) !important;
 }
 
 .sta2e-opposed-setup[data-theme="romulan"] .sta2e-opposed-setup-sidebar,
 .sta2e-opposed-task[data-theme="romulan"] .sta2e-opposed-card-header {
   background-image: linear-gradient(180deg, color-mix(in srgb, var(--op-primary) 80%, #001206), #00160a) !important;
+}
+
+.sta2e-opposed-task[data-theme="romulan"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="romulan"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="romulan"] .sta2e-opposed-resolution {
+  background:
+    linear-gradient(45deg, transparent 0 18px, rgba(68,221,136,0.1) 18px 20px, transparent 20px 36px),
+    var(--op-panel) !important;
+}
+
+/* Simple social opposed chat card. */
+.sta2e-opposed-task {
+  background: var(--op-bg) !important;
+  border: 1px solid var(--op-border) !important;
+  border-left: 4px solid var(--op-primary) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.32) !important;
+  max-width: 560px !important;
+  min-width: 0 !important;
+  padding-left: 0 !important;
+  overflow: hidden;
+}
+
+.sta2e-opposed-task::before,
+.sta2e-opposed-task::after,
+.sta2e-opposed-task .sta2e-opposed-card-header::after,
+.sta2e-opposed-task .sta2e-opposed-card-sides::before,
+.sta2e-opposed-task .sta2e-opposed-card-sides::after {
+  display: none !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-header {
+  background: var(--op-primary) !important;
+  background-image: none !important;
+  color: var(--op-bg) !important;
+  border-radius: 0 !important;
+  min-height: 0 !important;
+  padding: 8px 12px !important;
+}
+
+.sta2e-opposed-task[data-theme] .sta2e-opposed-card-header {
+  background: var(--op-primary) !important;
+  background-color: var(--op-primary) !important;
+  background-image: none !important;
+  clip-path: none !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-header > * {
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-summary,
+.sta2e-opposed-task .sta2e-opposed-card-sides,
+.sta2e-opposed-task .sta2e-opposed-resolution,
+.sta2e-opposed-task .sta2e-opposed-card-actions {
+  background: var(--op-panel) !important;
+  background-image: none !important;
+  margin-left: 0 !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-summary {
+  min-height: 0 !important;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--op-border-dim) !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-sides {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 8px !important;
+  padding: 10px 12px !important;
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--op-border-dim) !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-side {
+  grid-column: auto !important;
+  min-height: 0 !important;
+  border: 1px solid var(--op-border-dim) !important;
+  border-radius: 10px !important;
+  padding: 10px !important;
+  background: color-mix(in srgb, var(--op-panel) 82%, black) !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-side img {
+  border-radius: 8px !important;
+  border-color: var(--op-border) !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-actions {
+  padding: 10px 12px !important;
+  gap: 8px !important;
+}
+
+.sta2e-opposed-task .sta2e-op-roll,
+.sta2e-opposed-task .sta2e-op-cancel,
+.sta2e-opposed-task .sta2e-add-to-pool {
+  border-radius: 999px !important;
+  min-height: 30px;
+  padding: 7px 12px !important;
+  background: color-mix(in srgb, var(--op-button-accent, var(--op-primary)) 18%, var(--op-bg)) !important;
+  border: 1px solid var(--op-button-accent, var(--op-primary)) !important;
+  color: var(--op-button-accent, var(--op-primary)) !important;
+  font-weight: 700;
+}
+
+.sta2e-opposed-task button:disabled {
+  border-radius: 999px !important;
+}
+
+.sta2e-opposed-task .sta2e-opposed-card-footerbar {
+  height: 4px !important;
+  background: var(--op-primary) !important;
 }
