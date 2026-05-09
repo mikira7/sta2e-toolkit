@@ -1,0 +1,1529 @@
+<div class="sta2e-cc-config">
+  <nav class="sta2e-cc-config-tabs">
+    <button type="button" class="is-active" data-cc-config-tab="config">Config</button>
+    <button type="button" data-cc-config-tab="species">01 Species</button>
+    <button type="button" data-cc-config-tab="environment">02 Environment</button>
+    <button type="button" data-cc-config-tab="upbringing">03 Upbringing</button>
+    <button type="button" data-cc-config-tab="career">04 Career Path</button>
+    <button type="button" data-cc-config-tab="experience">05 Experience</button>
+    <button type="button" data-cc-config-tab="events">06 Career Events</button>
+    <button type="button" data-cc-config-tab="finishing">07 Finishing</button>
+    <button type="button" data-cc-config-tab="supporting">Supporting / Supervisory</button>
+  </nav>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="config">
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Creator Config</h2>
+        <p>Store the shared roles, talents, traits, values, focuses, items, weapons, and armor that later creation steps can draw from.</p>
+      </div>
+    </div>
+
+    <label class="sta2e-cc-field">
+      <div class="sta2e-cc-field-head">
+        <span>Talent Source Packs</span>
+        <div class="sta2e-cc-action-row">
+          <button type="button" data-import-section="talentPacks" title="Import Talent Packs JSON">
+            <i class="fas fa-file-import"></i> Import
+          </button>
+          <button type="button" data-export-section="talentPacks" title="Export Talent Packs JSON">
+            <i class="fas fa-file-export"></i> Export
+          </button>
+          <input type="file" accept="application/json,.json" data-section-import-input="talentPacks" hidden />
+        </div>
+      </div>
+      <textarea data-field="talentPacks" rows="3" placeholder="sta.items-2e&#10;world.custom-talents">{{talentPacksText}}</textarea>
+    </label>
+
+    <div class="sta2e-cc-config-block {{#if configCollapsed.talents}}is-collapsed{{/if}}" data-config-section="talents">
+      <div class="sta2e-cc-config-block-head">
+        <h3>Talents</h3>
+        <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.talents}}false{{else}}true{{/if}}" title="{{#if configCollapsed.talents}}Expand section{{else}}Collapse section{{/if}}">
+          <i class="fas {{#if configCollapsed.talents}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+        </button>
+      </div>
+      <div data-config-block-body {{#if configCollapsed.talents}}hidden{{/if}}>
+        <nav class="sta2e-cc-subtabs">
+          {{#each config.talentCategories as |category|}}
+          <button type="button" class="{{#if category.active}}is-active{{/if}}" data-cc-subtab-group="talents" data-cc-subtab="{{category.key}}">{{category.label}}</button>
+          {{/each}}
+        </nav>
+
+        {{#each config.talentCategories as |category|}}
+        <section class="sta2e-cc-subpanel" data-cc-subtab-panel-group="talents" data-cc-subtab-panel="{{category.key}}" {{#unless category.active}}hidden{{/unless}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="talent:{{category.key}}" data-config-type="talent">
+            <i class="fas fa-star"></i>
+            <strong>Drop {{category.label}} talent items or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="talent:{{category.key}}">
+            {{#each category.items as |item|}}
+            <li class="sta2e-cc-pill" data-description-root>
+              <span>{{item.name}}</span>
+              {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+              <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+              {{#if item.description}}
+              <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+              <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+              {{/if}}
+              <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+            </li>
+            {{/each}}
+          </ul>
+        </section>
+        {{/each}}
+      </div>
+    </div>
+
+    <div class="sta2e-cc-grid">
+      <div class="sta2e-cc-config-block {{#if configCollapsed.roles}}is-collapsed{{/if}}" data-config-section="roles">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Roles</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.roles}}false{{else}}true{{/if}}" title="{{#if configCollapsed.roles}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.roles}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.roles}}hidden{{/if}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="roles" data-config-type="role">
+            <i class="fas fa-user-tie"></i>
+            <strong>Drop role talent items or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="roles">
+          {{#each config.roles as |item|}}
+          <li class="sta2e-cc-pill" data-description-root>
+            <span>{{item.name}}</span>
+            {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+            <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+            {{#if item.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+            {{/if}}
+            <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+          </li>
+          {{/each}}
+          </ul>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-config-block {{#if configCollapsed.traits}}is-collapsed{{/if}}" data-config-section="traits">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Traits</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.traits}}false{{else}}true{{/if}}" title="{{#if configCollapsed.traits}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.traits}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.traits}}hidden{{/if}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="traits" data-config-type="trait">
+            <i class="fas fa-tag"></i>
+            <strong>Drop trait items or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="traits">
+          {{#each config.traits as |item|}}
+          <li class="sta2e-cc-pill" data-description-root>
+            <span>{{item.name}}</span>
+            {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+            <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+            {{#if item.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+            {{/if}}
+            <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+          </li>
+          {{/each}}
+          </ul>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-config-block {{#if configCollapsed.values}}is-collapsed{{/if}}" data-config-section="values">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Values</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.values}}false{{else}}true{{/if}}" title="{{#if configCollapsed.values}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.values}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.values}}hidden{{/if}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="values" data-config-type="value">
+            <i class="fas fa-id-card"></i>
+            <strong>Drop value items or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="values">
+          {{#each config.values as |item|}}
+          <li class="sta2e-cc-pill" data-description-root>
+            <span>{{item.name}}</span>
+            {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+            <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+            {{#if item.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+            {{/if}}
+            <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+          </li>
+          {{/each}}
+          </ul>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-config-block {{#if configCollapsed.focuses}}is-collapsed{{/if}}" data-config-section="focuses">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Focuses</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.focuses}}false{{else}}true{{/if}}" title="{{#if configCollapsed.focuses}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.focuses}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.focuses}}hidden{{/if}}>
+          <p>Department focus tabs feed Supporting and Supervisory choices and the configured focus selectors used by player-character lifepath options.</p>
+          <nav class="sta2e-cc-subtabs">
+            {{#each config.departmentFocuses as |department|}}
+            <button type="button" class="{{#if department.active}}is-active{{/if}}" data-cc-subtab-group="departmentFocuses" data-cc-subtab="{{department.key}}">{{department.label}}</button>
+            {{/each}}
+          </nav>
+          {{#each config.departmentFocuses as |department|}}
+          <section class="sta2e-cc-subpanel" data-cc-subtab-panel-group="departmentFocuses" data-cc-subtab-panel="{{department.key}}" {{#unless department.active}}hidden{{/unless}}>
+            <div class="sta2e-cc-drop-slot" data-config-drop="departmentFocuses:{{department.key}}" data-config-type="focus">
+              <i class="fas fa-crosshairs"></i>
+              <strong>Drop {{department.label}} focus items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-config-list="departmentFocuses:{{department.key}}">
+              {{#each department.items as |item|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{item.name}}</span>
+                {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+                <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </section>
+          {{/each}}
+        </div>
+      </div>
+    </div>
+
+    <div class="sta2e-cc-grid">
+      <div class="sta2e-cc-config-block {{#if configCollapsed.items}}is-collapsed{{/if}}" data-config-section="items">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Items</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.items}}false{{else}}true{{/if}}" title="{{#if configCollapsed.items}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.items}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.items}}hidden{{/if}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="items" data-config-type="item">
+            <i class="fas fa-toolbox"></i>
+            <strong>Drop general item entries or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="items">
+          {{#each config.items as |item|}}
+          <li class="sta2e-cc-pill" data-description-root>
+            <span>{{item.name}}</span>
+            {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+            <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+            {{#if item.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+            {{/if}}
+            <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+          </li>
+          {{/each}}
+          </ul>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-config-block {{#if configCollapsed.weapons}}is-collapsed{{/if}}" data-config-section="weapons">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Weapons</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.weapons}}false{{else}}true{{/if}}" title="{{#if configCollapsed.weapons}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.weapons}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.weapons}}hidden{{/if}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="weapons" data-config-type="weapon">
+            <i class="fas fa-bolt"></i>
+            <strong>Drop character weapon items or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="weapons">
+          {{#each config.weapons as |item|}}
+          <li class="sta2e-cc-pill" data-description-root>
+            <span>{{item.name}}</span>
+            {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+            <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+            {{#if item.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+            {{/if}}
+            <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+          </li>
+          {{/each}}
+          </ul>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-config-block {{#if configCollapsed.armor}}is-collapsed{{/if}}" data-config-section="armor">
+        <div class="sta2e-cc-config-block-head">
+          <h3>Armor</h3>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.armor}}false{{else}}true{{/if}}" title="{{#if configCollapsed.armor}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.armor}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+        <div data-config-block-body {{#if configCollapsed.armor}}hidden{{/if}}>
+          <div class="sta2e-cc-drop-slot" data-config-drop="armor" data-config-type="armor">
+            <i class="fas fa-shield-alt"></i>
+            <strong>Drop armor items or a folder here</strong>
+          </div>
+          <ul class="sta2e-cc-pill-list" data-config-list="armor">
+          {{#each config.armor as |item|}}
+          <li class="sta2e-cc-pill" data-description-root>
+            <span>{{item.name}}</span>
+            {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+            <input type="hidden" data-field="configItemUuid" value="{{item.uuid}}" />
+            {{#if item.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+            {{/if}}
+            <button type="button" data-remove-config-item title="Remove item"><i class="fas fa-times"></i></button>
+          </li>
+          {{/each}}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="species" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step One: Species</h2>
+        <p>Configure species traits, fixed or free attribute boosts, species abilities, and species talent pools.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-toggle-all-species data-collapse-mode="{{#if allSpeciesCollapsed}}expand{{else}}collapse{{/if}}" title="{{#if allSpeciesCollapsed}}Expand all species{{else}}Collapse all species{{/if}}">
+          <i class="fas {{#if allSpeciesCollapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          <span data-collapse-all-label>{{#if allSpeciesCollapsed}}Expand All{{else}}Collapse All{{/if}}</span>
+        </button>
+        <button type="button" data-sort-species-name>
+          <i class="fas fa-sort-alpha-down"></i> Sort by Name
+        </button>
+        <button type="button" data-import-section="species" title="Import Species JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="species" title="Export Species JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="species" hidden />
+        <button type="button" data-action="addSpecies">
+          <i class="fas fa-plus"></i> Add Species
+        </button>
+      </div>
+    </div>
+
+    <div class="sta2e-cc-species-list" data-species-list>
+      {{#each species as |entry|}}
+      <article class="sta2e-cc-species-row {{#if entry.collapsed}}is-collapsed{{/if}}" data-species-id="{{entry.id}}">
+        <header>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-species aria-expanded="{{#if entry.collapsed}}false{{else}}true{{/if}}" title="{{#if entry.collapsed}}Expand species{{else}}Minimize species{{/if}}">
+            <i class="fas {{#if entry.collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+          <input type="text" data-field="name" value="{{entry.name}}" placeholder="Species name" />
+          <button type="button" data-action="deleteSpecies" data-species-id="{{entry.id}}" title="Delete species">
+            <i class="fas fa-trash"></i>
+          </button>
+        </header>
+
+        <div class="sta2e-cc-species-body" data-species-body {{#if entry.collapsed}}hidden{{/if}}>
+          <div class="sta2e-cc-grid">
+            <label class="sta2e-cc-field">
+              <span>Species Token Image</span>
+              <div class="sta2e-cc-inline-actions">
+                <input type="text" data-field="tokenImage" value="{{entry.tokenImage}}" placeholder="icons/svg/mystery-man.svg or assets/species/vulcan.webp" />
+                <button type="button" data-browse-species-token title="Browse token image">
+                  <i class="fas fa-folder-open"></i>
+                </button>
+              </div>
+            </label>
+            <div class="sta2e-cc-species-token-config-preview" {{#unless entry.tokenImage}}hidden{{/unless}}>
+              <img src="{{entry.tokenImage}}" alt="{{entry.name}} token image" data-species-token-preview />
+            </div>
+          </div>
+
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Species Description</span>
+            <prose-mirror data-field="description" name="speciesDescription_{{entry.id}}" value="{{entry.description}}"></prose-mirror>
+          </label>
+
+          <section class="sta2e-cc-config-block sta2e-cc-species-names-block">
+            <div class="sta2e-cc-config-block-head">
+              <h3>Names</h3>
+              <div class="sta2e-cc-action-row">
+                <button type="button" data-import-species-names title="Import species names">
+                  <i class="fas fa-file-import"></i> Import
+                </button>
+                <button type="button" data-export-species-names title="Export species names">
+                  <i class="fas fa-file-export"></i> Export
+                </button>
+                <button type="button" data-clear-species-names title="Clear species names">
+                  <i class="fas fa-eraser"></i> Clear Names
+                </button>
+                <input type="file" accept="application/json,.json" data-species-names-import hidden />
+              </div>
+            </div>
+            <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+              <input type="checkbox" data-field="surnameFirst" {{checked entry.surnameFirst}} />
+              <span>Display surname first</span>
+            </label>
+            <div class="sta2e-cc-grid">
+              <label class="sta2e-cc-field">
+                <span>Male First Names</span>
+                <textarea data-field="maleFirstNames" rows="5" placeholder="One male first name per line">{{entry.maleFirstNamesText}}</textarea>
+              </label>
+              <label class="sta2e-cc-field">
+                <span>Female First Names</span>
+                <textarea data-field="femaleFirstNames" rows="5" placeholder="One female first name per line">{{entry.femaleFirstNamesText}}</textarea>
+              </label>
+              <label class="sta2e-cc-field">
+                <span>Surnames</span>
+                <textarea data-field="surnames" rows="5" placeholder="One surname per line">{{entry.surnamesText}}</textarea>
+              </label>
+            </div>
+          </section>
+
+          <div class="sta2e-cc-grid">
+            <div class="sta2e-cc-field">
+              <span>Trait Items</span>
+              <div class="sta2e-cc-drop-slot" data-drop-role="speciesTrait">
+                <i class="fas fa-tag"></i>
+                <strong>Drop trait items here</strong>
+              </div>
+              <ul class="sta2e-cc-pill-list" data-species-traits>
+                {{#each entry.traits as |trait|}}
+                <li class="sta2e-cc-pill" data-description-root>
+                  <span>{{trait.name}}</span>
+                  {{#if trait.type}}<em>{{trait.type}}</em>{{/if}}
+                  <input type="hidden" data-field="speciesTraitUuid" value="{{trait.uuid}}" />
+                  {{#if trait.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{trait.description}}}</div>
+                  {{/if}}
+                  <button type="button" data-remove-upbringing-item title="Remove trait"><i class="fas fa-times"></i></button>
+                </li>
+                {{/each}}
+              </ul>
+            </div>
+
+            <div class="sta2e-cc-field">
+              <span>Attribute Rule</span>
+              <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+                <input type="checkbox" data-field="freeAttributeSelection" {{checked entry.freeAttributeSelection}} />
+                <span>Player chooses any three attributes</span>
+              </label>
+              <div class="sta2e-cc-check-grid">
+                {{#each entry.attributes as |attr|}}
+                <label>
+                  <input type="checkbox" data-field="attributeBoost" value="{{attr.key}}" {{checked attr.selected}} />
+                  {{attr.label}}
+                </label>
+                {{/each}}
+              </div>
+              <span>Choose-One Attribute Options</span>
+              <div class="sta2e-cc-check-grid">
+                {{#each entry.attributeChoices as |attr|}}
+                <label>
+                  <input type="checkbox" data-field="attributeChoiceBoost" value="{{attr.key}}" {{checked attr.selected}} />
+                  {{attr.label}}
+                </label>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-grid">
+            <div class="sta2e-cc-field">
+              <span>Species Ability</span>
+              <div class="sta2e-cc-drop-slot" data-drop-role="speciesAbility" data-description-root>
+                <i class="fas fa-hand-sparkles"></i>
+                <strong data-ability-name>{{#if entry.abilityName}}{{entry.abilityName}}{{else}}Drop one talent item{{/if}}</strong>
+                <small>{{entry.speciesAbilityUuid}}</small>
+                <input type="hidden" data-field="speciesAbilityUuid" value="{{entry.speciesAbilityUuid}}" />
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description {{#unless entry.abilityDescription}}hidden{{/unless}}>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{entry.abilityDescription}}}</div>
+              </div>
+              <label class="sta2e-cc-field">
+                <span>Extra Focuses from Ability</span>
+                <input type="number" data-field="extraFocusCount" min="0" max="6" step="1" value="{{entry.extraFocusCount}}" />
+              </label>
+            </div>
+
+            <div class="sta2e-cc-field">
+              <span>Available Species Talents</span>
+              <div class="sta2e-cc-drop-slot" data-drop-role="speciesTalent">
+                <i class="fas fa-layer-group"></i>
+                <strong>Drop species talent items here</strong>
+              </div>
+              <ul class="sta2e-cc-pill-list" data-species-talents>
+                {{#each entry.talents as |talent|}}
+                <li class="sta2e-cc-pill" data-description-root>
+                  <span>{{talent.name}}</span>
+                  {{#if talent.requirementLabel}}<em>{{talent.requirementLabel}}</em>{{/if}}
+                  <input type="hidden" data-field="speciesTalentUuid" value="{{talent.uuid}}" />
+                  {{#if talent.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                  {{/if}}
+                  <button type="button" data-remove-talent title="Remove talent"><i class="fas fa-times"></i></button>
+                </li>
+                {{/each}}
+              </ul>
+            </div>
+
+            <div class="sta2e-cc-field">
+              <span>Species Values</span>
+              <div class="sta2e-cc-drop-slot" data-drop-role="speciesValue">
+                <i class="fas fa-id-card"></i>
+                <strong>Drop value items here</strong>
+              </div>
+              <ul class="sta2e-cc-pill-list" data-species-values>
+                {{#each entry.values as |value|}}
+                <li class="sta2e-cc-pill" data-description-root>
+                  <span>{{value.name}}</span>
+                  <input type="hidden" data-field="speciesValueUuid" value="{{value.uuid}}" />
+                  {{#if value.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{value.description}}}</div>
+                  {{/if}}
+                  <button type="button" data-remove-upbringing-item title="Remove value"><i class="fas fa-times"></i></button>
+                </li>
+                {{/each}}
+              </ul>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Species Esoteric Talent Options</span>
+            <label class="sta2e-cc-field">
+              <span>Esoteric Talents from Ability</span>
+              <input type="number" data-field="speciesEsotericTalentCount" min="0" max="6" step="1" value="{{entry.speciesEsotericTalentCount}}" />
+            </label>
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="speciesEsotericTalentSelect">
+                <option value="">Choose configured Esoteric talent</option>
+                {{#each ../esotericTalentOptions as |talent|}}
+                <option value="{{talent.uuid}}">{{talent.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-add-species-esoteric title="Add Esoteric talent">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <div class="sta2e-cc-drop-slot" data-drop-role="speciesEsotericTalent">
+              <i class="fas fa-brain"></i>
+              <strong>Drop Esoteric talent items here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-species-esoteric-talents>
+              {{#each entry.esotericTalents as |talent|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{talent.name}}</span>
+                {{#if talent.typeLabel}}<em>{{talent.typeLabel}}</em>{{/if}}
+                {{#if talent.requirementLabel}}<em>{{talent.requirementLabel}}</em>{{/if}}
+                <input type="hidden" data-field="speciesEsotericTalentUuid" value="{{talent.uuid}}" />
+                {{#if talent.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-talent title="Remove talent"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </div>
+      </article>
+      {{/each}}
+
+      {{#unless species.length}}
+      <div class="sta2e-cc-empty">
+        No species configured yet. Add a species to begin Step One setup.
+      </div>
+      {{/unless}}
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="environment" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step Two: Environment</h2>
+        <p>Configure environment descriptions, value prompts, attribute limits, and department limits.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-toggle-all-environments data-collapse-mode="{{#if allEnvironmentsCollapsed}}expand{{else}}collapse{{/if}}" title="{{#if allEnvironmentsCollapsed}}Expand all environments{{else}}Collapse all environments{{/if}}">
+          <i class="fas {{#if allEnvironmentsCollapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          <span data-collapse-all-label>{{#if allEnvironmentsCollapsed}}Expand All{{else}}Collapse All{{/if}}</span>
+        </button>
+        <button type="button" data-sort-environment-name>
+          <i class="fas fa-sort-alpha-down"></i> Sort by Name
+        </button>
+        <button type="button" data-import-section="environments" title="Import Environments JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="environments" title="Export Environments JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="environments" hidden />
+        <button type="button" data-action="addEnvironment">
+          <i class="fas fa-plus"></i> Add Environment
+        </button>
+      </div>
+    </div>
+
+    <div class="sta2e-cc-species-list" data-environment-list>
+      {{#each environments as |environment|}}
+      <article class="sta2e-cc-species-row sta2e-cc-environment-row {{#if environment.collapsed}}is-collapsed{{/if}}" data-environment-id="{{environment.id}}">
+        <header>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-environment aria-expanded="{{#if environment.collapsed}}false{{else}}true{{/if}}" title="{{#if environment.collapsed}}Expand environment{{else}}Minimize environment{{/if}}">
+            <i class="fas {{#if environment.collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+          <input type="text" data-field="environmentName" value="{{environment.name}}" placeholder="Environment name" />
+          <button type="button" data-action="deleteEnvironment" data-environment-id="{{environment.id}}" title="Delete environment">
+            <i class="fas fa-trash"></i>
+          </button>
+        </header>
+
+        <div class="sta2e-cc-species-body" data-environment-body {{#if environment.collapsed}}hidden{{/if}}>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Environment Description</span>
+            <prose-mirror data-field="environmentDescription" name="environmentDescription_{{environment.id}}" value="{{environment.description}}"></prose-mirror>
+          </label>
+
+          <div class="sta2e-cc-grid">
+            <label class="sta2e-cc-field">
+              <span>Value Description</span>
+              <prose-mirror data-field="environmentValueDescription" name="environmentValueDescription_{{environment.id}}" value="{{environment.valueDescription}}"></prose-mirror>
+            </label>
+
+            <div class="sta2e-cc-field">
+              <span>Attribute Rule</span>
+              <select data-field="environmentAttributeMode">
+                {{#each environment.attributeModeOptions as |option|}}
+                <option value="{{option.key}}" {{#if option.selected}}selected{{/if}}>{{option.label}}</option>
+                {{/each}}
+              </select>
+              <prose-mirror data-field="environmentAttributeDescription" name="environmentAttributeDescription_{{environment.id}}" value="{{environment.attributeDescription}}"></prose-mirror>
+              <div class="sta2e-cc-check-grid">
+                {{#each environment.attributes as |attr|}}
+                <label>
+                  <input type="checkbox" data-field="environmentAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+                  {{attr.label}}
+                </label>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-grid">
+            <div class="sta2e-cc-field">
+              <span>Department Rule</span>
+              <select data-field="environmentDepartmentMode">
+                {{#each environment.departmentModeOptions as |option|}}
+                <option value="{{option.key}}" {{#if option.selected}}selected{{/if}}>{{option.label}}</option>
+                {{/each}}
+              </select>
+              <prose-mirror data-field="environmentDepartmentDescription" name="environmentDepartmentDescription_{{environment.id}}" value="{{environment.departmentDescription}}"></prose-mirror>
+              <div class="sta2e-cc-check-grid">
+                {{#each environment.departments as |department|}}
+                <label>
+                  <input type="checkbox" data-field="environmentDepartmentChoice" value="{{department.key}}" {{checked department.selected}} />
+                  {{department.label}}
+                </label>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+      {{/each}}
+
+      {{#unless environments.length}}
+      <div class="sta2e-cc-empty">
+        No environments configured yet. Add an environment to begin Step Two setup.
+      </div>
+      {{/unless}}
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="upbringing" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step Three: Upbringing</h2>
+        <p>Configure upbringing descriptions, accepted/rebelled attributes, department choices, recommended focuses, and talent pools.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-toggle-all-upbringings data-collapse-mode="{{#if allUpbringingsCollapsed}}expand{{else}}collapse{{/if}}" title="{{#if allUpbringingsCollapsed}}Expand all upbringings{{else}}Collapse all upbringings{{/if}}">
+          <i class="fas {{#if allUpbringingsCollapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          <span data-collapse-all-label>{{#if allUpbringingsCollapsed}}Expand All{{else}}Collapse All{{/if}}</span>
+        </button>
+        <button type="button" data-sort-upbringing-name>
+          <i class="fas fa-sort-alpha-down"></i> Sort by Name
+        </button>
+        <button type="button" data-import-section="upbringings" title="Import Upbringings JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="upbringings" title="Export Upbringings JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="upbringings" hidden />
+        <button type="button" data-action="addUpbringing">
+          <i class="fas fa-plus"></i> Add Upbringing
+        </button>
+      </div>
+    </div>
+
+    <div class="sta2e-cc-species-list" data-upbringing-list>
+      {{#each upbringings as |upbringing|}}
+      <article class="sta2e-cc-species-row sta2e-cc-upbringing-row {{#if upbringing.collapsed}}is-collapsed{{/if}}" data-upbringing-id="{{upbringing.id}}">
+        <header>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-upbringing aria-expanded="{{#if upbringing.collapsed}}false{{else}}true{{/if}}" title="{{#if upbringing.collapsed}}Expand upbringing{{else}}Minimize upbringing{{/if}}">
+            <i class="fas {{#if upbringing.collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+          <input type="text" data-field="upbringingName" value="{{upbringing.name}}" placeholder="Upbringing name" />
+          <button type="button" data-action="deleteUpbringing" data-upbringing-id="{{upbringing.id}}" title="Delete upbringing">
+            <i class="fas fa-trash"></i>
+          </button>
+        </header>
+
+        <div class="sta2e-cc-species-body" data-upbringing-body {{#if upbringing.collapsed}}hidden{{/if}}>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Upbringing Description</span>
+            <prose-mirror data-field="upbringingDescription" name="upbringingDescription_{{upbringing.id}}" value="{{upbringing.description}}"></prose-mirror>
+          </label>
+
+          <div class="sta2e-cc-grid">
+          <div class="sta2e-cc-field">
+            <span>Accepted Path</span>
+            <prose-mirror data-field="upbringingAcceptedDescription" name="upbringingAcceptedDescription_{{upbringing.id}}" value="{{upbringing.acceptedDescription}}"></prose-mirror>
+            <div class="sta2e-cc-inline-actions">
+              <label class="sta2e-cc-field">
+                <span>+1 Attribute</span>
+                <select data-field="upbringingAcceptedPlusOne">
+                  {{#each upbringing.acceptedPlusOneAttributes as |attr|}}
+                  <option value="{{attr.key}}" {{#if attr.selected}}selected{{/if}}>{{attr.label}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <label class="sta2e-cc-field">
+                <span>+2 Attribute</span>
+                <select data-field="upbringingAcceptedPlusTwo">
+                  {{#each upbringing.acceptedPlusTwoAttributes as |attr|}}
+                  <option value="{{attr.key}}" {{#if attr.selected}}selected{{/if}}>{{attr.label}}</option>
+                  {{/each}}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-field">
+            <span>Rebelled Path</span>
+            <prose-mirror data-field="upbringingRebelledDescription" name="upbringingRebelledDescription_{{upbringing.id}}" value="{{upbringing.rebelledDescription}}"></prose-mirror>
+            <div class="sta2e-cc-inline-actions">
+              <label class="sta2e-cc-field">
+                <span>+1 Attribute</span>
+                <select data-field="upbringingRebelledPlusOne">
+                  {{#each upbringing.rebelledPlusOneAttributes as |attr|}}
+                  <option value="{{attr.key}}" {{#if attr.selected}}selected{{/if}}>{{attr.label}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <label class="sta2e-cc-field">
+                <span>+2 Attribute</span>
+                <select data-field="upbringingRebelledPlusTwo">
+                  {{#each upbringing.rebelledPlusTwoAttributes as |attr|}}
+                  <option value="{{attr.key}}" {{#if attr.selected}}selected{{/if}}>{{attr.label}}</option>
+                  {{/each}}
+                </select>
+              </label>
+            </div>
+          </div>
+          </div>
+
+          <div class="sta2e-cc-grid">
+          <div class="sta2e-cc-field">
+            <span>Department Choices</span>
+            <prose-mirror data-field="upbringingDepartmentDescription" name="upbringingDepartmentDescription_{{upbringing.id}}" value="{{upbringing.departmentDescription}}"></prose-mirror>
+            <label>
+              <input type="checkbox" data-field="upbringingAllowAllDepartments" {{checked upbringing.allowAllDepartments}} />
+              Allow all departments
+            </label>
+            <div class="sta2e-cc-check-grid">
+              {{#each upbringing.departments as |department|}}
+              <label>
+                <input type="checkbox" data-field="upbringingDepartmentChoice" value="{{department.key}}" {{checked department.selected}} />
+                {{department.label}}
+              </label>
+              {{/each}}
+            </div>
+          </div>
+
+          <div class="sta2e-cc-field">
+            <span>Recommended Focuses</span>
+            <prose-mirror data-field="upbringingFocusDescription" name="upbringingFocusDescription_{{upbringing.id}}" value="{{upbringing.focusDescription}}"></prose-mirror>
+            <div class="sta2e-cc-drop-slot" data-upbringing-drop="focus">
+              <i class="fas fa-crosshairs"></i>
+              <strong>Drop recommended focus items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-upbringing-list="focus">
+              {{#each upbringing.focuses as |focus|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{focus.name}}</span>
+                {{#if focus.type}}<em>{{focus.type}}</em>{{/if}}
+                <input type="hidden" data-field="upbringingFocusUuid" value="{{focus.uuid}}" />
+                {{#if focus.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{focus.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove focus"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+          </div>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Upbringing Talents</span>
+            <prose-mirror data-field="upbringingTalentDescription" name="upbringingTalentDescription_{{upbringing.id}}" value="{{upbringing.talentDescription}}"></prose-mirror>
+            <div class="sta2e-cc-drop-slot" data-upbringing-drop="talent">
+              <i class="fas fa-star"></i>
+              <strong>Drop available talent items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-upbringing-list="talent">
+              {{#each upbringing.talents as |talent|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{talent.name}}</span>
+                {{#if talent.type}}<em>{{talent.type}}</em>{{/if}}
+                <input type="hidden" data-field="upbringingTalentUuid" value="{{talent.uuid}}" />
+                {{#if talent.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove talent"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </div>
+      </article>
+      {{/each}}
+
+      {{#unless upbringings.length}}
+      <div class="sta2e-cc-empty">
+        No upbringings configured yet. Add an upbringing to begin Step Three setup.
+      </div>
+      {{/unless}}
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="career" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step Four: Career Path</h2>
+        <p>Configure professional trait options, department packages, recommended focuses, and talent pools.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-toggle-all-career-paths data-collapse-mode="{{#if allCareerPathsCollapsed}}expand{{else}}collapse{{/if}}" title="{{#if allCareerPathsCollapsed}}Expand all career paths{{else}}Collapse all career paths{{/if}}">
+          <i class="fas {{#if allCareerPathsCollapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          <span data-collapse-all-label>{{#if allCareerPathsCollapsed}}Expand All{{else}}Collapse All{{/if}}</span>
+        </button>
+        <button type="button" data-sort-career-path-name>
+          <i class="fas fa-sort-alpha-down"></i> Sort by Name
+        </button>
+        <button type="button" data-import-section="careerPaths" title="Import Career Paths JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="careerPaths" title="Export Career Paths JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="careerPaths" hidden />
+        <button type="button" data-action="addCareerPath">
+          <i class="fas fa-plus"></i> Add Career Path
+        </button>
+      </div>
+    </div>
+
+    <div class="sta2e-cc-species-list" data-career-path-list>
+      {{#each careerPaths as |careerPath|}}
+      <article class="sta2e-cc-species-row sta2e-cc-career-row {{#if careerPath.collapsed}}is-collapsed{{/if}}" data-career-path-id="{{careerPath.id}}">
+        <header>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-career-path aria-expanded="{{#if careerPath.collapsed}}false{{else}}true{{/if}}" title="{{#if careerPath.collapsed}}Expand career path{{else}}Minimize career path{{/if}}">
+            <i class="fas {{#if careerPath.collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+          <input type="text" data-field="careerPathName" value="{{careerPath.name}}" placeholder="Career path name" />
+          <button type="button" data-action="deleteCareerPath" data-career-path-id="{{careerPath.id}}" title="Delete career path">
+            <i class="fas fa-trash"></i>
+          </button>
+        </header>
+
+        <div class="sta2e-cc-species-body" data-career-body {{#if careerPath.collapsed}}hidden{{/if}}>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Career Path Description</span>
+            <prose-mirror data-field="careerPathDescription" name="careerPathDescription_{{careerPath.id}}" value="{{careerPath.description}}"></prose-mirror>
+          </label>
+
+          <div class="sta2e-cc-grid">
+            <div class="sta2e-cc-field">
+              <span>Trait Options</span>
+              <prose-mirror data-field="careerTraitDescription" name="careerTraitDescription_{{careerPath.id}}" value="{{careerPath.traitDescription}}"></prose-mirror>
+              <div class="sta2e-cc-inline-actions">
+                <select data-field="careerTraitSelect">
+                  <option value="">Choose configured trait</option>
+                  {{#each ../config.traits as |trait|}}
+                  <option value="{{trait.uuid}}">{{trait.name}}</option>
+                  {{/each}}
+                </select>
+                <button type="button" data-add-career-config-item="trait" title="Add trait">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+              <div class="sta2e-cc-drop-slot" data-career-drop="trait">
+                <i class="fas fa-tag"></i>
+                <strong>Drop professional trait items here</strong>
+              </div>
+              <ul class="sta2e-cc-pill-list" data-career-list="trait">
+                {{#each careerPath.traits as |trait|}}
+                <li class="sta2e-cc-pill" data-description-root>
+                  <span>{{trait.name}}</span>
+                  {{#if trait.type}}<em>{{trait.type}}</em>{{/if}}
+                  <input type="hidden" data-field="careerTraitUuid" value="{{trait.uuid}}" />
+                  {{#if trait.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{trait.description}}}</div>
+                  {{/if}}
+                  <button type="button" data-remove-upbringing-item title="Remove trait"><i class="fas fa-times"></i></button>
+                </li>
+                {{/each}}
+              </ul>
+            </div>
+
+            <div class="sta2e-cc-field">
+              <span>Value and Attributes</span>
+              <prose-mirror data-field="careerValueDescription" name="careerValueDescription_{{careerPath.id}}" value="{{careerPath.valueDescription}}"></prose-mirror>
+              <prose-mirror data-field="careerAttributeDescription" name="careerAttributeDescription_{{careerPath.id}}" value="{{careerPath.attributeDescription}}"></prose-mirror>
+              <div class="sta2e-cc-check-grid">
+                {{#each careerPath.requiredAttributes as |attr|}}
+                <label>
+                  <input type="checkbox" data-field="careerRequiredAttribute" value="{{attr.key}}" {{checked attr.selected}} />
+                  <span>{{attr.label}}</span>
+                </label>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-grid">
+            <div class="sta2e-cc-field">
+              <span>Department Package</span>
+              <prose-mirror data-field="careerDepartmentDescription" name="careerDepartmentDescription_{{careerPath.id}}" value="{{careerPath.departmentDescription}}"></prose-mirror>
+              <label class="sta2e-cc-toggle">
+                <input type="checkbox" data-field="careerDepartmentReallocationAllowed" {{checked careerPath.departmentReallocationAllowed}} />
+                <span>Allow optional -1 / +1 department reallocation</span>
+              </label>
+              <span>Allowed +2 Departments</span>
+              <div class="sta2e-cc-check-grid">
+                {{#each careerPath.plusTwoDepartments as |department|}}
+                <label>
+                  <input type="checkbox" data-field="careerDepartmentPlusTwo" value="{{department.key}}" {{checked department.selected}} />
+                  {{department.label}} +2
+                </label>
+                {{/each}}
+              </div>
+              <span>Allowed +1 Departments</span>
+              <div class="sta2e-cc-check-grid">
+                {{#each careerPath.plusOneDepartments as |department|}}
+                <label>
+                  <input type="checkbox" data-field="careerDepartmentPlusOne" value="{{department.key}}" {{checked department.selected}} />
+                  {{department.label}} +1
+                </label>
+                {{/each}}
+              </div>
+            </div>
+
+            <div class="sta2e-cc-field">
+              <span>Recommended Focuses</span>
+              <prose-mirror data-field="careerFocusDescription" name="careerFocusDescription_{{careerPath.id}}" value="{{careerPath.focusDescription}}"></prose-mirror>
+              <div class="sta2e-cc-inline-actions">
+                <select data-field="careerFocusSelect">
+                  <option value="">Choose configured focus</option>
+                  {{#each ../config.focuses as |focus|}}
+                  <option value="{{focus.uuid}}">{{focus.name}}</option>
+                  {{/each}}
+                </select>
+                <button type="button" data-add-career-config-item="focus" title="Add focus">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+              <div class="sta2e-cc-drop-slot" data-career-drop="focus">
+                <i class="fas fa-crosshairs"></i>
+                <strong>Drop recommended focus items or a folder here</strong>
+              </div>
+              <ul class="sta2e-cc-pill-list" data-career-list="focus">
+                {{#each careerPath.focuses as |focus|}}
+                <li class="sta2e-cc-pill" data-description-root>
+                  <span>{{focus.name}}</span>
+                  {{#if focus.type}}<em>{{focus.type}}</em>{{/if}}
+                  <input type="hidden" data-field="careerFocusUuid" value="{{focus.uuid}}" />
+                  {{#if focus.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{focus.description}}}</div>
+                  {{/if}}
+                  <button type="button" data-remove-upbringing-item title="Remove focus"><i class="fas fa-times"></i></button>
+                </li>
+                {{/each}}
+              </ul>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Career Talents</span>
+            <prose-mirror data-field="careerTalentDescription" name="careerTalentDescription_{{careerPath.id}}" value="{{careerPath.talentDescription}}"></prose-mirror>
+            <div class="sta2e-cc-drop-slot" data-career-drop="talent">
+              <i class="fas fa-star"></i>
+              <strong>Drop available talent items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-career-list="talent">
+              {{#each careerPath.talents as |talent|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{talent.name}}</span>
+                {{#if talent.type}}<em>{{talent.type}}</em>{{/if}}
+                <input type="hidden" data-field="careerTalentUuid" value="{{talent.uuid}}" />
+                {{#if talent.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove talent"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </div>
+      </article>
+      {{/each}}
+
+      {{#unless careerPaths.length}}
+      <div class="sta2e-cc-empty">
+        No career paths configured yet. Add a career path to begin Step Four setup.
+      </div>
+      {{/unless}}
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="experience" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step Five: Experience</h2>
+        <p>Configure the three career-length options and the forced talent pools for Novice and Veteran.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-import-section="experienceOptions" title="Import Experience Options JSON (overwrites by key)">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="experienceOptions" title="Export Experience Options JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="experienceOptions" hidden />
+      </div>
+    </div>
+
+    <div class="sta2e-cc-species-list">
+      {{#each experienceOptions as |experience|}}
+      <article class="sta2e-cc-species-row sta2e-cc-experience-row" data-experience-key="{{experience.key}}">
+        <header>
+          <strong>{{experience.name}}</strong>
+          <span>{{#if (eq experience.talentMode "eligible")}}Freely picks any eligible talent{{else}}Picks from configured talent list{{/if}}</span>
+        </header>
+
+        <div class="sta2e-cc-species-body">
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Description</span>
+            <prose-mirror data-field="experienceDescription" name="experienceDescription_{{experience.key}}" value="{{experience.description}}"></prose-mirror>
+          </label>
+
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Value Description</span>
+            <prose-mirror data-field="experienceValueDescription" name="experienceValueDescription_{{experience.key}}" value="{{experience.valueDescription}}"></prose-mirror>
+          </label>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Talent</span>
+            <prose-mirror data-field="experienceTalentDescription" name="experienceTalentDescription_{{experience.key}}" value="{{experience.talentDescription}}"></prose-mirror>
+            {{#if (eq experience.talentMode "configured")}}
+            <div class="sta2e-cc-drop-slot" data-experience-drop="talent">
+              <i class="fas fa-star"></i>
+              <strong>Drop available talent items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-experience-list="talent">
+              {{#each experience.talents as |talent|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{talent.name}}</span>
+                {{#if talent.type}}<em>{{talent.type}}</em>{{/if}}
+                <input type="hidden" data-field="experienceTalentUuid" value="{{talent.uuid}}" />
+                {{#if talent.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove talent"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+            {{/if}}
+          </div>
+        </div>
+      </article>
+      {{/each}}
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="events" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step Six: Career Events</h2>
+        <p>Configure event attribute and department choices, suggested focuses, and optional trait grants.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-toggle-all-career-events data-collapse-mode="{{#if allCareerEventsCollapsed}}expand{{else}}collapse{{/if}}" title="{{#if allCareerEventsCollapsed}}Expand all career events{{else}}Collapse all career events{{/if}}">
+          <i class="fas {{#if allCareerEventsCollapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          <span data-collapse-all-label>{{#if allCareerEventsCollapsed}}Expand All{{else}}Collapse All{{/if}}</span>
+        </button>
+        <button type="button" data-sort-career-event-name>
+          <i class="fas fa-sort-alpha-down"></i> Sort by Name
+        </button>
+        <button type="button" data-import-section="careerEvents" title="Import Career Events JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="careerEvents" title="Export Career Events JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="careerEvents" hidden />
+        <button type="button" data-action="addCareerEvent">
+          <i class="fas fa-plus"></i> Add Career Event
+        </button>
+      </div>
+    </div>
+
+    <div class="sta2e-cc-species-list" data-career-event-list>
+      {{#each careerEvents as |careerEvent|}}
+      <article class="sta2e-cc-species-row sta2e-cc-career-event-row {{#if careerEvent.collapsed}}is-collapsed{{/if}}" data-career-event-id="{{careerEvent.id}}">
+        <header>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-career-event aria-expanded="{{#if careerEvent.collapsed}}false{{else}}true{{/if}}" title="{{#if careerEvent.collapsed}}Expand career event{{else}}Minimize career event{{/if}}">
+            <i class="fas {{#if careerEvent.collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+          <input type="text" data-field="careerEventName" value="{{careerEvent.name}}" placeholder="Career event name" />
+          <button type="button" data-action="deleteCareerEvent" data-career-event-id="{{careerEvent.id}}" title="Delete career event">
+            <i class="fas fa-trash"></i>
+          </button>
+        </header>
+
+        <div class="sta2e-cc-species-body" data-career-event-body {{#if careerEvent.collapsed}}hidden{{/if}}>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Description</span>
+            <prose-mirror data-field="careerEventDescription" name="careerEventDescription_{{careerEvent.id}}" value="{{careerEvent.description}}"></prose-mirror>
+          </label>
+
+          <div class="sta2e-cc-grid">
+            <div class="sta2e-cc-field">
+              <span>Attribute +1</span>
+              <label class="sta2e-cc-toggle">
+                <input type="checkbox" data-field="careerEventAllowAnyAttribute" {{checked careerEvent.allowAnyAttribute}} />
+                <span>Allow any attribute</span>
+              </label>
+              <div class="sta2e-cc-check-grid">
+                {{#each careerEvent.attributeOptions as |attr|}}
+                <label>
+                  <input type="checkbox" data-field="careerEventAttribute" value="{{attr.key}}" {{checked attr.selected}} />
+                  <span>{{attr.label}}</span>
+                </label>
+                {{/each}}
+              </div>
+            </div>
+
+            <div class="sta2e-cc-field">
+              <span>Department +1</span>
+              <label class="sta2e-cc-toggle">
+                <input type="checkbox" data-field="careerEventAllowAnyDepartment" {{checked careerEvent.allowAnyDepartment}} />
+                <span>Allow any department</span>
+              </label>
+              <div class="sta2e-cc-check-grid">
+                {{#each careerEvent.departmentOptions as |department|}}
+                <label>
+                  <input type="checkbox" data-field="careerEventDepartment" value="{{department.key}}" {{checked department.selected}} />
+                  <span>{{department.label}}</span>
+                </label>
+                {{/each}}
+              </div>
+            </div>
+          </div>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Focus Suggestions</span>
+            <prose-mirror data-field="careerEventFocusDescription" name="careerEventFocusDescription_{{careerEvent.id}}" value="{{careerEvent.focusDescription}}"></prose-mirror>
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="careerEventFocusSelect">
+                <option value="">Choose configured focus</option>
+                {{#each ../config.focuses as |focus|}}
+                <option value="{{focus.uuid}}">{{focus.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-add-career-event-item="focus" title="Add focus">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <div class="sta2e-cc-drop-slot" data-career-event-drop="focus">
+              <i class="fas fa-crosshairs"></i>
+              <strong>Drop suggested focus items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-career-event-list="focus">
+              {{#each careerEvent.focuses as |focus|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{focus.name}}</span>
+                {{#if focus.type}}<em>{{focus.type}}</em>{{/if}}
+                <input type="hidden" data-field="careerEventFocusUuid" value="{{focus.uuid}}" />
+                {{#if focus.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{focus.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove focus"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <label class="sta2e-cc-toggle">
+              <input type="checkbox" data-field="careerEventTraitGrant" {{checked careerEvent.traitGrant}} />
+              <span>This event grants one trait</span>
+            </label>
+            <prose-mirror data-field="careerEventTraitDescription" name="careerEventTraitDescription_{{careerEvent.id}}" value="{{careerEvent.traitDescription}}"></prose-mirror>
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="careerEventTraitSelect">
+                <option value="">Choose configured trait</option>
+                {{#each ../config.traits as |trait|}}
+                <option value="{{trait.uuid}}">{{trait.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-add-career-event-item="trait" title="Add trait">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <div class="sta2e-cc-drop-slot" data-career-event-drop="trait">
+              <i class="fas fa-tag"></i>
+              <strong>Drop suggested trait items or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-career-event-list="trait">
+              {{#each careerEvent.traits as |trait|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{trait.name}}</span>
+                {{#if trait.type}}<em>{{trait.type}}</em>{{/if}}
+                <input type="hidden" data-field="careerEventTraitUuid" value="{{trait.uuid}}" />
+                {{#if trait.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{trait.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove trait"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </div>
+      </article>
+      {{/each}}
+
+      {{#unless careerEvents.length}}
+      <div class="sta2e-cc-empty">
+        No career events configured yet. Add a career event to begin Step Six setup.
+      </div>
+      {{/unless}}
+    </div>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="finishing" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Step Seven: Finishing Touches</h2>
+        <p>Configure ranks and equipment loadouts granted by selected role.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-import-section="finishing" title="Import Finishing Data JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="finishing" title="Export Finishing Data JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="finishing" hidden />
+      </div>
+    </div>
+
+    <article class="sta2e-cc-panel sta2e-cc-config-block {{#if configCollapsed.finishingRanks}}is-collapsed{{/if}}" data-config-section="finishingRanks">
+      <div class="sta2e-cc-config-block-head">
+        <div>
+          <h3>Ranks</h3>
+          <p>Create rank options with descriptions for the final details step.</p>
+        </div>
+        <div class="sta2e-cc-action-row">
+          <button type="button" data-action="saveFinishing">
+            <i class="fas fa-save"></i> Save Finishing
+          </button>
+          <button type="button" data-action="addRank">
+            <i class="fas fa-plus"></i> Add Rank
+          </button>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.finishingRanks}}false{{else}}true{{/if}}" title="{{#if configCollapsed.finishingRanks}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.finishingRanks}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-species-list" data-config-block-body {{#if configCollapsed.finishingRanks}}hidden{{/if}}>
+        {{#each ranks as |rank|}}
+        <article class="sta2e-cc-species-row sta2e-cc-rank-row" data-rank-id="{{rank.id}}">
+          <header>
+            <button type="button" class="sta2e-cc-icon-btn" data-toggle-finishing-entry aria-expanded="true" title="Collapse rank">
+              <i class="fas fa-chevron-up"></i>
+            </button>
+            <strong>{{#if rank.name}}{{rank.name}}{{else}}Unnamed Rank{{/if}}</strong>
+            <button type="button" data-action="deleteRank" data-rank-id="{{rank.id}}" title="Delete rank">
+              <i class="fas fa-trash"></i>
+            </button>
+          </header>
+          <div class="sta2e-cc-species-body" data-finishing-entry-body>
+            <div class="sta2e-cc-grid">
+              <label class="sta2e-cc-field">
+                <span>Name</span>
+                <input type="text" data-field="rankName" value="{{rank.name}}" placeholder="Lieutenant Commander" />
+              </label>
+              <label class="sta2e-cc-field">
+                <span>Description</span>
+                <prose-mirror data-field="rankDescription" name="rankDescription_{{rank.key}}" value="{{rank.description}}"></prose-mirror>
+              </label>
+            </div>
+            <div class="sta2e-cc-drop-slot" data-finishing-drop="rankEquipment">
+              <i class="fas fa-toolbox"></i>
+              <strong>Drop rank equipment, weapons, armor, or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-rank-loadout-list>
+              {{#each rank.equipment as |item|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{item.name}}</span>
+                {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+                <input type="hidden" data-field="rankLoadoutEquipmentUuid" value="{{item.uuid}}" />
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove equipment"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </article>
+        {{/each}}
+
+        {{#unless ranks.length}}
+        <div class="sta2e-cc-empty">
+          No ranks configured yet. Add a rank or use a custom rank during creation.
+        </div>
+        {{/unless}}
+      </div>
+    </article>
+
+    <article class="sta2e-cc-panel sta2e-cc-config-block {{#if configCollapsed.finishingAssignments}}is-collapsed{{/if}}" data-config-section="finishingAssignments">
+      <div class="sta2e-cc-config-block-head">
+        <div>
+          <h3>Supporting Assignment Loadouts</h3>
+          <p>Configure equipment granted by free-text Supporting and Supervisory assignments.</p>
+        </div>
+        <div class="sta2e-cc-action-row">
+          <button type="button" data-action="addAssignmentLoadout">
+            <i class="fas fa-plus"></i> Add Assignment
+          </button>
+          <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.finishingAssignments}}false{{else}}true{{/if}}" title="{{#if configCollapsed.finishingAssignments}}Expand section{{else}}Collapse section{{/if}}">
+            <i class="fas {{#if configCollapsed.finishingAssignments}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="sta2e-cc-species-list" data-config-block-body {{#if configCollapsed.finishingAssignments}}hidden{{/if}}>
+        {{#each assignmentLoadouts as |assignment|}}
+        <article class="sta2e-cc-species-row sta2e-cc-assignment-loadout-row">
+          <header>
+            <button type="button" class="sta2e-cc-icon-btn" data-toggle-finishing-entry aria-expanded="true" title="Collapse assignment loadout">
+              <i class="fas fa-chevron-up"></i>
+            </button>
+            <input type="text" data-field="assignmentLoadoutName" value="{{assignment.name}}" placeholder="Security Officer" />
+            <button type="button" data-action="deleteAssignmentLoadout" title="Delete assignment loadout">
+              <i class="fas fa-trash"></i>
+            </button>
+          </header>
+
+          <div class="sta2e-cc-species-body" data-finishing-entry-body>
+            <div class="sta2e-cc-drop-slot" data-finishing-drop="assignmentEquipment">
+              <i class="fas fa-toolbox"></i>
+              <strong>Drop assignment equipment, weapons, armor, or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-assignment-loadout-list>
+              {{#each assignment.equipment as |item|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{item.name}}</span>
+                {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+                <input type="hidden" data-field="assignmentLoadoutEquipmentUuid" value="{{item.uuid}}" />
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove equipment"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </article>
+        {{/each}}
+
+        {{#unless assignmentLoadouts.length}}
+        <div class="sta2e-cc-empty">
+          Add assignment loadouts for Supporting and Supervisory characters.
+        </div>
+        {{/unless}}
+      </div>
+    </article>
+
+    <article class="sta2e-cc-panel sta2e-cc-config-block {{#if configCollapsed.finishingRoles}}is-collapsed{{/if}}" data-config-section="finishingRoles">
+      <div class="sta2e-cc-config-block-head">
+        <div>
+          <h3>Role Equipment</h3>
+          <p>Configure equipment granted by the selected role.</p>
+        </div>
+        <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.finishingRoles}}false{{else}}true{{/if}}" title="{{#if configCollapsed.finishingRoles}}Expand section{{else}}Collapse section{{/if}}">
+          <i class="fas {{#if configCollapsed.finishingRoles}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+        </button>
+      </div>
+
+      <div class="sta2e-cc-species-list" data-config-block-body {{#if configCollapsed.finishingRoles}}hidden{{/if}}>
+        {{#each roleLoadouts as |role|}}
+        <article class="sta2e-cc-species-row sta2e-cc-role-loadout-row" data-role-uuid="{{role.uuid}}">
+          <header>
+            <button type="button" class="sta2e-cc-icon-btn" data-toggle-finishing-entry aria-expanded="true" title="Collapse role equipment">
+              <i class="fas fa-chevron-up"></i>
+            </button>
+            <strong>{{role.name}}</strong>
+          </header>
+
+          <div class="sta2e-cc-species-body" data-finishing-entry-body>
+            {{#if role.description}}
+            <div class="sta2e-cc-description-panel">{{{role.description}}}</div>
+            {{/if}}
+            <div class="sta2e-cc-drop-slot" data-finishing-drop="roleEquipment">
+              <i class="fas fa-toolbox"></i>
+              <strong>Drop role equipment, weapons, armor, or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-role-loadout-list>
+              {{#each role.equipment as |item|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{item.name}}</span>
+                {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+                <input type="hidden" data-field="roleLoadoutEquipmentUuid" value="{{item.uuid}}" />
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove equipment"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </article>
+        {{/each}}
+
+        {{#unless roleLoadouts.length}}
+        <div class="sta2e-cc-empty">
+          Add roles to the Config tab before setting up role equipment.
+        </div>
+        {{/unless}}
+      </div>
+    </article>
+  </section>
+
+  <section class="sta2e-cc-section" data-cc-config-panel="supporting" hidden>
+    <div class="sta2e-cc-section-head">
+      <div>
+        <h2>Supporting / Supervisory Config</h2>
+        <p>Configure equipment granted to Supporting and Supervisory characters by selected department.</p>
+      </div>
+      <div class="sta2e-cc-action-row">
+        <button type="button" data-import-section="supportingDepartments" title="Import Supporting Department Equipment JSON">
+          <i class="fas fa-file-import"></i> Import
+        </button>
+        <button type="button" data-export-section="supportingDepartments" title="Export Supporting Department Equipment JSON">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+        <input type="file" accept="application/json,.json" data-section-import-input="supportingDepartments" hidden />
+      </div>
+    </div>
+
+    <article class="sta2e-cc-panel sta2e-cc-config-block {{#if configCollapsed.supportingDepartments}}is-collapsed{{/if}}" data-config-section="supportingDepartments">
+      <div class="sta2e-cc-config-block-head">
+        <div>
+          <h3>Department Equipment</h3>
+          <p>These loadouts are granted from the required Supporting/Supervisory department choice.</p>
+        </div>
+        <button type="button" class="sta2e-cc-icon-btn" data-toggle-config-block aria-expanded="{{#if configCollapsed.supportingDepartments}}false{{else}}true{{/if}}" title="{{#if configCollapsed.supportingDepartments}}Expand section{{else}}Collapse section{{/if}}">
+          <i class="fas {{#if configCollapsed.supportingDepartments}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+        </button>
+      </div>
+
+      <div class="sta2e-cc-species-list" data-config-block-body {{#if configCollapsed.supportingDepartments}}hidden{{/if}}>
+        {{#each departmentLoadouts as |department|}}
+        <article class="sta2e-cc-species-row sta2e-cc-department-loadout-row" data-department="{{department.key}}">
+          <header>
+            <button type="button" class="sta2e-cc-icon-btn" data-toggle-finishing-entry aria-expanded="true" title="Collapse department equipment">
+              <i class="fas fa-chevron-up"></i>
+            </button>
+            <strong>{{department.label}}</strong>
+          </header>
+          <div class="sta2e-cc-species-body" data-finishing-entry-body>
+            <div class="sta2e-cc-drop-slot" data-finishing-drop="departmentEquipment">
+              <i class="fas fa-toolbox"></i>
+              <strong>Drop {{department.label}} equipment, weapons, armor, or a folder here</strong>
+            </div>
+            <ul class="sta2e-cc-pill-list" data-department-loadout-list>
+              {{#each department.equipment as |item|}}
+              <li class="sta2e-cc-pill" data-description-root>
+                <span>{{item.name}}</span>
+                {{#if item.type}}<em>{{item.type}}</em>{{/if}}
+                <input type="hidden" data-field="departmentLoadoutEquipmentUuid" value="{{item.uuid}}" />
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+                <button type="button" data-remove-upbringing-item title="Remove equipment"><i class="fas fa-times"></i></button>
+              </li>
+              {{/each}}
+            </ul>
+          </div>
+        </article>
+        {{/each}}
+      </div>
+    </article>
+  </section>
+
+  <div class="sta2e-cc-pack-actions">
+    <span class="sta2e-cc-pack-actions-hint">Compendium pack import/export — bundles a full pack so creator references survive moving between worlds.</span>
+    <button type="button" data-import-pack title="Import a previously-exported compendium pack JSON into a world-level pack">
+      <i class="fas fa-file-import"></i> Import Pack
+    </button>
+    <button type="button" data-export-pack title="Export a compendium pack referenced by creator data as portable JSON">
+      <i class="fas fa-file-export"></i> Export Pack
+    </button>
+    <input type="file" accept="application/json,.json" data-pack-import-input hidden />
+  </div>
+
+  <footer class="sta2e-cc-footer">
+    <button type="button" data-action="cancel">Cancel</button>
+    <button type="button" class="sta2e-cc-primary" data-action="save">
+      <i class="fas fa-save"></i> Save
+    </button>
+  </footer>
+</div>

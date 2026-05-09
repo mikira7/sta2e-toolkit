@@ -215,6 +215,30 @@ export class ToolkitWidget {
     sep2.style.cssText = `height: 1px; background: ${LC.borderDim}; margin: 2px 8px;`;
     btnContainer.appendChild(sep2);
 
+    btnContainer.appendChild(mkBtn(
+      "fas fa-user-astronaut",
+      game.i18n.localize("STA2E.Widget.Button.CharacterCreator.Label"),
+      game.i18n.localize("STA2E.Widget.Button.CharacterCreator.Hint"),
+      LC.primary,
+      () => game.sta2eToolkit?.openCharacterCreator?.(),
+    ));
+
+    const sepTf = document.createElement("div");
+    sepTf.style.cssText = `height: 1px; background: ${LC.borderDim}; margin: 2px 8px;`;
+    btnContainer.appendChild(sepTf);
+
+    btnContainer.appendChild(mkBtn(
+      "fas fa-align-left",
+      game.i18n.localize("STA2E.Widget.Button.TextFormatter.Label"),
+      game.i18n.localize("STA2E.Widget.Button.TextFormatter.Hint"),
+      LC.secondary,
+      () => game.sta2eToolkit?.openTextFormatter?.(),
+    ));
+
+    const sepCc = document.createElement("div");
+    sepCc.style.cssText = `height: 1px; background: ${LC.borderDim}; margin: 2px 8px;`;
+    btnContainer.appendChild(sepCc);
+
     // Social Opposed Task button — GM only (dialog is GM-gated anyway)
     if (game.user.isGM) {
       btnContainer.appendChild(mkBtn(

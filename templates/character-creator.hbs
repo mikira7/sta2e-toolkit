@@ -1,0 +1,2897 @@
+<div class="sta2e-cc">
+  <aside class="sta2e-cc-steps">
+    {{#if typeChoiceActive}}
+    <div class="sta2e-cc-step is-active">
+      <span>00</span>
+      <strong>Character Type</strong>
+    </div>
+    {{/if}}
+    {{#if isSupportingCharacter}}
+    {{#each supportingStepLabels as |row|}}
+    <div class="sta2e-cc-step {{#if row.active}}is-active{{/if}}">
+      <span>{{row.number}}</span>
+      <strong>{{row.label}}</strong>
+    </div>
+    {{/each}}
+    {{/if}}
+    {{#if isNpcCharacter}}
+    {{#each npcStepLabels as |row|}}
+    <div class="sta2e-cc-step {{#if row.active}}is-active{{/if}}">
+      <span>{{row.number}}</span>
+      <strong>{{row.label}}</strong>
+    </div>
+    {{/each}}
+    {{/if}}
+    {{#if isPlayerCharacter}}
+    <div class="sta2e-cc-step {{#if stepOneActive}}is-active{{/if}}">
+      <span>01</span>
+      <strong>Species</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if stepTwoActive}}is-active{{/if}}">
+      <span>02</span>
+      <strong>Environment</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if stepThreeActive}}is-active{{/if}}">
+      <span>03</span>
+      <strong>Upbringing</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if stepFourActive}}is-active{{/if}}">
+      <span>04</span>
+      <strong>Career Path</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if stepFiveActive}}is-active{{/if}}">
+      <span>05</span>
+      <strong>Experience</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if stepSixActive}}is-active{{/if}}">
+      <span>06</span>
+      <strong>Career Events</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if stepSevenActive}}is-active{{/if}}">
+      <span>07</span>
+      <strong>Finishing Touches</strong>
+    </div>
+    <div class="sta2e-cc-step {{#if reviewActive}}is-active{{/if}}">
+      <span>08</span>
+      <strong>Review</strong>
+    </div>
+    {{/if}}
+  </aside>
+
+  <main class="sta2e-cc-main">
+    <header class="sta2e-cc-title-row">
+      <div>
+        {{#if typeChoiceActive}}
+        <h1>Character Type</h1>
+        <p>Choose the kind of character to create.</p>
+        {{/if}}
+        {{#if isSupportingCharacter}}
+        {{#if stepOneActive}}
+        <h1>{{characterTypeDefinition.name}}: Species Selection</h1>
+        <p>Choose species grants before assigning the short-form character details.</p>
+        {{/if}}
+        {{#if stepTwoActive}}
+        <h1>{{characterTypeDefinition.name}}: Scores, Traits, and Focuses</h1>
+        <p>Assign arrays, choose a department, add one extra trait, and choose department focuses.</p>
+        {{/if}}
+        {{#if stepThreeActive}}
+        <h1>{{characterTypeDefinition.name}}: Service Details</h1>
+        <p>Enter name, rank, assignment, pastime, and pronouns.</p>
+        {{/if}}
+        {{#if stepFourActive}}
+        <h1>{{characterTypeDefinition.name}} Review</h1>
+        <p>Review the character before finalizing.</p>
+        {{/if}}
+        {{/if}}
+        {{#if isNpcCharacter}}
+        {{#if stepOneActive}}
+        <h1>{{npcTypeLabel}}: Species Selection</h1>
+        <p>Choose species traits and any species-granted options for this NPC.</p>
+        {{/if}}
+        {{#if stepTwoActive}}
+        <h1>{{npcTypeLabel}}: Scores</h1>
+        <p>Assign the NPC score array and apply species attribute modifiers.</p>
+        {{/if}}
+        {{#if stepThreeActive}}
+        <h1>{{npcTypeLabel}}: Details</h1>
+        <p>Add role traits, values, focuses, special rules, equipment, and notes.</p>
+        {{/if}}
+        {{#if stepFourActive}}
+        <h1>{{npcTypeLabel}} Review</h1>
+        <p>Review the NPC before finalizing.</p>
+        {{/if}}
+        {{/if}}
+        {{#if isPlayerCharacter}}
+        {{#if stepOneActive}}
+        <h1>Step One: Species Selection</h1>
+        <p>Choose a primary species. Mixed species use the primary species ability and attribute boosts, then add the secondary species talent list.</p>
+        {{/if}}
+        {{#if stepTwoActive}}
+        {{#if isJemHadarLifepath}}
+        <h1>Step Two: Hatchery</h1>
+        <p>Choose the character's hatchery, value, attribute increase, and department increase.</p>
+        {{else}}
+        {{#if isVortaLifepath}}
+        <h1>Step Two: Vorta Cloning</h1>
+        <p>Choose the character's engineered value, attribute increases, and department increases.</p>
+        {{else}}
+        <h1>Step Two: Environment</h1>
+        <p>Choose the character's formative environment, value, attribute increase, and department increase.</p>
+        {{/if}}
+        {{/if}}
+        {{/if}}
+        {{#if stepThreeActive}}
+        {{#if isJemHadarLifepath}}
+        <h1>Step Three: Hatchery Training</h1>
+        <p>Choose the hatchery focus and talent.</p>
+        {{else}}
+        {{#if isVortaLifepath}}
+        <h1>Step Three: Vorta Conditioning</h1>
+        <p>Choose the cloning focus and talent.</p>
+        {{else}}
+        <h1>Step Three: Upbringing</h1>
+        <p>Choose or roll the character's upbringing, decide whether they accepted or rebelled, then select a department, focus, and talent.</p>
+        {{/if}}
+        {{/if}}
+        {{/if}}
+        {{#if stepFourActive}}
+        <h1>Step Four: Career Path</h1>
+        <p>Choose or roll the character's profession, then assign career attributes, value, focuses, and talent.</p>
+        {{/if}}
+        {{#if stepFiveActive}}
+        <h1>Step Five: Experience</h1>
+        <p>Choose career length, then add a value and talent.</p>
+        {{/if}}
+        {{#if stepSixActive}}
+        <h1>Step Six: Career Events</h1>
+        <p>Choose or roll two career events, then select a suggested focus or write a custom focus for each.</p>
+        {{/if}}
+        {{#if stepSevenActive}}
+        <h1>Step Seven: Finishing Touches</h1>
+        <p>Apply final score checks, choose a final value and talent, then add role and service details.</p>
+        {{/if}}
+        {{#if reviewActive}}
+        <h1>Review</h1>
+        <p>Review the character choices before finalizing.</p>
+        {{/if}}
+        {{/if}}
+      </div>
+      {{#unless typeChoiceActive}}
+      <label class="sta2e-cc-field sta2e-cc-name-field">
+        <span>Character Name</span>
+        <div class="sta2e-cc-inline-actions">
+          <input type="text" data-field="characterName" value="{{characterName}}" placeholder="Character name" />
+          <select data-field="randomNameGender" title="Random first name list">
+            <option value="any" {{#if (eq randomNameGender "any")}}selected{{/if}}>Any</option>
+            <option value="male" {{#if (eq randomNameGender "male")}}selected{{/if}}>Male</option>
+            <option value="female" {{#if (eq randomNameGender "female")}}selected{{/if}}>Female</option>
+          </select>
+          <button type="button" data-action="randomCharacterName" title="Roll random character name">
+            <i class="fas fa-dice"></i>
+          </button>
+        </div>
+      </label>
+      {{/unless}}
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Creator Data
+      </button>
+    </header>
+
+    {{#if typeChoiceActive}}
+    <section class="sta2e-cc-grid sta2e-cc-three sta2e-cc-type-grid">
+      {{#each characterTypeOptions as |option|}}
+      <article class="sta2e-cc-panel sta2e-cc-type-card">
+        <h2>{{option.name}}</h2>
+        <p>{{option.description}}</p>
+        <button type="button" class="sta2e-cc-primary" data-action="selectCharacterType" data-character-type="{{option.key}}">
+          Select
+        </button>
+      </article>
+      {{/each}}
+    </section>
+    {{/if}}
+
+    {{#if isPlayerCharacter}}
+    {{#if hasSpecies}}
+    <section class="sta2e-cc-panel">
+      <h2>Preview Scores</h2>
+      <div class="sta2e-cc-score-grid">
+        {{#each previewAttributes as |attr|}}
+        <div class="{{#if attr.boosted}}is-boosted{{/if}}">
+          <span>{{attr.label}}</span>
+          <strong>{{attr.value}}</strong>
+        </div>
+        {{/each}}
+        {{#each previewDisciplines as |disc|}}
+        <div class="{{#if disc.boosted}}is-boosted{{/if}}">
+          <span>{{disc.label}}</span>
+          <strong>{{disc.value}}</strong>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    {{#if stepOneActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two sta2e-cc-species-grants-grid">
+      <article class="sta2e-cc-panel sta2e-cc-species-grants-panel">
+        <h2>Species Grants</h2>
+        <dl class="sta2e-cc-summary">
+          <dt>Trait</dt>
+          <dd>
+            {{#each traitList as |trait|}}
+            <span class="sta2e-cc-chip">{{trait.name}}</span>
+            {{#if trait.description}}
+            <div class="sta2e-cc-inline-detail" data-description-root>
+              <button type="button" class="sta2e-cc-link-btn" data-toggle-description>{{trait.sourceName}} Trait Description</button>
+              <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{trait.description}}}</div>
+            </div>
+            {{/if}}
+            {{/each}}
+            {{#unless traitList.length}}No trait assigned{{/unless}}
+          </dd>
+
+          <dt>Species Ability</dt>
+          <dd data-description-root>
+            {{#if primary.abilityName}}{{primary.abilityName}}{{else}}No ability assigned{{/if}}
+            {{#if primary.abilityDescription}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Ability Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{primary.abilityDescription}}}</div>
+            {{/if}}
+          </dd>
+
+          {{#if hasSpeciesEsotericOptions}}
+          <dt>Esoteric Talents</dt>
+          <dd>
+            {{#each speciesEsotericSelections as |slot|}}
+            <label class="sta2e-cc-field">
+              <span>Species Esoteric Talent {{slot.number}}</span>
+              <select data-field="speciesEsotericTalent" data-index="{{slot.index}}">
+                <option value="">Choose Esoteric talent</option>
+                {{#each slot.options as |talent|}}
+                <option value="{{talent.uuid}}" {{#if talent.selected}}selected{{/if}} {{#if talent.disabled}}disabled{{/if}}>{{talent.name}}</option>
+                {{/each}}
+              </select>
+            </label>
+            {{#if slot.selected}}
+            <div class="sta2e-cc-inline-detail" data-description-root>
+              {{#if slot.selected.typeLabel}}<span>{{slot.selected.typeLabel}}</span>{{/if}}
+              {{#if slot.selected.description}}
+              <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Esoteric Talent Description</button>
+              <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{slot.selected.description}}}</div>
+              {{/if}}
+            </div>
+            {{/if}}
+            {{/each}}
+          </dd>
+          {{/if}}
+
+          {{#if requiresBorgImplants}}
+          <dt>Borg Implants</dt>
+          <dd>
+            <div class="sta2e-cc-borg-implants">
+              <div class="sta2e-cc-card-chip-row">
+                <span class="sta2e-cc-chip">{{selectedBorgImplantCount}} / 3 selected</span>
+              </div>
+              <ul class="sta2e-cc-choice-list sta2e-cc-borg-implant-list">
+                {{#each borgImplantOptions as |talent|}}
+                <li class="{{#if talent.selected}}is-selected{{/if}} {{#unless talent.available}}is-disabled{{/unless}}" data-description-root>
+                  <label class="sta2e-cc-borg-implant-choice">
+                    <input type="checkbox" data-field="borgImplant" value="{{talent.uuid}}" {{checked talent.selected}} {{#unless talent.available}}disabled{{/unless}} />
+                    <span>
+                      <strong>{{talent.name}}</strong>
+                      {{#if talent.typeLabel}}<em>{{talent.typeLabel}}</em>{{/if}}
+                      {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+                    </span>
+                  </label>
+                  {{#if talent.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                  {{/if}}
+                </li>
+                {{/each}}
+              </ul>
+              {{#unless hasBorgImplantOptions}}No Borg implants configured yet.{{/unless}}
+            </div>
+          </dd>
+          {{/if}}
+
+          {{#if requiresHumanAugmentTalents}}
+          <dt>Augment Talents</dt>
+          <dd>
+            <div class="sta2e-cc-start-talents">
+              <div class="sta2e-cc-card-chip-row">
+                <span class="sta2e-cc-chip">{{selectedHumanAugmentTalentCount}} / 2 selected</span>
+              </div>
+              <ul class="sta2e-cc-choice-list sta2e-cc-start-talent-list">
+                {{#each humanAugmentTalentOptions as |talent|}}
+                <li class="{{#if talent.selected}}is-selected{{/if}} {{#unless talent.available}}is-disabled{{/unless}}" data-description-root>
+                  <label class="sta2e-cc-start-talent-choice">
+                    <input type="checkbox" data-field="humanAugmentTalent" value="{{talent.uuid}}" {{checked talent.selected}} {{#unless talent.available}}disabled{{/unless}} />
+                    <span>
+                      <strong>{{talent.name}}</strong>
+                      {{#if talent.typeLabel}}<em>{{talent.typeLabel}}</em>{{/if}}
+                      {{#if talent.requirementLabel}}<em>{{talent.requirementLabel}}</em>{{/if}}
+                      {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+                    </span>
+                  </label>
+                  {{#if talent.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                  {{/if}}
+                </li>
+                {{/each}}
+              </ul>
+              {{#unless hasHumanAugmentTalentOptions}}No Augment talents configured yet.{{/unless}}
+              {{#if humanAugmentRequiresFlawTrait}}
+              <label class="sta2e-cc-field sta2e-cc-field--wide">
+                <span>Additional Flaw Trait</span>
+                <select data-field="humanAugmentFlawTrait">
+                  <option value="">Choose configured trait</option>
+                  {{#each humanAugmentFlawTraitOptions as |trait|}}
+                  <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <input type="text" data-field="humanAugmentCustomFlawTraitName" value="{{humanAugmentCustomFlawTraitName}}" placeholder="Custom flaw trait" />
+              <textarea data-field="humanAugmentCustomFlawTraitDescription" rows="2" placeholder="Custom flaw trait description">{{humanAugmentCustomFlawTraitDescription}}</textarea>
+              {{/if}}
+            </div>
+          </dd>
+          {{/if}}
+
+          <dt>Attribute Boosts</dt>
+          <dd>
+            {{#if primaryFreeAttributeSelection}}
+            {{#unless selectedFreeAttributeCount}}Choose any three attributes{{/unless}}
+            {{/if}}
+            {{#if hasSpeciesAttributeChoice}}
+            {{#unless selectedSpeciesAttributeChoice}}Choose one species attribute{{/unless}}
+            {{/if}}
+            {{#each previewAttributes as |attr|}}
+            {{#if attr.boosted}}<span class="sta2e-cc-chip">{{attr.label}} +1</span>{{/if}}
+            {{/each}}
+          </dd>
+        </dl>
+      </article>
+
+      <article class="sta2e-cc-panel sta2e-cc-species-talent-panel">
+        <h2>Species Talent Pool</h2>
+        <ul class="sta2e-cc-choice-list sta2e-cc-species-talent-list">
+          {{#each talentPool as |talent|}}
+          <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root>
+            <strong>{{talent.name}}</strong>
+            {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+            {{#if talent.requirementLabel}}<span>{{talent.requirementLabel}}</span>{{/if}}
+            {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+            {{#if talent.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+            {{/if}}
+          </li>
+          {{/each}}
+          {{#unless talentPool.length}}
+          <li class="is-empty">No species talents assigned to the selected species.</li>
+          {{/unless}}
+        </ul>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-species-select-layout">
+      <article class="sta2e-cc-panel sta2e-cc-species-list-panel">
+        <div class="sta2e-cc-title-row">
+          <h2>Species</h2>
+          <label class="sta2e-cc-toggle">
+            <input type="checkbox" data-field="mixedSpecies" {{checked mixedSpecies}} {{#if mixedSpeciesForced}}disabled{{/if}} />
+            <span>Mixed Species</span>
+          </label>
+        </div>
+        <label class="sta2e-cc-field sta2e-cc-species-search">
+          <span>Search Species</span>
+          <input type="search" data-species-filter value="{{speciesSearch}}" placeholder="Filter species" />
+        </label>
+        <ul class="sta2e-cc-choice-list sta2e-cc-species-card-list">
+          {{#each speciesOptions as |species|}}
+          <li data-species-card data-species-name="{{species.name}}" class="{{#if species.primarySelected}}is-primary{{/if}} {{#if species.secondarySelected}}is-secondary{{/if}}">
+            <div class="sta2e-cc-species-card-head">
+              <div class="sta2e-cc-species-card-title">
+                {{#if species.tokenImage}}<img src="{{species.tokenImage}}" alt="{{species.name}} token image" />{{/if}}
+                <strong>{{species.name}}</strong>
+              </div>
+              <div class="sta2e-cc-card-chip-row">
+                {{#if species.primarySelected}}<span class="sta2e-cc-chip">Primary</span>{{/if}}
+                {{#if species.secondarySelected}}<span class="sta2e-cc-chip">Secondary</span>{{/if}}
+              </div>
+            </div>
+            {{#if species.description}}
+            <div data-description-root>
+              <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+              <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{species.description}}}</div>
+            </div>
+            {{/if}}
+            <div class="sta2e-cc-card-chip-row">
+              {{#if species.freeAttributeSelection}}
+              <span class="sta2e-cc-chip">Any 3 Attributes</span>
+              {{else}}
+              {{#each species.attributeLabels as |attr|}}
+              <span class="sta2e-cc-chip">{{attr.label}} +1</span>
+              {{/each}}
+              {{#if species.attributeChoiceLabel}}<span class="sta2e-cc-chip">{{species.attributeChoiceLabel}} +1</span>{{/if}}
+              {{/if}}
+              {{#if species.extraFocusCount}}<span class="sta2e-cc-chip">{{species.extraFocusCount}} Extra Focuses</span>{{/if}}
+            </div>
+            <div class="sta2e-cc-species-card-actions">
+              <label class="sta2e-cc-talent-radio">
+                <input type="radio" name="primarySpecies" data-field="primarySpecies" value="{{species.id}}" {{#if species.primarySelected}}checked{{/if}} />
+                <span>Primary</span>
+              </label>
+              {{#if species.showSecondaryPicker}}
+              <label class="sta2e-cc-talent-radio {{#if species.disabledAsSecondary}}is-disabled{{/if}}">
+                <input type="radio" name="secondarySpecies" data-field="secondarySpecies" value="{{species.id}}" {{#if species.secondarySelected}}checked{{/if}} {{#if species.disabledAsSecondary}}disabled{{/if}} />
+                <span>Secondary</span>
+              </label>
+              {{/if}}
+            </div>
+          </li>
+          {{/each}}
+          <li class="is-empty" data-species-filter-empty hidden>No species match this search.</li>
+        </ul>
+      </article>
+
+      <article class="sta2e-cc-panel sta2e-cc-species-detail-panel">
+        <h2>Selected Species</h2>
+        <div class="sta2e-cc-species-detail-stack">
+          <section class="sta2e-cc-species-detail-card">
+            <span>Primary Species</span>
+            {{#if primary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{primary.tokenImage}}" alt="{{primary.name}} token image" />{{/if}}
+            <h3>{{primary.name}}</h3>
+            {{#if primary.description}}<p>{{primary.description}}</p>{{/if}}
+          </section>
+          {{#if mixedSpecies}}
+          <section class="sta2e-cc-species-detail-card">
+            <span>Secondary Species</span>
+            {{#if secondary}}
+            {{#if secondary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{secondary.tokenImage}}" alt="{{secondary.name}} token image" />{{/if}}
+            <h3>{{secondary.name}}</h3>
+            {{#if secondary.description}}<p>{{secondary.description}}</p>{{/if}}
+            {{else}}
+            <h3>Choose secondary species</h3>
+            <p>The secondary species adds its trait and contributes to the available species talent pool.</p>
+            {{/if}}
+          </section>
+          {{/if}}
+        </div>
+
+        {{#if primaryFreeAttributeSelection}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Attribute Boosts</h2>
+          <p>This species lets you choose any three attributes for +1.</p>
+          <div class="sta2e-cc-check-grid">
+            {{#each freeAttributeChoices as |attr|}}
+            <label>
+              <input type="checkbox" data-field="freeAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+              {{attr.label}}
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+        {{#if hasSpeciesAttributeChoice}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Attribute Choice</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each speciesAttributeChoiceOptions as |attr|}}
+            <label>
+              <input type="radio" name="speciesAttributeChoice" data-field="speciesAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+              {{attr.label}} +1
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+        {{#if speciesExtraFocusCount}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Bonus Focuses</h2>
+          <p>The primary species ability grants extra focuses.</p>
+          {{#each speciesFocusSelections as |slot|}}
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Species Focus {{slot.number}}</span>
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="speciesFocus" data-index="{{slot.index}}">
+                <option value="">Choose configured focus</option>
+                {{#each slot.options as |focus|}}
+                <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-action="randomSpeciesFocus" data-index="{{slot.index}}" title="Roll random species focus">
+                <i class="fas fa-dice"></i>
+              </button>
+            </div>
+            <input type="text" data-field="speciesCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+          </div>
+          {{/each}}
+        </div>
+        {{/if}}
+      </article>
+    </section>
+    {{/if}}
+
+    {{#if stepTwoActive}}
+    {{#if isJemHadarLifepath}}
+    <section class="sta2e-cc-panel">
+      <h2>Hatchery</h2>
+      <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+        {{#each jemHadarHatcheryOptions as |hatchery|}}
+        <label>
+          <input type="radio" name="jemHadarHatchery" data-field="jemHadarHatchery" value="{{hatchery.key}}" {{#if hatchery.selected}}checked{{/if}} />
+          {{hatchery.name}}
+        </label>
+        {{/each}}
+      </div>
+      {{#if selectedJemHadarHatchery.description}}
+      <div class="sta2e-cc-text-panel">
+        <h2>{{selectedJemHadarHatchery.name}}</h2>
+        <p>{{selectedJemHadarHatchery.description}}</p>
+      </div>
+      {{/if}}
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Value</h2>
+        {{#if selectedJemHadarHatchery.valuePrompt}}<p>{{selectedJemHadarHatchery.valuePrompt}}</p>{{/if}}
+        <label class="sta2e-cc-field">
+          <span>Configured Value</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="jemHadarHatcheryValue">
+              <option value="">Choose value</option>
+              {{#each jemHadarHatcheryValueOptions as |value|}}
+              <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomJemHadarHatcheryValue" title="Roll random value">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="jemHadarHatcheryCustomValueName" value="{{jemHadarHatcheryCustomValueName}}" placeholder="Custom value" />
+        <textarea data-field="jemHadarHatcheryCustomValueDescription" rows="2" placeholder="Custom value description">{{jemHadarHatcheryCustomValueDescription}}</textarea>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Attribute Increases</h2>
+        <p>{{jemHadarHatcheryFixedAttributeSummary}}</p>
+        <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+          {{#each jemHadarHatcheryAttributeChoices as |attr|}}
+          <label>
+            <input type="radio" name="jemHadarHatcheryAttribute" data-field="jemHadarHatcheryAttribute" value="{{attr.key}}" {{#if attr.selected}}checked{{/if}} />
+            {{attr.label}} +1
+          </label>
+          {{/each}}
+        </div>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-panel">
+      <h2>Department Increases</h2>
+      <p>{{jemHadarHatcheryFixedDepartmentLabel}} +1</p>
+      <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+        {{#each jemHadarHatcheryDepartmentChoices as |department|}}
+        <label>
+          <input type="radio" name="jemHadarHatcheryDepartment" data-field="jemHadarHatcheryDepartment" value="{{department.key}}" {{#if department.selected}}checked{{/if}} />
+          {{department.label}} +1
+        </label>
+        {{/each}}
+      </div>
+    </section>
+    {{else}}
+    {{#if isVortaLifepath}}
+    <section class="sta2e-cc-panel">
+      <h2>{{vortaCloning.name}}</h2>
+      <p>{{vortaCloning.description}}</p>
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Value</h2>
+        {{#if vortaCloning.valuePrompt}}<p>{{vortaCloning.valuePrompt}}</p>{{/if}}
+        <label class="sta2e-cc-field">
+          <span>Configured Value</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="vortaCloningValue">
+              <option value="">Choose value</option>
+              {{#each vortaCloningValueOptions as |value|}}
+              <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomVortaCloningValue" title="Roll random value">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="vortaCloningCustomValueName" value="{{vortaCloningCustomValueName}}" placeholder="Custom value" />
+        <textarea data-field="vortaCloningCustomValueDescription" rows="2" placeholder="Custom value description">{{vortaCloningCustomValueDescription}}</textarea>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Attribute Increases</h2>
+        <p>{{selectedVortaCloningAttributeCount}} / 3 selected.</p>
+        <div class="sta2e-cc-check-grid">
+          {{#each vortaCloningAttributeChoices as |attr|}}
+          <label class="{{#if attr.disabled}}is-disabled{{/if}}">
+            <input type="checkbox" data-field="vortaCloningAttribute" value="{{attr.key}}" {{checked attr.selected}} {{#if attr.disabled}}disabled{{/if}} />
+            {{attr.label}} +1
+          </label>
+          {{/each}}
+        </div>
+        {{#if vortaCloningAttributeChoiceOptions.length}}
+        <h2>Extra Attribute Increase</h2>
+        <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+          {{#each vortaCloningAttributeChoiceOptions as |attr|}}
+          <label>
+            <input type="radio" name="vortaCloningAttributeChoice" data-field="vortaCloningAttributeChoice" value="{{attr.key}}" {{#if attr.selected}}checked{{/if}} />
+            {{attr.label}} +1
+          </label>
+          {{/each}}
+        </div>
+        {{/if}}
+      </article>
+    </section>
+
+    <section class="sta2e-cc-panel">
+      <h2>Department Increases</h2>
+      <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+        {{#each vortaCloningPrimaryDepartmentChoices as |department|}}
+        <label>
+          <input type="radio" name="vortaCloningPrimaryDepartment" data-field="vortaCloningPrimaryDepartment" value="{{department.key}}" {{#if department.selected}}checked{{/if}} />
+          {{department.label}} +1
+        </label>
+        {{/each}}
+      </div>
+      <h2>Other Department</h2>
+      <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+        {{#each vortaCloningSecondaryDepartmentChoices as |department|}}
+        <label class="{{#if department.disabled}}is-disabled{{/if}}">
+          <input type="radio" name="vortaCloningSecondaryDepartment" data-field="vortaCloningSecondaryDepartment" value="{{department.key}}" {{#if department.selected}}checked{{/if}} {{#if department.disabled}}disabled{{/if}} />
+          {{department.label}} +1
+        </label>
+        {{/each}}
+      </div>
+    </section>
+    {{else}}
+    {{#if hasEnvironments}}
+    <section class="sta2e-cc-panel">
+      <div class="sta2e-cc-grid">
+        <label class="sta2e-cc-field">
+          <span>Environment</span>
+          <select data-field="environment">
+            {{#each environmentOptions as |option|}}
+            <option value="{{option.id}}" {{#if option.selected}}selected{{/if}}>{{option.name}}</option>
+            {{/each}}
+          </select>
+        </label>
+
+        <div class="sta2e-cc-field">
+          <span>Value</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="environmentValue">
+              <option value="">Choose value</option>
+              {{#each environmentValueOptions as |value|}}
+              <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomEnvironmentValue" title="Roll random value">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+          <input type="text" data-field="environmentCustomValueName" value="{{environmentCustomValueName}}" placeholder="Custom value" />
+          <textarea data-field="environmentCustomValueDescription" rows="2" placeholder="Custom value description">{{environmentCustomValueDescription}}</textarea>
+        </div>
+      </div>
+
+      {{#if environment.description}}
+      <div class="sta2e-cc-text-panel">
+        <h2>{{environment.name}}</h2>
+        <p>{{environment.description}}</p>
+      </div>
+      {{/if}}
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Value</h2>
+        {{#if environment.valueDescription}}<p>{{environment.valueDescription}}</p>{{/if}}
+        <ul class="sta2e-cc-choice-list">
+          {{#if selectedEnvironmentValue}}
+          <li data-description-root>
+            <strong>{{selectedEnvironmentValue.name}}</strong>
+            {{#if customEnvironmentValue}}<span>Custom value</span>{{/if}}
+            {{#if selectedEnvironmentValue.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{selectedEnvironmentValue.description}}}</div>
+            {{/if}}
+          </li>
+          {{else}}
+          {{#if hasEnvironmentValues}}
+          <li class="is-empty">Choose a value for this environment.</li>
+          {{else}}
+          <li class="is-empty">No values are configured in Creator Config yet.</li>
+          {{/if}}
+          {{/if}}
+        </ul>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Attribute Increase</h2>
+        {{#if environment.attributeDescription}}<p>{{environment.attributeDescription}}</p>{{/if}}
+        {{#if showEnvironmentAttributeSpecies}}
+        <label class="sta2e-cc-field">
+          <span>Source Species</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="environmentAttributeSpecies">
+              <option value="">Choose source species</option>
+              {{#each environmentAttributeSourceOptions as |species|}}
+              <option value="{{species.id}}" {{#if species.selected}}selected{{/if}} {{#if species.disabled}}disabled{{/if}}>{{species.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomEnvironmentAttributeSpecies" title="Roll random source species">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        {{/if}}
+        <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+          {{#each environmentAttributeChoices as |attr|}}
+          <label>
+            <input type="radio" name="environmentAttribute" data-field="environmentAttribute" value="{{attr.key}}" {{#if attr.selected}}checked{{/if}} />
+            {{attr.label}}
+          </label>
+          {{/each}}
+        </div>
+        {{#unless environmentAttributeChoices.length}}<p>No valid attribute choices are configured for this environment.</p>{{/unless}}
+      </article>
+    </section>
+
+    <section class="sta2e-cc-panel">
+      <h2>Department Increase</h2>
+      {{#if environment.departmentDescription}}<p>{{environment.departmentDescription}}</p>{{/if}}
+      <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+        {{#each environmentDepartmentChoices as |department|}}
+        <label>
+          <input type="radio" name="environmentDepartment" data-field="environmentDepartment" value="{{department.key}}" {{#if department.selected}}checked{{/if}} />
+          {{department.label}}
+        </label>
+        {{/each}}
+      </div>
+      {{#unless environmentDepartmentChoices.length}}<p>No valid department choices are configured for this environment.</p>{{/unless}}
+    </section>
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No environments are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+    {{/if}}
+    {{/if}}
+
+    {{#if stepThreeActive}}
+    {{#if isJemHadarLifepath}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Hatchery Focus</h2>
+        {{#if selectedJemHadarHatchery.focusPrompt}}<p>{{selectedJemHadarHatchery.focusPrompt}}</p>{{/if}}
+        <label class="sta2e-cc-field">
+          <span>Focus</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="jemHadarHatcheryFocus">
+              <option value="">Choose focus</option>
+              {{#each jemHadarHatcheryFocusOptions as |focus|}}
+              <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomJemHadarHatcheryFocus" title="Roll random focus">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="jemHadarHatcheryCustomFocusName" value="{{jemHadarHatcheryCustomFocusName}}" placeholder="Custom focus" />
+        <textarea data-field="jemHadarHatcheryCustomFocusDescription" rows="2" placeholder="Custom focus description">{{jemHadarHatcheryCustomFocusDescription}}</textarea>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Hatchery Talent</h2>
+        <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+          <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
+          <span>GM Allow Esoteric Talents</span>
+        </label>
+        <details class="sta2e-cc-choice-collapse" data-talent-filter-root {{#unless selectedJemHadarHatcheryTalent}}open{{/unless}}>
+          <summary>{{#if selectedJemHadarHatcheryTalent}}Selected: {{selectedJemHadarHatcheryTalent.name}}{{else}}Choose Talent{{/if}}</summary>
+          <label class="sta2e-cc-field sta2e-cc-talent-search">
+            <span>Search Talents</span>
+            <input type="search" data-talent-filter placeholder="Search talents" autocomplete="off" />
+          </label>
+          <ul class="sta2e-cc-choice-list" data-talent-filter-list>
+            {{#each jemHadarHatcheryTalentChoices as |talent|}}
+            <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root data-talent-option>
+              <label class="sta2e-cc-talent-radio">
+                <input type="radio" name="jemHadarHatcheryTalent" data-field="jemHadarHatcheryTalent" value="{{talent.uuid}}" {{#if talent.selected}}checked{{/if}} {{#unless talent.available}}disabled{{/unless}} />
+                <strong>{{talent.name}}</strong>
+              </label>
+              {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+              {{#if talent.requirementLabel}}<span>{{talent.requirementLabel}}</span>{{/if}}
+              {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+              {{#if talent.description}}
+              <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+              <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+              {{/if}}
+            </li>
+            {{/each}}
+            <li class="is-empty" data-talent-filter-empty hidden>No talents match this search.</li>
+            {{#unless jemHadarHatcheryTalentChoices.length}}
+            <li class="is-empty">No eligible talents are available for this hatchery choice.</li>
+            {{/unless}}
+          </ul>
+        </details>
+      </article>
+    </section>
+    {{else}}
+    {{#if isVortaLifepath}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Cloning Focus</h2>
+        <label class="sta2e-cc-field">
+          <span>Focus</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="vortaCloningFocus">
+              <option value="">Choose focus</option>
+              {{#each vortaCloningFocusOptions as |focus|}}
+              <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomVortaCloningFocus" title="Roll random focus">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="vortaCloningCustomFocusName" value="{{vortaCloningCustomFocusName}}" placeholder="Custom focus" />
+        <textarea data-field="vortaCloningCustomFocusDescription" rows="2" placeholder="Custom focus description">{{vortaCloningCustomFocusDescription}}</textarea>
+      </article>
+
+    </section>
+    {{else}}
+    {{#if hasUpbringings}}
+    <section class="sta2e-cc-panel">
+      <div class="sta2e-cc-grid">
+        <div class="sta2e-cc-field">
+          <span>Upbringing</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="upbringing">
+              {{#each upbringingOptions as |option|}}
+              <option value="{{option.id}}" {{#if option.selected}}selected{{/if}}>{{option.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomUpbringing" title="Roll random upbringing">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="sta2e-cc-field">
+          <span>Response</span>
+          <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+            <label>
+              <input type="radio" name="upbringingPath" data-field="upbringingPath" value="accepted" {{#if upbringingAcceptedSelected}}checked{{/if}} />
+              Accepted
+            </label>
+            <label>
+              <input type="radio" name="upbringingPath" data-field="upbringingPath" value="rebelled" {{#if upbringingRebelledSelected}}checked{{/if}} />
+              Rebelled
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {{#if upbringing.description}}
+      <div class="sta2e-cc-text-panel">
+        <h2>{{upbringing.name}}</h2>
+        <p>{{upbringing.description}}</p>
+      </div>
+      {{/if}}
+      {{#if upbringingPathDescription}}
+      <div class="sta2e-cc-text-panel">
+        <h2>{{#if upbringingAcceptedSelected}}Accepted{{else}}Rebelled{{/if}}</h2>
+        <p>{{upbringingPathDescription}}</p>
+      </div>
+      {{/if}}
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Attribute Increases</h2>
+        <p>{{upbringingPathAttributes}}</p>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Department Increase</h2>
+        {{#if upbringing.departmentDescription}}<p>{{upbringing.departmentDescription}}</p>{{/if}}
+        <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+          {{#each upbringingDepartmentChoices as |department|}}
+          <label>
+            <input type="radio" name="upbringingDepartment" data-field="upbringingDepartment" value="{{department.key}}" {{#if department.selected}}checked{{/if}} />
+            {{department.label}}
+          </label>
+          {{/each}}
+        </div>
+        {{#unless upbringingDepartmentChoices.length}}<p>No department choices are configured for this upbringing.</p>{{/unless}}
+      </article>
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Focus</h2>
+        {{#if upbringing.focusDescription}}<p>{{upbringing.focusDescription}}</p>{{/if}}
+        <label class="sta2e-cc-field">
+          <span>Focus</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="upbringingFocus">
+              <option value="">Choose focus</option>
+              {{#each upbringingFocusOptions as |focus|}}
+              <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomUpbringingFocus" title="Roll random focus">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="upbringingCustomFocusName" value="{{upbringingCustomFocusName}}" placeholder="Custom focus" />
+        <textarea data-field="upbringingCustomFocusDescription" rows="2" placeholder="Custom focus description">{{upbringingCustomFocusDescription}}</textarea>
+        <ul class="sta2e-cc-choice-list">
+          {{#if selectedUpbringingFocus}}
+          <li data-description-root>
+            <strong>{{selectedUpbringingFocus.name}}</strong>
+            {{#if customUpbringingFocus}}<span>Custom focus</span>{{else}}<span>Configured focus</span>{{/if}}
+            {{#if selectedUpbringingFocus.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{selectedUpbringingFocus.description}}}</div>
+            {{/if}}
+          </li>
+          {{else}}
+          {{#if hasUpbringingFocusOptions}}
+          <li class="is-empty">Choose a focus, roll one, or write a custom one.</li>
+          {{else}}
+          <li class="is-empty">No recommended or department focuses are configured. Write a custom focus.</li>
+          {{/if}}
+          {{/if}}
+        </ul>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Talent</h2>
+        {{#if upbringing.talentDescription}}<p>{{upbringing.talentDescription}}</p>{{/if}}
+        <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+          <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
+          <span>GM Allow Esoteric Talents</span>
+        </label>
+        <details class="sta2e-cc-choice-collapse" data-talent-filter-root {{#unless selectedUpbringingTalent}}open{{/unless}}>
+          <summary>{{#if selectedUpbringingTalent}}Selected: {{selectedUpbringingTalent.name}}{{else}}Choose Talent{{/if}}</summary>
+        <label class="sta2e-cc-field sta2e-cc-talent-search">
+          <span>Search Talents</span>
+          <input type="search" data-talent-filter placeholder="Search talents" autocomplete="off" />
+        </label>
+        <ul class="sta2e-cc-choice-list" data-talent-filter-list>
+          {{#each upbringingTalentChoices as |talent|}}
+          <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root data-talent-option>
+            <label class="sta2e-cc-talent-radio">
+              <input type="radio" name="upbringingTalent" data-field="upbringingTalent" value="{{talent.uuid}}" {{#if talent.selected}}checked{{/if}} {{#unless talent.available}}disabled{{/unless}} />
+              <strong>{{talent.name}}</strong>
+            </label>
+            {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+            {{#if talent.requirementLabel}}<span>{{talent.requirementLabel}}</span>{{/if}}
+            {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+            {{#if talent.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+            {{/if}}
+          </li>
+          {{/each}}
+          <li class="is-empty" data-talent-filter-empty hidden>No talents match this search.</li>
+          {{#unless upbringingTalentChoices.length}}
+          <li class="is-empty">No talents are configured for this upbringing or in Creator Config.</li>
+          {{/unless}}
+        </ul>
+        </details>
+      </article>
+    </section>
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No upbringings are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+    {{/if}}
+    {{/if}}
+
+    {{#if stepFourActive}}
+    {{#if hasCareerPaths}}
+    {{#if forcedJemHadarCareerPathMissing}}
+    <section class="sta2e-cc-empty">
+      <p>Add a Starfleet (Enlisted) career path in Creator Config for Jem'Hadar lifepath creation.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{else}}
+    {{#if vortaCareerPathOptionsMissing}}
+    <section class="sta2e-cc-empty">
+      <p>Add Diplomatic Corps, Civilian (Physician), Civilian (Scientist), or Civilian (Official) career paths in Creator Config for Vorta lifepath creation.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{else}}
+    <section class="sta2e-cc-panel">
+      <div class="sta2e-cc-grid">
+        <div class="sta2e-cc-field">
+          <span>Career Path</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="careerPath" {{#if isJemHadarLifepath}}disabled{{/if}}>
+              {{#each careerPathOptions as |option|}}
+              <option value="{{option.id}}" {{#if option.selected}}selected{{/if}}>{{option.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomCareerPath" title="Roll random career path" {{#if isJemHadarLifepath}}disabled{{/if}} {{#if isVortaLifepath}}disabled{{/if}}>
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="sta2e-cc-field">
+          <span>Professional Trait</span>
+          {{#if hasCareerTraitOptions}}
+          <select data-field="careerTrait">
+            <option value="">Choose professional trait</option>
+            {{#each careerTraitOptions as |trait|}}
+            <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+            {{/each}}
+          </select>
+          <input type="text" data-field="careerCustomTraitName" value="{{careerCustomTraitName}}" placeholder="Custom professional trait" />
+          <textarea data-field="careerCustomTraitDescription" rows="2" placeholder="Custom trait description">{{careerCustomTraitDescription}}</textarea>
+          {{#if selectedCareerTrait.description}}
+          <div class="sta2e-cc-inline-detail" data-description-root>
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>{{#if selectedCareerTrait.custom}}Custom Trait Description{{else}}Trait Description{{/if}}</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{selectedCareerTrait.description}}}</div>
+          </div>
+          {{/if}}
+          {{else}}
+          <ul class="sta2e-cc-choice-list sta2e-cc-choice-list--compact">
+            <li class="is-empty">No professional trait configured for this career path.</li>
+          </ul>
+          {{/if}}
+        </div>
+      </div>
+
+      {{#if careerPath.description}}
+      <div class="sta2e-cc-text-panel">
+        <h2>{{careerPath.name}}</h2>
+        <p>{{careerPath.description}}</p>
+      </div>
+      {{/if}}
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Value</h2>
+        {{#if careerPath.valueDescription}}<p>{{careerPath.valueDescription}}</p>{{/if}}
+        <label class="sta2e-cc-field">
+          <span>Configured Value</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="careerValue">
+              <option value="">Choose value</option>
+              {{#each careerValueOptions as |value|}}
+              <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomCareerValue" title="Roll random value">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="careerCustomValueName" value="{{careerCustomValueName}}" placeholder="Custom value" />
+        <textarea data-field="careerCustomValueDescription" rows="2" placeholder="Custom value description">{{careerCustomValueDescription}}</textarea>
+        {{#if selectedCareerValue}}
+        <ul class="sta2e-cc-choice-list">
+          <li data-description-root>
+            <strong>{{selectedCareerValue.name}}</strong>
+            {{#if selectedCareerValue.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{selectedCareerValue.description}}}</div>
+            {{/if}}
+          </li>
+        </ul>
+        {{/if}}
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Attributes</h2>
+        {{#if careerPath.attributeDescription}}<p>{{careerPath.attributeDescription}}</p>{{/if}}
+        {{#if careerRequiredAttributes.length}}
+        <p class="{{#if careerAttributeRequirementSatisfied}}sta2e-cc-rule-ok{{else}}sta2e-cc-rule-warning{{/if}}">At least one point must be spent in {{careerAttributeRequirementLabel}}.</p>
+        {{/if}}
+        <p>{{careerAttributeSpendRemaining}} point(s) remaining.</p>
+        <div class="sta2e-cc-attribute-steppers">
+          {{#each careerAttributeChoices as |attr|}}
+          <div class="sta2e-cc-stepper">
+            <span>{{attr.label}}{{#if attr.required}} *{{/if}}</span>
+            <button type="button" data-career-attribute-step data-attribute="{{attr.key}}" data-delta="-1" {{#unless attr.canDecrease}}disabled{{/unless}} title="Decrease {{attr.label}}">
+              <i class="fas fa-minus"></i>
+            </button>
+            <input type="number" data-field="careerAttributeSpend" data-attribute="{{attr.key}}" value="{{attr.value}}" min="0" max="2" readonly />
+            <button type="button" data-career-attribute-step data-attribute="{{attr.key}}" data-delta="1" {{#unless attr.canIncrease}}disabled{{/unless}} title="Increase {{attr.label}}">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+          {{/each}}
+        </div>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Departments</h2>
+        {{#if careerPath.departmentDescription}}<p>{{careerPath.departmentDescription}}</p>{{/if}}
+        <div class="sta2e-cc-field sta2e-cc-field--wide">
+          <span>Choose one department for +2</span>
+          <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+            {{#each careerDepartmentPlusTwoChoices as |department|}}
+            <label class="{{#if department.disabled}}is-disabled{{/if}}">
+              <input type="radio" name="careerDepartmentPlusTwo" data-field="careerDepartmentPlusTwo" value="{{department.key}}" {{#if department.selected}}checked{{/if}} {{#if department.disabled}}disabled{{/if}} />
+              {{department.label}} +2
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        <div class="sta2e-cc-field sta2e-cc-field--wide">
+          <span>Choose two other departments for +1</span>
+          <div class="sta2e-cc-check-grid">
+            {{#each careerDepartmentPlusOneChoices as |department|}}
+            <label class="{{#if department.disabled}}is-disabled{{/if}}">
+              <input type="checkbox" data-field="careerDepartmentPlusOne" value="{{department.key}}" {{checked department.selected}} {{#if department.disabled}}disabled{{/if}} />
+              {{department.label}} +1
+            </label>
+            {{/each}}
+          </div>
+          <p>{{careerDepartmentPlusOneRemaining}} +1 department pick(s) remaining.</p>
+        </div>
+        {{#if careerDepartmentReallocationAllowed}}
+        <div class="sta2e-cc-grid">
+          <label class="sta2e-cc-field">
+            <span>Optional reduce -1</span>
+            <select data-field="careerDepartmentReallocationFrom">
+              <option value="">No reduction</option>
+              {{#each careerDepartmentReallocationFromChoices as |department|}}
+              <option value="{{department.key}}" {{#if department.selected}}selected{{/if}}>{{department.label}} ({{department.baseValue}})</option>
+              {{/each}}
+            </select>
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Optional add +1</span>
+            <select data-field="careerDepartmentReallocationTo" {{#unless selectedCareerDepartmentReallocationFrom}}disabled{{/unless}}>
+              <option value="">Choose department</option>
+              {{#each careerDepartmentReallocationToChoices as |department|}}
+              <option value="{{department.key}}" {{#if department.selected}}selected{{/if}}>{{department.label}} ({{department.baseValue}})</option>
+              {{/each}}
+            </select>
+          </label>
+        </div>
+        {{/if}}
+        <ul class="sta2e-cc-choice-list">
+          {{#each careerDepartmentSummary as |department|}}
+          <li><strong>{{department}}</strong></li>
+          {{/each}}
+          {{#unless careerDepartmentSummary.length}}
+          <li class="is-empty">Choose the career department increases.</li>
+          {{/unless}}
+        </ul>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Focuses</h2>
+        {{#if careerPath.focusDescription}}<p>{{careerPath.focusDescription}}</p>{{/if}}
+        {{#each careerFocusSelections as |slot|}}
+        <div class="sta2e-cc-field sta2e-cc-field--wide">
+          <span>Focus {{slot.number}}</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="careerFocus" data-index="{{slot.index}}">
+              <option value="">Choose focus</option>
+              {{#each slot.options as |focus|}}
+              <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomCareerFocus" data-index="{{slot.index}}" title="Roll random focus">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+          <input type="text" data-field="careerCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+        </div>
+        {{/each}}
+      </article>
+    </section>
+
+    <section class="sta2e-cc-panel">
+      <h2>Talent</h2>
+      {{#if careerPath.talentDescription}}<p>{{careerPath.talentDescription}}</p>{{/if}}
+      <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+        <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
+        <span>GM Allow Esoteric Talents</span>
+      </label>
+      <details class="sta2e-cc-choice-collapse" data-talent-filter-root {{#unless selectedCareerTalent}}open{{/unless}}>
+        <summary>{{#if selectedCareerTalent}}Selected: {{selectedCareerTalent.name}}{{else}}Choose Talent{{/if}}</summary>
+      <label class="sta2e-cc-field sta2e-cc-talent-search">
+        <span>Search Talents</span>
+        <input type="search" data-talent-filter placeholder="Search talents" autocomplete="off" />
+      </label>
+      <ul class="sta2e-cc-choice-list" data-talent-filter-list>
+        {{#each careerTalentChoices as |talent|}}
+        <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root data-talent-option>
+          <label class="sta2e-cc-talent-radio">
+            <input type="radio" name="careerTalent" data-field="careerTalent" value="{{talent.uuid}}" {{#if talent.selected}}checked{{/if}} {{#unless talent.available}}disabled{{/unless}} />
+            <strong>{{talent.name}}</strong>
+          </label>
+          {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+          {{#if talent.requirementLabel}}<span>{{talent.requirementLabel}}</span>{{/if}}
+          {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+          {{#if talent.description}}
+          <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+          <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+          {{/if}}
+        </li>
+        {{/each}}
+        <li class="is-empty" data-talent-filter-empty hidden>No talents match this search.</li>
+        {{#unless careerTalentChoices.length}}
+        <li class="is-empty">No talents are configured for this career path or in Creator Config.</li>
+        {{/unless}}
+      </ul>
+      </details>
+    </section>
+    {{/if}}
+    {{/if}}
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No career paths are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+
+    {{#if stepFiveActive}}
+    {{#if hasExperienceOptions}}
+    <section class="sta2e-cc-panel">
+      <div class="sta2e-cc-field">
+        <span>Experience</span>
+        <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
+          {{#each experienceOptions as |option|}}
+          <label>
+            <input type="radio" name="experience" data-field="experience" value="{{option.key}}" {{#if option.selected}}checked{{/if}} />
+            {{option.name}}
+          </label>
+          {{/each}}
+        </div>
+      </div>
+
+      {{#if experience.description}}
+      <div class="sta2e-cc-text-panel">
+        <h2>{{experience.name}}</h2>
+        <p>{{experience.description}}</p>
+      </div>
+      {{/if}}
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Value</h2>
+        {{#if experience.valueDescription}}<p>{{experience.valueDescription}}</p>{{/if}}
+        <label class="sta2e-cc-field">
+          <span>Configured Value</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="experienceValue">
+              <option value="">Choose value</option>
+              {{#each experienceValueOptions as |value|}}
+              <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="randomExperienceValue" title="Roll random value">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        <input type="text" data-field="experienceCustomValueName" value="{{experienceCustomValueName}}" placeholder="Custom value" />
+        <textarea data-field="experienceCustomValueDescription" rows="2" placeholder="Custom value description">{{experienceCustomValueDescription}}</textarea>
+        {{#if selectedExperienceValue}}
+        <ul class="sta2e-cc-choice-list">
+          <li data-description-root>
+            <strong>{{selectedExperienceValue.name}}</strong>
+            {{#if selectedExperienceValue.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{selectedExperienceValue.description}}}</div>
+            {{/if}}
+          </li>
+        </ul>
+        {{/if}}
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Talent</h2>
+        {{#if experience.talentDescription}}<p>{{experience.talentDescription}}</p>{{/if}}
+        <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+          <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
+          <span>GM Allow Esoteric Talents</span>
+        </label>
+        <p>{{experienceTalentPoolLabel}}</p>
+        <details class="sta2e-cc-choice-collapse" data-talent-filter-root {{#unless selectedExperienceTalent}}open{{/unless}}>
+          <summary>{{#if selectedExperienceTalent}}Selected: {{selectedExperienceTalent.name}}{{else}}Choose Talent{{/if}}</summary>
+        <label class="sta2e-cc-field sta2e-cc-talent-search">
+          <span>Search Talents</span>
+          <input type="search" data-talent-filter placeholder="Search talents" autocomplete="off" />
+        </label>
+        <ul class="sta2e-cc-choice-list" data-talent-filter-list>
+          {{#each experienceTalentChoices as |talent|}}
+          <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root data-talent-option>
+            <label class="sta2e-cc-talent-radio">
+              <input type="radio" name="experienceTalent" data-field="experienceTalent" value="{{talent.uuid}}" {{#if talent.selected}}checked{{/if}} {{#unless talent.available}}disabled{{/unless}} />
+              <strong>{{talent.name}}</strong>
+            </label>
+            {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+            {{#if talent.requirementLabel}}<span>{{talent.requirementLabel}}</span>{{/if}}
+            {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+            {{#if talent.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+            {{/if}}
+          </li>
+          {{/each}}
+          <li class="is-empty" data-talent-filter-empty hidden>No talents match this search.</li>
+          {{#unless experienceTalentChoices.length}}
+          <li class="is-empty">No eligible talents are available for this experience choice.</li>
+          {{/unless}}
+        </ul>
+        </details>
+      </article>
+    </section>
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No experience options are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+
+    {{#if stepSixActive}}
+    {{#if hasCareerEvents}}
+    <nav class="sta2e-cc-subtabs sta2e-cc-creator-tabs">
+      {{#each careerEventSelections as |slot|}}
+      <button type="button" data-cc-creator-tab-group="careerEvents" data-cc-creator-tab="{{slot.tabId}}">Career Event {{slot.number}}</button>
+      {{/each}}
+    </nav>
+
+    {{#each careerEventSelections as |slot|}}
+    <div data-cc-creator-panel-group="careerEvents" data-cc-creator-panel="{{slot.tabId}}">
+      <section class="sta2e-cc-career-event-layout">
+        <article class="sta2e-cc-panel sta2e-cc-career-event-list-panel">
+          <div class="sta2e-cc-title-row">
+            <h2>Career Events</h2>
+            <button type="button" class="sta2e-cc-icon-btn" data-action="randomCareerEvent" data-index="{{slot.index}}" title="Roll random career event">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+          <ul class="sta2e-cc-choice-list sta2e-cc-event-name-list">
+            {{#each slot.eventOptions as |option|}}
+            <li class="{{#if option.selected}}is-selected{{/if}}">
+              <label class="sta2e-cc-talent-radio">
+                <input type="radio" name="careerEvent{{option.slotIndex}}" data-field="careerEvent" data-index="{{option.slotIndex}}" value="{{option.id}}" {{#if option.selected}}checked{{/if}} />
+                <strong>{{option.name}}</strong>
+              </label>
+            </li>
+            {{/each}}
+          </ul>
+        </article>
+
+        <article class="sta2e-cc-panel sta2e-cc-career-event-detail-panel">
+          <h2>{{#if slot.event}}{{slot.event.name}}{{else}}Event Details{{/if}}</h2>
+          {{#if slot.event}}
+          {{#if slot.event.description}}
+          <div class="sta2e-cc-text-panel">
+            <p>{{slot.event.description}}</p>
+          </div>
+          {{/if}}
+
+          <dl class="sta2e-cc-summary">
+            <dt>Attribute</dt>
+            <dd>
+              {{#if slot.needsAttributeChoice}}
+              <select data-field="careerEventAttribute" data-index="{{slot.index}}">
+                <option value="">Choose attribute</option>
+                {{#each slot.attributeChoices as |attr|}}
+                <option value="{{attr.key}}" {{#if attr.selected}}selected{{/if}}>{{attr.label}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <span class="sta2e-cc-chip">{{slot.attributeLabel}} +1</span>
+              {{/if}}
+            </dd>
+            <dt>Department</dt>
+            <dd>
+              {{#if slot.needsDepartmentChoice}}
+              <select data-field="careerEventDepartment" data-index="{{slot.index}}">
+                <option value="">Choose department</option>
+                {{#each slot.departmentChoices as |department|}}
+                <option value="{{department.key}}" {{#if department.selected}}selected{{/if}}>{{department.label}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <span class="sta2e-cc-chip">{{slot.departmentLabel}} +1</span>
+              {{/if}}
+            </dd>
+          </dl>
+
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Additional Focus</span>
+            {{#if slot.focusDescription}}<p>{{slot.focusDescription}}</p>{{/if}}
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="careerEventFocus" data-index="{{slot.index}}">
+                <option value="">Choose suggested focus</option>
+                {{#each slot.focusOptions as |focus|}}
+                <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-action="randomCareerEventFocus" data-index="{{slot.index}}" title="Roll random event focus">
+                <i class="fas fa-dice"></i>
+              </button>
+            </div>
+            <input type="text" data-field="careerEventCustomFocusName" data-index="{{slot.index}}" value="{{slot.customFocusName}}" placeholder="Custom focus" />
+            {{#if slot.selectedFocus}}
+            <ul class="sta2e-cc-choice-list">
+              <li data-description-root>
+                <strong>{{slot.selectedFocus.name}}</strong>
+                {{#if slot.selectedFocus.custom}}<span>Custom focus</span>{{else}}<span>Suggested focus</span>{{/if}}
+                {{#if slot.selectedFocus.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{slot.selectedFocus.description}}}</div>
+                {{/if}}
+              </li>
+            </ul>
+            {{/if}}
+          </div>
+
+          {{#if slot.event.traitGrant}}
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Event Trait</span>
+            {{#if slot.traitDescription}}<p>{{slot.traitDescription}}</p>{{/if}}
+            <select data-field="careerEventTrait" data-index="{{slot.index}}">
+              <option value="">Choose suggested trait</option>
+              {{#each slot.traitOptions as |trait|}}
+              <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+              {{/each}}
+            </select>
+            <input type="text" data-field="careerEventCustomTraitName" data-index="{{slot.index}}" value="{{slot.customTraitName}}" placeholder="Custom trait" />
+            <textarea data-field="careerEventCustomTraitDescription" data-index="{{slot.index}}" rows="2" placeholder="Custom trait description">{{slot.customTraitDescription}}</textarea>
+            {{#if slot.selectedTrait}}
+            <ul class="sta2e-cc-choice-list">
+              <li data-description-root>
+                <strong>{{slot.selectedTrait.name}}</strong>
+                {{#if slot.selectedTrait.custom}}<span>Custom trait</span>{{else}}<span>Suggested trait</span>{{/if}}
+                {{#if slot.selectedTrait.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{slot.selectedTrait.description}}}</div>
+                {{/if}}
+              </li>
+            </ul>
+            {{/if}}
+          </div>
+          {{/if}}
+          {{else}}
+          <p>Choose or roll a career event.</p>
+          {{/if}}
+        </article>
+      </section>
+    </div>
+    {{/each}}
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No career events are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+
+    {{#if stepSevenActive}}
+    <nav class="sta2e-cc-subtabs sta2e-cc-creator-tabs">
+      <button type="button" data-cc-creator-tab-group="finishing" data-cc-creator-tab="checks">Attribute & Department Check</button>
+      <button type="button" data-cc-creator-tab-group="finishing" data-cc-creator-tab="value">Final Value & Talent</button>
+      <button type="button" data-cc-creator-tab-group="finishing" data-cc-creator-tab="details">Final Details</button>
+    </nav>
+
+    <div data-cc-creator-panel-group="finishing" data-cc-creator-panel="checks">
+      <section class="sta2e-cc-grid sta2e-cc-two">
+        <article class="sta2e-cc-panel">
+          <h2>Attribute Check</h2>
+          <p>{{#if untappedPotential}}Untapped Potential: attributes cannot exceed 11.{{else}}Attributes cannot exceed 12, and only one may be 12.{{/if}}</p>
+          <p>Total: {{finalAttributeTotal}} / 56</p>
+          <p>Redistribution remaining: {{finalAttributeContext.redistributionRemaining}}. Final increases remaining: {{finalAttributeContext.finalRemaining}}.</p>
+          <div class="sta2e-cc-score-adjust-list">
+            {{#each finalAttributeContext.rows as |row|}}
+            <div class="sta2e-cc-score-adjust-row {{#if row.correctedDown}}is-warning{{/if}}">
+              <strong>{{row.label}}</strong>
+              <span>{{row.value}}</span>
+              <button type="button" data-final-score-step data-kind="attribute" data-mode="redistribution" data-score-key="{{row.key}}" data-delta="-1" {{#unless row.canRemoveRedistribution}}disabled{{/unless}} title="Remove redistribution"><i class="fas fa-minus"></i></button>
+              <em>R {{row.redistribution}}</em>
+              <button type="button" data-final-score-step data-kind="attribute" data-mode="redistribution" data-score-key="{{row.key}}" data-delta="1" {{#unless row.canAddRedistribution}}disabled{{/unless}} title="Add redistribution"><i class="fas fa-plus"></i></button>
+              <button type="button" data-final-score-step data-kind="attribute" data-mode="final" data-score-key="{{row.key}}" data-delta="-1" {{#unless row.canRemoveFinal}}disabled{{/unless}} title="Remove final increase"><i class="fas fa-minus"></i></button>
+              <em>F {{row.final}}</em>
+              <button type="button" data-final-score-step data-kind="attribute" data-mode="final" data-score-key="{{row.key}}" data-delta="1" {{#unless row.canAddFinal}}disabled{{/unless}} title="Add final increase"><i class="fas fa-plus"></i></button>
+            </div>
+            {{/each}}
+          </div>
+        </article>
+
+        <article class="sta2e-cc-panel">
+          <h2>Department Check</h2>
+          <p>{{#if untappedPotential}}Untapped Potential: departments cannot exceed 4.{{else}}Departments cannot exceed 5, and only one may be 5.{{/if}}</p>
+          <p>Total: {{finalDepartmentTotal}} / 16</p>
+          <p>Redistribution remaining: {{finalDepartmentContext.redistributionRemaining}}. Final increases remaining: {{finalDepartmentContext.finalRemaining}}.</p>
+          <div class="sta2e-cc-score-adjust-list">
+            {{#each finalDepartmentContext.rows as |row|}}
+            <div class="sta2e-cc-score-adjust-row {{#if row.correctedDown}}is-warning{{/if}}">
+              <strong>{{row.label}}</strong>
+              <span>{{row.value}}</span>
+              <button type="button" data-final-score-step data-kind="department" data-mode="redistribution" data-score-key="{{row.key}}" data-delta="-1" {{#unless row.canRemoveRedistribution}}disabled{{/unless}} title="Remove redistribution"><i class="fas fa-minus"></i></button>
+              <em>R {{row.redistribution}}</em>
+              <button type="button" data-final-score-step data-kind="department" data-mode="redistribution" data-score-key="{{row.key}}" data-delta="1" {{#unless row.canAddRedistribution}}disabled{{/unless}} title="Add redistribution"><i class="fas fa-plus"></i></button>
+              <button type="button" data-final-score-step data-kind="department" data-mode="final" data-score-key="{{row.key}}" data-delta="-1" {{#unless row.canRemoveFinal}}disabled{{/unless}} title="Remove final increase"><i class="fas fa-minus"></i></button>
+              <em>F {{row.final}}</em>
+              <button type="button" data-final-score-step data-kind="department" data-mode="final" data-score-key="{{row.key}}" data-delta="1" {{#unless row.canAddFinal}}disabled{{/unless}} title="Add final increase"><i class="fas fa-plus"></i></button>
+            </div>
+            {{/each}}
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <div data-cc-creator-panel-group="finishing" data-cc-creator-panel="value" hidden>
+      <section class="sta2e-cc-grid sta2e-cc-two">
+        <article class="sta2e-cc-panel">
+          <h2>Final Value</h2>
+          <label class="sta2e-cc-field">
+            <span>Configured Value</span>
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="finalValue">
+                <option value="">Choose value</option>
+                {{#each finalValueOptions as |value|}}
+                <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-action="randomFinalValue" title="Roll random value">
+                <i class="fas fa-dice"></i>
+              </button>
+            </div>
+          </label>
+          <input type="text" data-field="finalCustomValueName" value="{{finalCustomValueName}}" placeholder="Custom value" />
+          <textarea data-field="finalCustomValueDescription" rows="2" placeholder="Custom value description">{{finalCustomValueDescription}}</textarea>
+        </article>
+
+        <article class="sta2e-cc-panel">
+          <h2>Extra Talent</h2>
+          <p>Chosen talents: {{selectedTalentCount}} / 3 before this extra talent.</p>
+          <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
+            <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
+            <span>GM Allow Esoteric Talents</span>
+          </label>
+          <details class="sta2e-cc-choice-collapse" data-talent-filter-root {{#unless selectedFinalTalent}}open{{/unless}}>
+            <summary>{{#if selectedFinalTalent}}Selected: {{selectedFinalTalent.name}}{{else}}Choose Talent{{/if}}</summary>
+          <label class="sta2e-cc-field sta2e-cc-talent-search">
+            <span>Search Talents</span>
+            <input type="search" data-talent-filter placeholder="Search talents" autocomplete="off" />
+          </label>
+          <ul class="sta2e-cc-choice-list" data-talent-filter-list>
+            {{#each finalTalentChoices as |talent|}}
+            <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root data-talent-option>
+              <label class="sta2e-cc-talent-radio">
+                <input type="radio" name="finalTalent" data-field="finalTalent" value="{{talent.uuid}}" {{#if talent.selected}}checked{{/if}} {{#unless talent.available}}disabled{{/unless}} />
+                <strong>{{talent.name}}</strong>
+              </label>
+              {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+              {{#if talent.requirementLabel}}<span>{{talent.requirementLabel}}</span>{{/if}}
+              {{#if talent.description}}
+              <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+              <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+              {{/if}}
+            </li>
+            {{/each}}
+            <li class="is-empty" data-talent-filter-empty hidden>No talents match this search.</li>
+            {{#unless finalTalentChoices.length}}
+            <li class="is-empty">No eligible talents are available.</li>
+            {{/unless}}
+          </ul>
+          </details>
+        </article>
+      </section>
+    </div>
+
+    <div data-cc-creator-panel-group="finishing" data-cc-creator-panel="details" hidden>
+      <section class="sta2e-cc-grid sta2e-cc-two">
+        <article class="sta2e-cc-panel">
+          <h2>Role Selection</h2>
+          <details class="sta2e-cc-choice-collapse" {{#unless selectedRole}}open{{/unless}}>
+            <summary>{{#if selectedRole}}Selected: {{selectedRole.name}}{{else}}Choose Role{{/if}}</summary>
+            <ul class="sta2e-cc-choice-list">
+            {{#each roleOptions as |role|}}
+              <li class="{{#if role.selected}}is-selected{{/if}}" data-description-root>
+                <label class="sta2e-cc-talent-radio">
+                  <input type="radio" name="role" data-field="role" value="{{role.uuid}}" {{#if role.selected}}checked{{/if}} />
+                  <strong>{{role.name}}</strong>
+                </label>
+                {{#if role.type}}<span>{{role.type}}</span>{{/if}}
+                {{#if role.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{role.description}}}</div>
+                {{/if}}
+              </li>
+            {{/each}}
+              {{#unless roleOptions.length}}<li class="is-empty">No roles configured.</li>{{/unless}}
+            </ul>
+          </details>
+        </article>
+
+        <article class="sta2e-cc-panel">
+          <h2>Rank Selection</h2>
+          <details class="sta2e-cc-choice-collapse" {{#unless selectedRank}}open{{/unless}}>
+            <summary>{{#if selectedRank}}Selected: {{selectedRank.name}}{{else}}Choose Rank{{/if}}</summary>
+            <ul class="sta2e-cc-choice-list">
+            {{#each rankOptions as |rank|}}
+              <li class="{{#if rank.selected}}is-selected{{/if}}" data-description-root>
+                <label class="sta2e-cc-talent-radio">
+                  <input type="radio" name="rankSelect" data-field="rankSelect" value="{{rank.id}}" {{#if rank.selected}}checked{{/if}} />
+                  <strong>{{rank.name}}</strong>
+                </label>
+                {{#if rank.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{rank.description}}</div>
+                {{/if}}
+              </li>
+            {{/each}}
+              {{#unless rankOptions.length}}<li class="is-empty">No ranks configured.</li>{{/unless}}
+            </ul>
+          </details>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Custom Rank</span>
+            <input type="text" data-field="rank" value="{{customRank}}" placeholder="Custom rank" />
+          </label>
+        </article>
+
+        <article class="sta2e-cc-panel">
+          <h2>Service Details</h2>
+          <div class="sta2e-cc-final-details-grid">
+            {{#if canSelectPastime}}
+            <label class="sta2e-cc-field">
+              <span>Pastime</span>
+              <input type="text" data-field="pastime" value="{{pastime}}" placeholder="Pastime" />
+            </label>
+            {{else}}
+            <div class="sta2e-cc-text-panel">
+              <h2>Pastime</h2>
+              <p>Holograms do not select a pastime without Expanded Programming.</p>
+            </div>
+            {{/if}}
+            <label class="sta2e-cc-field">
+              <span>Assignment</span>
+              <input type="text" data-field="assignment" value="{{assignment}}" placeholder="Assignment" />
+            </label>
+            <label class="sta2e-cc-field">
+              <span>Pronouns</span>
+              <input type="text" data-field="pronouns" value="{{pronouns}}" placeholder="Pronouns" />
+            </label>
+          </div>
+          {{#if hasExpandedProgrammingTalent}}
+          <div class="sta2e-cc-free-attrs">
+            <h2>Expanded Programming Focuses</h2>
+            <p>Select up to two additional focuses.</p>
+            {{#each expandedProgrammingFocusSelections as |slot|}}
+            <div class="sta2e-cc-field sta2e-cc-field--wide">
+              <span>Expanded Focus {{slot.number}}</span>
+              <select data-field="expandedProgrammingFocus" data-index="{{slot.index}}">
+                <option value="">Choose configured focus</option>
+                {{#each slot.options as |focus|}}
+                <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+                {{/each}}
+              </select>
+              <input type="text" data-field="expandedProgrammingCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+            </div>
+            {{/each}}
+          </div>
+          {{/if}}
+        </article>
+
+        <article class="sta2e-cc-panel">
+          <h2>Equipment</h2>
+          <details class="sta2e-cc-choice-collapse" open>
+            <summary>Role{{#if selectedRole}}: {{selectedRole.name}}{{/if}}</summary>
+            {{#unless selectedRole}}<p>Choose a role to see configured equipment.</p>{{/unless}}
+            <ul class="sta2e-cc-choice-list">
+              {{#each roleEquipment as |item|}}
+              <li data-description-root>
+                <strong>{{item.name}}</strong>
+                {{#if item.type}}<span>{{item.type}}</span>{{/if}}
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+              </li>
+              {{/each}}
+              {{#unless roleEquipment.length}}<li class="is-empty">No equipment configured for this role.</li>{{/unless}}
+            </ul>
+          </details>
+          <details class="sta2e-cc-choice-collapse" open>
+            <summary>Rank{{#if selectedRank}}: {{selectedRank.name}}{{/if}}</summary>
+            {{#unless selectedRank}}<p>Choose a configured rank to see rank equipment.</p>{{/unless}}
+            <ul class="sta2e-cc-choice-list">
+              {{#each rankEquipment as |item|}}
+              <li data-description-root>
+                <strong>{{item.name}}</strong>
+                {{#if item.type}}<span>{{item.type}}</span>{{/if}}
+                {{#if item.description}}
+                <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{item.description}}}</div>
+                {{/if}}
+              </li>
+              {{/each}}
+              {{#unless rankEquipment.length}}<li class="is-empty">No equipment configured for this rank.</li>{{/unless}}
+            </ul>
+          </details>
+        </article>
+      </section>
+    </div>
+    {{/if}}
+
+    {{#if reviewActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Scores</h2>
+        <p>Attributes {{finalAttributeTotal}} / 56. Departments {{finalDepartmentTotal}} / 16.</p>
+        <div class="sta2e-cc-score-grid">
+          {{#each finalAttributeContext.rows as |row|}}<div><span>{{row.label}}</span><strong>{{row.value}}</strong></div>{{/each}}
+          {{#each finalDepartmentContext.rows as |row|}}<div><span>{{row.label}}</span><strong>{{row.value}}</strong></div>{{/each}}
+        </div>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Details</h2>
+        <dl class="sta2e-cc-summary">
+          <dt>Name</dt><dd>{{#if characterName}}{{characterName}}{{else}}Unnamed character{{/if}}</dd>
+          <dt>Role</dt><dd>{{#if selectedRole}}{{selectedRole.name}}{{else}}None selected{{/if}}</dd>
+          <dt>Pastime</dt><dd>{{#if pastime}}{{pastime}}{{else}}None entered{{/if}}</dd>
+          <dt>Rank</dt><dd>{{#if rank}}{{rank}}{{else}}None entered{{/if}}</dd>
+          <dt>Assignment</dt><dd>{{#if assignment}}{{assignment}}{{else}}None entered{{/if}}</dd>
+          <dt>Pronouns</dt><dd>{{#if pronouns}}{{pronouns}}{{else}}None entered{{/if}}</dd>
+        </dl>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Traits, Values, and Focuses</h2>
+        <ul class="sta2e-cc-choice-list">
+          {{#each traitList as |trait|}}<li><strong>{{trait.name}}</strong></li>{{/each}}
+          {{#if selectedHumanAugmentFlawTrait}}<li><strong>{{selectedHumanAugmentFlawTrait.name}}</strong></li>{{/if}}
+          {{#if selectedCareerTrait}}<li><strong>{{selectedCareerTrait.name}}</strong></li>{{/if}}
+          {{#each eventTraitSummary as |trait|}}<li><strong>{{trait.name}}</strong></li>{{/each}}
+          {{#unless traitList.length}}{{#unless selectedHumanAugmentFlawTrait}}{{#unless selectedCareerTrait}}{{#unless eventTraitSummary.length}}<li class="is-empty">No traits selected.</li>{{/unless}}{{/unless}}{{/unless}}{{/unless}}
+        </ul>
+        <p>Focuses selected: {{focusCount}} / {{focusTargetCount}}.</p>
+        <ul class="sta2e-cc-choice-list">
+          {{#each valueSummary as |value|}}<li><strong>{{value.name}}</strong></li>{{/each}}
+          {{#unless valueSummary.length}}<li class="is-empty">No values selected.</li>{{/unless}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each focusSummary as |focus|}}<li><strong>{{focus.name}}</strong></li>{{/each}}
+          {{#unless focusSummary.length}}<li class="is-empty">No focuses selected.</li>{{/unless}}
+        </ul>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Talents and Equipment</h2>
+        <ul class="sta2e-cc-choice-list">
+          {{#each selectedTalentSummary as |talent|}}<li><strong>{{talent.name}}</strong></li>{{/each}}
+          {{#unless selectedTalentSummary.length}}<li class="is-empty">No talents selected.</li>{{/unless}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each roleEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+          {{#unless roleEquipment.length}}<li class="is-empty">No role equipment configured.</li>{{/unless}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each rankEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+          {{#unless rankEquipment.length}}<li class="is-empty">No rank equipment configured.</li>{{/unless}}
+        </ul>
+      </article>
+    </section>
+    {{/if}}
+
+    <footer class="sta2e-cc-footer">
+      <button type="button" data-action="previousStep">Back</button>
+      {{#if stepOneActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Environment</button>
+      {{/if}}
+      {{#if stepTwoActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Upbringing</button>
+      {{/if}}
+      {{#if stepThreeActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Career Path</button>
+      {{/if}}
+      {{#if stepFourActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Experience</button>
+      {{/if}}
+      {{#if stepFiveActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Career Events</button>
+      {{/if}}
+      {{#if stepSixActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Finishing Touches</button>
+      {{/if}}
+      {{#if stepSevenActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="nextStep">Review</button>
+      {{/if}}
+      {{#if reviewActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="finalizeCharacter">
+        <i class="fas fa-user-plus"></i> Finalize Character
+      </button>
+      {{/if}}
+    </footer>
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No species are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+
+    {{#if isNpcCharacter}}
+    {{#if hasSpecies}}
+    <section class="sta2e-cc-panel">
+      <div class="sta2e-cc-title-row">
+        <div>
+          <h2>NPC Preview</h2>
+          <p>Personal Threat {{npcPersonalThreat}}. Attributes {{npcAttributeTotal}}. Departments {{npcDepartmentTotal}}.</p>
+        </div>
+        <button type="button" class="sta2e-cc-primary" data-action="randomizeNpc">
+          <i class="fas fa-dice"></i> Randomize NPC
+        </button>
+      </div>
+      <div class="sta2e-cc-score-grid">
+        {{#each npcAttributeRows as |attr|}}
+        <div class="{{#if attr.boosted}}is-boosted{{/if}}">
+          <span>{{attr.label}}</span>
+          <strong>{{attr.value}}</strong>
+        </div>
+        {{/each}}
+        {{#each npcDepartmentRows as |disc|}}
+        <div>
+          <span>{{disc.label}}</span>
+          <strong>{{disc.value}}</strong>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    {{#if stepOneActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two sta2e-cc-species-grants-grid">
+      <article class="sta2e-cc-panel sta2e-cc-species-list-panel">
+        <div class="sta2e-cc-title-row">
+          <h2>Species</h2>
+          <label class="sta2e-cc-toggle">
+            <input type="checkbox" data-field="mixedSpecies" {{checked mixedSpecies}} {{#if mixedSpeciesForced}}disabled{{/if}} />
+            <span>Mixed Species</span>
+          </label>
+        </div>
+        <label class="sta2e-cc-field sta2e-cc-species-search">
+          <span>Search Species</span>
+          <input type="search" data-species-filter value="{{speciesSearch}}" placeholder="Filter species" />
+        </label>
+        <ul class="sta2e-cc-choice-list sta2e-cc-species-card-list">
+          {{#each speciesOptions as |species|}}
+          <li data-species-card data-species-name="{{species.name}}" class="{{#if species.primarySelected}}is-primary{{/if}} {{#if species.secondarySelected}}is-secondary{{/if}}">
+            <div class="sta2e-cc-species-card-head">
+              <div class="sta2e-cc-species-card-title">
+                {{#if species.tokenImage}}<img src="{{species.tokenImage}}" alt="{{species.name}} token image" />{{/if}}
+                <strong>{{species.name}}</strong>
+              </div>
+              <div class="sta2e-cc-card-chip-row">
+                {{#if species.primarySelected}}<span class="sta2e-cc-chip">Primary</span>{{/if}}
+                {{#if species.secondarySelected}}<span class="sta2e-cc-chip">Secondary</span>{{/if}}
+              </div>
+            </div>
+            <div class="sta2e-cc-card-chip-row">
+              {{#if species.freeAttributeSelection}}
+              <span class="sta2e-cc-chip">Any 3 Attributes</span>
+              {{else}}
+              {{#each species.attributeLabels as |attr|}}<span class="sta2e-cc-chip">{{attr.label}} +1</span>{{/each}}
+              {{#if species.attributeChoiceLabel}}<span class="sta2e-cc-chip">{{species.attributeChoiceLabel}} +1</span>{{/if}}
+              {{/if}}
+            </div>
+            <div class="sta2e-cc-species-card-actions">
+              <label class="sta2e-cc-talent-radio">
+                <input type="radio" name="primarySpecies" data-field="primarySpecies" value="{{species.id}}" {{#if species.primarySelected}}checked{{/if}} />
+                <span>Primary</span>
+              </label>
+              {{#if species.showSecondaryPicker}}
+              <label class="sta2e-cc-talent-radio {{#if species.disabledAsSecondary}}is-disabled{{/if}}">
+                <input type="radio" name="secondarySpecies" data-field="secondarySpecies" value="{{species.id}}" {{#if species.secondarySelected}}checked{{/if}} {{#if species.disabledAsSecondary}}disabled{{/if}} />
+                <span>Secondary</span>
+              </label>
+              {{/if}}
+            </div>
+          </li>
+          {{/each}}
+          <li class="is-empty" data-species-filter-empty hidden>No species match this search.</li>
+        </ul>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Species Grants</h2>
+        <dl class="sta2e-cc-summary">
+          <dt>Trait</dt>
+          <dd>
+            {{#each traitList as |trait|}}<span class="sta2e-cc-chip">{{trait.name}}</span>{{/each}}
+            {{#unless traitList.length}}No trait assigned{{/unless}}
+          </dd>
+          <dt>Species Ability</dt>
+          <dd>{{#if primary.abilityName}}{{primary.abilityName}}{{else}}No ability assigned{{/if}}</dd>
+        </dl>
+        {{#if primaryFreeAttributeSelection}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Attribute Boosts</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each freeAttributeChoices as |attr|}}
+            <label>
+              <input type="checkbox" data-field="freeAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+              {{attr.label}}
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+        {{#if hasSpeciesAttributeChoice}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Attribute Choice</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each speciesAttributeChoiceOptions as |attr|}}
+            <label>
+              <input type="radio" name="speciesAttributeChoice" data-field="speciesAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+              {{attr.label}} +1
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+        {{#if speciesExtraFocusCount}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Bonus Focuses</h2>
+          {{#each speciesFocusSelections as |slot|}}
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Species Focus {{slot.number}}</span>
+            <select data-field="speciesFocus" data-index="{{slot.index}}">
+              <option value="">Choose configured focus</option>
+              {{#each slot.options as |focus|}}
+              <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+              {{/each}}
+            </select>
+            <input type="text" data-field="speciesCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+          </div>
+          {{/each}}
+        </div>
+        {{/if}}
+      </article>
+    </section>
+    {{/if}}
+
+    {{#if stepTwoActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Attributes</h2>
+        <div class="sta2e-cc-score-assign-list">
+          {{#each npcAttributeRows as |row|}}
+          <div class="sta2e-cc-score-drop-row {{#if row.boosted}}is-boosted{{/if}}" data-supporting-score-drop data-score-kind="attribute" data-score-key="{{row.key}}">
+            <span>{{row.label}}</span>
+            <button type="button" class="sta2e-cc-score-chip" draggable="true" data-supporting-score-chip data-score-kind="attribute" data-score-key="{{row.key}}" data-score-value="{{row.baseValue}}" title="Drag to swap values">
+              {{row.baseValue}}
+            </button>
+            <strong>{{row.value}}</strong>
+          </div>
+          {{/each}}
+        </div>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Departments</h2>
+        <div class="sta2e-cc-score-assign-list">
+          {{#each npcDepartmentRows as |row|}}
+          <div class="sta2e-cc-score-drop-row" data-supporting-score-drop data-score-kind="department" data-score-key="{{row.key}}">
+            <span>{{row.label}}</span>
+            <button type="button" class="sta2e-cc-score-chip" draggable="true" data-supporting-score-chip data-score-kind="department" data-score-key="{{row.key}}" data-score-value="{{row.value}}" title="Drag to swap values">
+              {{row.value}}
+            </button>
+            <strong>{{row.value}}</strong>
+          </div>
+          {{/each}}
+        </div>
+      </article>
+    </section>
+    {{/if}}
+
+    {{#if stepThreeActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Core Details</h2>
+        <div class="sta2e-cc-final-details-grid">
+          <label class="sta2e-cc-field">
+            <span>Rank</span>
+            <select data-field="rankSelect">
+              <option value="">Choose configured rank</option>
+              {{#each rankOptions as |rank|}}
+              <option value="{{rank.id}}" {{#if rank.selected}}selected{{/if}}>{{rank.name}}</option>
+              {{/each}}
+            </select>
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Custom Rank</span>
+            <input type="text" data-field="rank" value="{{customRank}}" placeholder="Custom rank" />
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Assignment</span>
+            <input type="text" data-field="assignment" value="{{assignment}}" placeholder="Guard Captain" />
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Pronouns</span>
+            <input type="text" data-field="pronouns" value="{{pronouns}}" placeholder="Pronouns" />
+          </label>
+        </div>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Role Trait</h2>
+        <label class="sta2e-cc-field">
+          <span>Configured Trait</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="npcRoleTrait">
+              <option value="">Choose trait</option>
+              {{#each npcTraitOptions as |trait|}}
+              <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" class="sta2e-cc-icon-btn" data-action="randomNpcTrait" data-target="role" title="Roll random role trait">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        {{#if selectedNpcRoleTrait.description}}
+        <div class="sta2e-cc-description-panel">{{{selectedNpcRoleTrait.description}}}</div>
+        {{/if}}
+        <input type="text" data-field="npcCustomRoleTraitName" value="{{npcCustomRoleTraitName}}" placeholder="Custom role trait" />
+        <textarea data-field="npcCustomRoleTraitDescription" rows="2" placeholder="Custom role trait description">{{npcCustomRoleTraitDescription}}</textarea>
+        {{#if npcDefinition.extraTraitCount}}
+        <h2>Optional Extra Trait</h2>
+        <label class="sta2e-cc-field">
+          <span>Configured Trait</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="npcExtraTrait">
+              <option value="">Choose trait</option>
+              {{#each npcExtraTraitOptions as |trait|}}
+              <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" class="sta2e-cc-icon-btn" data-action="randomNpcTrait" data-target="extra" title="Roll random extra trait">
+              <i class="fas fa-dice"></i>
+            </button>
+          </div>
+        </label>
+        {{#if selectedNpcExtraTrait.description}}
+        <div class="sta2e-cc-description-panel">{{{selectedNpcExtraTrait.description}}}</div>
+        {{/if}}
+        <input type="text" data-field="npcCustomExtraTraitName" value="{{npcCustomExtraTraitName}}" placeholder="Custom extra trait" />
+        <textarea data-field="npcCustomExtraTraitDescription" rows="2" placeholder="Custom extra trait description">{{npcCustomExtraTraitDescription}}</textarea>
+        {{/if}}
+      </article>
+    </section>
+
+    {{#if npcValueLimit}}
+    <section class="sta2e-cc-panel">
+      <h2>Values</h2>
+      <p>{{npcValueCount}} / {{npcValueLimit}} selected.</p>
+      {{#each npcValueSelections as |slot|}}
+      <div class="sta2e-cc-field sta2e-cc-field--wide">
+        <span>Value {{slot.number}}</span>
+        <div class="sta2e-cc-inline-actions">
+          <select data-field="npcValue" data-index="{{slot.index}}">
+            <option value="">Choose value</option>
+            {{#each slot.options as |value|}}
+            <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}} {{#if value.disabled}}disabled{{/if}}>{{value.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" class="sta2e-cc-icon-btn" data-action="randomNpcValue" data-index="{{slot.index}}" title="Roll random value">
+            <i class="fas fa-dice"></i>
+          </button>
+          {{#if slot.canEdit}}
+          <button type="button" class="sta2e-cc-icon-btn" data-action="editNpcValue" data-index="{{slot.index}}" title="Edit name and description">
+            <i class="fas fa-pen"></i>
+          </button>
+          {{/if}}
+          {{#if slot.editing}}
+          <button type="button" class="sta2e-cc-icon-btn" data-action="cancelEditNpcValue" data-index="{{slot.index}}" title="Revert to original">
+            <i class="fas fa-undo"></i>
+          </button>
+          {{/if}}
+          {{#if slot.removable}}
+          <button type="button" class="sta2e-cc-icon-btn" data-action="removeNpcValue" data-index="{{slot.index}}" title="Remove this slot">
+            <i class="fas fa-times"></i>
+          </button>
+          {{/if}}
+        </div>
+        {{#if slot.showCustomFields}}
+        <input type="text" data-field="npcCustomValueName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom value name" />
+        <prose-mirror data-field="npcCustomValueDescription" data-index="{{slot.index}}" name="npcCustomValueDescription_{{slot.index}}" value="{{slot.customDescription}}"></prose-mirror>
+        {{else}}
+        {{#if slot.selected.description}}
+        <div class="sta2e-cc-description-panel">{{{slot.selected.description}}}</div>
+        {{/if}}
+        {{/if}}
+      </div>
+      {{/each}}
+      {{#if npcCanAddValue}}
+      <div class="sta2e-cc-field sta2e-cc-field--wide">
+        <button type="button" data-action="addNpcValue">+ Add Value</button>
+      </div>
+      {{/if}}
+    </section>
+    {{/if}}
+
+    {{#if npcFocusLimit}}
+    <section class="sta2e-cc-panel">
+      <h2>Focuses</h2>
+      <p>{{npcFocusCount}} / {{npcFocusLimit}} selected.</p>
+      {{#each npcFocusSelections as |slot|}}
+      <div class="sta2e-cc-field sta2e-cc-field--wide">
+        <span>Focus {{slot.number}}</span>
+        <div class="sta2e-cc-inline-actions">
+          <select data-field="npcFocus" data-index="{{slot.index}}">
+            <option value="">Choose focus</option>
+            {{#each slot.options as |focus|}}
+            <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}} {{#if focus.disabled}}disabled{{/if}}>{{focus.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" class="sta2e-cc-icon-btn" data-action="randomNpcFocus" data-index="{{slot.index}}" title="Roll random focus">
+            <i class="fas fa-dice"></i>
+          </button>
+          {{#if slot.canEdit}}
+          <button type="button" class="sta2e-cc-icon-btn" data-action="editNpcFocus" data-index="{{slot.index}}" title="Edit name and description">
+            <i class="fas fa-pen"></i>
+          </button>
+          {{/if}}
+          {{#if slot.editing}}
+          <button type="button" class="sta2e-cc-icon-btn" data-action="cancelEditNpcFocus" data-index="{{slot.index}}" title="Revert to original">
+            <i class="fas fa-undo"></i>
+          </button>
+          {{/if}}
+          {{#if slot.removable}}
+          <button type="button" class="sta2e-cc-icon-btn" data-action="removeNpcFocus" data-index="{{slot.index}}" title="Remove this slot">
+            <i class="fas fa-times"></i>
+          </button>
+          {{/if}}
+        </div>
+        {{#if slot.showCustomFields}}
+        <input type="text" data-field="npcCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus name" />
+        <prose-mirror data-field="npcCustomFocusDescription" data-index="{{slot.index}}" name="npcCustomFocusDescription_{{slot.index}}" value="{{slot.customDescription}}"></prose-mirror>
+        {{else}}
+        {{#if slot.selected.description}}
+        <div class="sta2e-cc-description-panel">{{{slot.selected.description}}}</div>
+        {{/if}}
+        {{/if}}
+      </div>
+      {{/each}}
+      {{#if npcCanAddFocus}}
+      <div class="sta2e-cc-field sta2e-cc-field--wide">
+        <button type="button" data-action="addNpcFocus">+ Add Focus</button>
+      </div>
+      {{/if}}
+    </section>
+    {{/if}}
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Special Rules</h2>
+        <p>{{npcTalentCount}} / {{npcTalentLimit}} selected.</p>
+        {{#each npcTalentSelections as |slot|}}
+        <div class="sta2e-cc-field sta2e-cc-field--wide">
+          <span>Special Rule {{slot.number}}</span>
+          <div class="sta2e-cc-inline-actions">
+            <select data-field="npcTalent" data-index="{{slot.index}}">
+              <option value="">Choose configured talent</option>
+              {{#each slot.options as |talent|}}
+              <option value="{{talent.uuid}}" {{#if talent.selected}}selected{{/if}} {{#if talent.disabled}}disabled{{/if}}>{{talent.name}}</option>
+              {{/each}}
+            </select>
+            <button type="button" class="sta2e-cc-icon-btn" data-action="randomNpcTalent" data-index="{{slot.index}}" title="Roll random special rule">
+              <i class="fas fa-dice"></i>
+            </button>
+            {{#if slot.canEdit}}
+            <button type="button" class="sta2e-cc-icon-btn" data-action="editNpcTalent" data-index="{{slot.index}}" title="Edit name and description">
+              <i class="fas fa-pen"></i>
+            </button>
+            {{/if}}
+            {{#if slot.editing}}
+            <button type="button" class="sta2e-cc-icon-btn" data-action="cancelEditNpcTalent" data-index="{{slot.index}}" title="Revert to original">
+              <i class="fas fa-undo"></i>
+            </button>
+            {{/if}}
+            {{#if slot.removable}}
+            <button type="button" class="sta2e-cc-icon-btn" data-action="removeNpcTalent" data-index="{{slot.index}}" title="Remove this slot">
+              <i class="fas fa-times"></i>
+            </button>
+            {{/if}}
+          </div>
+          {{#if slot.showCustomFields}}
+          <input type="text" data-field="npcCustomTalentName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom special rule name" />
+          <prose-mirror data-field="npcCustomTalentDescription" data-index="{{slot.index}}" name="npcCustomTalentDescription_{{slot.index}}" value="{{slot.customDescription}}"></prose-mirror>
+          {{else}}
+          {{#if slot.selected.description}}
+          <div class="sta2e-cc-description-panel">{{{slot.selected.description}}}</div>
+          {{/if}}
+          {{/if}}
+        </div>
+        {{/each}}
+        {{#if npcCanAddTalent}}
+        <div class="sta2e-cc-field sta2e-cc-field--wide">
+          <button type="button" data-action="addNpcTalent">+ Add Special Rule</button>
+        </div>
+        {{/if}}
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Equipment</h2>
+        <ul class="sta2e-cc-choice-list">
+          {{#each npcEquipmentOptions as |item|}}
+          <li>
+            <label class="sta2e-cc-talent-radio">
+              <input type="checkbox" data-field="npcEquipment" value="{{item.uuid}}" {{checked item.selected}} />
+              <strong>{{item.name}}</strong>
+            </label>
+          </li>
+          {{/each}}
+          {{#unless npcEquipmentOptions.length}}<li class="is-empty">No equipment configured.</li>{{/unless}}
+        </ul>
+        <label class="sta2e-cc-field sta2e-cc-field--wide">
+          <span>Notes</span>
+          <textarea data-field="npcNotes" rows="5" placeholder="NPC notes">{{npcNotes}}</textarea>
+        </label>
+      </article>
+    </section>
+    {{/if}}
+
+    {{#if stepFourActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Scores</h2>
+        <p>Personal Threat {{npcPersonalThreat}}. Attributes {{npcAttributeTotal}}. Departments {{npcDepartmentTotal}}.</p>
+        <div class="sta2e-cc-score-grid">
+          {{#each npcAttributeRows as |row|}}<div><span>{{row.label}}</span><strong>{{row.value}}</strong></div>{{/each}}
+          {{#each npcDepartmentRows as |row|}}<div><span>{{row.label}}</span><strong>{{row.value}}</strong></div>{{/each}}
+        </div>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Details</h2>
+        <dl class="sta2e-cc-summary">
+          <dt>Name</dt><dd>{{characterName}}</dd>
+          <dt>Type</dt><dd>{{npcTypeLabel}}</dd>
+          <dt>Rank</dt><dd>{{rank}}</dd>
+          <dt>Assignment</dt><dd>{{assignment}}</dd>
+          <dt>Pronouns</dt><dd>{{pronouns}}</dd>
+        </dl>
+      </article>
+    </section>
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Traits, Values, and Focuses</h2>
+        <ul class="sta2e-cc-choice-list">
+          {{#each traitList as |trait|}}<li><strong>{{trait.name}}</strong></li>{{/each}}
+          {{#if selectedNpcRoleTrait}}<li><strong>{{selectedNpcRoleTrait.name}}</strong></li>{{/if}}
+          {{#if selectedNpcExtraTrait}}<li><strong>{{selectedNpcExtraTrait.name}}</strong></li>{{/if}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each npcValueSummary as |value|}}<li><strong>{{value.name}}</strong></li>{{/each}}
+          {{#unless npcValueSummary.length}}<li class="is-empty">No values selected.</li>{{/unless}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each npcFocusSummary as |focus|}}<li><strong>{{focus.name}}</strong></li>{{/each}}
+          {{#unless npcFocusSummary.length}}<li class="is-empty">No focuses selected.</li>{{/unless}}
+        </ul>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Special Rules and Equipment</h2>
+        <ul class="sta2e-cc-choice-list">
+          {{#each npcTalentSummary as |talent|}}<li><strong>{{talent.name}}</strong></li>{{/each}}
+          {{#unless npcTalentSummary.length}}<li class="is-empty">No special rules selected.</li>{{/unless}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each selectedNpcEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+          {{#unless selectedNpcEquipment.length}}<li class="is-empty">No configured equipment selected.</li>{{/unless}}
+        </ul>
+      </article>
+    </section>
+    {{/if}}
+
+    <footer class="sta2e-cc-footer">
+      <button type="button" data-action="previousStep">Back</button>
+      {{#if stepOneActive}}<button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Scores</button>{{/if}}
+      {{#if stepTwoActive}}<button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Details</button>{{/if}}
+      {{#if stepThreeActive}}<button type="button" class="sta2e-cc-primary" data-action="nextStep">Review</button>{{/if}}
+      {{#if stepFourActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="finalizeCharacter">
+        <i class="fas fa-user-plus"></i> Finalize NPC
+      </button>
+      {{/if}}
+    </footer>
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No species are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+
+    {{#if isSupportingCharacter}}
+    {{#if hasSpecies}}
+    <section class="sta2e-cc-panel">
+      <h2>Preview Scores</h2>
+      <div class="sta2e-cc-score-grid">
+        {{#each supportingAttributeRows as |attr|}}
+        <div class="{{#if attr.boosted}}is-boosted{{/if}}">
+          <span>{{attr.label}}</span>
+          <strong>{{attr.value}}</strong>
+        </div>
+        {{/each}}
+        {{#each supportingDepartmentRows as |disc|}}
+        <div>
+          <span>{{disc.label}}</span>
+          <strong>{{disc.value}}</strong>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    {{#if stepOneActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two sta2e-cc-species-grants-grid">
+      <article class="sta2e-cc-panel sta2e-cc-species-grants-panel">
+        <h2>Species Grants</h2>
+        <dl class="sta2e-cc-summary">
+          <dt>Trait</dt>
+          <dd>
+            {{#each traitList as |trait|}}
+            <span class="sta2e-cc-chip">{{trait.name}}</span>
+            {{/each}}
+            {{#unless traitList.length}}No trait assigned{{/unless}}
+          </dd>
+          <dt>Species Ability</dt>
+          <dd>{{#if primary.abilityName}}{{primary.abilityName}}{{else}}No ability assigned{{/if}}</dd>
+          {{#if hasSpeciesEsotericOptions}}
+          <dt>Esoteric Talents</dt>
+          <dd>
+            {{#each speciesEsotericSelections as |slot|}}
+            <label class="sta2e-cc-field">
+              <span>Species Esoteric Talent {{slot.number}}</span>
+              <select data-field="speciesEsotericTalent" data-index="{{slot.index}}">
+                <option value="">Choose Esoteric talent</option>
+                {{#each slot.options as |talent|}}
+                <option value="{{talent.uuid}}" {{#if talent.selected}}selected{{/if}} {{#if talent.disabled}}disabled{{/if}}>{{talent.name}}</option>
+                {{/each}}
+              </select>
+            </label>
+            {{/each}}
+          </dd>
+          {{/if}}
+          {{#if requiresBorgImplants}}
+          <dt>Borg Implants</dt>
+          <dd>
+            <div class="sta2e-cc-borg-implants">
+              <div class="sta2e-cc-card-chip-row">
+                <span class="sta2e-cc-chip">{{selectedBorgImplantCount}} / 3 selected</span>
+              </div>
+              <ul class="sta2e-cc-choice-list sta2e-cc-borg-implant-list">
+                {{#each borgImplantOptions as |talent|}}
+                <li class="{{#if talent.selected}}is-selected{{/if}} {{#unless talent.available}}is-disabled{{/unless}}" data-description-root>
+                  <label class="sta2e-cc-borg-implant-choice">
+                    <input type="checkbox" data-field="borgImplant" value="{{talent.uuid}}" {{checked talent.selected}} {{#unless talent.available}}disabled{{/unless}} />
+                    <span>
+                      <strong>{{talent.name}}</strong>
+                      {{#if talent.typeLabel}}<em>{{talent.typeLabel}}</em>{{/if}}
+                      {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+                    </span>
+                  </label>
+                  {{#if talent.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                  {{/if}}
+                </li>
+                {{/each}}
+              </ul>
+              {{#unless hasBorgImplantOptions}}No Borg implants configured yet.{{/unless}}
+            </div>
+          </dd>
+          {{/if}}
+          {{#if requiresHumanAugmentTalents}}
+          <dt>Augment Talents</dt>
+          <dd>
+            <div class="sta2e-cc-start-talents">
+              <div class="sta2e-cc-card-chip-row">
+                <span class="sta2e-cc-chip">{{selectedHumanAugmentTalentCount}} / 2 selected</span>
+              </div>
+              <ul class="sta2e-cc-choice-list sta2e-cc-start-talent-list">
+                {{#each humanAugmentTalentOptions as |talent|}}
+                <li class="{{#if talent.selected}}is-selected{{/if}} {{#unless talent.available}}is-disabled{{/unless}}" data-description-root>
+                  <label class="sta2e-cc-start-talent-choice">
+                    <input type="checkbox" data-field="humanAugmentTalent" value="{{talent.uuid}}" {{checked talent.selected}} {{#unless talent.available}}disabled{{/unless}} />
+                    <span>
+                      <strong>{{talent.name}}</strong>
+                      {{#if talent.typeLabel}}<em>{{talent.typeLabel}}</em>{{/if}}
+                      {{#if talent.requirementLabel}}<em>{{talent.requirementLabel}}</em>{{/if}}
+                      {{#unless talent.available}}<em>Unavailable: {{talent.unavailableReason}}</em>{{/unless}}
+                    </span>
+                  </label>
+                  {{#if talent.description}}
+                  <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+                  <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+                  {{/if}}
+                </li>
+                {{/each}}
+              </ul>
+              {{#unless hasHumanAugmentTalentOptions}}No Augment talents configured yet.{{/unless}}
+              {{#if humanAugmentRequiresFlawTrait}}
+              <label class="sta2e-cc-field sta2e-cc-field--wide">
+                <span>Additional Flaw Trait</span>
+                <select data-field="humanAugmentFlawTrait">
+                  <option value="">Choose configured trait</option>
+                  {{#each humanAugmentFlawTraitOptions as |trait|}}
+                  <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+                  {{/each}}
+                </select>
+              </label>
+              <input type="text" data-field="humanAugmentCustomFlawTraitName" value="{{humanAugmentCustomFlawTraitName}}" placeholder="Custom flaw trait" />
+              <textarea data-field="humanAugmentCustomFlawTraitDescription" rows="2" placeholder="Custom flaw trait description">{{humanAugmentCustomFlawTraitDescription}}</textarea>
+              {{/if}}
+            </div>
+          </dd>
+          {{/if}}
+          <dt>Attribute Boosts</dt>
+          <dd>
+            {{#if primaryFreeAttributeSelection}}
+            {{#unless selectedFreeAttributeCount}}Choose any three attributes{{/unless}}
+            {{/if}}
+            {{#if hasSpeciesAttributeChoice}}
+            {{#unless selectedSpeciesAttributeChoice}}Choose one species attribute{{/unless}}
+            {{/if}}
+            {{#each supportingAttributeRows as |attr|}}
+            {{#if attr.boosted}}<span class="sta2e-cc-chip">{{attr.label}} +1</span>{{/if}}
+            {{/each}}
+          </dd>
+        </dl>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Species Talent Pool</h2>
+        <ul class="sta2e-cc-choice-list sta2e-cc-species-talent-list">
+          {{#each talentPool as |talent|}}
+          <li class="{{#unless talent.available}}is-disabled{{/unless}}" data-description-root>
+            <strong>{{talent.name}}</strong>
+            {{#if talent.typeLabel}}<span>{{talent.typeLabel}}</span>{{/if}}
+            {{#if talent.description}}
+            <button type="button" class="sta2e-cc-link-btn" data-toggle-description>Description</button>
+            <div class="sta2e-cc-description-panel" data-description-panel hidden>{{{talent.description}}}</div>
+            {{/if}}
+          </li>
+          {{/each}}
+          {{#unless talentPool.length}}<li class="is-empty">No species talents assigned to the selected species.</li>{{/unless}}
+        </ul>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-species-select-layout">
+      <article class="sta2e-cc-panel sta2e-cc-species-list-panel">
+        <div class="sta2e-cc-title-row">
+          <h2>Species</h2>
+          <label class="sta2e-cc-toggle">
+            <input type="checkbox" data-field="mixedSpecies" {{checked mixedSpecies}} {{#if mixedSpeciesForced}}disabled{{/if}} />
+            <span>Mixed Species</span>
+          </label>
+        </div>
+        <label class="sta2e-cc-field sta2e-cc-species-search">
+          <span>Search Species</span>
+          <input type="search" data-species-filter value="{{speciesSearch}}" placeholder="Filter species" />
+        </label>
+        <ul class="sta2e-cc-choice-list sta2e-cc-species-card-list">
+          {{#each speciesOptions as |species|}}
+          <li data-species-card data-species-name="{{species.name}}" class="{{#if species.primarySelected}}is-primary{{/if}} {{#if species.secondarySelected}}is-secondary{{/if}}">
+            <div class="sta2e-cc-species-card-head">
+              <div class="sta2e-cc-species-card-title">
+                {{#if species.tokenImage}}<img src="{{species.tokenImage}}" alt="{{species.name}} token image" />{{/if}}
+                <strong>{{species.name}}</strong>
+              </div>
+              <div class="sta2e-cc-card-chip-row">
+                {{#if species.primarySelected}}<span class="sta2e-cc-chip">Primary</span>{{/if}}
+                {{#if species.secondarySelected}}<span class="sta2e-cc-chip">Secondary</span>{{/if}}
+              </div>
+            </div>
+            <div class="sta2e-cc-card-chip-row">
+              {{#if species.freeAttributeSelection}}
+              <span class="sta2e-cc-chip">Any 3 Attributes</span>
+              {{else}}
+              {{#each species.attributeLabels as |attr|}}<span class="sta2e-cc-chip">{{attr.label}} +1</span>{{/each}}
+              {{#if species.attributeChoiceLabel}}<span class="sta2e-cc-chip">{{species.attributeChoiceLabel}} +1</span>{{/if}}
+              {{/if}}
+              {{#if species.extraFocusCount}}<span class="sta2e-cc-chip">{{species.extraFocusCount}} Extra Focuses</span>{{/if}}
+            </div>
+            <div class="sta2e-cc-species-card-actions">
+              <label class="sta2e-cc-talent-radio">
+                <input type="radio" name="primarySpecies" data-field="primarySpecies" value="{{species.id}}" {{#if species.primarySelected}}checked{{/if}} />
+                <span>Primary</span>
+              </label>
+              {{#if species.showSecondaryPicker}}
+              <label class="sta2e-cc-talent-radio {{#if species.disabledAsSecondary}}is-disabled{{/if}}">
+                <input type="radio" name="secondarySpecies" data-field="secondarySpecies" value="{{species.id}}" {{#if species.secondarySelected}}checked{{/if}} {{#if species.disabledAsSecondary}}disabled{{/if}} />
+                <span>Secondary</span>
+              </label>
+              {{/if}}
+            </div>
+          </li>
+          {{/each}}
+          <li class="is-empty" data-species-filter-empty hidden>No species match this search.</li>
+        </ul>
+      </article>
+
+      <article class="sta2e-cc-panel sta2e-cc-species-detail-panel">
+        <h2>Selected Species</h2>
+        <div class="sta2e-cc-species-detail-stack">
+          <section class="sta2e-cc-species-detail-card">
+            <span>Primary Species</span>
+            {{#if primary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{primary.tokenImage}}" alt="{{primary.name}} token image" />{{/if}}
+            <h3>{{primary.name}}</h3>
+            {{#if primary.description}}<p>{{primary.description}}</p>{{/if}}
+          </section>
+          {{#if mixedSpecies}}
+          <section class="sta2e-cc-species-detail-card">
+            <span>Secondary Species</span>
+            {{#if secondary}}{{#if secondary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{secondary.tokenImage}}" alt="{{secondary.name}} token image" />{{/if}}<h3>{{secondary.name}}</h3>{{else}}<h3>Choose secondary species</h3>{{/if}}
+          </section>
+          {{/if}}
+        </div>
+        {{#if primaryFreeAttributeSelection}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Attribute Boosts</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each freeAttributeChoices as |attr|}}
+            <label>
+              <input type="checkbox" data-field="freeAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+              {{attr.label}}
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+        {{#if hasSpeciesAttributeChoice}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Attribute Choice</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each speciesAttributeChoiceOptions as |attr|}}
+            <label>
+              <input type="radio" name="speciesAttributeChoice" data-field="speciesAttributeChoice" value="{{attr.key}}" {{checked attr.selected}} />
+              {{attr.label}} +1
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+        {{#if speciesExtraFocusCount}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Species Bonus Focuses</h2>
+          <p>The primary species ability grants extra focuses.</p>
+          {{#each speciesFocusSelections as |slot|}}
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Species Focus {{slot.number}}</span>
+            <div class="sta2e-cc-inline-actions">
+              <select data-field="speciesFocus" data-index="{{slot.index}}">
+                <option value="">Choose configured focus</option>
+                {{#each slot.options as |focus|}}
+                <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+                {{/each}}
+              </select>
+              <button type="button" data-action="randomSpeciesFocus" data-index="{{slot.index}}" title="Roll random species focus">
+                <i class="fas fa-dice"></i>
+              </button>
+            </div>
+            <input type="text" data-field="speciesCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+          </div>
+          {{/each}}
+        </div>
+        {{/if}}
+      </article>
+    </section>
+    {{/if}}
+
+    {{#if stepTwoActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Character Department</h2>
+        <label class="sta2e-cc-field">
+          <span>Department</span>
+          <select data-field="supportingDepartment">
+            <option value="">Choose department</option>
+            {{#each supportingDepartmentOptions as |department|}}
+            <option value="{{department.key}}" {{#if department.selected}}selected{{/if}}>{{department.label}}</option>
+            {{/each}}
+          </select>
+        </label>
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Extra Trait</h2>
+        <label class="sta2e-cc-field">
+          <span>Configured Trait</span>
+          <select data-field="supportingTrait">
+            <option value="">Choose trait</option>
+            {{#each supportingTraitOptions as |trait|}}
+            <option value="{{trait.uuid}}" {{#if trait.selected}}selected{{/if}}>{{trait.name}}</option>
+            {{/each}}
+          </select>
+        </label>
+        <input type="text" data-field="supportingCustomTraitName" value="{{supportingCustomTraitName}}" placeholder="Custom trait" />
+        <textarea data-field="supportingCustomTraitDescription" rows="2" placeholder="Custom trait description">{{supportingCustomTraitDescription}}</textarea>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Attributes</h2>
+        <div class="sta2e-cc-score-assign-list">
+          {{#each supportingAttributeRows as |row|}}
+          <div class="sta2e-cc-score-drop-row {{#if row.boosted}}is-boosted{{/if}}" data-supporting-score-drop data-score-kind="attribute" data-score-key="{{row.key}}">
+            <span>{{row.label}}</span>
+            <button type="button" class="sta2e-cc-score-chip" draggable="true" data-supporting-score-chip data-score-kind="attribute" data-score-key="{{row.key}}" data-score-value="{{row.baseValue}}" title="Drag to swap values">
+              {{row.baseValue}}
+            </button>
+            <strong>{{row.value}}</strong>
+          </div>
+          {{/each}}
+        </div>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Departments</h2>
+        <div class="sta2e-cc-score-assign-list">
+          {{#each supportingDepartmentRows as |row|}}
+          <div class="sta2e-cc-score-drop-row" data-supporting-score-drop data-score-kind="department" data-score-key="{{row.key}}">
+            <span>{{row.label}}</span>
+            <button type="button" class="sta2e-cc-score-chip" draggable="true" data-supporting-score-chip data-score-kind="department" data-score-key="{{row.key}}" data-score-value="{{row.value}}" title="Drag to swap values">
+              {{row.value}}
+            </button>
+            <strong>{{row.value}}</strong>
+          </div>
+          {{/each}}
+        </div>
+      </article>
+    </section>
+
+    <section class="sta2e-cc-panel">
+      <h2>Department Focuses</h2>
+      <p>{{#if supportingDepartment}}Focuses filtered to {{supportingDepartmentLabel}}.{{else}}Choose a department to see configured focuses.{{/if}}</p>
+      {{#each supportingFocusSelections as |slot|}}
+      <div class="sta2e-cc-field sta2e-cc-field--wide">
+        <span>Focus {{slot.number}}</span>
+        <div class="sta2e-cc-inline-actions">
+          <select data-field="supportingFocus" data-index="{{slot.index}}">
+            <option value="">Choose focus</option>
+            {{#each slot.options as |focus|}}
+            <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="randomSupportingFocus" data-index="{{slot.index}}" title="Roll random focus">
+            <i class="fas fa-dice"></i>
+          </button>
+        </div>
+        <input type="text" data-field="supportingCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+      </div>
+      {{/each}}
+    </section>
+
+    {{#if isSupervisoryCharacter}}
+    <section class="sta2e-cc-panel">
+      <h2>Value</h2>
+      <label class="sta2e-cc-field">
+        <span>Configured Value</span>
+        <div class="sta2e-cc-inline-actions">
+          <select data-field="supportingValue">
+            <option value="">Choose value</option>
+            {{#each supportingValueOptions as |value|}}
+            <option value="{{value.uuid}}" {{#if value.selected}}selected{{/if}}>{{value.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="randomSupportingValue" title="Roll random value">
+            <i class="fas fa-dice"></i>
+          </button>
+        </div>
+      </label>
+      <input type="text" data-field="supportingCustomValueName" value="{{supportingCustomValueName}}" placeholder="Custom value" />
+      <textarea data-field="supportingCustomValueDescription" rows="2" placeholder="Custom value description">{{supportingCustomValueDescription}}</textarea>
+    </section>
+    {{/if}}
+    {{/if}}
+
+    {{#if stepThreeActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Service Details</h2>
+        <div class="sta2e-cc-final-details-grid">
+          <label class="sta2e-cc-field">
+            <span>Rank</span>
+            <select data-field="rankSelect">
+              <option value="">Choose configured rank</option>
+              {{#each rankOptions as |rank|}}
+              <option value="{{rank.id}}" {{#if rank.selected}}selected{{/if}}>{{rank.name}}</option>
+              {{/each}}
+            </select>
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Custom Rank</span>
+            <input type="text" data-field="rank" value="{{customRank}}" placeholder="Custom rank" />
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Assignment</span>
+            <input type="text" data-field="assignment" value="{{assignment}}" placeholder="Security Officer" />
+          </label>
+          {{#if canSelectPastime}}
+          <label class="sta2e-cc-field">
+            <span>Pastime</span>
+            <input type="text" data-field="pastime" value="{{pastime}}" placeholder="Pastime" />
+          </label>
+          {{else}}
+          <div class="sta2e-cc-text-panel">
+            <h2>Pastime</h2>
+            <p>Holograms do not select a pastime without Expanded Programming.</p>
+          </div>
+          {{/if}}
+          <label class="sta2e-cc-field">
+            <span>Pronouns</span>
+            <input type="text" data-field="pronouns" value="{{pronouns}}" placeholder="Pronouns" />
+          </label>
+        </div>
+        {{#if hasExpandedProgrammingTalent}}
+        <div class="sta2e-cc-free-attrs">
+          <h2>Expanded Programming Focuses</h2>
+          <p>Select up to two additional focuses.</p>
+          {{#each expandedProgrammingFocusSelections as |slot|}}
+          <div class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Expanded Focus {{slot.number}}</span>
+            <select data-field="expandedProgrammingFocus" data-index="{{slot.index}}">
+              <option value="">Choose configured focus</option>
+              {{#each slot.options as |focus|}}
+              <option value="{{focus.uuid}}" {{#if focus.selected}}selected{{/if}}>{{focus.name}}</option>
+              {{/each}}
+            </select>
+            <input type="text" data-field="expandedProgrammingCustomFocusName" data-index="{{slot.index}}" value="{{slot.customName}}" placeholder="Custom focus" />
+          </div>
+          {{/each}}
+        </div>
+        {{/if}}
+      </article>
+
+      <article class="sta2e-cc-panel">
+        <h2>Loadouts</h2>
+        <details class="sta2e-cc-choice-collapse" open>
+          <summary>Department{{#if supportingDepartmentLabel}}: {{supportingDepartmentLabel}}{{/if}}</summary>
+          <ul class="sta2e-cc-choice-list">
+            {{#each departmentEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+            {{#unless departmentEquipment.length}}<li class="is-empty">No equipment configured for this department.</li>{{/unless}}
+          </ul>
+        </details>
+        <details class="sta2e-cc-choice-collapse" open>
+          <summary>Assignment{{#if assignment}}: {{assignment}}{{/if}}</summary>
+          <ul class="sta2e-cc-choice-list">
+            {{#each assignmentEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+            {{#unless assignmentEquipment.length}}<li class="is-empty">No matching assignment loadout configured.</li>{{/unless}}
+          </ul>
+        </details>
+      </article>
+    </section>
+    {{/if}}
+
+    {{#if stepFourActive}}
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Scores</h2>
+        <p>Attributes {{supportingAttributeTotal}}. Departments {{supportingDepartmentTotal}}.</p>
+        <div class="sta2e-cc-score-grid">
+          {{#each supportingAttributeRows as |row|}}<div><span>{{row.label}}</span><strong>{{row.value}}</strong></div>{{/each}}
+          {{#each supportingDepartmentRows as |row|}}<div><span>{{row.label}}</span><strong>{{row.value}}</strong></div>{{/each}}
+        </div>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Details</h2>
+        <dl class="sta2e-cc-summary">
+          <dt>Name</dt><dd>{{characterName}}</dd>
+          <dt>Type</dt><dd>{{characterTypeDefinition.name}}</dd>
+          <dt>Department</dt><dd>{{supportingDepartmentLabel}}</dd>
+          <dt>Rank</dt><dd>{{rank}}</dd>
+          <dt>Assignment</dt><dd>{{assignment}}</dd>
+          <dt>Pastime</dt><dd>{{pastime}}</dd>
+          <dt>Pronouns</dt><dd>{{pronouns}}</dd>
+        </dl>
+      </article>
+    </section>
+    <section class="sta2e-cc-grid sta2e-cc-two">
+      <article class="sta2e-cc-panel">
+        <h2>Traits, Values, and Focuses</h2>
+        <ul class="sta2e-cc-choice-list">
+          {{#each traitList as |trait|}}<li><strong>{{trait.name}}</strong></li>{{/each}}
+          {{#if selectedHumanAugmentFlawTrait}}<li><strong>{{selectedHumanAugmentFlawTrait.name}}</strong></li>{{/if}}
+          {{#if selectedSupportingTrait}}<li><strong>{{selectedSupportingTrait.name}}</strong></li>{{/if}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each supportingValueSummary as |value|}}<li><strong>{{value.name}}</strong></li>{{/each}}
+          {{#unless supportingValueSummary.length}}<li class="is-empty">No value selected.</li>{{/unless}}
+        </ul>
+        <ul class="sta2e-cc-choice-list">
+          {{#each supportingFocusSummary as |focus|}}<li><strong>{{focus.name}}</strong></li>{{/each}}
+        </ul>
+      </article>
+      <article class="sta2e-cc-panel">
+        <h2>Talents and Equipment</h2>
+        {{#if requiresHumanAugmentTalents}}
+        <ul class="sta2e-cc-choice-list">
+          {{#each selectedHumanAugmentTalents as |talent|}}<li><strong>{{talent.name}}</strong></li>{{/each}}
+          {{#unless selectedHumanAugmentTalents.length}}<li class="is-empty">No extra talents selected.</li>{{/unless}}
+        </ul>
+        {{/if}}
+        <ul class="sta2e-cc-choice-list">
+          {{#each departmentEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+          {{#each assignmentEquipment as |item|}}<li><strong>{{item.name}}</strong></li>{{/each}}
+          {{#unless departmentEquipment.length}}{{#unless assignmentEquipment.length}}<li class="is-empty">No configured equipment.</li>{{/unless}}{{/unless}}
+        </ul>
+      </article>
+    </section>
+    {{/if}}
+
+    <footer class="sta2e-cc-footer">
+      <button type="button" data-action="previousStep">Back</button>
+      {{#if stepOneActive}}<button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Scores</button>{{/if}}
+      {{#if stepTwoActive}}<button type="button" class="sta2e-cc-primary" data-action="nextStep">Next: Details</button>{{/if}}
+      {{#if stepThreeActive}}<button type="button" class="sta2e-cc-primary" data-action="nextStep">Review</button>{{/if}}
+      {{#if stepFourActive}}
+      <button type="button" class="sta2e-cc-primary" data-action="finalizeCharacter">
+        <i class="fas fa-user-plus"></i> Finalize Character
+      </button>
+      {{/if}}
+    </footer>
+    {{else}}
+    <section class="sta2e-cc-empty">
+      <p>No species are configured yet.</p>
+      <button type="button" data-action="openConfig">
+        <i class="fas fa-gear"></i> Open Creator Data
+      </button>
+    </section>
+    {{/if}}
+    {{/if}}
+  </main>
+</div>

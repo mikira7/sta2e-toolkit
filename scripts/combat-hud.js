@@ -40,6 +40,7 @@ import {
   openNpcRoller, openPlayerRoller,
   PlayerRollCallbacks, rollPool, clearStationAssistFlag, buildPlayerRollCardHtml,
   diePipHtml, dsnShowPool,
+  communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
 } from "./npc-roller.js";
 import {
   STATION_SLOTS,
@@ -229,6 +230,42 @@ function _rollEditCountSuccesses(dice = []) {
   return dice.reduce((sum, die) => sum + (die?.success ? (die.crit ? 2 : 1) : 0), 0);
 }
 
+async function _applyMakeYourOwnLuckStress(actor) {
+  if (!actor?.system?.stress) {
+    ui.notifications.warn(`${actor?.name ?? "Actor"} has no Stress track.`);
+    return null;
+  }
+  const stressMode = game.settings.get("sta2e-toolkit", "stressMode") ?? "countdown";
+  const current = Number(actor.system.stress.value ?? 0);
+  const max = Number(actor.system.stress.max ?? 0);
+  if (stressMode === "countup") {
+    if (max > 0 && current >= max) {
+      ui.notifications.warn(`${actor.name} cannot suffer more Stress.`);
+      return null;
+    }
+    const next = max > 0 ? Math.min(max, current + 1) : current + 1;
+    await actor.update({ "system.stress.value": next });
+    return { before: current, after: next, mode: stressMode };
+  }
+  if (current <= 0) {
+    ui.notifications.warn(`${actor.name} has no Stress available.`);
+    return null;
+  }
+  const next = Math.max(0, current - 1);
+  await actor.update({ "system.stress.value": next });
+  return { before: current, after: next, mode: stressMode };
+}
+
+function _rollDataHasAnyRerollUsed(rollData) {
+  return !!(
+    rollData?.talentRerollUsed || rollData?.advisorRerollUsed
+    || rollData?.systemRerollUsed || rollData?.shipTalentRerollUsed
+    || rollData?.detRerollUsed || rollData?.genericRerollUsed
+    || rollData?.tsRerollUsed || rollData?.csRerollUsed
+    || rollData?.techExpertiseUsed || ((rollData?.aimRerollsUsed ?? 0) > 0)
+  );
+}
+
 function _rollEditApplyChanges(rollData, formData) {
   const next = foundry.utils.deepClone(rollData);
   const newlyRolledShipDice = [];
@@ -303,6 +340,7 @@ function _rollEditApplyChanges(rollData, formData) {
   next.advancedSensorsActive = next.hasAdvancedSensors
     && next.shipSystemKey === "sensors"
     && (next.sensorsBreaches ?? 0) === 0;
+  next.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(next);
 
   if (crewFailed || !next.shipAssist) {
     if (crewFailed) {
@@ -315,8 +353,16 @@ function _rollEditApplyChanges(rollData, formData) {
     return { rollData: next, newlyRolledShipDice };
   }
 
+  if (next.communicationsOfficerShipAssistActive) {
+    next.shipDice = [communicationsOfficerShipDie(next.shipCritThresh)];
+    next._editSuppressedShipDice = [];
+    return { rollData: next, newlyRolledShipDice };
+  }
+
   const requiredShipDice = next.advancedSensorsActive ? 2 : 1;
-  let shipDice = (next.shipDice?.length ? next.shipDice : (next._editSuppressedShipDice ?? [])).map(d =>
+  let sourceShipDice = next.shipDice?.length ? next.shipDice : (next._editSuppressedShipDice ?? []);
+  sourceShipDice = sourceShipDice.filter(d => !d.communicationsOfficerForced);
+  let shipDice = sourceShipDice.map(d =>
     _rollEditRecomputeDie(d, next.shipTarget, compThresh, next.shipCritThresh)
   );
   if (shipDice.length > requiredShipDice) shipDice = shipDice.slice(0, requiredShipDice);
@@ -494,6 +540,168 @@ async function _openRollCardEditDialog(rollData) {
       sysSelect?.addEventListener("change", syncAdvancedSensors);
       repopulateShipFields();
     },
+  });
+}
+
+function _rollEditActorStats(actorId) {
+  const actor = actorId ? game.actors.get(actorId) : null;
+  return actor ? readOfficerStats(actor) : null;
+}
+
+function _rollEditAssistApplyChanges(rollData, formData) {
+  const next = foundry.utils.deepClone(rollData);
+  const complicationRange = Math.min(5, Math.max(1, Number(formData.complicationRange) || 1));
+  const compThresh = 21 - complicationRange;
+  next.complicationRange = complicationRange;
+  next.compThresh = compThresh;
+
+  if (formData.mode === "ship") {
+    const selectedShipIdx = Number.isFinite(Number(next.selectedShipIdx)) ? Number(next.selectedShipIdx) : -1;
+    const shipSource = _rollEditGetShipSource(next, selectedShipIdx);
+    const systems = shipSource?.systems ?? {};
+    const depts = shipSource?.depts ?? {};
+    next.shipSystemKey = Object.keys(systems).includes(formData.shipSystemKey)
+      ? formData.shipSystemKey
+      : (next.shipSystemKey ?? Object.keys(systems)[0] ?? null);
+    next.shipDeptKey = Object.keys(depts).includes(formData.shipDeptKey)
+      ? formData.shipDeptKey
+      : (next.shipDeptKey ?? Object.keys(depts)[0] ?? null);
+    next.shipName = shipSource?.label ?? next.shipName ?? null;
+    next.crewAttr = _rollEditValue(systems, next.shipSystemKey, next.crewAttr ?? 0);
+    next.crewDept = _rollEditValue(depts, next.shipDeptKey, next.crewDept ?? 0);
+    next.crewTarget = next.crewAttr + next.crewDept;
+    next.crewCritThresh = Math.max(1, next.crewDept);
+  } else {
+    const stats = _rollEditActorStats(next.actorId);
+    next.officerAttrKey = formData.attrKey ?? next.officerAttrKey ?? "control";
+    next.officerDiscKey = formData.discKey ?? next.officerDiscKey ?? "conn";
+    next.crewAttr = stats?.attributes?.[next.officerAttrKey] ?? next.crewAttr ?? 9;
+    next.crewDept = stats?.disciplines?.[next.officerDiscKey] ?? next.crewDept ?? 2;
+    next.crewTarget = next.crewAttr + next.crewDept;
+    next.crewCritThresh = next.hasDedicatedFocus
+      ? Math.min(20, Math.max(1, next.crewDept * 2))
+      : next.hasFocus
+        ? Math.max(1, next.crewDept)
+        : 1;
+  }
+
+  next.crewDice = (next.crewDice ?? []).map(d =>
+    _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh)
+  );
+  return next;
+}
+
+async function _openAssistCardEditDialog(rollData) {
+  const isShipAssist = !!(rollData.isAssistRoll && !rollData.playerMode && !rollData.groundMode && rollData.shipSystemKey);
+  const complicationInput = `
+    <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+      Comp. Range
+      <input id="sta2e-edit-assist-complication" type="number" min="1" max="5" value="${rollData.complicationRange ?? 1}"
+        style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+    </label>`;
+
+  if (isShipAssist) {
+    const selectedShipIdx = Number.isFinite(Number(rollData.selectedShipIdx)) ? Number(rollData.selectedShipIdx) : -1;
+    const shipSource = _rollEditGetShipSource(rollData, selectedShipIdx);
+    const systems = shipSource?.systems ?? {};
+    const depts = shipSource?.depts ?? {};
+    const systemOptions = Object.keys(systems).map(key =>
+      `<option value="${key}"${key === rollData.shipSystemKey ? " selected" : ""}>${CombatHUD.systemLabel(key)} (${_rollEditValue(systems, key)})</option>`
+    ).join("");
+    const deptOptions = Object.keys(depts).map(key =>
+      `<option value="${key}"${key === rollData.shipDeptKey ? " selected" : ""}>${_rollEditLabel(_ROLL_EDIT_DEPT_LABELS, key)} (${_rollEditValue(depts, key)})</option>`
+    ).join("");
+    return foundry.applications.api.DialogV2.wait({
+      window: { title: "Edit Assist Results" },
+      content: `
+        <div style="padding:8px 10px;display:flex;flex-direction:column;gap:8px;font-family:${LC.font};">
+          ${complicationInput}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+              System
+              <select id="sta2e-edit-assist-system"
+                style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+                ${systemOptions}
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+              Department
+              <select id="sta2e-edit-assist-dept"
+                style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+                ${deptOptions}
+              </select>
+            </label>
+          </div>
+        </div>`,
+      buttons: [
+        {
+          action: "save",
+          label: "Save Corrections",
+          icon: "fas fa-check",
+          default: true,
+          callback: (_event, _button, dlg) => ({
+            mode: "ship",
+            complicationRange: dlg.element.querySelector("#sta2e-edit-assist-complication")?.value,
+            shipSystemKey: dlg.element.querySelector("#sta2e-edit-assist-system")?.value,
+            shipDeptKey: dlg.element.querySelector("#sta2e-edit-assist-dept")?.value,
+          }),
+        },
+        { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+      ],
+    });
+  }
+
+  const stats = _rollEditActorStats(rollData.actorId);
+  const attrOptions = OFFICER_ATTRIBUTES.map(({ key, label }) => {
+    const val = stats?.attributes?.[key];
+    const vStr = typeof val === "number" ? ` (${val})` : "";
+    const sel = key === (rollData.officerAttrKey ?? "control") ? " selected" : "";
+    return `<option value="${key}"${sel}>${label}${vStr}</option>`;
+  }).join("");
+  const discOptions = OFFICER_DISCIPLINES.map(({ key, label }) => {
+    const val = stats?.disciplines?.[key];
+    const vStr = typeof val === "number" ? ` (${val})` : "";
+    const sel = key === (rollData.officerDiscKey ?? "conn") ? " selected" : "";
+    return `<option value="${key}"${sel}>${label}${vStr}</option>`;
+  }).join("");
+
+  return foundry.applications.api.DialogV2.wait({
+    window: { title: "Edit Assist Results" },
+    content: `
+      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:8px;font-family:${LC.font};">
+        ${complicationInput}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Attribute
+            <select id="sta2e-edit-assist-attr"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+              ${attrOptions}
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Discipline
+            <select id="sta2e-edit-assist-disc"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+              ${discOptions}
+            </select>
+          </label>
+        </div>
+      </div>`,
+    buttons: [
+      {
+        action: "save",
+        label: "Save Corrections",
+        icon: "fas fa-check",
+        default: true,
+        callback: (_event, _button, dlg) => ({
+          mode: "character",
+          complicationRange: dlg.element.querySelector("#sta2e-edit-assist-complication")?.value,
+          attrKey: dlg.element.querySelector("#sta2e-edit-assist-attr")?.value,
+          discKey: dlg.element.querySelector("#sta2e-edit-assist-disc")?.value,
+        }),
+      },
+      { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+    ],
   });
 }
 
@@ -1813,6 +2021,106 @@ export class CombatHUD {
             // Prone + In Cover (ranged only) → +1 Protection AND +1 Difficulty at Medium+
             const targetIsProneInCover = !isMelee && targetHasCover && targetIsProne;
 
+            if (isMelee) {
+              const meleeTarget = targets[0] ?? null;
+              if (!meleeTarget) {
+                ui.notifications.warn("STA2e Toolkit | Select a melee target before attacking.");
+                return;
+              }
+
+              const attackerProfile = CombatHUD.getGroundCombatProfile(actor, this._token?.document ?? null);
+              const attackerIsNpc = !attackerProfile.isPlayerOwned;
+              let useStun;
+
+              if (isDual) {
+                const modeChoice = await foundry.applications.api.DialogV2.wait({
+                  window: { title: `${weapon.name} - Injury Type` },
+                  content: `
+                    <div style="font-family:${LC.font};padding:4px 0;">
+                      <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                        <strong style="color:${LC.primary};">${weapon.name}</strong>
+                        can inflict either a <strong style="color:${LC.secondary};">Stun</strong>
+                        or a <strong style="color:${LC.red};">Deadly</strong> injury.
+                      </div>
+                      <div style="font-size:10px;color:${LC.textDim};padding:4px 8px;
+                        border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;line-height:1.6;">
+                        Stun - target becomes Incapacitated<br>
+                        Deadly - target suffers a Deadly injury
+                        ${!attackerIsNpc ? `<br><span style="color:${LC.yellow};">Choosing Deadly gives the GM <strong>+1 Threat</strong>.</span>` : ""}
+                      </div>
+                    </div>`,
+                  buttons: [
+                    { action: "stun", label: "Stun", icon: "fas fa-bolt", default: true },
+                    { action: "deadly", label: "Deadly", icon: "fas fa-skull" },
+                    { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+                  ],
+                });
+                if (!modeChoice || modeChoice === "cancel") return;
+                useStun = modeChoice === "stun";
+              } else {
+                useStun = hasStun && !hasDeadly;
+              }
+
+              if (!useStun && hasDeadly && !attackerIsNpc) {
+                const confirmed = await foundry.applications.api.DialogV2.confirm({
+                  window: { title: "Deadly Attack - Confirm" },
+                  content: `
+                    <div style="font-family:${LC.font};padding:4px 0;line-height:1.6;">
+                      <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                        <strong style="color:${LC.red};">${weapon.name}</strong> will be used
+                        as a <strong>Deadly</strong> weapon.
+                      </div>
+                      <div style="font-size:10px;padding:6px 8px;
+                        background:rgba(255,50,50,0.06);border-left:3px solid ${LC.red};
+                        border-radius:0 2px 2px 0;color:${LC.text};">
+                        The GM receives <strong style="color:${LC.yellow};">+1 Threat</strong>
+                        immediately, regardless of hit or miss.
+                      </div>
+                    </div>`,
+                  yes: { label: "Confirm Deadly (+1 Threat)", icon: "fas fa-skull" },
+                  no: { label: "Cancel", icon: "fas fa-times" },
+                });
+                if (!confirmed) return;
+                await CombatHUD._applyToPool("threat", 1, this._token);
+              }
+
+              const hasAccurate = weapon.system?.qualities?.accurate === true;
+              const aimRerolls = this._groundAimRerolls > 0 ? (hasAccurate ? 2 : 1) : 0;
+              this[`_groundToggle_ground-aim`] = false;
+              this._groundAimRerolls = 0;
+
+              weaponCtx.useStun = useStun;
+              weaponCtx.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
+              weaponCtx.targetTokenIds = [meleeTarget.id];
+
+              const starter = game.sta2eToolkit?.startGroundCombatOpposedTask;
+              if (!starter) {
+                ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
+                return;
+              }
+              await starter({
+                taskName: `Melee Attack - ${weapon.name}`,
+                flavor: `${actor.name} engages ${meleeTarget.name} in melee.`,
+                defenseType: "melee",
+                attackerActorId: actor.id,
+                attackerTokenId: this._token.id,
+                defenderActorId: meleeTarget.actor?.id,
+                defenderTokenId: meleeTarget.id,
+                weaponContext: weaponCtx,
+                aimRerolls,
+                guardPenalty,
+                pronePenalty: 0,
+                targetIsProne,
+                targetIsProneInCover: false,
+                defenderSuggestedAttr: "daring",
+                defenderSuggestedDisc: "security",
+                attackerSuggestedAttr: "daring",
+                attackerSuggestedDisc: "security",
+              });
+              this._refresh();
+              return;
+            }
+
             const choice = await foundry.applications.api.DialogV2.wait({
               window:  { title: `${weapon.name} — Attack Method` },
               content: `
@@ -1982,7 +2290,7 @@ export class CombatHUD {
 
                 await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
                   taskId:          `${this._token.id}-${Date.now()}`,
-                  attackerUserId:  game.userId,
+                  attackerUserId:  getActorRollUserId(actor),
                   attackerTokenId: this._token.id,
                   attackerActorId: actor.id,
                   isNpcAttacker:   false,  // ground NPCs also use openPlayerRoller
@@ -2042,7 +2350,7 @@ export class CombatHUD {
 
                 await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
                   taskId:          `${this._token.id}-${Date.now()}`,
-                  attackerUserId:  game.userId,
+                  attackerUserId:  getActorRollUserId(actor),
                   attackerTokenId: this._token.id,
                   attackerActorId: actor.id,
                   isNpcAttacker:   false,  // ground NPCs also use openPlayerRoller
@@ -2163,7 +2471,7 @@ export class CombatHUD {
 
             await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
               taskId:          `${this._token.id}-${Date.now()}`,
-              attackerUserId:  game.userId,
+              attackerUserId:  getActorRollUserId(actor),
               attackerTokenId: this._token.id,
               attackerActorId: actor.id,
               isNpcAttacker:   isNpcShip,
@@ -7686,7 +7994,7 @@ export class CombatHUD {
 
         await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
           taskId:          `${token.id}-${Date.now()}`,
-          attackerUserId:  game.userId,
+          attackerUserId:  getActorRollUserId(actor),
           attackerTokenId: token.id,
           attackerActorId: actor.id,
           isNpcAttacker:   isNpc,
@@ -9493,6 +9801,13 @@ export class CombatHUD {
       || sheetClass === "STACharacterSheet";
     const isNpcSheet = /npc/i.test(sheetClass);
     const isCharacterActor = actor.type === "character" || baseActor?.type === "character";
+    const hasPlayerOwner = actor.hasPlayerOwner || baseActor?.hasPlayerOwner;
+    const hasDefaultOwner = (doc) => {
+      const ownerLevel = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+      const defaultLevel = doc?.ownership?.default ?? doc?.ownership?.["default"] ?? 0;
+      return Number(defaultLevel) >= ownerLevel;
+    };
+    const allPlayersOwn = hasDefaultOwner(actor) || hasDefaultOwner(baseActor) || hasDefaultOwner(tokenDoc);
 
     // Only trust explicit upper-tier NPC labels immediately. A default "minor" value
     // appears to be too broad in this system, so let player/supporting signals win first.
@@ -9504,7 +9819,21 @@ export class CombatHUD {
       return { isPlayerOwned: false, npcType: npcType ?? "minor", isShip: false };
     }
 
+    if (npcType === "minor" && !isPlayerSheet) {
+      return { isPlayerOwned: false, npcType: "minor", isShip: false };
+    }
+
+    // "All players: Owner" is a table permission shortcut, not proof that a
+    // ground actor should spend Momentum or use PC injury handling.
+    if (allPlayersOwn && !isPlayerSheet) {
+      return { isPlayerOwned: false, npcType: npcType ?? "minor", isShip: false };
+    }
+
     if (isPlayerSheet || hasStressTrack) {
+      return { isPlayerOwned: true, npcType: null, isShip: false };
+    }
+
+    if (isCharacterActor && hasPlayerOwner) {
       return { isPlayerOwned: true, npcType: null, isShip: false };
     }
 
@@ -10336,6 +10665,8 @@ export class CombatHUD {
   }
 
   static async playTractorBeamEffect(sourceToken, targetToken) {
+    if (!window.Sequence) return;
+
     const effectName = CombatHUD._tractorEffectName(sourceToken);
     const tractorAnimPath = (() => {
       try { return game.settings.get("sta2e-toolkit", "animationOverrides")
@@ -10347,7 +10678,7 @@ export class CombatHUD {
       catch { return ""; }
     })();
     try {
-      const seq = new Sequence();
+      const seq = new window.Sequence();
       if (tractorSound) {
         seq.sound().file(tractorSound).volume(0.8);
       }
@@ -10369,6 +10700,8 @@ export class CombatHUD {
   }
 
   static async stopTractorBeamEffect(sourceToken) {
+    if (!window.Sequencer) return;
+
     const effectName = CombatHUD._tractorEffectName(sourceToken);
     try {
       await Sequencer.EffectManager.endEffects({ name: effectName });
@@ -14748,6 +15081,18 @@ function getActorPlayerUserIds(actor) {
     .map(user => user.id);
 }
 
+function getActorRollUserId(actor, fallbackUserId = game.userId) {
+  if (!actor) return fallbackUserId;
+  if (!game.user?.isGM && actor.testUserPermission?.(game.user, "OWNER")) {
+    return game.userId;
+  }
+
+  const activeOwner = game.users.find(user =>
+    user.active && !user.isGM && actor.testUserPermission?.(user, "OWNER")
+  );
+  return activeOwner?.id ?? fallbackUserId;
+}
+
 function getStationAllowedUserIds(shipActor, stationId) {
   const ids = new Set();
   const officers = getStationOfficers(shipActor, stationId) ?? [];
@@ -14803,8 +15148,8 @@ export async function runImpulseEngageCard(payload, destination) {
   } catch(e) { console.warn("STA2e | impulse pre-glow:", e); }
   await new Promise(r => setTimeout(r, 800));
 
-  if (impulseSound) {
-    try { new Sequence().sound().file(impulseSound).volume(0.8).play(); } catch(e) {}
+  if (impulseSound && window.Sequence) {
+    try { new window.Sequence().sound().file(impulseSound).volume(0.8).play(); } catch(e) {}
   }
 
   const dx   = finalDestination.x - startPos.x;
@@ -14899,8 +15244,10 @@ export async function runWarpEngageCard(payload, destination) {
       filterType: "blur", filterId: "warpBlur", padding: 10, quality: 4, blur: 10,
       animated: { blur: { active: true, val1: 0, val2: 20, speed: 0.1, animType: "ramp" } },
     }]);
-    new Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
-    if (warpSound) new Sequence().sound().file(warpSound).volume(0.8).play();
+    if (window.Sequence) {
+      new window.Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
+      if (warpSound) new window.Sequence().sound().file(warpSound).volume(0.8).play();
+    }
   } catch(e) { console.warn("STA2e | warp flash:", e); }
   await new Promise(r => setTimeout(r, 1000));
 
@@ -14908,7 +15255,9 @@ export async function runWarpEngageCard(payload, destination) {
   await tok.document.update({ x: finalDestination.x, y: finalDestination.y });
 
   try {
-    new Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
+    if (window.Sequence) {
+      new window.Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
+    }
   } catch(e) { console.warn("STA2e | warp exit:", e); }
   await new Promise(r => setTimeout(r, 300));
   await tok.document.update({ alpha: 1 });
@@ -14986,7 +15335,9 @@ export async function runWarpFleeCard(payload) {
       filterType: "blur", filterId: "warpBlur", padding: 10, quality: 4, blur: 10,
       animated: { blur: { active: true, val1: 0, val2: 20, speed: 0.1, animType: "ramp" } }
     }]);
-    if (warpSound) new Sequence().sound().file(warpSound).volume(0.8).play();
+    if (warpSound && window.Sequence) {
+      new window.Sequence().sound().file(warpSound).volume(0.8).play();
+    }
   } catch(e) { console.warn("STA2e | warp-flee flash:", e); }
   await new Promise(r => setTimeout(r, 600));
 
@@ -15478,15 +15829,26 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       try {
         const payload = message.getFlag("sta2e-toolkit", "rollData")
           ?? JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
-        if (payload.confirmed || payload.isAssistRoll) return;
-        const formData = await _openRollCardEditDialog(payload);
-        if (!formData || formData === "cancel") return;
-        const { rollData: newRollData, newlyRolledShipDice } = _rollEditApplyChanges(payload, formData);
-        if (newlyRolledShipDice.length > 0) {
-          const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
-          const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
-          await dsnShowPool(newlyRolledShipDice, speaker);
+        if (payload.confirmed) return;
+
+        let newRollData;
+        if (payload.isAssistRoll) {
+          if (payload.assistApplied) return;
+          const formData = await _openAssistCardEditDialog(payload);
+          if (!formData || formData === "cancel") return;
+          newRollData = _rollEditAssistApplyChanges(payload, formData);
+        } else {
+          const formData = await _openRollCardEditDialog(payload);
+          if (!formData || formData === "cancel") return;
+          const { rollData, newlyRolledShipDice } = _rollEditApplyChanges(payload, formData);
+          newRollData = rollData;
+          if (newlyRolledShipDice.length > 0) {
+            const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
+            const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
+            await dsnShowPool(newlyRolledShipDice, speaker);
+          }
         }
+
         await message.update({
           content: buildPlayerRollCardHtml(newRollData),
           "flags.sta2e-toolkit.rollData": newRollData,
@@ -15494,6 +15856,176 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       } catch(err) {
         console.error("STA2e Toolkit | edit roll card error:", err);
         ui.notifications.error("Could not edit roll card — see console.");
+      }
+    });
+  });
+
+  html.querySelectorAll(".sta2e-undo-complete").forEach(btn => {
+    if (!game.user.isGM || !message.getFlag("sta2e-toolkit", "confirmed")) {
+      btn.remove();
+      return;
+    }
+    btn.addEventListener("click", async () => {
+      try {
+        const payload = foundry.utils.deepClone(
+          message.getFlag("sta2e-toolkit", "rollData")
+            ?? JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"))
+        );
+        if (!payload || payload.isAssistRoll) return;
+        delete payload.confirmedSuccesses;
+        delete payload.confirmedMomentum;
+        delete payload.confirmedPassed;
+        payload.confirmed = false;
+        payload.completionEffectsRun = true;
+        await message.update({
+          content: buildPlayerRollCardHtml(payload),
+          "flags.sta2e-toolkit.confirmed": false,
+          "flags.sta2e-toolkit.rollData": payload,
+        });
+      } catch(err) {
+        console.error("STA2e Toolkit | undo complete error:", err);
+        ui.notifications.error("Could not undo completed roll card — see console.");
+      }
+    });
+  });
+
+  html.querySelectorAll(".sta2e-make-own-luck").forEach(btn => {
+    if (message.getFlag("sta2e-toolkit", "confirmed")) {
+      btn.disabled = true;
+      btn.style.opacity = "0.4";
+      btn.style.cursor = "default";
+      btn.title = "Results already confirmed";
+      return;
+    }
+    btn.addEventListener("click", async () => {
+      try {
+        const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+        if (payload.makeYourOwnLuckUsed) return;
+        if (_rollDataHasAnyRerollUsed(payload)) {
+          ui.notifications.warn("Make Your Own Luck cannot be used after rerolling on this task.");
+          return;
+        }
+
+        const failedDice = (payload.crewDice ?? [])
+          .map((d, i) => ({ d, i }))
+          .filter(({ d }) => !d.success);
+        if (!failedDice.length) {
+          ui.notifications.warn("No failed task dice to change.");
+          return;
+        }
+
+        const makeDieLabel = (d, i) => {
+          const pip = diePipHtml(d, i, "picker");
+          return `<label style="display:flex;gap:8px;align-items:center;padding:4px 6px;cursor:pointer;
+            border:1px solid ${LC.borderDim};border-radius:2px;background:${LC.panel};">
+            <input type="radio" name="luck-die" value="${i}"
+              style="cursor:pointer;accent-color:${LC.primary};flex-shrink:0;"/>
+            ${pip}
+          </label>`;
+        };
+        const choice = failedDice.length === 1
+          ? failedDice[0].i
+          : await foundry.applications.api.DialogV2.wait({
+              window: { title: `${payload.makeYourOwnLuckSource ?? "Make Your Own Luck"} - Select Die` },
+              content: `<div style="padding:6px 10px;font-family:${LC.font};">
+                <p style="font-size:11px;color:${LC.textDim};margin-bottom:8px;">
+                  Suffer 1 Stress to change one failed task die to ${payload.crewTarget ?? "the target"}.
+                </p>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                  ${failedDice.map(({ d, i }) => makeDieLabel(d, i)).join("")}
+                </div>
+              </div>`,
+              buttons: [
+                {
+                  action: "confirm",
+                  label: "Use Talent",
+                  icon: "fas fa-bolt",
+                  default: true,
+                  callback: (_event, _button, dlg) => {
+                    const input = dlg.element.querySelector("input[name='luck-die']:checked");
+                    return input ? parseInt(input.value, 10) : null;
+                  },
+                },
+                { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+              ],
+            });
+        if (choice === null || choice === undefined || choice === "cancel") return;
+
+        const actor = payload.actorId ? game.actors.get(payload.actorId) : null;
+        const stressResult = await _applyMakeYourOwnLuckStress(actor);
+        if (!stressResult) return;
+
+        const target = Math.min(20, Math.max(1, Number(payload.crewTarget ?? 1) || 1));
+        const compThresh = payload.compThresh ?? 20;
+        const critThresh = payload.crewCritThresh ?? 1;
+        const newCrewDice = [...(payload.crewDice ?? [])];
+        const changedDie = {
+          ...(newCrewDice[choice] ?? {}),
+          value: target,
+          success: true,
+          crit: target <= critThresh,
+          complication: target >= compThresh,
+          critThreshold: critThresh,
+          makeYourOwnLuckForced: true,
+        };
+        newCrewDice[choice] = changedDie;
+
+        const countCrewSuccesses = (dice = []) => dice.reduce((sum, die) => {
+          if (!die?.success) return sum;
+          return sum + (die.crit ? 2 : 1);
+        }, 0);
+        let newRollData = {
+          ...payload,
+          crewDice: newCrewDice,
+          crewFailed: countCrewSuccesses(newCrewDice) === 0,
+          makeYourOwnLuckUsed: true,
+          makeYourOwnLuckDieIndex: choice,
+          makeYourOwnLuckStress: stressResult,
+        };
+
+        if (!newRollData.crewFailed && newRollData.shipAssist && (newRollData.shipDice?.length ?? 0) === 0) {
+          const shipTarget = newRollData.shipTarget ?? 11;
+          const shipCritThresh = newRollData.shipCritThresh ?? 1;
+          const shipDiceCount = newRollData.advancedSensorsActive ? 2 : 1;
+          newRollData.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(newRollData);
+          if (newRollData.communicationsOfficerShipAssistActive) {
+            newRollData.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
+          } else if (newRollData.reservePower) {
+            const forced = {
+              value: 1,
+              success: true,
+              crit: true,
+              complication: false,
+              critThreshold: shipCritThresh,
+              reservePowerForced: true,
+            };
+            const rest = shipDiceCount > 1
+              ? rollPool(shipDiceCount - 1, shipTarget, compThresh, shipCritThresh)
+                .map(d => ({ ...d, reservePowerComp: d.complication }))
+              : [];
+            newRollData.shipDice = [forced, ...rest];
+          } else {
+            newRollData.shipDice = rollPool(shipDiceCount, shipTarget, compThresh, shipCritThresh);
+          }
+          const diceToShow = (newRollData.shipDice ?? []).filter(d => !d.communicationsOfficerForced);
+          if (diceToShow.length) {
+            const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
+            const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
+            await dsnShowPool(diceToShow, speaker);
+          }
+        }
+
+        btn.disabled = true;
+        btn.style.opacity = "0.5";
+        btn.style.cursor = "default";
+        btn.textContent = "Used";
+        await message.update({
+          content: buildPlayerRollCardHtml(newRollData),
+          "flags.sta2e-toolkit.rollData": newRollData,
+        });
+      } catch (err) {
+        console.error("STA2e Toolkit | Make Your Own Luck error:", err);
+        ui.notifications.error("Make Your Own Luck failed - see console.");
       }
     });
   });
@@ -15510,6 +16042,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     btn.addEventListener("click", async () => {
       try {
         const payload      = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+        if (payload.makeYourOwnLuckUsed) {
+          ui.notifications.warn("Make Your Own Luck was used on this task; no rerolls are available.");
+          return;
+        }
         const ability      = btn.dataset.ability ?? "";
         const abilityLabel = btn.dataset.abilityLabel ?? ability;
         const crewDice     = payload.crewDice ?? [];
@@ -15548,7 +16084,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           const shipCritThresh = nextRollData.shipCritThresh ?? 1;
           const shipDiceCount = nextRollData.advancedSensorsActive ? 2 : 1;
 
-          if (nextRollData.reservePower) {
+          nextRollData.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(nextRollData);
+          if (nextRollData.communicationsOfficerShipAssistActive) {
+            nextRollData.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
+            return { rollData: nextRollData, newShipDice: [] };
+          } else if (nextRollData.reservePower) {
             const forced = {
               value: 1,
               success: true,
@@ -15595,7 +16135,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 ${crewDice.map((d, i) => makeDieLabel(d, "crew", i)).join("")}
               </div>
             </div>` : "";
-          const shipSection = (payload.shipDice ?? []).length > 0 ? `
+          const teShipDice = (payload.shipDice ?? []).map((d, i) => ({ d, i }))
+            .filter(({ d }) => !d.communicationsOfficerForced);
+          const shipSection = teShipDice.length > 0 ? `
             <div>
               <div style="font-size:8px;color:${LC.secondary};text-transform:uppercase;
                 letter-spacing:0.1em;border-bottom:1px solid ${LC.borderDim};
@@ -15603,7 +16145,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 🚀 Ship Dice
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:5px;">
-                ${(payload.shipDice ?? []).map((d, i) => makeDieLabel(d, "ship", i)).join("")}
+                ${teShipDice.map(({ d, i }) => makeDieLabel(d, "ship", i)).join("")}
               </div>
             </div>` : "";
           const teResult = await foundry.applications.api.DialogV2.wait({
@@ -15813,6 +16355,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           defenderSuccesses, opposedDefenseType,
           groundMode, groundIsNpc, noPoolButton,
         } = payload;
+        const skipCompletionEffects = !!payload.completionEffectsRun;
 
         const countSuc = dice => dice.reduce((s, d) => s + (d.success ? (d.crit ? 2 : 1) : 0), 0);
         const allDice  = [
@@ -15833,7 +16376,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         //   handler, so we call game.sta2eToolkit.resolveDefenderRoll() directly.
         // - Player as defender: emit to the GM socket handler which calls the
         //   same resolution logic on their end.
-        if (noPoolButton && taskLabel?.includes("Defense")) {
+        if (!skipCompletionEffects && noPoolButton && taskLabel?.includes("Defense")) {
           const _successes = Math.max(0, totalSuccesses);
           if (game.user.isGM) {
             game.sta2eToolkit?.resolveDefenderRoll?.(_successes);
@@ -15904,6 +16447,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           confirmedSuccesses: totalSuccesses,
           confirmedMomentum: momentum,
           confirmedPassed: passed,
+          completionEffectsRun: true,
         };
         await message.update({
           content: buildPlayerRollCardHtml(confirmedRollData),
@@ -15922,7 +16466,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         });
 
         // Clear assist flag on token (GM only — avoids permission errors for players)
-        if (game.user.isGM && tokenDoc) {
+        if (!skipCompletionEffects && game.user.isGM && tokenDoc) {
           if (groundMode) {
             // Ground assist is stored under the "ground" key, not stationId
             const pending = tokenDoc.getFlag("sta2e-toolkit", "assistPending") ?? {};
@@ -15939,12 +16483,17 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         }
 
         // Weapon attack resolution
-        if (weaponContext && groundMode) {
+        if (!skipCompletionEffects && weaponContext && groundMode) {
           // ── Ground character weapon ────────────────────────────────────────
           const charActor = tokenObj?.actor ?? game.actors.get(actorId);
           const weapon    = charActor?.items.find(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
           if (weapon && charActor) {
-            const targets = Array.from(game.user.targets);
+            let targets = Array.from(game.user.targets);
+            if (!targets.length && Array.isArray(weaponContext.targetTokenIds)) {
+              targets = weaponContext.targetTokenIds
+                .map(id => canvas.tokens?.get(id))
+                .filter(Boolean);
+            }
             if (targets.length === 0) {
               ui.notifications.warn("No targets selected — select a target token to resolve damage.");
             } else {
@@ -16013,7 +16562,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           } else {
             ui.notifications.warn(`Weapon "${weaponContext.name}" not found on character.`);
           }
-        } else if (weaponContext && (shipActor || weaponContext.shipActorId)) {
+        } else if (!skipCompletionEffects && weaponContext && (shipActor || weaponContext.shipActorId)) {
           // ── Starship weapon ────────────────────────────────────────────────
           // Sheet-roller path: weaponContext carries shipActorId + weaponId; actorId is the character.
           // HUD-roller path: actorId IS the ship actor; no weaponContext.shipActorId.
@@ -16051,7 +16600,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         }
 
         // Rally context: post Momentum result card (player ships always use Momentum)
-        if (rallyContext) {
+        if (!skipCompletionEffects && rallyContext) {
           await ChatMessage.create({
             content: `
               <div style="border:2px solid ${LC.primary ?? "#ff9900"};border-radius:3px;
@@ -16076,7 +16625,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         }
 
         // Fire taskCallback (if this roll had one registered)
-        const cbEntry = PlayerRollCallbacks.get(callbackId);
+        const cbEntry = skipCompletionEffects ? null : PlayerRollCallbacks.get(callbackId);
         if (cbEntry) {
           PlayerRollCallbacks.delete(callbackId);
           (async () => {

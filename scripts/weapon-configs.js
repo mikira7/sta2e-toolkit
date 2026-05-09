@@ -451,11 +451,12 @@ export function buildWeaponContext(weapon) {
 // Sequencer helper
 // ---------------------------------------------------------------------------
 
+function combatAnimationsAvailable() {
+  return !!window.Sequence;
+}
+
 function seq() {
-  if (!window.Sequence) {
-    ui.notifications.error("STA 2e Toolkit: Sequencer module is required for combat animations.");
-    throw new Error("Sequencer not available");
-  }
+  if (!combatAnimationsAvailable()) throw new Error("Sequencer not available");
   return new window.Sequence();
 }
 
@@ -676,6 +677,8 @@ async function fireHypospray(config, isHit, _token, targets) {
 // ---------------------------------------------------------------------------
 
 export async function fireRam(attackerToken, targetToken) {
+  if (!combatAnimationsAvailable()) return;
+
   withSound(seq(), snd("sndRam"))
     .effect()
       .file(groundCrackEffect())
@@ -688,6 +691,8 @@ export async function fireRam(attackerToken, targetToken) {
 }
 
 export async function fireScanForWeakness(attackerToken, targetToken) {
+  if (!combatAnimationsAvailable()) return;
+
   withSound(seq(), snd("sndScanForWeakness"))
     .effect()
       .file(radarScanEffect())
@@ -696,6 +701,8 @@ export async function fireScanForWeakness(attackerToken, targetToken) {
 }
 
 export async function fireAttackPattern(token) {
+  if (!combatAnimationsAvailable()) return;
+
   withSound(seq(), snd("sndAttackPattern"))
     .effect()
       .file("jb2a.cast_generic.fire.01.orange")
@@ -706,6 +713,8 @@ export async function fireAttackPattern(token) {
 }
 
 export async function fireDefenseMode(token, type) {
+  if (!combatAnimationsAvailable()) return;
+
   const soundKey = type === "evasive-action" ? "sndEvasiveAction" : "sndDefensiveFire";
 
   if (type === "evasive-action") {
@@ -729,6 +738,8 @@ export async function fireDefenseMode(token, type) {
 }
 
 export async function fireTargetingSolution(attackerToken, targetToken) {
+  if (!combatAnimationsAvailable()) return;
+
   // Plays on the TARGET — inward indicator showing sensors locked on
   seq()
     .effect()
@@ -745,6 +756,7 @@ export async function fireTargetingSolution(attackerToken, targetToken) {
 
 export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area" } = {}) {
   if (!config) return;
+  if (!combatAnimationsAvailable()) return;
 
   switch (config.type) {
     // Ship-scale weapons

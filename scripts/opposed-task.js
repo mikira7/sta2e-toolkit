@@ -607,6 +607,83 @@ export async function startOpposedTask(opts = {}) {
   });
 }
 
+export async function startGroundCombatOpposedTask(opts = {}) {
+  if (!game.user.isGM) {
+    game.socket.emit("module.sta2e-toolkit", {
+      action: "startGroundCombatOpposedTask",
+      requesterUserId: game.user.id,
+      opts,
+    });
+    return null;
+  }
+
+  const attackerToken = opts.attackerTokenId ? canvas.tokens?.get(opts.attackerTokenId) : null;
+  const defenderToken = opts.defenderTokenId ? canvas.tokens?.get(opts.defenderTokenId) : null;
+  const attackerActor = attackerToken?.actor ?? game.actors.get(opts.attackerActorId);
+  const defenderActor = defenderToken?.actor ?? game.actors.get(opts.defenderActorId);
+  if (!attackerActor || !defenderActor) {
+    ui.notifications.error("STA2e Toolkit: Ground opposed task actor missing.");
+    return null;
+  }
+
+  const taskId = foundry.utils.randomID();
+  const defenseType = opts.defenseType ?? "melee";
+  const guardPenalty = Number(opts.guardPenalty ?? 0);
+  const pronePenalty = Number(opts.pronePenalty ?? 0);
+  const targetIsProne = !!opts.targetIsProne;
+  const taskData = {
+    taskId,
+    mode: "groundCombat",
+    status: "awaiting-defender",
+    taskName: opts.taskName ?? "Melee Attack",
+    flavor: opts.flavor ?? "",
+    kind: "groundCombat",
+    kindLabel: defenseType === "melee" ? "Melee" : "Cover",
+    kindIcon: defenseType === "melee" ? "⚔️" : "🪨",
+    options: {
+      defenseType,
+      guardPenalty,
+      pronePenalty,
+      targetIsProne,
+      targetIsProneInCover: !!opts.targetIsProneInCover,
+      defenderComplicationRange: opts.defenderComplicationRange ?? 1,
+      attackerComplicationRange: opts.attackerComplicationRange ?? 1,
+    },
+    combat: {
+      attackerTokenId: opts.attackerTokenId ?? null,
+      defenderTokenId: opts.defenderTokenId ?? null,
+      weaponContext: opts.weaponContext ?? null,
+      aimRerolls: Number(opts.aimRerolls ?? 0),
+    },
+    defender: {
+      actorId: defenderActor.id,
+      actorName: defenderActor.name,
+      actorImg: defenderActor.img ?? "icons/svg/mystery-man.svg",
+      suggestedAttr: opts.defenderSuggestedAttr ?? "daring",
+      suggestedDisc: opts.defenderSuggestedDisc ?? "security",
+      rolled: false,
+      successes: null,
+      complications: null,
+    },
+    attacker: {
+      actorId: attackerActor.id,
+      actorName: attackerActor.name,
+      actorImg: attackerActor.img ?? "icons/svg/mystery-man.svg",
+      suggestedAttr: opts.attackerSuggestedAttr ?? "daring",
+      suggestedDisc: opts.attackerSuggestedDisc ?? "security",
+      rolled: false,
+      successes: null,
+      complications: null,
+    },
+  };
+
+  return ChatMessage.create({
+    content: _renderCardHtml(taskData),
+    speaker: ChatMessage.getSpeaker({ token: attackerToken ?? null }),
+    flags: { [MODULE]: { type: "opposedTask", taskData } },
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Post the initial opposed-task chat card
 // ─────────────────────────────────────────────────────────────────────────
@@ -703,6 +780,10 @@ function _renderCardHtml(d) {
   const atkRolled = d.attacker.rolled;
   const canRollAtk = defRolled && !atkRolled;
   const resolved = defRolled && atkRolled;
+  const isGroundCombat = d.mode === "groundCombat";
+  const guardPenalty = Number(d.options?.guardPenalty ?? 0);
+  const pronePenalty = Number(d.options?.pronePenalty ?? 0);
+  const adjustedTarget = (d.defender.successes ?? 0) + guardPenalty + pronePenalty;
 
   const defAttrKey = d.defender?.suggestedAttr ?? d.suggestedAttr;
   const defDiscKey = d.defender?.suggestedDisc ?? d.suggestedDisc;
@@ -736,7 +817,7 @@ function _renderCardHtml(d) {
   // Resolution: attacker must meet or beat defender successes
   let resolutionBlock = "";
   if (resolved) {
-    const target = d.defender.successes;
+    const target = isGroundCombat ? adjustedTarget : d.defender.successes;
     const diff = d.attacker.successes - target;
     const passed = d.attacker.successes >= target;
     const rewardSide = passed ? "attacker" : "defender";
@@ -748,15 +829,21 @@ function _renderCardHtml(d) {
     const compNote = comps > 0
       ? `<div style="color:#cc8844;font-size:10px;margin-top:2px;">⚠ ${comps} complication${comps === 1 ? "" : "s"} in play</div>`
       : "";
+    const combatVerdict = passed
+      ? `<span style="color:#44cc66;font-weight:700;">HIT</span> - margin +${diff}`
+      : `<span style="color:#cc4444;font-weight:700;">MISS</span> - shortfall ${diff}`;
+    const targetLine = isGroundCombat
+      ? `Difficulty: ${target} - Defender: ${d.defender.successes}${guardPenalty ? ` - +${guardPenalty} Guard` : ""}${pronePenalty ? ` - +${pronePenalty} Prone` : ""}`
+      : `Target: ${target} - Attacker: ${d.attacker.successes}`;
     resolutionBlock = `
       <div class="sta2e-opposed-resolution" style="margin-top:6px;padding:6px 10px;background:${panel};">
         <div style="font-size:10px;letter-spacing:0.12em;color:${textDim};text-transform:uppercase;">Resolution</div>
-        <div style="margin-top:2px;">${verdict}</div>
+        <div style="margin-top:2px;">${isGroundCombat ? combatVerdict : verdict}</div>
         <div style="color:${textDim};font-size:11px;">
-          Target: ${target} · Attacker: ${d.attacker.successes}
+          ${targetLine}${isGroundCombat ? ` - Attacker: ${d.attacker.successes}` : ""}
         </div>
         ${compNote}
-        ${_renderOpposedPoolReward(d, rewardSide, rewardAmount)}
+        ${isGroundCombat ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount)}
       </div>`;
   }
 
@@ -801,6 +888,12 @@ function _renderCardHtml(d) {
   const flavorBlock = d.flavor
     ? `<div style="padding:6px 10px;color:${textDim};font-style:italic;font-size:11px;">${_esc(d.flavor)}</div>`
     : "";
+  const groundNote = isGroundCombat
+    ? `<div style="padding:0 10px 8px;color:${textDim};font-size:10px;line-height:1.5;">
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}.
+        ${d.options?.targetIsProne ? `<span style="color:${LC.secondary};">Prone melee target: +2 Momentum on a hit.</span>` : ""}
+      </div>`
+    : "";
 
   return `
 <div class="sta2e-opposed-task" data-task-id="${d.taskId}" data-theme="${theme}" data-template="${template}"
@@ -811,7 +904,7 @@ function _renderCardHtml(d) {
       ${d.kindIcon} Opposed Task
     </div>
     <div style="font-size:10px;letter-spacing:0.1em;opacity:0.85;">
-      Social Contest
+      ${isGroundCombat ? "Ground Combat" : "Social Contest"}
     </div>
   </div>
 
@@ -819,6 +912,7 @@ function _renderCardHtml(d) {
     <div style="font-size:13px;font-weight:600;">${_esc(d.taskName)}</div>
     ${flavorBlock ? flavorBlock : ""}
   </div>
+  ${groundNote}
 
   <div class="sta2e-opposed-card-sides" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid ${border};border-bottom:1px solid ${border};">
     <div class="sta2e-opposed-card-side sta2e-opposed-card-side-defender" style="padding:8px 10px;border-right:1px solid ${border};">
@@ -968,16 +1062,25 @@ async function _handleRollClick(message, taskId, side) {
 // Sheet stats drive the pool; we only supply difficulty + suggested attr/disc.
 
 function _launchRoller(message, taskData, side, actor) {
-  const token = actor.getActiveTokens(true)[0]?.document
+  const combatTokenId = side === "defender"
+    ? taskData.combat?.defenderTokenId
+    : taskData.combat?.attackerTokenId;
+  const token = (combatTokenId ? canvas.tokens?.get(combatTokenId)?.document : null)
+    ?? actor.getActiveTokens(true)[0]?.document
     ?? canvas.tokens?.placeables.find(t => t.actor?.id === actor.id)?.document
     ?? null;
 
   const profile = _getOpposedActorProfile(actor, token);
+  const forcedGroundNpc = taskData.mode === "groundCombat" && _isOpposedGroundNpcActor(actor, token);
+  const isGroundCombat = taskData.mode === "groundCombat";
+  const groundModifier = isGroundCombat
+    ? Number(taskData.options?.guardPenalty ?? 0) + Number(taskData.options?.pronePenalty ?? 0)
+    : 0;
   // Defender rolls at difficulty 0 (free roll to set the bar);
   // attacker must meet or beat defender's successes.
   const difficulty = side === "defender"
     ? 0
-    : (taskData.defender.successes ?? 0);
+    : (taskData.defender.successes ?? 0) + groundModifier;
 
   const stats = readOfficerStats(actor);
   const sideData = side === "defender" ? taskData.defender : taskData.attacker;
@@ -992,11 +1095,21 @@ function _launchRoller(message, taskData, side, actor) {
   const rollerOpts = {
     difficulty,
     complicationRange,
-    noPoolButton: true,
-    taskLabel:   `${taskData.kindIcon} ${taskData.taskName}`,
+    noPoolButton: !isGroundCombat || side === "defender",
+    taskLabel: isGroundCombat
+      ? (side === "defender" ? "Melee Defender" : taskData.taskName)
+      : `${taskData.kindIcon} ${taskData.taskName}`,
     taskContext: side === "defender"
       ? `Opposed — Defender (${taskData.kindLabel})`
       : `Opposed — Attacker vs ${taskData.defender.successes} success${taskData.defender.successes === 1 ? "" : "es"}`,
+    ...(isGroundCombat && side === "attacker" ? {
+      stationId: "tactical",
+      weaponContext: taskData.combat?.weaponContext ?? null,
+      aimRerolls: Number(taskData.combat?.aimRerolls ?? 0),
+      opposedDifficulty: difficulty,
+      opposedDefenseType: taskData.options?.defenseType ?? "melee",
+      defenderSuccesses: taskData.defender.successes ?? 0,
+    } : {}),
     defaultAttr: hasAttr ? suggestedAttr : null,
     defaultDisc: hasDisc ? suggestedDisc : null,
     taskCallback: async ({ successes, complications: reportedComplications = null, state }) => {
@@ -1039,11 +1152,23 @@ function _launchRoller(message, taskData, side, actor) {
 
   openNpcRoller(actor, token, {
     ...rollerOpts,
-    playerMode: profile.isPlayerOwned,
+    playerMode: forcedGroundNpc ? false : profile.isPlayerOwned,
     groundMode: true,
-    groundIsNpc: !profile.isPlayerOwned,
+    groundIsNpc: forcedGroundNpc || !profile.isPlayerOwned,
+    usesPlayerPayment: forcedGroundNpc ? false : undefined,
     officer: stats ?? undefined,
   });
+}
+
+function _isOpposedGroundNpcActor(actor, tokenDoc = null) {
+  if (!actor) return false;
+  const baseActor = tokenDoc?.actorId ? game.actors.get(tokenDoc.actorId) : null;
+  const sheetClass = actor.sheet?.constructor?.name
+    ?? baseActor?.sheet?.constructor?.name
+    ?? "";
+  const npcType = `${actor.system?.npcType ?? baseActor?.system?.npcType ?? ""}`.trim().toLowerCase();
+  const isNpcType = npcType === "minor" || npcType === "notable" || npcType === "major";
+  return /npc/i.test(sheetClass) && isNpcType;
 }
 
 function _getOpposedActorProfile(actor, tokenDoc = null) {

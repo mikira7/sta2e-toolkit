@@ -4,6 +4,7 @@
 
 import { EffectConfigMenu } from "./effect-config.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
+import { CharacterCreatorConfig, CHARACTER_CREATOR_DEFAULT_DATA } from "./character-creator.js";
 
 export function registerSettings() {
 
@@ -24,6 +25,23 @@ export function registerSettings() {
     config:  false,
     type:    Object,
     default: { rules: [] },
+  });
+
+  game.settings.registerMenu("sta2e-toolkit", "characterCreatorMenu", {
+    name:       "STA2E.Settings.CharacterCreator.Name",
+    label:      "STA2E.Settings.CharacterCreator.Label",
+    hint:       "STA2E.Settings.CharacterCreator.Hint",
+    icon:       "fas fa-user-astronaut",
+    type:       CharacterCreatorConfig,
+    restricted: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "characterCreatorData", {
+    name:    "Character Creator Data",
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: CHARACTER_CREATOR_DEFAULT_DATA,
   });
 
   // ── Sounds & Animations config menu button ─────────────────────────────

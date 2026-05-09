@@ -30,9 +30,12 @@ import { ZoneMovementLog } from "./zone-movement-log.js";
 import { ZoneHazard } from "./zone-hazard.js";
 import { ZoneVisibility, registerZoneVisibilityWrap } from "./zone-visibility.js";
 import { ZoneMonitor } from "./zone-monitor.js";
+import { openCharacterCreator } from "./character-creator.js";
+import { cleanHardWrappedParagraphs, openTextFormatter } from "./text-formatter.js";
 import {
   openOpposedTaskSetup,
   startOpposedTask,
+  startGroundCombatOpposedTask,
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
@@ -91,6 +94,19 @@ function getShipCardUserAccess(message, payload = {}, userId = game.user.id) {
       ? allowedUserIds.includes(userId)
       : !!fallbackCanUse),
   };
+}
+
+function canUserStartGroundOpposedTask(opts = {}, userId = game.user.id) {
+  const requestingUser = game.users.get(userId);
+  if (requestingUser?.isGM) return true;
+
+  const attackerToken = opts.attackerTokenId ? canvas?.tokens?.get(opts.attackerTokenId) : null;
+  const attackerActor = attackerToken?.actor ?? game.actors.get(opts.attackerActorId);
+  if (!requestingUser || !attackerActor) return false;
+
+  return attackerActor.testUserPermission?.(requestingUser, "OWNER")
+    || attackerToken?.document?.testUserPermission?.(requestingUser, "OWNER")
+    || false;
 }
 
 function applyShipCardLockToDom(messageId, flags = {}) {
@@ -332,6 +348,100 @@ function _combatHudToggle() {
   }
 }
 
+function _addCharacterCreatorActorDirectoryButton(_app, html) {
+  const root = html instanceof HTMLElement ? html : html?.[0] ?? html;
+  if (!root) return;
+
+  const actions = root.querySelector(".directory-header .header-actions")
+    ?? root.querySelector(".header-actions")
+    ?? root.querySelector(".directory-header");
+  if (actions && !root.querySelector(".sta2e-open-character-creator-directory")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sta2e-open-character-creator-directory";
+    button.innerHTML = '<i class="fas fa-user-astronaut"></i><span>Character Creator</span>';
+    button.title = "Open STA2e Character Creator";
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openCharacterCreator();
+    });
+
+    actions.appendChild(button);
+  }
+
+  _addCharacterCreatorFolderButtons(root);
+}
+
+function _folderContextElement(element) {
+  return element instanceof HTMLElement ? element : element?.[0] ?? element;
+}
+
+function _actorFolderFromContextElement(element) {
+  const root = _folderContextElement(element);
+  const folderElement = root?.closest?.("[data-folder-id], [data-document-id], [data-entry-id], [data-folder], .folder")
+    ?? root;
+  const folderId = folderElement?.dataset?.folderId
+    ?? folderElement?.dataset?.documentId
+    ?? folderElement?.dataset?.entryId
+    ?? folderElement?.dataset?.folder
+    ?? folderElement?.dataset?.id
+    ?? "";
+  const folder = game.folders.get(folderId) ?? game.folders.find?.(f => f.id === folderId) ?? null;
+  return folder?.type === "Actor" ? folder : null;
+}
+
+function _addCharacterCreatorFolderContextOption(options) {
+  if (!Array.isArray(options)) return;
+  if (options.some(option => option?.label === "STA2e Character Creator" || option?.name === "STA2e Character Creator")) return;
+
+  const canOpenForFolder = element => !!_actorFolderFromContextElement(element);
+  const openForFolder = element => {
+    const folder = _actorFolderFromContextElement(element);
+    if (!folder) return;
+    openCharacterCreator({ folderId: folder.id });
+  };
+
+  options.push({
+    name: "STA2e Character Creator",
+    label: "STA2e Character Creator",
+    icon: '<i class="fa-solid fa-user-astronaut"></i>',
+    condition: canOpenForFolder,
+    visible: canOpenForFolder,
+    callback: openForFolder,
+    onClick: (_event, element) => openForFolder(element),
+  });
+}
+
+function _characterCreatorFolderContextHook(...args) {
+  _addCharacterCreatorFolderContextOption(args.find(arg => Array.isArray(arg)));
+}
+
+function _addCharacterCreatorFolderButtons(root) {
+  root.querySelectorAll(".directory-item.folder[data-folder-id] > .folder-header").forEach(header => {
+    if (header.querySelector(".sta2e-folder-character-creator")) return;
+    const folder = _actorFolderFromContextElement(header);
+    if (!folder) return;
+
+    const createEntryButton = header.querySelector(".create-entry");
+    if (!createEntryButton) return;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "create-button sta2e-folder-character-creator icon fa-solid fa-user-astronaut";
+    button.dataset.tooltip = "Open STA2e Character Creator";
+    button.setAttribute("aria-label", "Open STA2e Character Creator");
+    button.title = "Open STA2e Character Creator";
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openCharacterCreator({ folderId: folder.id });
+    });
+
+    createEntryButton.insertAdjacentElement("afterend", button);
+  });
+}
+
 // ── Shared NPC Roller launcher ────────────────────────────────────────────────
 async function _npcRollerLaunch() {
   // 1. If a token is selected and is a starship — open directly
@@ -392,6 +502,11 @@ async function _npcRollerLaunch() {
 // ── Scene Controls — single toggle button for the floating toolkit widget ─────
 // One button in the token controls toggles the floating ToolkitWidget.
 // v13: icon must be a FontAwesome class string.
+
+Hooks.on("renderActorDirectory", _addCharacterCreatorActorDirectoryButton);
+Hooks.on("getFolderContextOptions", _characterCreatorFolderContextHook);
+Hooks.on("getActorDirectoryFolderContext", _characterCreatorFolderContextHook);
+Hooks.on("getDocumentDirectoryFolderContext", _characterCreatorFolderContextHook);
 
 Hooks.on("getSceneControlButtons", (controls) => {
   const tokenGroup = controls.tokens;
@@ -540,12 +655,16 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.EffectConfigMenu = EffectConfigMenu; // class ref for external access
   game.sta2eToolkit.openTransporter = openTransporter;
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
+  game.sta2eToolkit.openCharacterCreator = openCharacterCreator;
+  game.sta2eToolkit.openTextFormatter = openTextFormatter;
+  game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   // Expose NPC roller launcher so the widget button can call it
   game.sta2eToolkit.launchNpcRoller = _npcRollerLaunch;
 
   // Expose Opposed Task entry points
   game.sta2eToolkit.openOpposedTaskSetup = openOpposedTaskSetup;
   game.sta2eToolkit.startOpposedTask     = startOpposedTask;
+  game.sta2eToolkit.startGroundCombatOpposedTask = startGroundCombatOpposedTask;
 
   // Expose zone system helpers for macros
   game.sta2eToolkit.ZoneHazard = ZoneHazard;
@@ -896,6 +1015,21 @@ Hooks.once("ready", async () => {
         if (!updated) console.warn("STA2e Toolkit | adjustThreatFromRoll ignored: no connected GM can write STA threat.");
       } catch(e) {
         console.error("STA2e Toolkit | adjustThreatFromRoll failed:", e);
+      }
+    }
+
+    // Player-started ground opposed tasks are created by the GM client so
+    // hosted permission models cannot block the initial opposed chat card.
+    else if (msg.action === "startGroundCombatOpposedTask" && game.user.isGM) {
+      try {
+        const opts = msg.opts ?? {};
+        if (!canUserStartGroundOpposedTask(opts, msg.requesterUserId)) {
+          console.warn("STA2e Toolkit | startGroundCombatOpposedTask denied:", msg.requesterUserId, opts);
+          return;
+        }
+        await startGroundCombatOpposedTask(opts);
+      } catch (e) {
+        console.error("STA2e Toolkit | startGroundCombatOpposedTask via socket failed:", e);
       }
     }
 
@@ -2512,6 +2646,9 @@ function _calcSupportingStressMax(actor, isSupervisory) {
   const strmod   = actor.system.strmod ?? 0;
   const command  = actor.system.disciplines?.command?.value ?? 2;
   const control  = actor.system.disciplines?.control?.value ?? 2;
+  const hasValue = actor.items.some(i => i.type === "value");
+  if (!isSupervisory && !hasValue) return 0;
+
   const hasTough = actor.items.some(i => i.name.toLowerCase().includes("tough"));
   const hasResolute = actor.items.some(i => i.name.toLowerCase().includes("resolute"));
   const hasMentalDiscipline = actor.items.some(i =>
@@ -2536,8 +2673,6 @@ Hooks.on("renderSTASupportingSheet2e", (app, html) => {
     app._sta2eStressPatched = true;
     app._StressTrackMax = async function() {
       const isSup = this.actor.getFlag("sta2e-toolkit", "supervisoryCharacter") ?? false;
-      const numValues = this.actor.itemTypes.value.length;
-      if (!numValues) return undefined;
       const localizedTough  = game.i18n.localize("sta.actor.character.talents.tough");
       const localizedRes    = game.i18n.localize("sta.actor.character.talents.resolute");
       const localizedMD     = game.i18n.localize("sta.actor.character.talents.mentaldiscipline");
@@ -2545,12 +2680,14 @@ Hooks.on("renderSTASupportingSheet2e", (app, html) => {
       const strmod   = parseInt(this.element.querySelector("#strmod")?.value   || 0, 10);
       const command  = parseInt(this.element.querySelector("#command")?.value  || 0, 10);
       const control  = parseInt(this.element.querySelector("#control")?.value  || 0, 10);
+      const hasValue = this.actor.items.some(i => i.type === "value");
+      if (!isSup && !hasValue) return 0;
       let max = fitness + strmod;
       if (this.element.querySelector(`[data-talent-name*="${localizedTough}"]`))  max += 2;
       if (this.element.querySelector(`[data-talent-name*="${localizedRes}"]`))    max += command;
       if (this.element.querySelector(`[data-talent-name*="${localizedMD}"]`))     max = control;
       if (!isSup) max = Math.ceil(max / 2);
-      return max;
+      return Number.isInteger(max) ? max : 0;
     };
     // Immediately re-render the stress track with the corrected max
     app._onStressTrackUpdate?.();

@@ -217,6 +217,38 @@ function detectMultiTasking(actor) {
   return actor.items.some(i => i.name.toLowerCase().includes("multi-tasking"));
 }
 
+/**
+ * Communications Officer: when this character attempts a task assisted by the
+ * ship's Computers or Communications systems, the ship assist die counts as 1.
+ */
+function detectCommunicationsOfficer(actor) {
+  if (!actor?.items) return { hasTalent: false, source: null };
+  const found = actor.items.find(i => i.name.toLowerCase().includes("communications officer"));
+  return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
+}
+
+function detectMakeYourOwnLuck(actor) {
+  if (!actor?.items) return { hasTalent: false, source: null };
+  const found = actor.items.find(i => i.name.toLowerCase().includes("make your own luck"));
+  return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
+}
+
+export function isCommunicationsOfficerShipAssistActive(rollState) {
+  return !!rollState?.hasCommunicationsOfficer
+    && (rollState.shipSystemKey === "computers" || rollState.shipSystemKey === "communications");
+}
+
+export function communicationsOfficerShipDie(critThreshold = 1) {
+  return {
+    value: 1,
+    success: true,
+    crit: true,
+    complication: false,
+    critThreshold,
+    communicationsOfficerForced: true,
+  };
+}
+
 // ── Dice So Nice integration ──────────────────────────────────────────────────
 
 /**
@@ -292,10 +324,15 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
       tooltip += " (CRITICAL — Determination, auto-1, 2 successes)";
     } else if (die.reservePowerForced) {
       tooltip += " (CRITICAL — Reserve Power, auto-1, 2 successes)";
+    } else if (die.communicationsOfficerForced) {
+      tooltip += " (CRITICAL - Communications Officer, ship assist counts as 1, 2 successes)";
+    } else if (die.makeYourOwnLuckForced) {
+      tooltip += " (CRITICAL - Make Your Own Luck, changed to target number)";
     } else {
       tooltip += ` (CRITICAL — 2 successes, focus 1–${die.critThreshold})`;
     }
   }
+  else if (die.makeYourOwnLuckForced) tooltip += " (success - Make Your Own Luck, changed to target number)";
   else if (die.success) tooltip += " (success)";
   if (die.complication) tooltip += " (COMPLICATION)";
   if (rerollHint !== null) tooltip += `\n${rerollHint}`;
@@ -828,6 +865,27 @@ function _buildCombatTaskPanelHtml(state) {
     </div>`;
 }
 
+function _usesPlayerPayment(state, actor = null) {
+  const sheetClass = actor?.sheet?.constructor?.name ?? "";
+  const npcType = `${actor?.system?.npcType ?? ""}`.trim().toLowerCase();
+  const isNpcType = npcType === "minor" || npcType === "notable" || npcType === "major";
+  const isNpcSheet = /npc/i.test(sheetClass);
+  const isPlayerCharacterSheet = sheetClass === "STACharacterSheet2e"
+    || sheetClass === "STASupportingSheet2e"
+    || sheetClass === "STACharacterSheet";
+
+  if (isNpcSheet || npcType === "notable" || npcType === "major") return false;
+  if (npcType === "minor" && !isPlayerCharacterSheet) return false;
+
+  if (state?.usesPlayerPayment === true) return true;
+  if (state?.usesPlayerPayment === false) return false;
+
+  if (state?.playerMode) return true;
+  if (state?.groundMode) return !state.groundIsNpc;
+
+  return !!(state?.sheetMode && isPlayerCharacterSheet && !isNpcType);
+}
+
 function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = null) {
   const {
     crewNumDice, crewQuality,
@@ -1170,7 +1228,8 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           //   Ship NPC / Ground minor NPC: Pool Threat only
           const _showBothThreats = state.groundIsNpc &&
             (state.groundNpcType === "notable" || state.groundNpcType === "major");
-          const sourcesHtml = state.playerMode
+          const usesPlayerPayment = _usesPlayerPayment(state, actor);
+          const sourcesHtml = usesPlayerPayment
             ? `<div style="display:flex; justify-content:center; gap:15px; margin-bottom:8px;">
                      <div style="text-align:center;">
                        <img src="modules/sta2e-toolkit/assets/momentum.svg" class="sta2e-roller-coin-source" data-type="momentum" draggable="true"
@@ -2095,6 +2154,11 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                       ⚡ Reserve Power — assist die set to 1 · ship complications count double
                     </div>`
           : ""}
+                ${state.communicationsOfficerShipAssistActive
+          ? `<div style="font-size:9px;color:${LC.secondary};padding:2px 10px 4px;font-family:${LC.font};">
+                      ${state.communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1
+                    </div>`
+          : ""}
                 ${state.advancedSensorsActive
           ? `<div style="font-size:9px;color:${LC.green};padding:2px 10px 4px;font-family:${LC.font};">
                       ★ Advanced Sensor Suites — 2 ship dice rolled
@@ -2114,7 +2178,8 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
           ${[...crewDice.map((d, i) => ({ d, i, pool: "crew" })),
-    ...shipDice.map((d, i) => ({ d, i, pool: "ship" }))].map(({ d, i, pool }) => {
+    ...shipDice.map((d, i) => ({ d, i, pool: "ship" }))
+      .filter(({ d }) => !d.communicationsOfficerForced)].map(({ d, i, pool }) => {
       const fsize = d.value >= 10 ? "9px" : "11px";
       const txtC = d.crit ? LC.primary : d.success ? LC.green : d.complication ? LC.red : "#aaa";
       return `
@@ -2326,7 +2391,10 @@ function buildChatCard(actorName, state) {
         ? `<div style="font-size:9px;color:${LC.textDim};letter-spacing:0.06em;padding:2px 0;">
                 Ship did not assist this roll
               </div>`
-        : `<div>${diceRow(shipDice, shipTarget)}</div>`}
+        : `<div>
+            ${state.communicationsOfficerShipAssistActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;">${state.communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1</div>` : ""}
+            ${diceRow(shipDice, shipTarget)}
+          </div>`}
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;
@@ -2390,6 +2458,7 @@ export function buildPlayerRollCardHtml(rollData) {
     hasSystemReroll, systemRerollUsed, systemRerollSource,
     hasShipTalentReroll, shipTalentRerollUsed, shipTalentRerollSource,
     detRerollUsed, genericRerollUsed,
+    hasMakeYourOwnLuck, makeYourOwnLuckUsed, makeYourOwnLuckSource,
     hasTargetingSolution, tsChoice, tsRerollUsed,
     hasCalibratesensors, csRerollUsed,
     aimRerolls, aimRerollsUsed,
@@ -2397,6 +2466,7 @@ export function buildPlayerRollCardHtml(rollData) {
     officerAttrKey, officerDiscKey, crewTarget,
     complicationRange, shipName, shipSystemKey, shipDeptKey,
     hasAdvancedSensors, advancedSensorsActive, sheetMode,
+    communicationsOfficerShipAssistActive, communicationsOfficerSource,
     hasTechExpertise, techExpertiseUsed, techExpertiseSource,
     isAssistRoll, assistOfficerName, assistApplied, playerMode,
     confirmed, confirmedSuccesses, confirmedMomentum, confirmedPassed,
@@ -2491,9 +2561,24 @@ export function buildPlayerRollCardHtml(rollData) {
       ? (_spent.momentum ?? 0) > 0
       : ((_spent.momentum ?? 0) > 0 || (_spent.threat ?? 0) > 0 || (_spent.personalThreat ?? 0) > 0);
   const talentRerollValid = hasTalentReroll && (!interactiveActive || spentResources);
+  const anyRerollUsed = !!(
+    talentRerollUsed || advisorRerollUsed || systemRerollUsed || shipTalentRerollUsed
+    || detRerollUsed || genericRerollUsed || tsRerollUsed || csRerollUsed
+    || techExpertiseUsed || ((aimRerollsUsed ?? 0) > 0)
+  );
+  const failedOwnLuckDice = (crewDice ?? [])
+    .map((d, i) => ({ d, i }))
+    .filter(({ d }) => !d.success);
+  const showMakeYourOwnLuck = !!hasMakeYourOwnLuck
+    && !makeYourOwnLuckUsed
+    && !anyRerollUsed
+    && !confirmed
+    && !isAssistRoll
+    && failedOwnLuckDice.length > 0
+    && crewTarget != null;
 
   // Reroll abilities that still have charges
-  const rerollButtons = [
+  const rerollButtons = makeYourOwnLuckUsed ? [] : [
     talentRerollValid && !talentRerollUsed ? { ability: "talent", label: talentRerollSource ?? "Bold / Cautious", labelShort: "Reroll a Die" } : null,
     hasAdvisorReroll && !advisorRerollUsed ? { ability: "advisor", label: advisorRerollSource ?? "Advisor", labelShort: "Reroll a Die" } : null,
     hasSystemReroll && !systemRerollUsed ? { ability: "system", label: systemRerollSource ?? "System Talent", labelShort: "Reroll a Die" } : null,
@@ -2584,6 +2669,7 @@ export function buildPlayerRollCardHtml(rollData) {
       ].filter(Boolean).join(" · ")
       }</div>
     ${advancedSensorsActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">★ Advanced Sensor Suites</div>` : ""}
+    ${communicationsOfficerShipAssistActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">${communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1</div>` : ""}
     ${diceRow(shipDice)}
   </div>` : ""}
 
@@ -2630,6 +2716,23 @@ export function buildPlayerRollCardHtml(rollData) {
         🎲 Roll Assist Die — ${ao.type === "direct" ? "🎖️ " : "🤝 "}${ao.name}
       </button>`).join("")}
     </div>
+  </div>` : ""}
+
+  ${showMakeYourOwnLuck ? `
+  <div class="sta2e-working-actions sta2e-working-actions--luck"
+    style="padding:5px 10px;border-top:1px solid ${LC.borderDim};">
+    <button class="sta2e-make-own-luck"
+      data-payload="${p}"
+      style="width:100%;padding:6px 8px;background:rgba(255,153,0,0.10);
+        border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+        font-family:${LC.font};font-size:10px;font-weight:700;
+        color:${LC.primary};letter-spacing:0.04em;text-align:left;">
+      ${makeYourOwnLuckSource ?? "Make Your Own Luck"} - suffer 1 Stress, change a failed die to ${crewTarget}
+    </button>
+  </div>` : makeYourOwnLuckUsed ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.primary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${makeYourOwnLuckSource ?? "Make Your Own Luck"} used - rerolls unavailable for this task
   </div>` : ""}
 
   ${!confirmed && !isAssistRoll && rerollButtons.length > 0 ? `
@@ -2718,7 +2821,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1 } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1 } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -2989,6 +3092,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _hasMultiTasking = _officerActorFull
     ? detectMultiTasking(_officerActorFull)
     : false;
+  const _communicationsOfficer = _officerActorFull
+    ? detectCommunicationsOfficer(_officerActorFull)
+    : { hasTalent: false, source: null };
+  const _makeYourOwnLuck = _officerActorFull
+    ? detectMakeYourOwnLuck(_officerActorFull)
+    : { hasTalent: false, source: null };
 
   // Mutable roller state — lives outside the dialog so button callbacks can mutate it
   const state = {
@@ -3008,6 +3117,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     playerMode,           // true = player-ship task roll (no NPC crew concepts)
     groundMode,           // true = ground character roll — hides ship pool entirely
     groundIsNpc,          // true = ground NPC → generates Threat (not Momentum)
+    usesPlayerPayment: overrideUsesPlayerPayment ?? _usesPlayerPayment({ playerMode, groundMode, groundIsNpc, sheetMode }, actor),
     noPoolButton,         // true = suppress pool button on this roll (defender defense rolls)
     // Crew assist die: pre-checked when NPC crew (ship itself) declared a pending assist.
     // Named character-actor assists are handled separately via assistOfficers/namedAssistDice
@@ -3162,6 +3272,14 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     multiTaskingActive: false,
     _taskDefaultDisc: null,   // stored when a task button is clicked, for revert on uncheck
     _taskDefaultShipDept: null,
+    // Communications Officer: Computers/Communications ship assist die counts as 1
+    hasCommunicationsOfficer: _communicationsOfficer.hasTalent,
+    communicationsOfficerSource: _communicationsOfficer.source,
+    communicationsOfficerShipAssistActive: false,
+    // Make Your Own Luck: suffer 1 Stress to turn one failed task die into target number
+    hasMakeYourOwnLuck: _makeYourOwnLuck.hasTalent,
+    makeYourOwnLuckSource: _makeYourOwnLuck.source,
+    makeYourOwnLuckUsed: false,
     // Generic one-die reroll — always available for any talent/trait effect not covered above
     genericRerollUsed: false,
     // NPC ship mode: after rolling, post the interactive chat card (same as playerMode)
@@ -3269,6 +3387,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       hasAdvancedSensors: state.hasAdvancedSensors ?? false,
       advancedSensorsActive: state.advancedSensorsActive ?? false,
       reservePower: state.reservePower ?? false,
+      hasCommunicationsOfficer: state.hasCommunicationsOfficer ?? false,
+      communicationsOfficerSource: state.communicationsOfficerSource ?? null,
+      communicationsOfficerShipAssistActive: state.communicationsOfficerShipAssistActive ?? false,
+      hasMakeYourOwnLuck: state.hasMakeYourOwnLuck ?? false,
+      makeYourOwnLuckSource: state.makeYourOwnLuckSource ?? null,
+      makeYourOwnLuckUsed: state.makeYourOwnLuckUsed ?? false,
       sheetMode: state.sheetMode ?? false,
       availableShips: state.availableShips ?? [],
       selectedShipIdx: state.selectedShipIdx ?? -1,
@@ -3766,6 +3890,7 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
 
   // Ship dice count is not user-controlled — always 1, or 2 if Advanced Sensor Suites active
   state.shipNumDice = state.advancedSensorsActive ? 2 : 1;
+  state.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(state);
 
   // Ship-sheet assist roll: crew die uses ship system + dept as target, not quality preset
   // Excludes ground NPCs — they use character attr/disc as the assist target
@@ -3905,7 +4030,8 @@ async function _doRoll(state, speaker) {
     const _readPool  = (key) => { if (_ST) return _ST.ValueOf(key) ?? 0; try { return game.settings.get("sta", key) ?? 0; } catch { return 0; } };
     const _writePool = async (key, v) => { if (_ST) { await _ST.DoUpdateResource(key, Math.max(0, v)); return; } try { await game.settings.set("sta", key, Math.max(0, v)); } catch { /* ignore */ } };
 
-    if (state.playerMode) {
+    const usesPlayerPayment = _usesPlayerPayment(state);
+    if (usesPlayerPayment) {
       if (momentumUsed > 0) {
         await _writePool("momentum", _readPool("momentum") - momentumUsed);
       }
@@ -4057,8 +4183,12 @@ async function _doRoll(state, speaker) {
     }
 
     // Ship assist dice — only if ship is assisting this roll
+    state.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(state);
+
     if (!state.shipAssist) {
       state.shipDice = [];
+    } else if (state.communicationsOfficerShipAssistActive) {
+      state.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
     } else if (state.reservePower) {
       // Reserve Power rerouted: first die is automatically a 1 (critical success).
       // Any complications rolled on ship dice count as 2 complications each — flag
@@ -4115,7 +4245,8 @@ async function _doRoll(state, speaker) {
     state.apAssistDice = [];
   }
 
-  const allDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice];
+  const allDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice]
+    .filter(d => !d.communicationsOfficerForced);
   await dsnShowPool(allDice, speaker);
 }
 
@@ -4228,7 +4359,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           };
 
           let cursor = 0;
-          if (state.playerMode) {
+          const usesPlayerPayment = _usesPlayerPayment(state);
+          if (usesPlayerPayment) {
             // Player: momentum first, then threat to cover any remainder
             const mFilled = _fill("momentum", need, cursor);
             cursor += mFilled;
@@ -4256,7 +4388,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         if (T) return T.ValueOf("momentum") ?? 0;
         try { return game.settings.get("sta", "momentum") ?? 0; } catch { return 0; }
       } else if (type === "threat" || type === "poolThreat") {
-        if (state.playerMode && type === "threat") return 99; // players generate threat, no pool cap
+        const usesPlayerPayment = _usesPlayerPayment(state);
+        if (usesPlayerPayment && type === "threat") return 99; // players generate threat, no pool cap
         if (T) return T.ValueOf("threat") ?? 0;
         try { return game.settings.get("sta", "threat") ?? 0; } catch { return 0; }
       } else if (type === "personalThreat") {
