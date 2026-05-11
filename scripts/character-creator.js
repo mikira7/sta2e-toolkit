@@ -7763,12 +7763,7 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         might: 0,
         wealth: 0,
         legacy: "",
-        traits: [
-          ...(context.traitList ?? []),
-          context.selectedHumanAugmentFlawTrait,
-          context.selectedCareerTrait,
-          ...(context.eventTraitSummary ?? []),
-        ].map(trait => trait?.name).filter(Boolean).join(", "),
+        traits: "",
         notes: "Created with STA2e Toolkit Character Creator.",
         strmod: 0,
         rollrepnotdis: false,
@@ -7927,12 +7922,6 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     const actorImage = context.primary?.tokenImage || "icons/svg/mystery-man.svg";
     const npcType = context.npcDefinition?.npcType ?? "minor";
     const actorLink = npcType !== "minor";
-    const traitNames = [
-      ...(context.traitList ?? []),
-      context.selectedHumanAugmentFlawTrait,
-      context.selectedNpcRoleTrait,
-      context.selectedNpcExtraTrait,
-    ].map(trait => trait?.name).filter(Boolean);
 
     return {
       name,
@@ -7969,7 +7958,7 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         might: 0,
         wealth: 0,
         legacy: "",
-        traits: traitNames.join(", "),
+        traits: "",
         notes: context.npcNotes?.trim() || "Created with STA2e Toolkit Character Creator.",
         strmod: 0,
         rollrepnotdis: false,

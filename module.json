@@ -2,7 +2,7 @@
   "id": "sta2e-toolkit",
   "title": "STA 2e Toolkit",
   "description": "A toolkit for Star Trek Adventures 2nd Edition. Includes a Stardate HUD with multi-campaign support, era switching (TOS/TNG), warp travel integration, Zone grid creation, Transporter to spawning character or remove characters.",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "compatibility": {
     "minimum": "13",
     "verified": "14",
