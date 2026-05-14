@@ -720,6 +720,194 @@ export function hexCellName(col, row) {
   return `${_colLabel(col)}${row + 1}`;
 }
 
+// Neighbor offsets for flat-top odd-q offset (odd columns shifted +y/down).
+// Matches the layout produced by generateHexGrid().
+const _HEX_NEIGHBORS_EVEN_COL = [[+1, -1], [+1, 0], [0, +1], [-1, 0], [-1, -1], [0, -1]];
+const _HEX_NEIGHBORS_ODD_COL  = [[+1,  0], [+1, +1], [0, +1], [-1, +1], [-1,  0], [0, -1]];
+
+/**
+ * Return all hex cells within `radius` rings of (centerCol, centerRow), inclusive.
+ * radius 0 → 1 cell, radius 1 → 7, radius 2 → 19, radius 3 → 37, etc.
+ * Coordinates use the same flat-top odd-q offset scheme as generateHexGrid().
+ * @returns {{col:number, row:number}[]}
+ */
+export function hexRingCells(centerCol, centerRow, radius) {
+  const results = [{ col: centerCol, row: centerRow }];
+  if (radius <= 0) return results;
+
+  const seen = new Set([`${centerCol},${centerRow}`]);
+  let frontier = [{ col: centerCol, row: centerRow }];
+
+  for (let r = 0; r < radius; r++) {
+    const next = [];
+    for (const cell of frontier) {
+      const isOdd = Math.abs(cell.col) % 2 === 1;
+      const offsets = isOdd ? _HEX_NEIGHBORS_ODD_COL : _HEX_NEIGHBORS_EVEN_COL;
+      for (const [dc, dr] of offsets) {
+        const nc = cell.col + dc;
+        const nr = cell.row + dr;
+        const key = `${nc},${nr}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        next.push({ col: nc, row: nr });
+        results.push({ col: nc, row: nr });
+      }
+    }
+    frontier = next;
+  }
+  return results;
+}
+
+function _edgeKey(a, b) {
+  const ak = `${a.x},${a.y}`;
+  const bk = `${b.x},${b.y}`;
+  return ak < bk ? `${ak}|${bk}` : `${bk}|${ak}`;
+}
+
+/**
+ * Generic edge-union outline: given an array of per-cell vertex lists (each a
+ * closed polygon in order), drop edges shared by two cells and walk the
+ * remaining edges into a single closed loop. Vertices are rounded to integers
+ * so floating-point shared endpoints (e.g. from canvas.grid.getVertices) still
+ * match up.
+ * @param {{x:number, y:number}[][]} cellVerts
+ * @returns {{x:number, y:number}[]}
+ */
+export function polygonUnionOutline(cellVerts) {
+  const round = (p) => ({ x: Math.round(p.x), y: Math.round(p.y) });
+  const edgeMap = new Map();
+  for (const rawVerts of cellVerts) {
+    const verts = rawVerts.map(round);
+    const n = verts.length;
+    for (let i = 0; i < n; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % n];
+      const k = _edgeKey(a, b);
+      const existing = edgeMap.get(k);
+      if (existing) existing.count++;
+      else edgeMap.set(k, { count: 1, a, b });
+    }
+  }
+
+  const outerEdges = [];
+  for (const e of edgeMap.values()) if (e.count === 1) outerEdges.push({ a: e.a, b: e.b });
+  if (outerEdges.length === 0) return [];
+
+  const vKey = (p) => `${p.x},${p.y}`;
+  const adj = new Map();
+  for (const e of outerEdges) {
+    const ka = vKey(e.a), kb = vKey(e.b);
+    if (!adj.has(ka)) adj.set(ka, []);
+    if (!adj.has(kb)) adj.set(kb, []);
+    adj.get(ka).push(e.b);
+    adj.get(kb).push(e.a);
+  }
+
+  const polygon = [];
+  const used = new Set();
+  let current = outerEdges[0].a;
+  const startKey = vKey(current);
+  while (true) {
+    polygon.push({ x: current.x, y: current.y });
+    const candidates = adj.get(vKey(current)) || [];
+    let next = null;
+    for (const c of candidates) {
+      const eId = _edgeKey(current, c);
+      if (used.has(eId)) continue;
+      used.add(eId);
+      next = c;
+      break;
+    }
+    if (!next) break;
+    current = next;
+    if (vKey(current) === startKey) break;
+    if (polygon.length > outerEdges.length + 1) break;
+  }
+  return polygon;
+}
+
+/**
+ * Compute the outer boundary polygon of a cluster of hexes by edge-union.
+ * Hexes are positioned relative to a known center cell so callers don't need
+ * scene origin: pass the (centerCol, centerRow) cell and its absolute (cx, cy).
+ *
+ * @param {{col:number, row:number}[]} cells   cluster cells
+ * @param {number} centerCol  reference cell column
+ * @param {number} centerRow  reference cell row
+ * @param {number} centerCx   reference cell absolute center x
+ * @param {number} centerCy   reference cell absolute center y
+ * @param {number} hexSize    hex radius (center to vertex)
+ * @returns {{x:number, y:number}[]}
+ */
+export function clusterOutline(cells, centerCol, centerRow, centerCx, centerCy, hexSize) {
+  const hexW    = hexSize * 2;
+  const hexH    = Math.sqrt(3) * hexSize;
+  const colStep = hexW * 0.75;
+  const rowStep = hexH;
+  const centerIsOdd = Math.abs(centerCol) % 2 === 1;
+
+  // 1) per-cell vertices, positioned relative to the known center cell.
+  const cellVerts = cells.map(({ col, row }) => {
+    const isOdd = Math.abs(col) % 2 === 1;
+    const dx = (col - centerCol) * colStep;
+    const dy = (row - centerRow) * rowStep + (isOdd ? hexH / 2 : 0) - (centerIsOdd ? hexH / 2 : 0);
+    return hexVertices(centerCx + dx, centerCy + dy, hexSize);
+  });
+
+  // 2) tally edges; shared edges (count 2) are internal to the cluster.
+  const edgeMap = new Map();
+  for (const verts of cellVerts) {
+    for (let i = 0; i < 6; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % 6];
+      const k = _edgeKey(a, b);
+      const existing = edgeMap.get(k);
+      if (existing) existing.count++;
+      else edgeMap.set(k, { count: 1, a, b });
+    }
+  }
+
+  // 3) collect outer edges and build a vertex → edges adjacency map.
+  const outerEdges = [];
+  for (const e of edgeMap.values()) if (e.count === 1) outerEdges.push({ a: e.a, b: e.b });
+  if (outerEdges.length === 0) return [];
+
+  const vKey = (p) => `${p.x},${p.y}`;
+  const adj = new Map();
+  for (const e of outerEdges) {
+    const ka = vKey(e.a), kb = vKey(e.b);
+    if (!adj.has(ka)) adj.set(ka, []);
+    if (!adj.has(kb)) adj.set(kb, []);
+    adj.get(ka).push(e.b);
+    adj.get(kb).push(e.a);
+  }
+
+  // 4) walk the loop starting from any outer-edge endpoint.
+  const polygon = [];
+  const usedEdges = new Set();
+  let current = outerEdges[0].a;
+  const startKey = vKey(current);
+
+  while (true) {
+    polygon.push({ x: current.x, y: current.y });
+    const curKey = vKey(current);
+    const candidates = adj.get(curKey) || [];
+    let next = null;
+    for (const c of candidates) {
+      const eId = _edgeKey(current, c);
+      if (usedEdges.has(eId)) continue;
+      usedEdges.add(eId);
+      next = c;
+      break;
+    }
+    if (!next) break;
+    current = next;
+    if (vKey(current) === startKey) break;
+    if (polygon.length > outerEdges.length + 1) break; // safety
+  }
+  return polygon;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Internal helpers
 // ═══════════════════════════════════════════════════════════════════════════════

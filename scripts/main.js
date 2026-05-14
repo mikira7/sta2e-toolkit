@@ -39,6 +39,8 @@ import {
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
+import { registerMomentumSpend, readPool, writePool } from "./momentum-spend.js";
+import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker, setTrackerBucket } from "./momentum-tracker.js";
 
 function getShipCardAllowedUserIds(message, payload = {}) {
   const toolkitFlags = message?.flags?.["sta2e-toolkit"] ?? {};
@@ -240,6 +242,8 @@ Hooks.once("init", () => {
   console.log("STA 2e Toolkit | Initializing");
   registerSettings();
   registerTransporterSettings();
+  registerMomentumSpend();
+  registerMomentumTracker();
 
   // ── Keybinding: toggle Combat HUD on selected token ───────────────────────
   game.keybindings.register("sta2e-toolkit", "toggleCombatHud", {
@@ -911,6 +915,54 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.alertHud?._onConditionChanged(prev, msg.condition);
     }
 
+    else if (msg.action === "spendPool" && game.user.isGM) {
+      // Player-driven momentum/threat spend on a damage card.
+      const source = msg.source === "threat" ? "threat" : "momentum";
+      const amount = Math.max(0, Number(msg.amount) || 0);
+      if (amount <= 0) return;
+      const cur = readPool(source);
+      await writePool(source, cur - amount);
+    }
+
+    else if (msg.action === "addPool" && game.user.isGM) {
+      // Player-initiated auto-bank (e.g. from createTracker on a player roll).
+      // writePool is cap-aware; we also pre-clamp to avoid sending a value
+      // above the pool's limit (avoids STA system warnings on race conditions).
+      const pool = msg.pool === "threat" ? "threat" : "momentum";
+      const amount = Math.max(0, Number(msg.amount) || 0);
+      if (amount <= 0) return;
+      const cur = readPool(pool);
+      await writePool(pool, cur + amount);
+    }
+
+    else if (msg.action === "createOverflowTracker" && game.user.isGM) {
+      // Player-side createTracker routes the chat-message creation through here.
+      try {
+        const speakerToken = msg.speakerTokenId ? (canvas.tokens?.get(msg.speakerTokenId) ?? null) : null;
+        await _gmCreateTracker(msg.trackerData, speakerToken);
+      } catch (err) { console.error("STA2e Toolkit | createOverflowTracker error:", err); }
+    }
+
+    else if (msg.action === "decrementOverflowTracker" && game.user.isGM) {
+      const float = Math.max(0, Number(msg.float) || 0);
+      const bonus = Math.max(0, Number(msg.bonus) || 0);
+      const versatile = Math.max(0, Number(msg.versatile) || 0);
+      if (!msg.messageId || (float === 0 && bonus === 0 && versatile === 0)) return;
+      await decrementTracker(msg.messageId, { float, bonus, versatile });
+    }
+
+    else if (msg.action === "endOverflowTracker" && game.user.isGM) {
+      if (!msg.messageId) return;
+      await endTracker(msg.messageId);
+    }
+
+    else if (msg.action === "setOverflowTrackerBucket" && game.user.isGM) {
+      if (!msg.messageId) return;
+      await setTrackerBucket(msg.messageId, {
+        float: msg.float, bonus: msg.bonus, versatile: msg.versatile,
+      });
+    }
+
     else if (msg.action === "applyGroundInjury" && game.user.isGM) {
       const { actorId, tokenId, injuryName, quantity, stressUpdate } = msg;
       const actor = canvas.tokens.get(tokenId)?.actor ?? game.actors.get(actorId);
@@ -1044,6 +1096,7 @@ Hooks.once("ready", async () => {
           side:          msg.side,
           successes:     msg.successes,
           complications: msg.complications,
+          dice:          msg.dice,
         });
       } catch (e) {
         console.error("STA2e Toolkit | applyOpposedRollResult via socket failed:", e);

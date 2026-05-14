@@ -9,6 +9,7 @@ import {
   hexVertices, generateHexGrid, hexCellName, pointInPolygon,
   getZoneAtPoint, generateSquareGrid, squareCellName, HAZARD_TYPES,
   areZonesAllConnected, mergeZonePolygons, clipPolygonToRect,
+  hexRingCells, clusterOutline, polygonUnionOutline,
 } from "./zone-data.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -131,6 +132,10 @@ export class ZoneEditState {
     if (this.activeTool === "draw" && this._drawVerts.length > 0) {
       const pt = this._extractPoint(event);
       if (pt) this._drawUpdatePreview(pt);
+    }
+    if (this.activeTool === "hex" && this._hexHoverPreview) {
+      const pt = this._extractPoint(event);
+      if (pt) this._updateHoneycombPreview(pt);
     }
     if (this._dragging) {
       const pt = this._extractPoint(event);
@@ -260,17 +265,57 @@ export class ZoneEditState {
   // Hex stamp tool
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** True if the scene uses one of Foundry's four hex grid types. */
+  _useFoundryHexGrid() {
+    try { return !!canvas.grid?.isHexagonal; } catch { return false; }
+  }
+
+  /** Enumerate every hex cell on the scene via Foundry's native grid API. */
+  _enumerateFoundryHexCells(dim) {
+    const grid = canvas.grid;
+    const cells = [];
+    const tl = grid.getOffset({ x: dim.sceneX,                    y: dim.sceneY });
+    const br = grid.getOffset({ x: dim.sceneX + dim.sceneWidth,   y: dim.sceneY + dim.sceneHeight });
+    const iMin = Math.min(tl.i, br.i) - 1, iMax = Math.max(tl.i, br.i) + 1;
+    const jMin = Math.min(tl.j, br.j) - 1, jMax = Math.max(tl.j, br.j) + 1;
+    const sw = (grid.sizeX ?? grid.size) / 2;
+    const sh = (grid.sizeY ?? grid.size) / 2;
+    for (let i = iMin; i <= iMax; i++) {
+      for (let j = jMin; j <= jMax; j++) {
+        const center = grid.getCenterPoint({ i, j });
+        if (center.x + sw < dim.sceneX                  ) continue;
+        if (center.x - sw > dim.sceneX + dim.sceneWidth ) continue;
+        if (center.y + sh < dim.sceneY                  ) continue;
+        if (center.y - sh > dim.sceneY + dim.sceneHeight) continue;
+        const verts = grid.getVertices({ i, j });
+        cells.push({ i, j, cx: center.x, cy: center.y, verts });
+      }
+    }
+    return cells;
+  }
+
   _showHexOverlay() {
     this._clearHexOverlay();
     const dim = canvas.dimensions;
-    const grid = generateHexGrid(dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight, this._hexSize);
+    const useFoundry = this._useFoundryHexGrid();
     const container = new PIXI.Container();
     container.name = "sta2eHexStampOverlay";
     container.eventMode = "none";
 
-    for (const cell of grid) {
-      const verts   = hexVertices(cell.cx, cell.cy, this._hexSize);
-      const clipped = clipPolygonToRect(verts, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+    let cells;
+    if (useFoundry) {
+      cells = this._enumerateFoundryHexCells(dim);
+    } else {
+      // Fallback for non-hex scenes: module's flat-top odd-q layout.
+      const grid = generateHexGrid(dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight, this._hexSize);
+      cells = grid.map(c => ({
+        col: c.col, row: c.row, cx: c.cx, cy: c.cy,
+        verts: hexVertices(c.cx, c.cy, this._hexSize),
+      }));
+    }
+
+    for (const cell of cells) {
+      const clipped = clipPolygonToRect(cell.verts, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
       if (clipped.length < 3) continue;
       const g = new PIXI.Graphics();
       g.lineStyle(1, 0x44aaff, 0.3);
@@ -282,8 +327,17 @@ export class ZoneEditState {
       container.addChild(g);
     }
 
+    // Hover preview layer for the honeycomb footprint. Sits on top of cell
+    // outlines so the GM sees where the cluster will land before clicking.
+    const preview = new PIXI.Graphics();
+    preview.name = "sta2eHoneycombPreview";
+    preview.eventMode = "none";
+    container.addChild(preview);
+
     this.overlay.editLayer.addChild(container);
     this._hexOverlay = container;
+    this._hexHoverPreview = preview;
+    this._hexUsingFoundryGrid = useFoundry;
   }
 
   _clearHexOverlay() {
@@ -292,39 +346,325 @@ export class ZoneEditState {
       this._hexOverlay.destroy({ children: true });
       this._hexOverlay = null;
     }
+    this._hexHoverPreview = null;
+    this._hexUsingFoundryGrid = false;
+  }
+
+  /**
+   * Compute the cluster cells of a honeycomb of `radius` around a center cell,
+   * using Foundry's hex grid API. Returns each cell's offset, center, and
+   * vertex polygon — orientation-agnostic.
+   */
+  _foundryHoneycombCells(centerCell, radius) {
+    const grid = canvas.grid;
+    const centerCube = grid.offsetToCube({ i: centerCell.i, j: centerCell.j });
+    const cells = [];
+    for (let dq = -radius; dq <= radius; dq++) {
+      const drMin = Math.max(-radius, -dq - radius);
+      const drMax = Math.min( radius, -dq + radius);
+      for (let dr = drMin; dr <= drMax; dr++) {
+        const ds = -dq - dr;
+        const offset = grid.cubeToOffset({
+          q: centerCube.q + dq,
+          r: centerCube.r + dr,
+          s: centerCube.s + ds,
+        });
+        const center = grid.getCenterPoint(offset);
+        const verts  = grid.getVertices(offset);
+        cells.push({ i: offset.i, j: offset.j, cx: center.x, cy: center.y, verts });
+      }
+    }
+    return cells;
+  }
+
+  _getHoneycombRadius() {
+    try {
+      const v = Number(game.settings.get("sta2e-toolkit", "zoneHoneycombRadius") ?? 1);
+      if (Number.isFinite(v) && v >= 0) return Math.min(10, Math.floor(v));
+    } catch { /* setting may not be registered yet in some flows */ }
+    return 1;
+  }
+
+  /** Look up the unclipped hex cell at point `pt`, or null. */
+  _hexCellAtPoint(pt) {
+    if (!this._hexOverlay) return null;
+    for (const child of this._hexOverlay.children) {
+      if (!child._hexVerts || !child._hexCell) continue;
+      if (pointInPolygon(pt.x, pt.y, child._hexVerts)) return child._hexCell;
+    }
+    return null;
+  }
+
+  /** Redraw the honeycomb hover preview based on the cell under the cursor. */
+  _updateHoneycombPreview(pt) {
+    const preview = this._hexHoverPreview;
+    if (!preview) return;
+    preview.clear();
+
+    const center = this._hexCellAtPoint(pt);
+    if (!center) return;
+
+    const radius = this._getHoneycombRadius();
+    const dim = canvas.dimensions;
+    let outline;
+    if (this._hexUsingFoundryGrid) {
+      if (radius <= 0) {
+        outline = center.verts;
+      } else {
+        const cells = this._foundryHoneycombCells(center, radius);
+        outline = polygonUnionOutline(cells.map(c => c.verts));
+      }
+    } else {
+      const cells = hexRingCells(center.col, center.row, radius);
+      outline = radius <= 0
+        ? hexVertices(center.cx, center.cy, this._hexSize)
+        : clusterOutline(cells, center.col, center.row, center.cx, center.cy, this._hexSize);
+    }
+    const clipped = clipPolygonToRect(outline, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+    if (clipped.length < 3) return;
+
+    preview.lineStyle(2, 0x00ff88, 0.85);
+    preview.beginFill(0x00ff88, 0.18);
+    preview.moveTo(clipped[0].x, clipped[0].y);
+    for (let i = 1; i < clipped.length; i++) preview.lineTo(clipped[i].x, clipped[i].y);
+    preview.closePath();
+    preview.endFill();
   }
 
   async _hexStamp(pt) {
     if (!this._hexOverlay) return;
 
-    for (const child of this._hexOverlay.children) {
-      if (!child._hexVerts) continue;
-      if (pointInPolygon(pt.x, pt.y, child._hexVerts)) {
-        const cell = child._hexCell;
-        const zones = getSceneZones();
-        const existing = getZoneAtPoint(cell.cx, cell.cy, zones);
-        if (existing) {
-          ui.notifications.warn(`This hex is already covered by zone "${existing.name || "(unnamed)"}".`);
-          return;
-        }
+    const center = this._hexCellAtPoint(pt);
+    if (!center) return;
 
-        await addZone({
-          name: hexCellName(cell.col, cell.row),
-          vertices: child._hexVerts,
-          color: null,
-          momentumCost: 0,
-          tags: [],
-          borderStyle: game.settings.get("sta2e-toolkit", "zoneBorderStyleDefault") ?? "solid",
-          isDifficult: false,
-          opacity: 0.25,
-          hazards: [],
-        });
+    const radius = this._getHoneycombRadius();
+    const zones = getSceneZones();
+    const dim = canvas.dimensions;
+    const defaultBorder = game.settings.get("sta2e-toolkit", "zoneBorderStyleDefault") ?? "solid";
 
-        this.overlay.refresh();
-        this._showHexOverlay();
+    // Pick a stable label for the center cell.
+    const cellLabel = (this._hexUsingFoundryGrid)
+      ? hexCellName(center.j ?? 0, center.i ?? 0)
+      : hexCellName(center.col ?? 0, center.row ?? 0);
+
+    if (radius <= 0) {
+      const existing = getZoneAtPoint(center.cx, center.cy, zones);
+      if (existing) {
+        ui.notifications.warn(`This hex is already covered by zone "${existing.name || "(unnamed)"}".`);
+        return;
+      }
+      const verts   = this._hexUsingFoundryGrid
+        ? center.verts
+        : hexVertices(center.cx, center.cy, this._hexSize);
+      const clipped = clipPolygonToRect(verts, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+      if (clipped.length < 3) return;
+
+      await addZone({
+        name: cellLabel,
+        vertices: clipped,
+        color: null, momentumCost: 0, tags: [],
+        borderStyle: defaultBorder,
+        isDifficult: false, opacity: 0.25, hazards: [],
+      });
+      this.overlay.refresh();
+      this._showHexOverlay();
+      return;
+    }
+
+    // Honeycomb cluster.
+    let clusterCells, outline;
+    if (this._hexUsingFoundryGrid) {
+      clusterCells = this._foundryHoneycombCells(center, radius);
+      outline = polygonUnionOutline(clusterCells.map(c => c.verts));
+    } else {
+      const ringCells = hexRingCells(center.col, center.row, radius);
+      const hexH    = Math.sqrt(3) * this._hexSize;
+      const colStep = this._hexSize * 2 * 0.75;
+      const centerOdd = Math.abs(center.col) % 2 === 1;
+      clusterCells = ringCells.map(c => {
+        const isOdd = Math.abs(c.col) % 2 === 1;
+        const dx = (c.col - center.col) * colStep;
+        const dy = (c.row - center.row) * hexH + (isOdd ? hexH / 2 : 0) - (centerOdd ? hexH / 2 : 0);
+        return { col: c.col, row: c.row, cx: center.cx + dx, cy: center.cy + dy };
+      });
+      outline = clusterOutline(ringCells, center.col, center.row, center.cx, center.cy, this._hexSize);
+    }
+
+    for (const c of clusterCells) {
+      const existing = getZoneAtPoint(c.cx, c.cy, zones);
+      if (existing) {
+        ui.notifications.warn(`Honeycomb overlaps existing zone "${existing.name || "(unnamed)"}".`);
         return;
       }
     }
+
+    const clipped = clipPolygonToRect(outline, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+    if (clipped.length < 3) {
+      ui.notifications.warn("Honeycomb falls outside the scene.");
+      return;
+    }
+
+    await addZone({
+      name: `${cellLabel}+${clusterCells.length}`,
+      vertices: clipped,
+      color: null, momentumCost: 0, tags: [],
+      borderStyle: defaultBorder,
+      isDifficult: false, opacity: 0.25, hazards: [],
+    });
+    this.overlay.refresh();
+    this._showHexOverlay();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Honeycomb fill
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Tile the entire scene with non-overlapping honeycomb clusters of the
+   * currently configured radius. Requires a hex scene grid; uses Foundry's
+   * native hex API so it works for pointy-top / flat-top, odd / even offsets.
+   *
+   * Tiling uses the "rep-(3R²+3R+1)" hex lattice. For a cluster of radius R the
+   * basis vectors in axial coords are a = (2R+1, -R) and b = (R, R+1); the
+   * determinant equals the cell count, guaranteeing a perfect non-overlapping
+   * tiling.
+   */
+  async fillHoneycombs() {
+    if (!this._useFoundryHexGrid()) {
+      ui.notifications.warn("Honeycomb fill requires a hex scene grid.");
+      return;
+    }
+    const radius = this._getHoneycombRadius();
+    if (radius < 1) {
+      ui.notifications.warn("Set Honeycomb Radius to 1 or more before filling.");
+      return;
+    }
+
+    const grid = canvas.grid;
+    const dim  = canvas.dimensions;
+    const cellsPerCluster = 3 * radius * radius + 3 * radius + 1;
+
+    // Tiling basis in axial cube coords.
+    const aQ = 2 * radius + 1, aR = -radius;
+    const bQ = radius,         bR = radius + 1;
+    const det = aQ * bR - aR * bQ; // == cellsPerCluster
+    if (det === 0) { ui.notifications.error("Honeycomb tiling basis degenerate."); return; }
+
+    // Origin: nearest hex to scene top-left.
+    const originOffset = grid.getOffset({ x: dim.sceneX, y: dim.sceneY });
+    const originCube   = grid.offsetToCube(originOffset);
+
+    // Solve (m, n) ranges from scene corners projected into the basis.
+    const corners = [
+      { x: dim.sceneX,                   y: dim.sceneY },
+      { x: dim.sceneX + dim.sceneWidth,  y: dim.sceneY },
+      { x: dim.sceneX,                   y: dim.sceneY + dim.sceneHeight },
+      { x: dim.sceneX + dim.sceneWidth,  y: dim.sceneY + dim.sceneHeight },
+    ];
+    let mMin =  Infinity, mMax = -Infinity, nMin = Infinity, nMax = -Infinity;
+    for (const corner of corners) {
+      const co = grid.offsetToCube(grid.getOffset(corner));
+      const dq = co.q - originCube.q, dr = co.r - originCube.r;
+      const m = ( bR * dq - bQ * dr) / det;
+      const n = (-aR * dq + aQ * dr) / det;
+      if (m < mMin) mMin = m;
+      if (m > mMax) mMax = m;
+      if (n < nMin) nMin = n;
+      if (n > nMax) nMax = n;
+    }
+    mMin = Math.floor(mMin) - 1; mMax = Math.ceil(mMax) + 1;
+    nMin = Math.floor(nMin) - 1; nMax = Math.ceil(nMax) + 1;
+
+    const existing = getSceneZones();
+    const placed = [];
+
+    for (let m = mMin; m <= mMax; m++) {
+      for (let n = nMin; n <= nMax; n++) {
+        const centerCube = {
+          q: originCube.q + m * aQ + n * bQ,
+          r: originCube.r + m * aR + n * bR,
+          s: 0,
+        };
+        centerCube.s = -centerCube.q - centerCube.r;
+        const centerOffset = grid.cubeToOffset(centerCube);
+        const centerPoint  = grid.getCenterPoint(centerOffset);
+
+        // Skip clusters whose centers are wildly outside the scene.
+        if (centerPoint.x < dim.sceneX - dim.sceneWidth  ||
+            centerPoint.x > dim.sceneX + dim.sceneWidth  * 2 ||
+            centerPoint.y < dim.sceneY - dim.sceneHeight ||
+            centerPoint.y > dim.sceneY + dim.sceneHeight * 2) continue;
+
+        // Build cluster cells.
+        const clusterCells = [];
+        for (let dq = -radius; dq <= radius; dq++) {
+          const drMin = Math.max(-radius, -dq - radius);
+          const drMax = Math.min( radius, -dq + radius);
+          for (let dr = drMin; dr <= drMax; dr++) {
+            const ds = -dq - dr;
+            const offset = grid.cubeToOffset({
+              q: centerCube.q + dq,
+              r: centerCube.r + dr,
+              s: centerCube.s + ds,
+            });
+            const c = grid.getCenterPoint(offset);
+            const v = grid.getVertices(offset);
+            clusterCells.push({ i: offset.i, j: offset.j, cx: c.x, cy: c.y, verts: v });
+          }
+        }
+
+        // Cluster must intersect the scene rectangle (any cell center inside).
+        const intersects = clusterCells.some(c =>
+          c.cx >= dim.sceneX && c.cx <= dim.sceneX + dim.sceneWidth &&
+          c.cy >= dim.sceneY && c.cy <= dim.sceneY + dim.sceneHeight);
+        if (!intersects) continue;
+
+        // Skip if any cluster cell overlaps an existing zone.
+        const collides = clusterCells.some(c => getZoneAtPoint(c.cx, c.cy, existing));
+        if (collides) continue;
+
+        const outline = polygonUnionOutline(clusterCells.map(c => c.verts));
+        const clipped = clipPolygonToRect(outline, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+        if (clipped.length < 3) continue;
+
+        placed.push({
+          name: `${hexCellName(centerOffset.j, centerOffset.i)}+${clusterCells.length}`,
+          vertices: clipped,
+        });
+      }
+    }
+
+    if (placed.length === 0) {
+      ui.notifications.info("No honeycombs to place — the scene may already be covered.");
+      return;
+    }
+
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      window: { title: `Fill Scene with Honeycombs (radius ${radius})` },
+      content: `<p>This will create <strong>${placed.length}</strong> honeycomb zones (${cellsPerCluster} cells each).</p>
+                <p>Existing zones will be preserved. Continue?</p>`,
+      yes: { label: "Fill", icon: "fas fa-fill" },
+      no:  { label: "Cancel" },
+    });
+    if (!confirmed) return;
+
+    const defaultBorder = game.settings.get("sta2e-toolkit", "zoneBorderStyleDefault") ?? "solid";
+    const zones = [...existing];
+    for (const p of placed) {
+      zones.push({
+        id: foundry.utils.randomID(),
+        name: p.name,
+        vertices: p.vertices,
+        color: null, momentumCost: 0, tags: [],
+        sort: zones.length,
+        borderStyle: defaultBorder,
+        isDifficult: false, opacity: 0.25, hazards: [],
+      });
+    }
+    await setSceneZones(zones);
+    this.overlay.refresh();
+    if (this.activeTool === "hex") this._showHexOverlay();
+    ui.notifications.info(`Created ${placed.length} honeycomb zones.`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1255,9 +1595,14 @@ export class ZoneToolbar {
           <input id="sta2e-border-width-input" type="number" min="1" max="20" step="1"
             style="width:52px;padding:2px 4px;background:#111;border:1px solid #444;border-radius:3px;color:#ddd;font-size:0.8em;text-align:center;"
             title="Zone border line width in pixels"/>
+          <label style="font-size:0.72em;color:#888;white-space:nowrap;flex-shrink:0;margin-left:6px;">Honeycomb r</label>
+          <input id="sta2e-honeycomb-radius-input" type="number" min="0" max="10" step="1"
+            style="width:44px;padding:2px 4px;background:#111;border:1px solid #444;border-radius:3px;color:#ddd;font-size:0.8em;text-align:center;"
+            title="Honeycomb radius for the hex stamp tool: 0 = single hex, 1 = 7 cells, 2 = 19, 3 = 37, …"/>
         </div>
         <button data-zone-action="hexSize"       title="Set Zone Size"><i class="fas fa-ruler"></i> Zone Size</button>
         <button data-zone-action="fill"          title="Fill Scene (Hex)"><i class="fas fa-fill"></i> Fill (Hex)</button>
+        <button data-zone-action="fillHoneycomb" title="Fill Scene with non-overlapping honeycomb clusters (hex grid scenes only). Uses the current Honeycomb Radius."><i class="fas fa-bahai"></i> Fill (Honeycomb)</button>
         <button data-zone-action="fillSquare"    title="Fill Scene (Squares)"><i class="fas fa-th"></i> Fill (Square)</button>
         <button data-zone-action="configScene"   title="Open Scene Configuration"><i class="fas fa-cog"></i> Config Scene</button>
         <button data-zone-action="mergeZones"   title="Merge Selected Zones (select 2+ adjacent zones first)"><i class="fas fa-object-group"></i> Merge Selected</button>
@@ -1291,9 +1636,10 @@ export class ZoneToolbar {
         console.log("STA2e | ZoneToolbar — action:", action, "editor:", editor);
         if (!editor) return;
 
-        if      (action === "hexSize")     { await editor.promptHexSize(); }
-        else if (action === "fill")        { await editor.fillScene("hex"); }
-        else if (action === "fillSquare")  { await editor.fillScene("square"); }
+        if      (action === "hexSize")        { await editor.promptHexSize(); }
+        else if (action === "fill")           { await editor.fillScene("hex"); }
+        else if (action === "fillHoneycomb")  { await editor.fillHoneycombs(); }
+        else if (action === "fillSquare")     { await editor.fillScene("square"); }
         else if (action === "configScene") { canvas.scene?.sheet.render(true); }
         else if (action === "mergeZones")  { await editor.mergeSelectedZones(); }
         else if (action === "exportZones") { editor.exportZones(); }
@@ -1321,6 +1667,17 @@ export class ZoneToolbar {
         bwInput.value = val;
         await game.settings.set("sta2e-toolkit", "zoneBorderWidth", val);
         game.sta2eToolkit?.zoneOverlay?.refresh();
+      });
+    }
+
+    // ── Honeycomb radius input ────────────────────────────────────────────────
+    const hcInput = el.querySelector("#sta2e-honeycomb-radius-input");
+    if (hcInput) {
+      try { hcInput.value = game.settings.get("sta2e-toolkit", "zoneHoneycombRadius") ?? 1; } catch { hcInput.value = 1; }
+      hcInput.addEventListener("change", async () => {
+        const val = Math.max(0, Math.min(10, parseInt(hcInput.value) || 0));
+        hcInput.value = val;
+        await game.settings.set("sta2e-toolkit", "zoneHoneycombRadius", val);
       });
     }
 

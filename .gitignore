@@ -4,3 +4,6 @@
 *.bak2
 Thumbs.db
 .DS_Store
+foundry-vfx.skill
+ui-mockup.html
+packs/sta2e-macros/lost/

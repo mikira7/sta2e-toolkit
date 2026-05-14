@@ -27,6 +27,7 @@ import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } fr
 import { openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { readOfficerStats } from "./crew-manifest.js";
 import { CombatHUD } from "./combat-hud.js";
+import { createTracker } from "./momentum-tracker.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -798,21 +799,54 @@ function _renderCardHtml(d) {
   const defCompRangeText = defCompRange <= 1 ? "Comp Range: 20" : `Comp Range: ${21 - defCompRange}-20`;
   const atkCompRangeText = atkCompRange <= 1 ? "Comp Range: 20" : `Comp Range: ${21 - atkCompRange}-20`;
 
-  const defSuccessesText = defRolled
-    ? `<span style="color:${primary};font-weight:600;">${d.defender.successes} success${d.defender.successes === 1 ? "" : "es"}</span>`
-    : `<span style="color:${textDim};">awaiting roll…</span>`;
-  const defComplicationsText = defRolled && (d.defender.complications ?? 0) > 0
-    ? `<div style="margin-top:2px;font-size:10px;color:${LC.red};">${d.defender.complications} complication${d.defender.complications === 1 ? "" : "s"}</div>`
-    : "";
+  // Dice row renderer — match the npc-roller style (gray d20 with colored number overlay)
+  const renderDiceRow = (dice) => {
+    if (!Array.isArray(dice) || dice.length === 0) return "";
+    const cells = dice.map(x => {
+      const isSuccComp = !!x.success && !!x.complication && !x.crit;
+      const txtColor = x.crit ? (LC.primary ?? "#ff9900")
+        : isSuccComp ? (LC.red ?? "#cc4444")
+        : x.success ? (LC.green ?? "#44cc66")
+        : x.complication ? (LC.red ?? "#cc4444")
+        : "#aaaaaa";
+      const tip = `${x.value ?? "?"}${x.crit ? " (CRIT)" : x.success ? " (success)" : ""}${x.complication ? " (COMPLICATION)" : ""}`;
+      const inner = x.crit
+        ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
+             <span style="font-size:6px;letter-spacing:-1px;color:${txtColor};">★★</span>
+             <span style="font-size:10px;">${x.value ?? "?"}</span>
+           </span>`
+        : isSuccComp
+          ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
+               <span style="font-size:7px;letter-spacing:-1px;color:${LC.green ?? "#44cc66"};">*</span>
+               <span style="font-size:10px;">${x.value ?? "?"}</span>
+             </span>`
+          : `<span style="font-size:10px;">${x.value ?? "?"}</span>`;
+      return `<span title="${tip}" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;">
+          <img src="icons/svg/d20-grey.svg" style="position:absolute;top:0;left:0;width:26px;height:26px;opacity:0.2;pointer-events:none;" alt=""/>
+          <span style="position:relative;z-index:1;color:${txtColor};font-weight:700;font-family:${LC.font};text-shadow:0 1px 2px rgba(0,0,0,0.9);pointer-events:none;">${inner}</span>
+        </span>`;
+    }).join("");
+    return `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:4px;">${cells}</div>`;
+  };
 
-  const atkSuccessesText = atkRolled
-    ? `<span style="color:${secondary};font-weight:600;">${d.attacker.successes} success${d.attacker.successes === 1 ? "" : "es"}</span>`
-    : canRollAtk
-      ? `<span style="color:${textDim};">ready to roll</span>`
-      : `<span style="color:${textDim};">locked — waiting on defender</span>`;
-  const atkComplicationsText = atkRolled && (d.attacker.complications ?? 0) > 0
-    ? `<div style="margin-top:2px;font-size:10px;color:${LC.red};">${d.attacker.complications} complication${d.attacker.complications === 1 ? "" : "s"}</div>`
-    : "";
+  // Resolved-side status text — used for "X successes" / "X successes — HIT"
+  const isResolvedHit = defRolled && atkRolled && d.attacker.successes >= (isGroundCombat ? adjustedTarget : d.defender.successes);
+  const buildSideStatus = (sideObj, isAttacker) => {
+    if (!sideObj.rolled) {
+      return `<span style="color:${textDim};font-style:italic;">Awaiting roll…</span>`;
+    }
+    const succ = sideObj.successes ?? 0;
+    const comps = sideObj.complications ?? 0;
+    const verdict = isAttacker && defRolled && atkRolled
+      ? ` <span style="color:${isResolvedHit ? (LC.green ?? "#44cc66") : (LC.red ?? "#cc4444")};font-weight:700;">— ${isGroundCombat ? (isResolvedHit ? "HIT" : "MISS") : (isResolvedHit ? "WIN" : "LOSS")}</span>`
+      : "";
+    const compText = comps > 0
+      ? ` <span style="color:${LC.red ?? "#cc4444"};">· ${comps} Complication${comps === 1 ? "" : "s"}</span>`
+      : "";
+    return `<span style="color:${LC.text ?? "#ffcc66"};font-weight:600;">${succ} success${succ === 1 ? "" : "es"}</span>${verdict}${compText}${renderDiceRow(sideObj.dice)}`;
+  };
+  const defStatusLine = buildSideStatus(d.defender, false);
+  const atkStatusLine = buildSideStatus(d.attacker, true);
 
   // Resolution: attacker must meet or beat defender successes
   let resolutionBlock = "";
@@ -822,28 +856,47 @@ function _renderCardHtml(d) {
     const passed = d.attacker.successes >= target;
     const rewardSide = passed ? "attacker" : "defender";
     const rewardAmount = Math.abs(diff);
-    const verdict = passed
-      ? `<span style="color:#44cc66;font-weight:700;">✓ ATTACKER WINS</span> · margin +${diff}`
-      : `<span style="color:#cc4444;font-weight:700;">✗ DEFENDER HOLDS</span> · shortfall ${diff}`;
-    const comps = (d.defender.complications ?? 0) + (d.attacker.complications ?? 0);
-    const compNote = comps > 0
-      ? `<div style="color:#cc8844;font-size:10px;margin-top:2px;">⚠ ${comps} complication${comps === 1 ? "" : "s"} in play</div>`
+    const passColor = passed ? (LC.green ?? "#44cc66") : (LC.red ?? "#cc4444");
+
+    const winnerSideData = rewardSide === "attacker" ? d.attacker : d.defender;
+    const winnerName = _esc(winnerSideData?.actorName ?? "");
+    const winnerActor = winnerSideData?.actorId ? game.actors.get(winnerSideData.actorId) : null;
+    const winnerProfile = winnerActor ? _getOpposedActorProfile(winnerActor) : null;
+    const poolLabel = winnerProfile?.isPlayerOwned ? "Momentum" : "Threat";
+    const poolColor = winnerProfile?.isPlayerOwned ? (LC.secondary ?? "#cc88ff") : (LC.primary ?? "#ff9900");
+    const poolSuffix = rewardAmount > 0
+      ? ` — <span style="color:${poolColor};font-weight:700;">+${rewardAmount} ${poolLabel}</span>`
       : "";
-    const combatVerdict = passed
-      ? `<span style="color:#44cc66;font-weight:700;">HIT</span> - margin +${diff}`
-      : `<span style="color:#cc4444;font-weight:700;">MISS</span> - shortfall ${diff}`;
-    const targetLine = isGroundCombat
-      ? `Difficulty: ${target} - Defender: ${d.defender.successes}${guardPenalty ? ` - +${guardPenalty} Guard` : ""}${pronePenalty ? ` - +${pronePenalty} Prone` : ""}`
-      : `Target: ${target} - Attacker: ${d.attacker.successes}`;
+
+    const verdictHeadline = `<span style="color:${LC.green ?? "#44cc66"};">✓</span> ${winnerName || (passed ? "Attacker" : "Defender")} wins${poolSuffix}`;
+
+    // Breakdown details under the verdict
+    const breakdownParts = [];
+    if (isGroundCombat) {
+      breakdownParts.push(`${d.attacker.successes} succ vs Diff ${target}`);
+      if (guardPenalty) breakdownParts.push(`Guard +${guardPenalty}`);
+      if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
+      if (d.options?.targetIsProne && passed) breakdownParts.push(`<span style="color:${LC.secondary ?? "#cc88ff"};">+2 Mom on prone target</span>`);
+    }
+    const compsTotal = (d.defender.complications ?? 0) + (d.attacker.complications ?? 0);
+    if (compsTotal > 0) breakdownParts.push(`<span style="color:${LC.red ?? "#cc4444"};">${compsTotal} Complication${compsTotal === 1 ? "" : "s"}</span>`);
+
+    const breakdownLine = breakdownParts.length
+      ? `<div style="margin-top:3px;font-size:10px;color:${textDim};">${breakdownParts.join(" · ")}</div>`
+      : "";
+
+    const rewardBlock = isGroundCombat ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount);
+
     resolutionBlock = `
-      <div class="sta2e-opposed-resolution" style="margin-top:6px;padding:6px 10px;background:${panel};">
-        <div style="font-size:10px;letter-spacing:0.12em;color:${textDim};text-transform:uppercase;">Resolution</div>
-        <div style="margin-top:2px;">${isGroundCombat ? combatVerdict : verdict}</div>
-        <div style="color:${textDim};font-size:11px;">
-          ${targetLine}${isGroundCombat ? ` - Attacker: ${d.attacker.successes}` : ""}
+      <div class="sta2e-op-v2-resolution"
+        style="margin:6px 10px;padding:8px 10px;background:rgba(0,0,0,0.35);
+          border:1px solid ${LC.borderDim};border-left:3px solid ${LC.green ?? "#44cc66"};border-radius:2px;">
+        <div style="font-size:9px;letter-spacing:0.12em;color:${textDim};text-transform:uppercase;font-weight:700;">Resolution</div>
+        <div style="margin-top:3px;font-size:12px;font-weight:600;color:${LC.text ?? "#ffcc66"};">
+          ${verdictHeadline}
         </div>
-        ${compNote}
-        ${isGroundCombat ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount)}
+        ${breakdownLine}
+        ${rewardBlock}
       </div>`;
   }
 
@@ -853,108 +906,99 @@ function _renderCardHtml(d) {
 
   // Hide defender's successes publicly if blind is on and attacker hasn't rolled yet
   const showDefToAll = !(d.options?.blindDefender && defRolled && !atkRolled);
-  const defLineText = showDefToAll ? defSuccessesText : `<span style="color:${textDim};">hidden</span>`;
-  const defCompLineText = showDefToAll ? defComplicationsText : "";
-  const atkLineText = atkSuccessesText;
-  const atkCompLineText = atkComplicationsText;
+  const defLineHtml = showDefToAll ? defStatusLine : `<span style="color:${textDim};font-style:italic;">Hidden (blind) — dice & successes shown after attacker rolls</span>`;
+  const atkLineHtml = atkStatusLine;
+
+  // Pill-style action buttons matching the mockup
+  const btnBase = `flex:1;padding:8px 10px;background:transparent;border:1px solid ${primary};
+    border-radius:2px;color:${primary};font-family:${font};font-size:10px;font-weight:700;
+    letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;display:flex;
+    align-items:center;justify-content:center;gap:6px;`;
+  const btnDisabled = `flex:1;padding:8px 10px;background:transparent;border:1px solid ${LC.borderDim};
+    border-radius:2px;color:${textDim};font-family:${font};font-size:10px;font-weight:700;
+    letter-spacing:0.12em;text-transform:uppercase;cursor:not-allowed;opacity:0.5;display:flex;
+    align-items:center;justify-content:center;gap:6px;`;
 
   const defBtn = !defRolled
     ? `<button type="button" class="sta2e-op-roll" data-side="defender" data-task-id="${d.taskId}"
-        style="--op-button-accent:${primary};flex:1;padding:6px;background:${panel};border:1px solid ${primary};color:${primary};font-family:${font};letter-spacing:0.08em;cursor:pointer;">
-        Roll Defender
-      </button>`
-    : `<div style="flex:1;padding:6px;background:${panel};border:1px solid ${border};color:${textDim};text-align:center;">Defender rolled</div>`;
+        style="${btnBase}">🛡 Defender Roll</button>`
+    : `<div style="${btnDisabled}">🛡 Defender Rolled</div>`;
 
   const atkBtn = canRollAtk
     ? `<button type="button" class="sta2e-op-roll" data-side="attacker" data-task-id="${d.taskId}"
-        style="--op-button-accent:${secondary};flex:1;padding:6px;background:${panel};border:1px solid ${secondary};color:${secondary};font-family:${font};letter-spacing:0.08em;cursor:pointer;">
-        Roll Attacker
-      </button>`
+        style="${btnBase}">⚔ Attacker Roll</button>`
     : atkRolled
-      ? `<div style="flex:1;padding:6px;background:${panel};border:1px solid ${border};color:${textDim};text-align:center;">Attacker rolled</div>`
-      : `<button type="button" disabled
-          style="flex:1;padding:6px;background:${panel};border:1px solid ${border};color:${textDim};font-family:${font};letter-spacing:0.08em;cursor:not-allowed;opacity:0.5;">
-          Waiting on Defender...
-        </button>`;
+      ? `<div style="${btnDisabled}">⚔ Attacker Rolled</div>`
+      : `<button type="button" disabled style="${btnDisabled}">⚔ Attacker Roll</button>`;
 
   const gmCancel = !resolved
     ? `<button type="button" class="sta2e-op-cancel" data-task-id="${d.taskId}"
-        style="--op-button-accent:${LC.red};margin-left:6px;padding:6px 10px;background:${panel};border:1px solid ${border};color:${textDim};font-family:${font};cursor:pointer;font-size:11px;"
-        title="GM only — cancel this opposed task">
-        ✕
-      </button>`
+        style="padding:8px 10px;background:transparent;border:1px solid ${LC.red ?? "#cc4444"};
+          border-radius:2px;color:${LC.red ?? "#cc4444"};font-family:${font};font-size:11px;
+          font-weight:700;cursor:pointer;"
+        title="GM only — cancel this opposed task">✕</button>`
     : "";
 
-  const flavorBlock = d.flavor
-    ? `<div style="padding:6px 10px;color:${textDim};font-style:italic;font-size:11px;">${_esc(d.flavor)}</div>`
-    : "";
-  const groundNote = isGroundCombat
-    ? `<div style="padding:0 10px 8px;color:${textDim};font-size:10px;line-height:1.5;">
+  const groundNote = isGroundCombat && !resolved
+    ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
         Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}.
-        ${d.options?.targetIsProne ? `<span style="color:${LC.secondary};">Prone melee target: +2 Momentum on a hit.</span>` : ""}
       </div>`
     : "";
 
+  // Per-side: actor portrait + colored label
+  const sideBlock = (label, portraitSrc, name, attrLabel, discLabel, compRangeText, statusHtml, accentColor) => `
+    <div class="sta2e-op-v2-side" style="flex:1;padding:8px 12px;">
+      <div style="display:flex;gap:8px;align-items:flex-start;">
+        <img src="${portraitSrc || "icons/svg/mystery-man.svg"}"
+          style="width:32px;height:32px;object-fit:cover;border:1px solid ${accentColor};border-radius:2px;flex-shrink:0;background:#000;"
+          alt="${_esc(name)}"/>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:9px;color:${accentColor};letter-spacing:0.14em;text-transform:uppercase;font-weight:700;">${label}</div>
+          <div style="font-size:12px;font-weight:700;color:${LC.text ?? "#ffcc66"};margin-top:1px;line-height:1.2;">${_esc(name)}</div>
+          <div style="margin-top:3px;font-size:9px;color:${accentColor};letter-spacing:0.08em;text-transform:uppercase;opacity:0.85;">${attrLabel} + ${discLabel}</div>
+          <div style="margin-top:1px;font-size:8px;color:${textDim};letter-spacing:0.06em;text-transform:uppercase;">${compRangeText}</div>
+        </div>
+      </div>
+      <div style="margin-top:6px;padding-top:6px;border-top:1px dashed ${LC.borderDim};font-size:11px;">${statusHtml}</div>
+    </div>`;
+
   return `
-<div class="sta2e-opposed-task" data-task-id="${d.taskId}" data-theme="${theme}" data-template="${template}"
+<div class="sta2e-op-card-v2" data-task-id="${d.taskId}" data-theme="${theme}" data-template="${template}"
   style="${themeVars}background:${LC.bg};
-    border:1px solid ${border};border-left:6px solid ${primary};border-radius:0 0 18px 4px;font-family:${font};color:${LC.text};max-width:640px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.03), 0 10px 24px rgba(0,0,0,0.3);">
-  <div class="sta2e-opposed-card-header" style="background:${primary};color:${LC.bg};padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
-    <div style="font-size:11px;letter-spacing:0.14em;font-weight:700;text-transform:uppercase;">
-      ${d.kindIcon} Opposed Task
-    </div>
-    <div style="font-size:10px;letter-spacing:0.1em;opacity:0.85;">
-      ${isGroundCombat ? "Ground Combat" : "Social Contest"}
-    </div>
+    border:1px solid ${primary};border-radius:3px;font-family:${font};color:${LC.text};max-width:640px;overflow:hidden;padding:0;box-shadow:none;">
+  <div class="sta2e-op-v2-header"
+    style="background:${primary};color:${LC.bg};padding:6px 12px;
+      display:flex;justify-content:space-between;align-items:center;
+      font-weight:700;letter-spacing:0.16em;text-transform:uppercase;border-radius:0;">
+    <span style="font-size:11px;">Opposed Task</span>
+    <span style="font-size:10px;opacity:0.9;">${isGroundCombat ? "Ground Combat" : "Social Contest"}</span>
   </div>
 
-  <div class="sta2e-opposed-card-summary" style="padding:8px 10px;">
-    <div style="font-size:13px;font-weight:600;">${_esc(d.taskName)}</div>
-    ${flavorBlock ? flavorBlock : ""}
+  <div style="padding:8px 12px 4px;">
+    <div style="font-size:14px;font-weight:700;color:${primary};letter-spacing:0.02em;">${_esc(d.taskName)}</div>
+    ${d.flavor ? `<div style="margin-top:2px;font-size:10px;color:${textDim};font-style:italic;line-height:1.4;">${_esc(d.flavor)}</div>` : ""}
   </div>
   ${groundNote}
 
-  <div class="sta2e-opposed-card-sides" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid ${border};border-bottom:1px solid ${border};">
-    <div class="sta2e-opposed-card-side sta2e-opposed-card-side-defender" style="padding:8px 10px;border-right:1px solid ${border};">
-      <div style="display:flex;gap:6px;align-items:center;">
-        <img src="${d.defender.actorImg}" style="width:28px;height:28px;border:1px solid ${border};"/>
-        <div style="flex:1;">
-          <div style="font-size:10px;color:${textDim};letter-spacing:0.1em;text-transform:uppercase;">Defender</div>
-          <div style="font-weight:600;">${_esc(d.defender.actorName)}</div>
-          <div style="margin-top:2px;font-size:10px;color:${primary};letter-spacing:0.08em;text-transform:uppercase;">${defAttrLabel} + ${defDiscLabel}</div>
-          <div style="margin-top:2px;font-size:9px;color:${textDim};letter-spacing:0.06em;text-transform:uppercase;">${defCompRangeText}</div>
-        </div>
-      </div>
-      <div style="margin-top:4px;font-size:11px;">${defLineText}</div>
-      ${defCompLineText}
-    </div>
-    <div class="sta2e-opposed-card-side sta2e-opposed-card-side-attacker" style="padding:8px 10px;">
-      <div style="display:flex;gap:6px;align-items:center;">
-        <img src="${d.attacker.actorImg}" style="width:28px;height:28px;border:1px solid ${border};"/>
-        <div style="flex:1;">
-          <div style="font-size:10px;color:${textDim};letter-spacing:0.1em;text-transform:uppercase;">Attacker</div>
-          <div style="font-weight:600;">${_esc(d.attacker.actorName)}</div>
-          <div style="margin-top:2px;font-size:10px;color:${secondary};letter-spacing:0.08em;text-transform:uppercase;">${atkAttrLabel} + ${atkDiscLabel}</div>
-          <div style="margin-top:2px;font-size:9px;color:${textDim};letter-spacing:0.06em;text-transform:uppercase;">${atkCompRangeText}</div>
-        </div>
-      </div>
-      <div style="margin-top:4px;font-size:11px;">${atkLineText}</div>
-      ${atkCompLineText}
-    </div>
+  <div class="sta2e-op-v2-sides"
+    style="display:flex;margin:6px 10px 0;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(0,0,0,0.25);">
+    ${sideBlock("Defender", d.defender.actorImg, d.defender.actorName, defAttrLabel, defDiscLabel, defCompRangeText, defLineHtml, primary)}
+    <div style="width:1px;background:${LC.borderDim};"></div>
+    ${sideBlock("Attacker", d.attacker.actorImg, d.attacker.actorName, atkAttrLabel, atkDiscLabel, atkCompRangeText, atkLineHtml, primary)}
   </div>
 
   ${resolutionBlock}
 
   ${!resolved ? `
-    <div class="sta2e-opposed-card-actions" style="padding:8px 10px;display:flex;gap:6px;align-items:center;">
+    <div class="sta2e-op-v2-actions" style="padding:8px 10px;display:flex;gap:6px;align-items:center;">
       ${defBtn}
       ${atkBtn}
       ${gmCancel}
     </div>
-    ${blindNote}
-  ` : ""}
+    ${blindNote ? `<div style="padding:0 12px 6px;">${blindNote}</div>` : ""}
+  ` : `<div style="height:6px;"></div>`}
 
-  <div class="sta2e-opposed-card-footerbar" style="height:3px;background:${primary};"></div>
+  <div class="sta2e-op-v2-footerbar" style="height:3px;background:${primary};"></div>
 </div>
   `;
 }
@@ -1122,6 +1166,13 @@ function _launchRoller(message, taskData, side, actor) {
         ...(state?.shipDice ?? []),
       ];
       const complications = reportedComplications ?? allDice.filter(d => d?.complication).length;
+      // Serialize a compact dice array for chat-card display
+      const dice = allDice.map(x => ({
+        value: x?.value ?? null,
+        success: !!x?.success,
+        crit: !!x?.crit,
+        complication: !!x?.complication,
+      }));
 
       if (game.user.isGM) {
         await applyOpposedRollResult({
@@ -1130,6 +1181,7 @@ function _launchRoller(message, taskData, side, actor) {
           side,
           successes,
           complications,
+          dice,
         });
       } else {
         game.socket.emit("module.sta2e-toolkit", {
@@ -1139,6 +1191,7 @@ function _launchRoller(message, taskData, side, actor) {
           side,
           successes,
           complications,
+          dice,
         });
       }
     },
@@ -1200,6 +1253,21 @@ function _renderOpposedPoolReward(taskData, side, amount) {
   const pool = profile.isPlayerOwned ? "momentum" : "threat";
   const label = pool === "momentum" ? "Momentum" : "Threat";
   const color = pool === "momentum" ? LC.secondary : LC.primary;
+
+  // Auto-banked path — show a confirmation chip instead of a clickable button.
+  const auto = taskData.autoBank;
+  if (auto && auto.winnerSide === side && auto.pool === pool && auto.amount === amount) {
+    const banked = auto.banked ?? amount;
+    const floatLeft = auto.float ?? 0;
+    return `
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid ${LC.borderDim};text-align:center;">
+          <span style="font-size:10px;font-weight:700;color:${color};letter-spacing:0.08em;text-transform:uppercase;">
+            ✓ +${banked} ${label} banked to pool${floatLeft > 0 ? ` · ${floatLeft} float` : ""}
+          </span>
+        </div>`;
+  }
+
+  // Fallback (legacy cards / auto-bank failed) — keep the clickable button.
   const buttonLabel = pool === "momentum"
     ? `+${amount} Momentum to Pool`
     : `+${amount} Threat to Pool`;
@@ -1232,7 +1300,7 @@ function _renderOpposedPoolReward(taskData, side, amount) {
  * Must run on the GM's client (only the GM can update arbitrary ChatMessages
  * and flip state across all users).
  */
-export async function applyOpposedRollResult({ messageId, taskId, side, successes, complications }) {
+export async function applyOpposedRollResult({ messageId, taskId, side, successes, complications, dice }) {
   if (!game.user.isGM) return;
   const message = game.messages.get(messageId);
   if (!message) {
@@ -1251,10 +1319,47 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
   sideData.rolled = true;
   sideData.successes = Math.max(0, successes ?? 0);
   sideData.complications = Math.max(0, complications ?? 0);
+  sideData.dice = Array.isArray(dice) ? dice : [];
 
   // Status transitions
   if (side === "defender") taskData.status = "awaiting-attacker";
   if (side === "attacker") taskData.status = "resolved";
+
+  // Auto-bank the margin to the winner's pool for social opposed tasks.
+  // Ground combat keeps its existing weapon/damage pipeline — skip here.
+  if (side === "attacker" && taskData.mode !== "groundCombat") {
+    const target = taskData.defender.successes ?? 0;
+    const atkSuc = taskData.attacker.successes ?? 0;
+    const passed = atkSuc >= target;
+    const rewardAmount = Math.abs(atkSuc - target);
+    const winnerSideKey = passed ? "attacker" : "defender";
+    const winnerSideData = passed ? taskData.attacker : taskData.defender;
+    if (rewardAmount > 0 && winnerSideData?.actorId) {
+      const winnerActor = game.actors.get(winnerSideData.actorId);
+      if (winnerActor) {
+        const profile = _getOpposedActorProfile(winnerActor);
+        const pool = profile?.isPlayerOwned ? "momentum" : "threat";
+        try {
+          const trackerRes = await createTracker(winnerActor, {
+            totalGenerated: rewardAmount,
+            pool,
+            taskRollId: taskData.taskId,
+            speakerToken: null,
+          });
+          taskData.autoBank = {
+            pool,
+            amount: rewardAmount,
+            banked: trackerRes?.banked ?? rewardAmount,
+            float: trackerRes?.float ?? 0,
+            winnerSide: winnerSideKey,
+            winnerName: winnerSideData.actorName ?? "Winner",
+          };
+        } catch (err) {
+          console.error("STA2e Toolkit | opposed task auto-bank error:", err);
+        }
+      }
+    }
+  }
 
   const newContent = _renderCardHtml(taskData);
   const updatedFlags = {

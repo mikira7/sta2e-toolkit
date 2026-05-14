@@ -16,6 +16,8 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
+import { actorHasIntenseTalent } from "./momentum-spend.js";
+import { createTracker } from "./momentum-tracker.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -2423,19 +2425,24 @@ function buildChatCard(actorName, state) {
         ${compls > 0 ? `<span style="font-size:9px;color:${LC.red};font-weight:400;
           margin-left:6px;">${compls} Complication${compls > 1 ? "s" : ""}!</span>` : ""}
       </div>
-      ${momentum > 0 && !noPoolButton ? `
+      ${momentum > 0 && !noPoolButton && state.autoBanked ? `
+      <div style="padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};
+        text-align:center;font-family:${LC.font};font-size:10px;
+        color:${state.playerMode ? LC.secondary : LC.primary};letter-spacing:0.06em;">
+        ${state.playerMode ? "💫" : "⚡"} +${state.trackerBanked ?? momentum} ${state.playerMode ? "Momentum" : "Threat"} banked to pool${(state.trackerFloat ?? 0) > 0 ? ` · ${state.trackerFloat} floating (see tracker)` : ""}
+      </div>` : (momentum > 0 && !noPoolButton ? `
       <div style="padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
         <button class="sta2e-add-to-pool"
-          data-pool="threat"
+          data-pool="${state.playerMode ? "momentum" : "threat"}"
           data-amount="${momentum}"
           data-token-id=""
           style="width:100%;padding:5px 8px;background:rgba(0,0,0,0.25);
             border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
             font-family:${LC.font};font-size:10px;font-weight:700;
             color:${LC.primary};letter-spacing:0.06em;text-align:center;">
-          ⚡ +${momentum} Threat → Pool
+          ${state.playerMode ? "💫" : "⚡"} +${momentum} ${state.playerMode ? "Momentum" : "Threat"} → Pool
         </button>
-      </div>` : ""}
+      </div>` : "")}
     </div>`;
 }
 
@@ -2497,16 +2504,23 @@ export function buildPlayerRollCardHtml(rollData) {
   const totalComplications = [...(crewDice ?? []), ...allAssistDice, ...(shipDice ?? [])]
     .filter(d => d.complication).length;
   const completedPoolButton = confirmed && displayMomentum > 0 && !noPoolButton
-    ? `<button class="sta2e-add-to-pool"
-        data-pool="${groundIsNpc ? "threat" : "momentum"}"
-        data-amount="${displayMomentum}"
-        data-token-id="${rollData.tokenId ?? ""}"
-        style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.25);
-          border:2px solid ${LC.secondary};border-radius:2px;cursor:pointer;
-          font-family:${LC.font};font-size:11px;font-weight:700;
-          color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
-        ${groundIsNpc ? "Add Threat to Pool" : "Add Momentum to Pool"} (+${displayMomentum})
-      </button>`
+    ? (rollData.autoBanked
+        ? `<div style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.25);
+            border:2px solid ${LC.secondary};border-radius:2px;
+            font-family:${LC.font};font-size:11px;font-weight:700;
+            color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
+            ${groundIsNpc ? "⚡" : "💫"} +${rollData.trackerBanked ?? displayMomentum} ${groundIsNpc ? "Threat" : "Momentum"} banked to pool${(rollData.trackerFloat ?? 0) > 0 ? `<div style="font-size:9px;font-weight:400;margin-top:2px;">${rollData.trackerFloat} floating — see tracker</div>` : ""}
+          </div>`
+        : `<button class="sta2e-add-to-pool"
+            data-pool="${groundIsNpc ? "threat" : "momentum"}"
+            data-amount="${displayMomentum}"
+            data-token-id="${rollData.tokenId ?? ""}"
+            style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.25);
+              border:2px solid ${LC.secondary};border-radius:2px;cursor:pointer;
+              font-family:${LC.font};font-size:11px;font-weight:700;
+              color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
+            ${groundIsNpc ? "Add Threat to Pool" : "Add Momentum to Pool"} (+${displayMomentum})
+          </button>`)
     : "";
 
   // Inline dice-row renderer (matches buildChatCard style)
@@ -3422,6 +3436,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       groundMode: state.groundMode ?? false,
       groundIsNpc: state.groundIsNpc ?? false,
       noPoolButton: state.noPoolButton ?? false,
+      // Snapshot of payment slots — used by downstream consumers (e.g. damage
+      // card spend panel) to detect Threat-purchased d20s for Andorian Intense.
+      paymentSlots: Array.isArray(state.paymentSlots) ? [...state.paymentSlots] : [],
     };
 
     ChatMessage.create({
@@ -3500,7 +3517,46 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 return;
               }
 
-              // Post the roller summary to chat first
+              // Auto-bank float to pool + post the Momentum Overflow Tracker
+              // BEFORE the summary card so the summary renders the "banked" notice
+              // and downstream damage cards can link via state.trackerMessageId.
+              const _hitSuccesses = countSuccesses([
+                ...state.crewDice,
+                ...(state.crewAssistDice ?? []),
+                ...(state.namedAssistDice ?? []),
+                ...(state.apAssistDice ?? []),
+                ...state.shipDice,
+              ]);
+              const _hitMomentum = state.opposedDefenseType !== null
+                ? Math.max(0, _hitSuccesses - (state.defenderSuccesses ?? 0))
+                : Math.max(0, _hitSuccesses - state.difficulty);
+              const _hitThreatBought = (state.paymentSlots ?? []).filter(s =>
+                s === "threat" || s === "poolThreat" || s === "personalThreat"
+              ).length;
+              const _hitIntenseSubject = state.officer ?? actor ?? null;
+              const _hitIntenseBonus = (isHit && _hitThreatBought > 0 && _hitIntenseSubject && actorHasIntenseTalent(_hitIntenseSubject))
+                ? _hitThreatBought : 0;
+              const _hitPool = state.playerMode ? "momentum" : "threat";
+              const _hitWQ = weapon?.system?.qualities ?? {};
+              const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
+              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitVersatile > 0)) {
+                try {
+                  const _hitTrackerRes = await createTracker(actor, {
+                    totalGenerated: _hitMomentum,
+                    bonus: _hitIntenseBonus,
+                    versatile: _hitVersatile,
+                    weaponName: weapon?.name ?? null,
+                    pool:  _hitPool,
+                    speakerToken: token,
+                  });
+                  state.autoBanked = true;
+                  state.trackerMessageId = _hitTrackerRes?.message?.id ?? null;
+                  state.trackerFloat = _hitTrackerRes?.float ?? 0;
+                  state.trackerBanked = _hitTrackerRes?.banked ?? 0;
+                } catch (err) { console.error("STA2e Toolkit | createTracker error:", err); }
+              }
+
+              // Post the roller summary to chat
               ChatMessage.create({
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
@@ -3551,12 +3607,28 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 });
               }
 
+              // Floating momentum = the unbankable overflow returned by createTracker
+              // (computed earlier in this callback). The full overflow has already
+              // been split into banked (to pool) + float (to tracker) above.
+              const _floatingMomentum = state.trackerFloat ?? 0;
+              // Andorian Intense talent: +1 bonus momentum per d20 purchased by adding
+              // to Threat (i.e. paymentSlot type "threat"/"poolThreat"/"personalThreat"),
+              // on a successful task. Bonus may not be saved to the pool.
+              const _threatBoughtDice = (state.paymentSlots ?? []).filter(s =>
+                s === "threat" || s === "poolThreat" || s === "personalThreat"
+              ).length;
+              const _intenseSubject = state.officer ?? actor ?? null;
+              const _intenseTalentBonus = (isHit && _threatBoughtDice > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
+                ? _threatBoughtDice : 0;
               await CombatHUD.resolveShipAttack(resolveToken, weapon, isHit, {
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
                 calibrateWeaponsBonus,
                 defenderSuccesses: state.defenderSuccesses,
                 opposedDefenseType: state.opposedDefenseType,
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
+                floatingMomentum: _floatingMomentum,
+                intenseTalentBonus: _intenseTalentBonus,
+                trackerMessageId: state.trackerMessageId ?? null,
               });
 
               // Attack Pattern stays active after the attack — it persists until the
@@ -3568,7 +3640,37 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             label: state.rallyContext ? "💫 Post Rally Result" : state.taskCallback ? `✓ Post & Resolve` : "Post to Chat",
             icon: state.taskCallback ? "fas fa-check-circle" : "fas fa-comments",
             default: true,
-            callback: () => {
+            callback: async () => {
+              // Compute success/momentum so we can auto-bank + post tracker BEFORE
+              // the summary card renders. The summary then shows "banked" instead
+              // of the manual → Pool button, and downstream damage cards (from
+              // taskCallback) can link via state.trackerMessageId.
+              const _prAllDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice];
+              const _prSuccesses = countSuccesses(_prAllDice);
+              const _prPassed = _prSuccesses >= state.difficulty;
+              const _prMomentum = Math.max(0, _prSuccesses - state.difficulty);
+              const _prThreatBought = (state.paymentSlots ?? []).filter(s =>
+                s === "threat" || s === "poolThreat" || s === "personalThreat"
+              ).length;
+              const _prIntenseSubject = state.officer ?? actor ?? null;
+              const _prIntenseBonus = (_prPassed && _prThreatBought > 0 && _prIntenseSubject && actorHasIntenseTalent(_prIntenseSubject))
+                ? _prThreatBought : 0;
+              const _prPool = state.playerMode ? "momentum" : "threat";
+              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0)) {
+                try {
+                  const _prTrackerRes = await createTracker(actor, {
+                    totalGenerated: _prMomentum,
+                    bonus: _prIntenseBonus,
+                    pool:  _prPool,
+                    speakerToken: token,
+                  });
+                  state.autoBanked = true;
+                  state.trackerMessageId = _prTrackerRes?.message?.id ?? null;
+                  state.trackerFloat = _prTrackerRes?.float ?? 0;
+                  state.trackerBanked = _prTrackerRes?.banked ?? 0;
+                } catch (err) { console.error("STA2e Toolkit | createTracker error:", err); }
+              }
+
               // Always post the roller summary card
               ChatMessage.create({
                 content: buildChatCard(actor.name, state),
@@ -3581,14 +3683,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // Fire taskCallback if provided — passes full context so the
               // caller can resolve success/failure without a second dialog
               if (state.taskCallback) {
-                const allDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice];
-                const successes = countSuccesses(allDice);
-                const passed = successes >= state.difficulty;
-                const momentum = Math.max(0, successes - state.difficulty);
                 // Use async IIFE so async callbacks are awaited and errors caught
                 (async () => {
                   try {
-                    await state.taskCallback({ successes, passed, momentum, state, actor, token });
+                    await state.taskCallback({ successes: _prSuccesses, passed: _prPassed, momentum: _prMomentum, state, actor, token });
                   } catch (err) {
                     console.error("STA2e Toolkit | taskCallback error:", err);
                     ui.notifications?.error("STA2e Toolkit: Task result error — see console.");

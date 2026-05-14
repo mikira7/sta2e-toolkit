@@ -137,6 +137,17 @@ export function registerSettings() {
     default: 150,
   });
 
+  // Honeycomb radius for the hex stamp tool. 0 = single hex; 1 = 7-cell cluster;
+  // 2 = 19; 3 = 37. Each click stamps one zone whose outer boundary traces the
+  // union of the cluster cells.
+  game.settings.register("sta2e-toolkit", "zoneHoneycombRadius", {
+    name:    "Zone Honeycomb Radius",
+    scope:   "client",
+    config:  false,
+    type:    Number,
+    default: 1,
+  });
+
   game.settings.register("sta2e-toolkit", "elevationRuler", {
     name: "STA2E.Settings.ElevationRuler.Name",
     hint: "STA2E.Settings.ElevationRuler.Hint",

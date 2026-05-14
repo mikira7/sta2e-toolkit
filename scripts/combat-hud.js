@@ -65,6 +65,8 @@ import {
   getCollisionDamage,
 } from "./token-conditions.js";
 import { getSceneZones, getZonePathWithCosts } from "./zone-data.js";
+import { makeSpendContext, actorHasIntenseTalent } from "./momentum-spend.js";
+import { createTracker, getActiveTracker } from "./momentum-tracker.js";
 
 const MODULE      = "sta2e-toolkit";
 const HUD_ID      = "sta2e-combat-hud";
@@ -3266,8 +3268,25 @@ export class CombatHUD {
         };
       });
 
+      const _hudWq = weapon.system?.qualities ?? {};
+      const _hudSpendCtx = isHit ? makeSpendContext({
+        floatingMomentum: 0,
+        qualities: {
+          intense:   !!_hudWq.intense,
+          area:      !!_hudWq.area,
+          spread:    !!_hudWq.spread,
+          piercing:  !!_hudWq.piercing,
+          versatile: 0,
+        },
+        scope: "ground",
+        attackerIsNpc: CombatHUD.isGroundNpcActor(token?.actor),
+        attackerActorId: token?.actor?.id ?? null,
+        attackerTokenId: (token?.document ?? token)?.id ?? null,
+        intenseTalentBonus: 0,
+      }) : null;
+
       ChatMessage.create({
-        flags: { "sta2e-toolkit": { groundDamageCard: true } },
+        flags: { "sta2e-toolkit": { groundDamageCard: true, ...(_hudSpendCtx ? { spendContext: _hudSpendCtx } : {}) } },
         content: CombatHUD._groundChatCard(token.name, weapon, targetData, isHit, useStun, deadlyCostsThreat),
         speaker: ChatMessage.getSpeaker({ token }),
       });
@@ -3313,7 +3332,7 @@ export class CombatHUD {
    * @param {number|null} opts.defenderSuccesses   - Successes from defender's opposed roll (if any)
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null } = {}) {
     const actor   = token.actor;
     const targets = overrideTargets ?? Array.from(game.user.targets);
 
@@ -3422,6 +3441,8 @@ export class CombatHUD {
         defenderSuccesses,
         attackerSuccesses,
         attackerTokenId:    token?.id ?? null,
+        attackerActorId:    actor?.id ?? null,
+        trackerMessageId:   trackerMessageId ?? null,
         salvoMode,
         area:           salvoMode === "area",
         spread:         salvoMode === "spread",
@@ -3432,8 +3453,31 @@ export class CombatHUD {
     });
 
     const targetNames = targets.map(t => t.name).join(", ");
+    const wq = weapon.system?.qualities ?? {};
+    // If the caller didn't pass an explicit trackerMessageId, try to find the
+    // most-recent active tracker for the attacker. Covers paths where the
+    // tracker was posted by a different code site (e.g. roller summary card)
+    // and we need to link back to it.
+    const _resolvedTrackerId = trackerMessageId
+      ?? (actor?.id ? (getActiveTracker(actor.id)?.id ?? null) : null);
+    const spendContext = isHit ? makeSpendContext({
+      floatingMomentum,
+      qualities: {
+        intense:   !!wq.intense,
+        area:      !!wq.area,
+        spread:    spreadDeclared || !!wq.spread,
+        piercing:  !!wq.piercing,
+        versatile: Number(wq.versatilex ?? wq.versatile ?? 0) || 0,
+      },
+      scope: "ship",
+      attackerIsNpc: CombatHUD.isNpcShip(actor),
+      attackerActorId: actor?.id ?? null,
+      attackerTokenId: (token?.document ?? token)?.id ?? null,
+      intenseTalentBonus,
+      trackerMessageId: _resolvedTrackerId,
+    }) : null;
     ChatMessage.create({
-      flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name } },
+      flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name, ...(spendContext ? { spendContext } : {}) } },
       content: hud
         ? hud._weaponChatCard(token.name, weapon, actor, targetNames, isHit, targetData, scanBonus, scanPiercing || weaponPiercing)
         : `<p>${token.name} attacked ${targetNames} — ${isHit ? "HIT" : "MISS"}</p>`,
@@ -9446,6 +9490,7 @@ export class CombatHUD {
         spread,
         area:               t.area ?? false,
         attackerTokenId:    t.attackerTokenId ?? null,
+        attackerActorId:    t.attackerActorId ?? null,
         attackerIsNpc:      t.attackerIsNpc ?? false,
         weaponImg:          weapon?.img ?? null,
         weaponName:         weapon?.name ?? null,
@@ -9453,6 +9498,7 @@ export class CombatHUD {
         defenderSuccesses:  t.defenderSuccesses ?? null,
         opposedDefenseType: t.opposedDefenseType ?? null,
         attackerSuccesses:  t.attackerSuccesses ?? null,
+        trackerMessageId:   t.trackerMessageId ?? null,
       }));
 
       return `
@@ -11725,9 +11771,11 @@ export class CombatHUD {
       const devPayload = encodeURIComponent(JSON.stringify({
         tokenId, actorId, halfDamage: halfDmg, spread,
         attackerTokenId: payload.attackerTokenId ?? null,
+        attackerActorId: payload.attackerActorId ?? null,
         attackerIsNpc:   atkIsNpc,
         weaponImg:       payload.weaponImg ?? null,
         weaponName:      payload.weaponName ?? null,
+        trackerMessageId: payload.trackerMessageId ?? null,
       }));
       devastatingBtn = `
         <div style="margin-top:6px;border-top:1px solid ${LC.borderDim};padding-top:6px;">
@@ -11811,21 +11859,49 @@ export class CombatHUD {
       return;
     }
 
-    // Spend the Momentum (players) or Threat (NPCs) cost for Devastating Attack.
-    // Spread quality reduces the cost from 2 → 1.
+    // Spend the Momentum/Threat cost. Spread quality reduces 2 → 1.
+    // Consume order matches the damage card spend panel:
+    //   versatile (eligible) → tracker float → tracker bonus → pool
+    // versatile/float/bonus all live on the active tracker for the attacker.
     const devCost = spread ? 1 : 2;
     const pool    = atkIsNpc ? "threat" : "momentum";
-    const Tracker = game.STATracker?.constructor;
-    if (Tracker) {
-      const current = Tracker.ValueOf(pool);
-      if (current < devCost) {
+    const attackerActor = attackerToken?.actor ?? (payload.attackerActorId ? game.actors.get(payload.attackerActorId) : null);
+    const { readTrackerState } = await import("./momentum-spend.js");
+    const tracker = readTrackerState(payload.trackerMessageId ?? null, attackerActor?.id ?? null);
+
+    let remaining = devCost;
+    // Versatile is eligible for Devastating Attack per STA 2e Versatile X rules.
+    const versatileUsed = Math.min(tracker.versatile, remaining);
+    remaining -= versatileUsed;
+    const floatUsed = Math.min(tracker.float, remaining);
+    remaining -= floatUsed;
+    const bonusUsed = Math.min(tracker.bonus, remaining);
+    remaining -= bonusUsed;
+
+    if (remaining > 0) {
+      // Need to pull the rest from the world pool.
+      const Tracker = game.STATracker?.constructor;
+      const current = Tracker?.ValueOf?.(pool) ?? 0;
+      if (current < remaining) {
         ui.notifications.warn(
           `STA2e Toolkit: Not enough ${atkIsNpc ? "Threat" : "Momentum"} for Devastating Attack` +
-          ` (need ${devCost}, have ${current}).`
+          ` (need ${devCost}; tracker has V${tracker.versatile}+F${tracker.float}+B${tracker.bonus}, pool ${current}).`
         );
         return;
       }
-      await Tracker.DoUpdateResource(pool, current - devCost);
+      if (Tracker) await Tracker.DoUpdateResource(pool, current - remaining);
+    }
+
+    // Decrement tracker for any tracker draws.
+    if (tracker.messageId && (versatileUsed > 0 || floatUsed > 0 || bonusUsed > 0)) {
+      try {
+        const mod = await import("./momentum-tracker.js");
+        await mod.decrementTracker(tracker.messageId, {
+          versatile: versatileUsed,
+          float: floatUsed,
+          bonus: bonusUsed,
+        });
+      } catch (err) { console.error("STA2e Toolkit | decrementTracker error:", err); }
     }
 
     // Resolve weapon config from the stored img slug so we can fire the animation
@@ -16399,8 +16475,66 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const poolLabel  = isNpcRoll ? "Threat" : "Momentum";
         const poolColor  = momentum > 0 ? (LC.secondary ?? "#cc88ff") : (LC.textDim ?? "#888");
         const totalComplications = allDice.filter(d => d.complication).length;
+
+        // Auto-bank momentum/threat to the pool and post a Momentum Overflow
+        // Tracker chat card. The tracker holds float (mirror of the just-
+        // banked pool deposit) + bonus (non-bankable, e.g. Andorian Intense)
+        // so downstream damage cards or future spend prompts can decrement it.
+        // Compute Andorian Intense bonus from threat-purchased d20s.
+        const _trackerPool = isNpcRoll ? "threat" : "momentum";
+        const _trackerOwner = (groundMode ? (tokenObj?.actor ?? game.actors.get(actorId)) : shipActor) ?? null;
+        const _trackerThreatBought = passed
+          ? (payload.paymentSlots ?? []).filter(s => s === "threat" || s === "poolThreat" || s === "personalThreat").length
+          : 0;
+        const _trackerCharActor = game.actors.get(actorId) ?? null;
+        const _trackerIntenseBonus = (passed && _trackerThreatBought > 0 && _trackerCharActor && actorHasIntenseTalent(_trackerCharActor))
+          ? _trackerThreatBought : 0;
+        // Versatile X is per-weapon — only present on ship weapon attacks.
+        // The damage-card spend panel + Devastating Attack button both pull
+        // from the tracker, so we seed it here when the weapon has the quality.
+        let _trackerVersatile = 0;
+        let _trackerWeaponName = null;
+        if (weaponContext) {
+          const _wpActor = weaponContext.shipActorId
+            ? game.actors.get(weaponContext.shipActorId)
+            : shipActor;
+          const _wp = weaponContext.weaponId
+            ? _wpActor?.items.get(weaponContext.weaponId)
+            : _wpActor?.items.find(i => i.name === weaponContext.name);
+          const _wpQ = _wp?.system?.qualities ?? {};
+          _trackerVersatile = Number(_wpQ.versatilex ?? _wpQ.versatile ?? 0) || 0;
+          _trackerWeaponName = _wp?.name ?? weaponContext.name ?? null;
+        }
+
+        let _trackerMessageId = null;
+        let _trackerFloat = 0;     // Unbanked overflow available for this action's spends.
+        let _trackerBanked = 0;    // What auto-banked to the pool (for display).
+        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerVersatile > 0)) {
+          try {
+            const trackerRes = await createTracker(_trackerOwner, {
+              totalGenerated: momentum,
+              bonus:          _trackerIntenseBonus,
+              versatile:      _trackerVersatile,
+              weaponName:     _trackerWeaponName,
+              pool:           _trackerPool,
+              taskRollId:     callbackId ?? null,
+              speakerToken:   tokenObj,
+            });
+            _trackerMessageId = trackerRes?.message?.id ?? null;
+            _trackerFloat     = trackerRes?.float  ?? 0;
+            _trackerBanked    = trackerRes?.banked ?? 0;
+          } catch (err) {
+            console.error("STA2e Toolkit | createTracker error:", err);
+          }
+        }
+        // Replace the manual → Pool button with a simple "banked" notice.
         const poolBtn = (momentum > 0 && !noPoolButton)
-          ? poolButtonHtml(isNpcRoll ? "threat" : "momentum", momentum, tokenId ?? "")
+          ? `
+            <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};
+              text-align:center;font-family:${LC.font};font-size:10px;color:${poolColor};
+              letter-spacing:0.06em;">
+              ${isNpcRoll ? "⚡" : "💫"} +${momentum} ${poolLabel} banked to pool
+            </div>`
           : "";
         const statCell = (lbl, val, col, fontSize = "16px") => `
           <div style="text-align:center;">
@@ -16448,6 +16582,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           confirmedMomentum: momentum,
           confirmedPassed: passed,
           completionEffectsRun: true,
+          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && momentum > 0),
+          trackerMessageId: _trackerMessageId,
+          trackerBanked: _trackerBanked,
+          trackerFloat:  _trackerFloat,
         };
         await message.update({
           content: buildPlayerRollCardHtml(confirmedRollData),
@@ -16548,8 +16686,35 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 defenderIsNpc:    CombatHUD.isGroundNpcActor(targets[0]?.actor),
               } : null;
 
+              // Build spendContext for the ground damage card so the spend panel
+              // surfaces floating momentum / quality-aware spends.
+              // Float = unbankable overflow returned by createTracker.
+              const _wq = weapon.system?.qualities ?? {};
+              const _floatingMomentum = _trackerFloat;
+              const _threatBought = (payload.paymentSlots ?? []).filter(s =>
+                s === "threat" || s === "poolThreat" || s === "personalThreat"
+              ).length;
+              const _intenseBonus = (passed && _threatBought > 0 && charActor && actorHasIntenseTalent(charActor))
+                ? _threatBought : 0;
+              const _spendCtx = passed ? makeSpendContext({
+                floatingMomentum: _floatingMomentum,
+                qualities: {
+                  intense:   !!_wq.intense,
+                  area:      !!_wq.area,
+                  spread:    !!_wq.spread,
+                  piercing:  !!_wq.piercing,
+                  versatile: 0,
+                },
+                scope: "ground",
+                attackerIsNpc: groundIsNpc,
+                attackerActorId: charActor?.id ?? null,
+                attackerTokenId: tokenId ?? null,
+                intenseTalentBonus: _intenseBonus,
+                trackerMessageId: _trackerMessageId,
+              }) : null;
+
               await ChatMessage.create({
-                flags: { "sta2e-toolkit": { groundDamageCard: true } },
+                flags: { "sta2e-toolkit": { groundDamageCard: true, ...(_spendCtx ? { spendContext: _spendCtx } : {}) } },
                 content: CombatHUD._groundChatCard(charActor.name, weapon, targetData, passed, useStun, deadlyCostsThreat, groundOpposedInfo),
                 speaker: ChatMessage.getSpeaker({ token: tokenObj }),
               });
@@ -16577,6 +16742,16 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _weaponTokenObj = weaponContext.shipActorId
               ? canvas.tokens?.placeables.find(t => t.actor?.id === weaponContext.shipActorId) ?? tokenObj
               : tokenObj;
+            // Floating momentum = the unbankable overflow from createTracker.
+            const _shipFloating = _trackerFloat;
+            // Andorian Intense: +1 bonus mom per d20 purchased by adding Threat.
+            const _shipThreatBought = (payload.paymentSlots ?? []).filter(s =>
+              s === "threat" || s === "poolThreat" || s === "personalThreat"
+            ).length;
+            // Use the character actor (PC making the roll) for the talent check, not the ship actor.
+            const _intenseSubject = game.actors.get(actorId) ?? null;
+            const _shipIntenseBonus = (passed && _shipThreatBought > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
+              ? _shipThreatBought : 0;
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {
               salvoMode:            weaponContext.salvoMode ?? "area",
               rapidFireBonus:       hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
@@ -16584,6 +16759,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               defenderSuccesses:    defenderSuccesses ?? null,
               opposedDefenseType:   opposedDefenseType ?? null,
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
+              floatingMomentum:     _shipFloating,
+              intenseTalentBonus:   _shipIntenseBonus,
+              trackerMessageId:     _trackerMessageId,
             });
             // Clear calibrate weapons flag (GM only)
             if (calibrateWeaponsBonus && game.user.isGM) {
