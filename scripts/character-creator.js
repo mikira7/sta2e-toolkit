@@ -1796,6 +1796,56 @@ function stripCreatorItemKeys(items) {
   });
 }
 
+function embeddedItemIdentity(item = {}) {
+  const type = String(item?.type ?? "").trim().toLocaleLowerCase(game.i18n.lang);
+  const name = String(item?.name ?? "").trim().toLocaleLowerCase(game.i18n.lang);
+  return type && name ? `${type}:${name}` : "";
+}
+
+function embeddedItemIdentityCounts(items = []) {
+  const counts = new Map();
+  for (const item of items) {
+    const key = embeddedItemIdentity(item);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function missingEmbeddedItemData(expectedItems = [], existingItems = []) {
+  const existingCounts = embeddedItemIdentityCounts(existingItems);
+  const missing = [];
+  for (const item of expectedItems) {
+    const key = embeddedItemIdentity(item);
+    if (!key) continue;
+    const count = existingCounts.get(key) ?? 0;
+    if (count > 0) {
+      existingCounts.set(key, count - 1);
+      continue;
+    }
+    missing.push(foundry.utils.deepClone(item));
+  }
+  return missing;
+}
+
+async function reconcileCreatorActorItems(actor, expectedItems = []) {
+  if (!actor?.createEmbeddedDocuments || !expectedItems.length) return;
+
+  const currentItems = Array.from(actor.items ?? []);
+  const missing = missingEmbeddedItemData(expectedItems, currentItems);
+  if (!missing.length) return;
+
+  await actor.createEmbeddedDocuments("Item", missing);
+
+  const stillMissing = missingEmbeddedItemData(expectedItems, Array.from(actor.items ?? []));
+  if (stillMissing.length) {
+    console.warn(
+      "STA2e Toolkit | Character Creator actor item reconciliation did not add every expected item:",
+      stillMissing.map(item => `${item.type}:${item.name}`),
+    );
+  }
+}
+
 function supportingStressMax(attributes = {}, disciplines = {}, items = [], isSupervisory = false) {
   const fitness = Number(attributes.fitness?.value ?? attributes.fitness ?? 7) || 0;
   const command = Number(disciplines.command?.value ?? disciplines.command ?? 0) || 0;
@@ -8020,7 +8070,9 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
 
     try {
       const items = await this._buildFinalActorItems(context);
-      const actor = await Actor.create(this._buildFinalActorData(context, items), { renderSheet: true });
+      const actor = await Actor.create(this._buildFinalActorData(context, items), { renderSheet: false });
+      await reconcileCreatorActorItems(actor, items);
+      actor.sheet?.render(true);
       ui.notifications.info(`STA2e Toolkit: Created character ${actor.name}.`);
       this.close();
     } catch (err) {

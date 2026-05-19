@@ -380,6 +380,15 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register("sta2e-toolkit", "alphaAwareWeaponHitPoints", {
+    name:    "STA2E.Settings.AlphaAwareWeaponHitPoints.Name",
+    hint:    "STA2E.Settings.AlphaAwareWeaponHitPoints.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
   // ── Token Magic FX — breach damage visuals ──────────────────────────────
   game.settings.register("sta2e-toolkit", "breachTokenFX", {
     name:    "STA2E.Settings.BreachTokenFX.Name",

@@ -932,8 +932,15 @@
   margin-top: 12px;
 }
 
-.sta2e-cc-text-panel p {
+.sta2e-cc-text-panel p,
+.sta2e-cc-text-panel ul,
+.sta2e-cc-text-panel ol {
+  margin: 0 0 6px;
   white-space: pre-wrap;
+}
+
+.sta2e-cc-text-panel > :last-child {
+  margin-bottom: 0;
 }
 
 .sta2e-cc-inline-detail {

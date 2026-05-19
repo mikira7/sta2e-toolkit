@@ -205,6 +205,16 @@ function _canWriteWorldSettings() {
   return game.permissions?.SETTINGS_MODIFY?.includes(game.user.role) ?? game.user.isGM;
 }
 
+function _isResponsibleGM() {
+  if (!game.user?.isGM) return false;
+  const users = game.users?.contents
+    ?? (typeof game.users?.filter === "function" ? game.users.filter(() => true) : []);
+  const activeGMs = users
+    .filter(user => user?.active && user.isGM)
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
+}
+
 async function _setStaTrackerPoolValue(resource, value) {
   const nextValue = Math.max(0, Number(value) || 0);
   const Tracker = game.STATracker?.constructor ?? null;
@@ -905,7 +915,7 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.alertHud?._onConditionChanged(prev, msg.condition);
     }
 
-    else if (msg.action === "requestSetAlert" && msg.condition && game.user.isGM) {
+    else if (msg.action === "requestSetAlert" && msg.condition && _isResponsibleGM()) {
       // Player requested an alert change — GM validates permission, writes, rebroadcasts.
       const allowed = game.settings.get("sta2e-toolkit", "playersCanSetAlert") ?? false;
       if (!allowed) return;
@@ -915,7 +925,7 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.alertHud?._onConditionChanged(prev, msg.condition);
     }
 
-    else if (msg.action === "spendPool" && game.user.isGM) {
+    else if (msg.action === "spendPool" && _isResponsibleGM()) {
       // Player-driven momentum/threat spend on a damage card.
       const source = msg.source === "threat" ? "threat" : "momentum";
       const amount = Math.max(0, Number(msg.amount) || 0);
@@ -924,7 +934,7 @@ Hooks.once("ready", async () => {
       await writePool(source, cur - amount);
     }
 
-    else if (msg.action === "addPool" && game.user.isGM) {
+    else if (msg.action === "addPool" && _isResponsibleGM()) {
       // Player-initiated auto-bank (e.g. from createTracker on a player roll).
       // writePool is cap-aware; we also pre-clamp to avoid sending a value
       // above the pool's limit (avoids STA system warnings on race conditions).
@@ -935,7 +945,7 @@ Hooks.once("ready", async () => {
       await writePool(pool, cur + amount);
     }
 
-    else if (msg.action === "createOverflowTracker" && game.user.isGM) {
+    else if (msg.action === "createOverflowTracker" && _isResponsibleGM()) {
       // Player-side createTracker routes the chat-message creation through here.
       try {
         const speakerToken = msg.speakerTokenId ? (canvas.tokens?.get(msg.speakerTokenId) ?? null) : null;
@@ -943,7 +953,7 @@ Hooks.once("ready", async () => {
       } catch (err) { console.error("STA2e Toolkit | createOverflowTracker error:", err); }
     }
 
-    else if (msg.action === "decrementOverflowTracker" && game.user.isGM) {
+    else if (msg.action === "decrementOverflowTracker" && _isResponsibleGM()) {
       const float = Math.max(0, Number(msg.float) || 0);
       const bonus = Math.max(0, Number(msg.bonus) || 0);
       const versatile = Math.max(0, Number(msg.versatile) || 0);
@@ -951,19 +961,19 @@ Hooks.once("ready", async () => {
       await decrementTracker(msg.messageId, { float, bonus, versatile });
     }
 
-    else if (msg.action === "endOverflowTracker" && game.user.isGM) {
+    else if (msg.action === "endOverflowTracker" && _isResponsibleGM()) {
       if (!msg.messageId) return;
       await endTracker(msg.messageId);
     }
 
-    else if (msg.action === "setOverflowTrackerBucket" && game.user.isGM) {
+    else if (msg.action === "setOverflowTrackerBucket" && _isResponsibleGM()) {
       if (!msg.messageId) return;
       await setTrackerBucket(msg.messageId, {
         float: msg.float, bonus: msg.bonus, versatile: msg.versatile,
       });
     }
 
-    else if (msg.action === "applyGroundInjury" && game.user.isGM) {
+    else if (msg.action === "applyGroundInjury" && _isResponsibleGM()) {
       const { actorId, tokenId, injuryName, quantity, stressUpdate } = msg;
       const actor = canvas.tokens.get(tokenId)?.actor ?? game.actors.get(actorId);
       if (!actor) return;
@@ -979,11 +989,11 @@ Hooks.once("ready", async () => {
       }
     }
 
-    else if (msg.action === "resolveInjuryDecision" && game.user.isGM) {
+    else if (msg.action === "resolveInjuryDecision" && _isResponsibleGM()) {
       await CombatHUD._executeInjuryResolution(msg.choice, msg.payload, msg.messageId);
     }
 
-    else if (msg.action === "applyAssistToTaskCard" && game.user.isGM) {
+    else if (msg.action === "applyAssistToTaskCard" && _isResponsibleGM()) {
       // A non-author player asked the GM to update a chat message they don't own.
       const { messageId, newContent, newRollData, newFlag } = msg;
       if (!messageId || !newContent) return;
@@ -999,7 +1009,7 @@ Hooks.once("ready", async () => {
         console.error("STA2e Toolkit | applyAssistToTaskCard update failed:", e));
     }
 
-    else if (msg.action === "applyScanForWeakness" && game.user.isGM) {
+    else if (msg.action === "applyScanForWeakness" && _isResponsibleGM()) {
       // Player confirmed a Scan for Weakness roll — apply conditions/flags to the target token.
       const { sourceTokenId, targetTokenId, sourceName } = msg;
       const sourceToken = canvas.tokens.get(sourceTokenId);
@@ -1010,7 +1020,7 @@ Hooks.once("ready", async () => {
       await applyScanForWeakness(sourceToken, targetToken, sourceName);
     }
 
-    else if (msg.action === "runImpulseEngageCard" && game.user.isGM) {
+    else if (msg.action === "runImpulseEngageCard" && _isResponsibleGM()) {
       const message = msg.messageId ? game.messages.get(msg.messageId) : null;
       if (!getShipCardUserAccess(message, msg.payload, msg.requesterUserId).canUse) return;
       const _impTok = canvas?.tokens?.get(msg.payload?.tokenId)
@@ -1019,7 +1029,7 @@ Hooks.once("ready", async () => {
       await runImpulseEngageCard(msg.payload, msg.destination);
     }
 
-    else if (msg.action === "runWarpEngageCard" && game.user.isGM) {
+    else if (msg.action === "runWarpEngageCard" && _isResponsibleGM()) {
       const message = msg.messageId ? game.messages.get(msg.messageId) : null;
       if (!getShipCardUserAccess(message, msg.payload, msg.requesterUserId).canUse) return;
       const _warpTok = canvas?.tokens?.get(msg.payload?.tokenId)
@@ -1028,13 +1038,13 @@ Hooks.once("ready", async () => {
       await runWarpEngageCard(msg.payload, msg.destination);
     }
 
-    else if (msg.action === "runWarpFleeCard" && game.user.isGM) {
+    else if (msg.action === "runWarpFleeCard" && _isResponsibleGM()) {
       const message = msg.messageId ? game.messages.get(msg.messageId) : null;
       if (!getShipCardUserAccess(message, msg.payload, msg.requesterUserId).canUse) return;
       await runWarpFleeCard(msg.payload);
     }
 
-    else if (msg.action === "updateShipCardLock" && game.user.isGM) {
+    else if (msg.action === "updateShipCardLock" && _isResponsibleGM()) {
       const { messageId, updates } = msg;
       if (!messageId || !updates) return;
       const m = game.messages.get(messageId);
@@ -1055,11 +1065,11 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.zoneMonitor?._debouncedRefresh();
     }
 
-    else if (msg.action === "zoneMovementPayment" && game.user.isGM) {
+    else if (msg.action === "zoneMovementPayment" && _isResponsibleGM()) {
       game.sta2eToolkit?.zoneMovementLog?.processPayment(msg.messageId, msg.payment, msg.isNpc, msg.cost);
     }
 
-    else if (msg.action === "adjustThreatFromRoll" && game.user.isGM) {
+    else if (msg.action === "adjustThreatFromRoll" && _isResponsibleGM()) {
       const { delta } = msg;
       if (!delta || typeof delta !== "number") return;
       try {
@@ -1072,7 +1082,7 @@ Hooks.once("ready", async () => {
 
     // Player-started ground opposed tasks are created by the GM client so
     // hosted permission models cannot block the initial opposed chat card.
-    else if (msg.action === "startGroundCombatOpposedTask" && game.user.isGM) {
+    else if (msg.action === "startGroundCombatOpposedTask" && _isResponsibleGM()) {
       try {
         const opts = msg.opts ?? {};
         if (!canUserStartGroundOpposedTask(opts, msg.requesterUserId)) {
@@ -1088,7 +1098,7 @@ Hooks.once("ready", async () => {
     // ── Opposed Task (social/skill) — a non-GM player finished their roll ───
     // Only the GM can update the chat card's flags, so players forward results
     // over the socket and we apply them here.
-    else if (msg.action === "opposedTaskRollComplete" && game.user.isGM) {
+    else if (msg.action === "opposedTaskRollComplete" && _isResponsibleGM()) {
       try {
         await applyOpposedRollResult({
           messageId:     msg.messageId,
@@ -1106,7 +1116,7 @@ Hooks.once("ready", async () => {
     // ── Defender (player) confirmed their roll — relay to resolveDefenderRoll ──
     // Only fires on the GM's client when a player is the defender.
     // (When the GM is the defender, combat-hud.js calls resolveDefenderRoll directly.)
-    else if (msg.action === "defenderRollComplete" && game.user.isGM) {
+    else if (msg.action === "defenderRollComplete" && _isResponsibleGM()) {
       const { successes } = msg;
       if (typeof successes !== "number") return;
       await game.sta2eToolkit?.resolveDefenderRoll?.(successes);
@@ -1736,7 +1746,7 @@ Hooks.on("canvasReady", () => {
   }
 });
 
-Hooks.on("updateToken", async (tokenDoc, changes) => {
+Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
   if (!("x" in changes || "y" in changes)) return;
 
   game.sta2eToolkit?.zoneMonitor?._debouncedRefresh();
@@ -1763,7 +1773,7 @@ Hooks.on("updateToken", async (tokenDoc, changes) => {
   _lastKnownTokenPositions.set(tokenDoc.id, newCenter);
 
   // Movement log — only the initiating client creates the card.
-  if (preHookOrigin) {
+  if (preHookOrigin && userId === game.user.id) {
     game.sta2eToolkit?.zoneMovementLog?.onTokenMove(tokenDoc, preHookOrigin, changes);
   }
 

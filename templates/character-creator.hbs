@@ -444,7 +444,7 @@
             <span>Primary Species</span>
             {{#if primary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{primary.tokenImage}}" alt="{{primary.name}} token image" />{{/if}}
             <h3>{{primary.name}}</h3>
-            {{#if primary.description}}<p>{{primary.description}}</p>{{/if}}
+            {{#if primary.description}}<div class="sta2e-cc-text-panel">{{{primary.description}}}</div>{{/if}}
           </section>
           {{#if mixedSpecies}}
           <section class="sta2e-cc-species-detail-card">
@@ -452,7 +452,7 @@
             {{#if secondary}}
             {{#if secondary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{secondary.tokenImage}}" alt="{{secondary.name}} token image" />{{/if}}
             <h3>{{secondary.name}}</h3>
-            {{#if secondary.description}}<p>{{secondary.description}}</p>{{/if}}
+            {{#if secondary.description}}<div class="sta2e-cc-text-panel">{{{secondary.description}}}</div>{{/if}}
             {{else}}
             <h3>Choose secondary species</h3>
             <p>The secondary species adds its trait and contributes to the available species talent pool.</p>
@@ -691,7 +691,7 @@
       {{#if environment.description}}
       <div class="sta2e-cc-text-panel">
         <h2>{{environment.name}}</h2>
-        <p>{{environment.description}}</p>
+        {{{environment.description}}}
       </div>
       {{/if}}
     </section>
@@ -699,7 +699,7 @@
     <section class="sta2e-cc-grid sta2e-cc-two">
       <article class="sta2e-cc-panel">
         <h2>Value</h2>
-        {{#if environment.valueDescription}}<p>{{environment.valueDescription}}</p>{{/if}}
+        {{#if environment.valueDescription}}<div class="sta2e-cc-text-panel">{{{environment.valueDescription}}}</div>{{/if}}
         <ul class="sta2e-cc-choice-list">
           {{#if selectedEnvironmentValue}}
           <li data-description-root>
@@ -722,7 +722,7 @@
 
       <article class="sta2e-cc-panel">
         <h2>Attribute Increase</h2>
-        {{#if environment.attributeDescription}}<p>{{environment.attributeDescription}}</p>{{/if}}
+        {{#if environment.attributeDescription}}<div class="sta2e-cc-text-panel">{{{environment.attributeDescription}}}</div>{{/if}}
         {{#if showEnvironmentAttributeSpecies}}
         <label class="sta2e-cc-field">
           <span>Source Species</span>
@@ -753,7 +753,7 @@
 
     <section class="sta2e-cc-panel">
       <h2>Department Increase</h2>
-      {{#if environment.departmentDescription}}<p>{{environment.departmentDescription}}</p>{{/if}}
+      {{#if environment.departmentDescription}}<div class="sta2e-cc-text-panel">{{{environment.departmentDescription}}}</div>{{/if}}
       <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
         {{#each environmentDepartmentChoices as |department|}}
         <label>
@@ -896,13 +896,13 @@
       {{#if upbringing.description}}
       <div class="sta2e-cc-text-panel">
         <h2>{{upbringing.name}}</h2>
-        <p>{{upbringing.description}}</p>
+        {{{upbringing.description}}}
       </div>
       {{/if}}
       {{#if upbringingPathDescription}}
       <div class="sta2e-cc-text-panel">
         <h2>{{#if upbringingAcceptedSelected}}Accepted{{else}}Rebelled{{/if}}</h2>
-        <p>{{upbringingPathDescription}}</p>
+        {{{upbringingPathDescription}}}
       </div>
       {{/if}}
     </section>
@@ -915,7 +915,7 @@
 
       <article class="sta2e-cc-panel">
         <h2>Department Increase</h2>
-        {{#if upbringing.departmentDescription}}<p>{{upbringing.departmentDescription}}</p>{{/if}}
+        {{#if upbringing.departmentDescription}}<div class="sta2e-cc-text-panel">{{{upbringing.departmentDescription}}}</div>{{/if}}
         <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
           {{#each upbringingDepartmentChoices as |department|}}
           <label>
@@ -931,7 +931,7 @@
     <section class="sta2e-cc-grid sta2e-cc-two">
       <article class="sta2e-cc-panel">
         <h2>Focus</h2>
-        {{#if upbringing.focusDescription}}<p>{{upbringing.focusDescription}}</p>{{/if}}
+        {{#if upbringing.focusDescription}}<div class="sta2e-cc-text-panel">{{{upbringing.focusDescription}}}</div>{{/if}}
         <label class="sta2e-cc-field">
           <span>Focus</span>
           <div class="sta2e-cc-inline-actions">
@@ -970,7 +970,7 @@
 
       <article class="sta2e-cc-panel">
         <h2>Talent</h2>
-        {{#if upbringing.talentDescription}}<p>{{upbringing.talentDescription}}</p>{{/if}}
+        {{#if upbringing.talentDescription}}<div class="sta2e-cc-text-panel">{{{upbringing.talentDescription}}}</div>{{/if}}
         <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
           <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
           <span>GM Allow Esoteric Talents</span>
@@ -1079,7 +1079,7 @@
       {{#if careerPath.description}}
       <div class="sta2e-cc-text-panel">
         <h2>{{careerPath.name}}</h2>
-        <p>{{careerPath.description}}</p>
+        {{{careerPath.description}}}
       </div>
       {{/if}}
     </section>
@@ -1087,7 +1087,7 @@
     <section class="sta2e-cc-grid sta2e-cc-two">
       <article class="sta2e-cc-panel">
         <h2>Value</h2>
-        {{#if careerPath.valueDescription}}<p>{{careerPath.valueDescription}}</p>{{/if}}
+        {{#if careerPath.valueDescription}}<div class="sta2e-cc-text-panel">{{{careerPath.valueDescription}}}</div>{{/if}}
         <label class="sta2e-cc-field">
           <span>Configured Value</span>
           <div class="sta2e-cc-inline-actions">
@@ -1119,7 +1119,7 @@
 
       <article class="sta2e-cc-panel">
         <h2>Attributes</h2>
-        {{#if careerPath.attributeDescription}}<p>{{careerPath.attributeDescription}}</p>{{/if}}
+        {{#if careerPath.attributeDescription}}<div class="sta2e-cc-text-panel">{{{careerPath.attributeDescription}}}</div>{{/if}}
         {{#if careerRequiredAttributes.length}}
         <p class="{{#if careerAttributeRequirementSatisfied}}sta2e-cc-rule-ok{{else}}sta2e-cc-rule-warning{{/if}}">At least one point must be spent in {{careerAttributeRequirementLabel}}.</p>
         {{/if}}
@@ -1144,7 +1144,7 @@
     <section class="sta2e-cc-grid sta2e-cc-two">
       <article class="sta2e-cc-panel">
         <h2>Departments</h2>
-        {{#if careerPath.departmentDescription}}<p>{{careerPath.departmentDescription}}</p>{{/if}}
+        {{#if careerPath.departmentDescription}}<div class="sta2e-cc-text-panel">{{{careerPath.departmentDescription}}}</div>{{/if}}
         <div class="sta2e-cc-field sta2e-cc-field--wide">
           <span>Choose one department for +2</span>
           <div class="sta2e-cc-check-grid sta2e-cc-radio-grid">
@@ -1202,7 +1202,7 @@
 
       <article class="sta2e-cc-panel">
         <h2>Focuses</h2>
-        {{#if careerPath.focusDescription}}<p>{{careerPath.focusDescription}}</p>{{/if}}
+        {{#if careerPath.focusDescription}}<div class="sta2e-cc-text-panel">{{{careerPath.focusDescription}}}</div>{{/if}}
         {{#each careerFocusSelections as |slot|}}
         <div class="sta2e-cc-field sta2e-cc-field--wide">
           <span>Focus {{slot.number}}</span>
@@ -1225,7 +1225,7 @@
 
     <section class="sta2e-cc-panel">
       <h2>Talent</h2>
-      {{#if careerPath.talentDescription}}<p>{{careerPath.talentDescription}}</p>{{/if}}
+      {{#if careerPath.talentDescription}}<div class="sta2e-cc-text-panel">{{{careerPath.talentDescription}}}</div>{{/if}}
       <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
         <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
         <span>GM Allow Esoteric Talents</span>
@@ -1289,7 +1289,7 @@
       {{#if experience.description}}
       <div class="sta2e-cc-text-panel">
         <h2>{{experience.name}}</h2>
-        <p>{{experience.description}}</p>
+        {{{experience.description}}}
       </div>
       {{/if}}
     </section>
@@ -1297,7 +1297,7 @@
     <section class="sta2e-cc-grid sta2e-cc-two">
       <article class="sta2e-cc-panel">
         <h2>Value</h2>
-        {{#if experience.valueDescription}}<p>{{experience.valueDescription}}</p>{{/if}}
+        {{#if experience.valueDescription}}<div class="sta2e-cc-text-panel">{{{experience.valueDescription}}}</div>{{/if}}
         <label class="sta2e-cc-field">
           <span>Configured Value</span>
           <div class="sta2e-cc-inline-actions">
@@ -1329,7 +1329,7 @@
 
       <article class="sta2e-cc-panel">
         <h2>Talent</h2>
-        {{#if experience.talentDescription}}<p>{{experience.talentDescription}}</p>{{/if}}
+        {{#if experience.talentDescription}}<div class="sta2e-cc-text-panel">{{{experience.talentDescription}}}</div>{{/if}}
         <label class="sta2e-cc-toggle sta2e-cc-toggle--compact">
           <input type="checkbox" data-field="gmAllowEsotericTalents" {{checked gmAllowEsotericTalents}} />
           <span>GM Allow Esoteric Talents</span>
@@ -1410,7 +1410,7 @@
           {{#if slot.event}}
           {{#if slot.event.description}}
           <div class="sta2e-cc-text-panel">
-            <p>{{slot.event.description}}</p>
+            {{{slot.event.description}}}
           </div>
           {{/if}}
 
@@ -1445,7 +1445,7 @@
 
           <div class="sta2e-cc-field sta2e-cc-field--wide">
             <span>Additional Focus</span>
-            {{#if slot.focusDescription}}<p>{{slot.focusDescription}}</p>{{/if}}
+            {{#if slot.focusDescription}}<div class="sta2e-cc-text-panel">{{{slot.focusDescription}}}</div>{{/if}}
             <div class="sta2e-cc-inline-actions">
               <select data-field="careerEventFocus" data-index="{{slot.index}}">
                 <option value="">Choose suggested focus</option>
@@ -1475,7 +1475,7 @@
           {{#if slot.event.traitGrant}}
           <div class="sta2e-cc-field sta2e-cc-field--wide">
             <span>Event Trait</span>
-            {{#if slot.traitDescription}}<p>{{slot.traitDescription}}</p>{{/if}}
+            {{#if slot.traitDescription}}<div class="sta2e-cc-text-panel">{{{slot.traitDescription}}}</div>{{/if}}
             <select data-field="careerEventTrait" data-index="{{slot.index}}">
               <option value="">Choose suggested trait</option>
               {{#each slot.traitOptions as |trait|}}
@@ -2570,7 +2570,7 @@
             <span>Primary Species</span>
             {{#if primary.tokenImage}}<img class="sta2e-cc-species-detail-token" src="{{primary.tokenImage}}" alt="{{primary.name}} token image" />{{/if}}
             <h3>{{primary.name}}</h3>
-            {{#if primary.description}}<p>{{primary.description}}</p>{{/if}}
+            {{#if primary.description}}<div class="sta2e-cc-text-panel">{{{primary.description}}}</div>{{/if}}
           </section>
           {{#if mixedSpecies}}
           <section class="sta2e-cc-species-detail-card">

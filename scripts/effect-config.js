@@ -27,6 +27,7 @@ const _FREE = "modules/JB2A_DnD5e/Library/Generic";
 const _PAT  = "modules/jb2a_patreon/Library/Generic";
 const _WA   = `${_FREE}/Weapon_Attacks/Ranged`;
 const _WM   = `${_FREE}/Weapon_Attacks/Melee`;
+const _SHIP_PHASER_BEAM = `${_FREE}/RangedSpell/Beam/Beam002_03_Regular_Orange_90ft_4000x400.webm`;
 const _IMP  = `${_FREE}/Impact/Impact013/Impact013_001_OrangeYellow_400x400.webm`;
 const _EXP_O = `${_FREE}/Explosion/Explosion_01_Orange_400x400.webm`;
 const _EXP_B = `${_FREE}/Explosion/Explosion_02_Blue_400x400.webm`;
@@ -50,11 +51,11 @@ function buildTabDefs() {
       rows: [
         // ── Phaser / Phase-Pulse ───────────────────────────────────────────
         { label: "Phaser / Phase-Pulse", slot: "Beam (Hit)",    sndKey: "sndShipPhaserHit",   animKey: "shipWeapons.phaser.animHit",
-          defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Orange_90ft_4000x400.webm`, `${_FREE}/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`) },
+          defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Orange_90ft_4000x400.webm`, _SHIP_PHASER_BEAM) },
         { label: "Phaser / Phase-Pulse", slot: "Impact (Hit)",  sndKey: null,                 animKey: "shipWeapons.phaser.animImpact",
           defaultHint: jb2aHint("jb2a.impact.011.blue", _IMP) },
         { label: "Phaser / Phase-Pulse", slot: "Beam (Miss)",   sndKey: "sndShipPhaserMiss",  animKey: "shipWeapons.phaser.animMiss",
-          defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Orange_90ft_4000x400.webm`, `${_FREE}/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`) },
+          defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Orange_90ft_4000x400.webm`, _SHIP_PHASER_BEAM) },
         // ── Disruptor ──────────────────────────────────────────────────────
         { label: "Disruptor",            slot: "Beam (Hit)",    sndKey: "sndShipDisruptorHit",  animKey: "shipWeapons.disruptor.animHit",
           defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Green_90ft_4000x400.webm`, `${_FREE}/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`) },

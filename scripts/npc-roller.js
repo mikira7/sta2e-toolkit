@@ -516,6 +516,43 @@ const _OVERRIDE_SKIP = new Set(["direct", "evasive-action", "defensive-fire", "a
 // These bypass the normal task-roll flow entirely.
 const _INSTANT_APPLY_TASKS = new Set(["evasive-action", "defensive-fire", "attack-pattern", "reroute-power", "modulate-shields", "direct"]);
 
+function _actorHasSmallCraftTrait(actor) {
+  if (!actor) return false;
+  if (actor.type === "smallcraft") return true;
+
+  const normalize = value => String(value ?? "").trim().toLowerCase();
+  if ((actor.items ?? []).some(item => normalize(item?.name) === "small craft")) {
+    return true;
+  }
+
+  const traits = actor.system?.traits;
+  if (Array.isArray(traits)) {
+    return traits.some(t => normalize(t?.name ?? t?.label ?? t) === "small craft");
+  }
+  if (traits && typeof traits === "object") {
+    return Object.entries(traits).some(([key, value]) => {
+      if (value === false || value === null) return false;
+      return normalize(key) === "small craft"
+        || normalize(value?.name ?? value?.label ?? value) === "small craft";
+    });
+  }
+  return false;
+}
+
+function _selectedCombatTargetToken(state) {
+  const actorId = state.selectedTargetId ?? state.combatTaskContext?._selected?.targetId ?? null;
+  if (actorId) {
+    const byActor = canvas.tokens?.placeables
+      .find(t => t.actor?.id === actorId) ?? null;
+    if (byActor) return byActor;
+  }
+  return Array.from(game.user.targets ?? [])[0] ?? null;
+}
+
+function _smallCraftDifficultyMod(state) {
+  return _actorHasSmallCraftTrait(_selectedCombatTargetToken(state)?.actor) ? 1 : 0;
+}
+
 /**
  * Build the right-side combat task panel HTML shown when the roller is opened
  * during starship combat and the character is assigned to a ship combatant.
@@ -3221,10 +3258,16 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       const base = startDifficulty !== null ? startDifficulty
         : opposedDifficulty !== null ? opposedDifficulty
           : (weaponContext?.isTorpedo ? 3 : 2);
+      const smallCraftMod = opposedDifficulty !== null
+        ? 0
+        : _smallCraftDifficultyMod({
+            selectedTargetId: combatTaskContext?.preTargetId ?? null,
+            combatTaskContext,
+          });
       if (!breachPenalty.isDestroyed && breachPenalty.difficultyPenalty > 0) {
-        return base + breachPenalty.difficultyPenalty;
+        return base + breachPenalty.difficultyPenalty + smallCraftMod;
       }
-      return base;
+      return base + smallCraftMod;
     })(),
     _isNpc: (() => {
       const CombatHUD = game.sta2eToolkit?.CombatHUD;
@@ -3333,6 +3376,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           isTorpedo: !!state.weaponContext.isTorpedo,
           weaponId: state.weaponContext.weaponId ?? null,
           shipActorId: state.weaponContext.shipActorId ?? null,
+          isArray: !!state.weaponContext.isArray,
+          isSalvo: !!state.weaponContext.isSalvo,
+          salvoMode: state.weaponContext.salvoMode ?? null,
           useStun: state.weaponContext.useStun ?? null,
           deadlyCostsThreat: state.weaponContext.deadlyCostsThreat ?? false,
         }
@@ -3386,6 +3432,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       aimRerollsUsed: state.aimRerollsUsed ?? 0,
 
       officerName: state.officer?.name ?? null,
+      officerActorId: state.officer?.id ?? null,
       officerAttrKey: state.officerAttrKey ?? null,
       officerDiscKey: state.officerDiscKey ?? null,
       hasFocus: state.hasFocus ?? false,
@@ -3585,6 +3632,13 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 ...(state.apAssistDice ?? []),
                 ...state.shipDice,
               ]);
+              const attackComplications = [
+                ...state.crewDice,
+                ...(state.crewAssistDice ?? []),
+                ...(state.namedAssistDice ?? []),
+                ...(state.apAssistDice ?? []),
+                ...state.shipDice,
+              ].filter(d => d.complication).length;
 
               // Sheet-roller path: use the ship token, not the character token
               const resolveToken = state.weaponContext.shipActorId
@@ -3621,6 +3675,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _intenseTalentBonus = (isHit && _threatBoughtDice > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
                 ? _threatBoughtDice : 0;
               await CombatHUD.resolveShipAttack(resolveToken, weapon, isHit, {
+                salvoMode: state.weaponContext.salvoMode ?? "area",
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
                 calibrateWeaponsBonus,
                 defenderSuccesses: state.defenderSuccesses,
@@ -3629,6 +3684,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 floatingMomentum: _floatingMomentum,
                 intenseTalentBonus: _intenseTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
+                complications: attackComplications,
+                opposedMomentumAwarded: state.opposedDefenseType !== null && (
+                  (state.trackerBanked ?? 0) > 0
+                  || (state.trackerFloat ?? 0) > 0
+                  || !!state.trackerMessageId
+                ),
               });
 
               // Attack Pattern stays active after the attack — it persists until the
@@ -3649,6 +3710,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prSuccesses = countSuccesses(_prAllDice);
               const _prPassed = _prSuccesses >= state.difficulty;
               const _prMomentum = Math.max(0, _prSuccesses - state.difficulty);
+              const _prComplications = _prAllDice.filter(d => d.complication).length;
               const _prThreatBought = (state.paymentSlots ?? []).filter(s =>
                 s === "threat" || s === "poolThreat" || s === "personalThreat"
               ).length;
@@ -3686,7 +3748,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 // Use async IIFE so async callbacks are awaited and errors caught
                 (async () => {
                   try {
-                    await state.taskCallback({ successes: _prSuccesses, passed: _prPassed, momentum: _prMomentum, state, actor, token });
+                    await state.taskCallback({ successes: _prSuccesses, passed: _prPassed, momentum: _prMomentum, complications: _prComplications, state, actor, token });
                   } catch (err) {
                     console.error("STA2e Toolkit | taskCallback error:", err);
                     ui.notifications?.error("STA2e Toolkit: Task result error — see console.");
@@ -3977,6 +4039,11 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
 
   // Ship
   state.shipAssist = el.querySelector("#ship-assist")?.checked ?? state.shipAssist;
+  const shipSelector = el.querySelector("#sheet-ship-select");
+  if (shipSelector) {
+    const selectedShipIdx = parseInt(shipSelector.value, 10);
+    state.selectedShipIdx = Number.isNaN(selectedShipIdx) ? state.selectedShipIdx : selectedShipIdx;
+  }
   state.shipSystemKey = vs("ship-system-key", state.shipSystemKey);
   state.shipDeptKey = vs("ship-dept-key", state.shipDeptKey);
   state.shipSystems = actorSystems[state.shipSystemKey]?.value ?? state.shipSystems;
@@ -4737,6 +4804,16 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           const shipData = (state.availableShips ?? [])[idx] ?? null;
           _shipDataRef.systems = shipData?.systems ?? {};
           _shipDataRef.depts   = shipData?.depts   ?? {};
+          const nextSystemKey = _shipDataRef.systems[state.shipSystemKey]
+            ? state.shipSystemKey
+            : (Object.keys(_shipDataRef.systems)[0] ?? state.shipSystemKey);
+          const nextDeptKey = _shipDataRef.depts[state.shipDeptKey]
+            ? state.shipDeptKey
+            : (Object.keys(_shipDataRef.depts)[0] ?? state.shipDeptKey);
+          state.shipSystemKey = nextSystemKey;
+          state.shipDeptKey = nextDeptKey;
+          state.shipSystems = _shipDataRef.systems[state.shipSystemKey]?.value ?? state.shipSystems;
+          state.shipDept = _shipDataRef.depts[state.shipDeptKey]?.value ?? state.shipDept;
           // Update Advanced Sensors state from the ship data
           state.hasAdvancedSensors = shipData?.hasAdvancedSensors ?? false;
           state.sensorsBreaches    = shipData?.sensorsBreaches    ?? 0;
@@ -4768,12 +4845,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           // Repopulate system and dept selects from the newly chosen ship
           if (sysSelect) {
             sysSelect.innerHTML = Object.entries(_shipDataRef.systems)
-              .map(([k, s], i) => `<option value="${k}" ${i === 0 ? "selected" : ""}>${_systemLabel(k)} (${s.value})</option>`)
+              .map(([k, s]) => `<option value="${k}" ${k === state.shipSystemKey ? "selected" : ""}>${_systemLabel(k)} (${s.value})</option>`)
               .join("");
           }
           if (deptSelect) {
             deptSelect.innerHTML = Object.entries(_shipDataRef.depts)
-              .map(([k, d], i) => `<option value="${k}" ${i === 0 ? "selected" : ""}>${_deptLabel(k)} (${d.value})</option>`)
+              .map(([k, d]) => `<option value="${k}" ${k === state.shipDeptKey ? "selected" : ""}>${_deptLabel(k)} (${d.value})</option>`)
               .join("");
           }
           // Show ship-specific options now that a ship is selected
@@ -4900,6 +4977,20 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
     // ── Combat task panel wiring ───────────────────────────────────────────────
     if (state.combatTaskContext) {
       // Task buttons — update attr/disc, difficulty, ship pool on selection
+      const _syncCombatDifficultyInput = () => {
+        const diffInput = el.querySelector("#difficulty");
+        if (!diffInput) return;
+        if (state.opposedDefenseType && state.opposedDifficulty !== null) {
+          diffInput.value = state.opposedDifficulty;
+          return;
+        }
+        const base = Number(state._combatTaskDifficultyBase);
+        if (!Number.isFinite(base)) return;
+        const finalDifficulty = Math.max(0, base + _smallCraftDifficultyMod(state));
+        diffInput.value = finalDifficulty;
+        state.difficulty = finalDifficulty;
+      };
+
       el.querySelectorAll(".sta2e-task-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
           // Highlight selected button; clear weapon fire button highlights
@@ -5016,9 +5107,10 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
             if (state.opposedDefenseType && state.opposedDifficulty !== null) {
               diffInput.value = state.opposedDifficulty;
             } else {
-              diffInput.value = transportCfg
+              state._combatTaskDifficultyBase = transportCfg
                 ? transportCfg.totalDiff
                 : Math.max(0, diff + diffMod);
+              _syncCombatDifficultyInput();
             }
           }
 
@@ -5126,6 +5218,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         if (tokenId) {
           canvas.tokens?.get(tokenId)?.setTarget(true, { user: game.user, releaseOthers: false });
         }
+        _syncCombatDifficultyInput();
       };
       if (targetSel) {
         targetSel.addEventListener("change", _applyTargetFromSelect);
@@ -5492,7 +5585,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
             if (state.opposedDefenseType && state.opposedDifficulty !== null) {
               diffInput.value = state.opposedDifficulty;
             } else {
-              diffInput.value = (_isTorpedo ? 3 : 2) + (_isOverride ? 1 : 0);
+              state._combatTaskDifficultyBase = (_isTorpedo ? 3 : 2) + (_isOverride ? 1 : 0);
+              _syncCombatDifficultyInput();
             }
           }
 

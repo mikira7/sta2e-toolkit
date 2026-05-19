@@ -33,6 +33,7 @@ import {
   fireAttackPattern,
   fireDefenseMode,
   fireTargetingSolution,
+  getStarshipDamageAnimationRepeatCount,
   STARSHIP_WEAPON_CONFIGS,
 } from "./weapon-configs.js";
 
@@ -64,8 +65,8 @@ import {
   getConditions,
   getCollisionDamage,
 } from "./token-conditions.js";
-import { getSceneZones, getZonePathWithCosts } from "./zone-data.js";
-import { makeSpendContext, actorHasIntenseTalent } from "./momentum-spend.js";
+import { getSceneZones, getZoneAtPoint, getZonePathWithCosts } from "./zone-data.js";
+import { makeSpendContext, actorHasIntenseTalent, readPool, writePool } from "./momentum-spend.js";
 import { createTracker, getActiveTracker } from "./momentum-tracker.js";
 
 const MODULE      = "sta2e-toolkit";
@@ -281,10 +282,23 @@ function _rollEditApplyChanges(rollData, formData) {
   if (next.officerName) {
     next.hasDedicatedFocus = !!formData.hasDedicatedFocus;
     next.hasFocus = !!formData.hasFocus || next.hasDedicatedFocus;
+    next.officerAttrKey = formData.attrKey ?? next.officerAttrKey ?? "control";
+    next.officerDiscKey = formData.discKey ?? next.officerDiscKey ?? "command";
   }
 
-  const crewDept = Number(next.crewDept ?? Math.max(1, next.crewCritThresh ?? 1)) || 1;
-  const crewAttr = Number(next.crewAttr ?? ((next.crewTarget ?? 0) - crewDept)) || 0;
+  const officerStats = next.officerName
+    ? _rollEditActorStats(next.officerActorId ?? next.actorId)
+    : null;
+  const crewDept = Number(
+    next.officerName
+      ? (officerStats?.disciplines?.[next.officerDiscKey] ?? next.crewDept ?? Math.max(1, next.crewCritThresh ?? 1))
+      : (next.crewDept ?? Math.max(1, next.crewCritThresh ?? 1))
+  ) || 1;
+  const crewAttr = Number(
+    next.officerName
+      ? (officerStats?.attributes?.[next.officerAttrKey] ?? next.crewAttr ?? ((next.crewTarget ?? 0) - crewDept))
+      : (next.crewAttr ?? ((next.crewTarget ?? 0) - crewDept))
+  ) || 0;
   next.crewAttr = crewAttr;
   next.crewDept = crewDept;
   next.crewTarget = crewAttr + crewDept;
@@ -398,6 +412,21 @@ async function _openRollCardEditDialog(rollData) {
   const initialShipSource = _rollEditGetShipSource(rollData, selectedShipIdx);
   const initialSystems = initialShipSource?.systems ?? {};
   const initialDepts = initialShipSource?.depts ?? {};
+  const officerStats = rollData.officerName
+    ? _rollEditActorStats(rollData.officerActorId ?? rollData.actorId)
+    : null;
+  const attrOptions = rollData.officerName ? OFFICER_ATTRIBUTES.map(({ key, label }) => {
+    const val = officerStats?.attributes?.[key];
+    const vStr = typeof val === "number" ? ` (${val})` : "";
+    const sel = key === (rollData.officerAttrKey ?? "control") ? " selected" : "";
+    return `<option value="${key}"${sel}>${label}${vStr}</option>`;
+  }).join("") : "";
+  const discOptions = rollData.officerName ? OFFICER_DISCIPLINES.map(({ key, label }) => {
+    const val = officerStats?.disciplines?.[key];
+    const vStr = typeof val === "number" ? ` (${val})` : "";
+    const sel = key === (rollData.officerDiscKey ?? "command") ? " selected" : "";
+    return `<option value="${key}"${sel}>${label}${vStr}</option>`;
+  }).join("") : "";
   const shipOptions = ships.length > 0
     ? `<option value="-1"${selectedShipIdx < 0 ? " selected" : ""}>No ship assist</option>` + ships.map((ship, idx) =>
         `<option value="${idx}"${idx === selectedShipIdx ? " selected" : ""}>${ship.label}</option>`
@@ -427,13 +456,31 @@ async function _openRollCardEditDialog(rollData) {
           </label>
         </div>
         ${rollData.officerName ? `
-        <div style="display:flex;gap:12px;align-items:center;padding:6px 8px;border:1px solid ${LC.borderDim};background:rgba(255,153,0,0.04);">
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
-            <input id="sta2e-edit-focus" type="checkbox" ${rollData.hasFocus ? "checked" : ""}> Has Focus
-          </label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
-            <input id="sta2e-edit-dedicated" type="checkbox" ${rollData.hasDedicatedFocus ? "checked" : ""}> Dedicated Focus
-          </label>
+        <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;border:1px solid ${LC.borderDim};background:rgba(255,153,0,0.04);">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+              Attribute
+              <select id="sta2e-edit-officer-attr"
+                style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+                ${attrOptions}
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+              Department
+              <select id="sta2e-edit-officer-disc"
+                style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+                ${discOptions}
+              </select>
+            </label>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+              <input id="sta2e-edit-focus" type="checkbox" ${rollData.hasFocus ? "checked" : ""}> Has Focus
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+              <input id="sta2e-edit-dedicated" type="checkbox" ${rollData.hasDedicatedFocus ? "checked" : ""}> Dedicated Focus
+            </label>
+          </div>
         </div>` : ""}
         <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;border:1px solid ${LC.borderDim};">
           <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:${LC.text};">
@@ -475,6 +522,8 @@ async function _openRollCardEditDialog(rollData) {
         callback: (_event, _button, dlg) => ({
           difficulty: dlg.element.querySelector("#sta2e-edit-difficulty")?.value,
           complicationRange: dlg.element.querySelector("#sta2e-edit-complication")?.value,
+          attrKey: dlg.element.querySelector("#sta2e-edit-officer-attr")?.value,
+          discKey: dlg.element.querySelector("#sta2e-edit-officer-disc")?.value,
           hasFocus: !!dlg.element.querySelector("#sta2e-edit-focus")?.checked,
           hasDedicatedFocus: !!dlg.element.querySelector("#sta2e-edit-dedicated")?.checked,
           shipAssist: !!dlg.element.querySelector("#sta2e-edit-ship-assist")?.checked,
@@ -3213,6 +3262,177 @@ export class CombatHUD {
     }) ?? false;
   }
 
+  static _centerOfToken(token) {
+    if (!token) return { x: 0, y: 0 };
+    return {
+      x: (token.x ?? token.document?.x ?? 0) + ((token.w ?? token.width ?? ((token.document?.width ?? 1) * (canvas?.grid?.size ?? 100))) / 2),
+      y: (token.y ?? token.document?.y ?? 0) + ((token.h ?? token.height ?? ((token.document?.height ?? 1) * (canvas?.grid?.size ?? 100))) / 2),
+    };
+  }
+
+  static _isShipToken(token) {
+    const actor = token?.actor;
+    return actor?.type === "starship" || actor?.type === "spacecraft2e"
+      || actor?.items?.some(i => i.type === "starshipweapon2e");
+  }
+
+  static _getAreaSecondaryTargets(primaryTokenId, attackerTokenId) {
+    const primaryToken = canvas.tokens?.get(primaryTokenId);
+    if (!primaryToken) return { targets: [], usingZones: false, zoneName: null };
+
+    const RADIUS_PX = 250;
+    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
+    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
+    const zones = zonesEnabled ? getSceneZones() : [];
+    const primaryZone = zones.length ? getZoneAtPoint(primaryCenter.x, primaryCenter.y, zones) : null;
+    const usingZones = !!primaryZone;
+
+    const targets = (canvas.tokens?.placeables ?? []).filter(t => {
+      if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
+      if (!CombatHUD._isShipToken(t)) return false;
+      const center = CombatHUD._centerOfToken(t);
+      if (usingZones) {
+        const z = getZoneAtPoint(center.x, center.y, zones);
+        return z?.id === primaryZone.id;
+      }
+      return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
+    });
+
+    return { targets, usingZones, zoneName: primaryZone?.name ?? null };
+  }
+
+  static _weaponFromPayload(attackerToken, payload, itemType) {
+    const items = attackerToken?.actor?.items;
+    if (!items) return null;
+    if (payload.weaponId) {
+      const byId = items.get?.(payload.weaponId);
+      if (byId) return byId;
+    }
+    const weaponName = (payload.weaponName ?? "").toLowerCase();
+    if (weaponName) {
+      const byName = items.find(i => i.type === itemType && i.name?.toLowerCase() === weaponName);
+      if (byName) return byName;
+    }
+    const weaponImg = payload.weaponImg ?? null;
+    if (weaponImg) {
+      const byImg = items.find(i => i.type === itemType && i.img === weaponImg);
+      if (byImg) return byImg;
+    }
+    return null;
+  }
+
+  static async _playShipAttackAnimation(payload, targetOverride = null) {
+    const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
+    const targetToken = targetOverride ?? canvas.tokens?.get(payload.tokenId ?? payload.primaryTokenId);
+    if (!attackerToken || !targetToken || !payload.weaponImg) return;
+    const slug = payload.weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
+    const config = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
+    if (!config) return;
+    try {
+      const animSalvoMode = payload.salvoMode ?? (payload.spread ? "spread" : "area");
+      const repeatCount = getStarshipDamageAnimationRepeatCount(payload.finalDamage);
+      await fireWeapon(config, true, attackerToken, [targetToken], {
+        spreadDeclared: animSalvoMode === "spread",
+        salvoMode: animSalvoMode,
+        repeatCount,
+      });
+    } catch(e) {
+      console.warn("STA2e Toolkit | Ship weapon animation failed:", e);
+    }
+  }
+
+  static async _playGroundAttackAnimation(payload) {
+    const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
+    const targetToken = canvas.tokens?.get(payload.tokenId);
+    if (!attackerToken || !targetToken) return;
+    const weapon = CombatHUD._weaponFromPayload(attackerToken, payload, "characterweapon2e");
+    const config = weapon ? getWeaponConfig(weapon) : null;
+    if (!config) return;
+    try { await fireWeapon(config, true, attackerToken, [targetToken]); }
+    catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
+  }
+
+  static async _resolveComplicationDamagePenalty({ complications = 0, attackerIsNpc = false, attackerName = "Attacker" } = {}) {
+    const total = Math.max(0, Number(complications) || 0);
+    if (total <= 0) return { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
+
+    let boughtOff = 0;
+    if (attackerIsNpc && game.user?.isGM) {
+      const currentThreat = readPool("threat");
+      const maxBuyoff = Math.min(total, Math.floor(currentThreat / 2));
+      if (maxBuyoff > 0) {
+        let captured = 0;
+        const result = await foundry.applications.api.DialogV2.wait({
+          window: { title: `${attackerName} - Complications` },
+          content: `
+            <div style="padding:8px 10px;font-family:${LC.font};">
+              <p style="font-size:11px;color:${LC.text};margin:0 0 8px;">
+                ${total} complication${total !== 1 ? "s" : ""} rolled. Each unresolved complication reduces attack damage by 1.
+              </p>
+              <div style="font-size:10px;color:${LC.textDim};margin-bottom:8px;">
+                Threat: <strong style="color:${LC.tertiary};">${currentThreat}</strong> · Buy off cost: <strong>2 Threat each</strong>
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:10px;color:${LC.text};">
+                Buy off
+                <input id="sta2e-comp-buyoff" type="number" min="0" max="${maxBuyoff}" value="0"
+                  style="width:56px;padding:3px 5px;background:${LC.bg};border:1px solid ${LC.border};border-radius:2px;color:${LC.text};font-family:${LC.font};"/>
+                <span>max ${maxBuyoff}</span>
+              </label>
+            </div>`,
+          buttons: [
+            {
+              action: "confirm",
+              label: "Apply",
+              icon: "fas fa-check",
+              default: true,
+              callback: (_e, _b, dlg) => {
+                const raw = parseInt(dlg.element.querySelector("#sta2e-comp-buyoff")?.value ?? "0") || 0;
+                return Math.min(maxBuyoff, Math.max(0, raw));
+              },
+            },
+            { action: "none", label: "Buy Off None", icon: "fas fa-times" },
+          ],
+        });
+        captured = Number(result) || 0;
+        boughtOff = Math.min(maxBuyoff, Math.max(0, captured));
+        if (boughtOff > 0) await writePool("threat", currentThreat - (boughtOff * 2));
+      }
+    }
+
+    const unresolved = Math.max(0, total - boughtOff);
+    return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2 };
+  }
+
+  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDefenseType, attackerAlreadyAwarded = false } = {}) {
+    if (!opposedDefenseType || attackerSuccesses === null || defenderSuccesses === null) return null;
+    const atk = Number(attackerSuccesses);
+    const def = Number(defenderSuccesses);
+    if (!Number.isFinite(atk) || !Number.isFinite(def)) return null;
+
+    const delta = atk - def;
+    if (delta === 0) return { winner: "tie", amount: 0, pool: null };
+
+    if (delta > 0) {
+      if (attackerAlreadyAwarded) return { winner: "attacker", amount: delta, pool: CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum", alreadyAwarded: true };
+      const pool = CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum";
+      await createTracker(attackerToken?.actor, {
+        totalGenerated: delta,
+        pool,
+        speakerToken: attackerToken,
+      });
+      return { winner: "attacker", amount: delta, pool, alreadyAwarded: false };
+    }
+
+    const amount = Math.abs(delta);
+    const pool = CombatHUD.isNpcShip(defenderToken?.actor) ? "threat" : "momentum";
+    await createTracker(defenderToken?.actor, {
+      totalGenerated: amount,
+      pool,
+      speakerToken: defenderToken,
+    });
+    return { winner: "defender", amount, pool, alreadyAwarded: false };
+  }
+
   async _resolveWeapon(isHit) {
     const weapon  = this._pendingWeapon;
     const token   = this._token;
@@ -3234,6 +3454,14 @@ export class CombatHUD {
       const isDual     = hasStun && hasDeadly;
       const useStun    = hasStun && (!hasDeadly || this._pendingStunMode);
       const severity   = weapon.system?.severity ?? 0;
+      const complicationInfo = isHit
+        ? await CombatHUD._resolveComplicationDamagePenalty({
+            complications: 0,
+            attackerIsNpc: CombatHUD.isGroundNpcActor(token?.actor),
+            attackerName: token?.name ?? actor?.name ?? "Attacker",
+          })
+        : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
+      const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty);
       // Threat for Deadly was already applied at weapon declaration (before the roll)
       const attackerProfile    = CombatHUD.getGroundCombatProfile(token?.actor, token?.document ?? null);
       const deadlyCostsThreat  = !useStun && hasDeadly && !!attackerProfile?.isPlayerOwned;
@@ -3242,10 +3470,12 @@ export class CombatHUD {
         const tActor     = t.actor;
         const protection = CombatHUD._getTargetProtection(tActor);
         const hasBraklul = CombatHUD._hasBraklul(tActor);
-        const rawPotency = severity - protection;
-        const potency    = severity > 0 ? Math.max(1, rawPotency) : 0;
+        const rawPotency = effectiveSeverity - protection;
+        const potency    = effectiveSeverity > 0 ? Math.max(1, rawPotency) : 0;
         const profile = CombatHUD.getGroundCombatProfile(tActor, t.document);
         return {
+          attackerTokenId: token?.id ?? null,
+          attackerActorId: actor?.id ?? null,
           tokenId:       t.id,
           actorId:       tActor?.id,
           name:          t.name,
@@ -3255,10 +3485,15 @@ export class CombatHUD {
           maxStress:     tActor?.system?.stress?.max   ?? 0,
           useStun,
           isDual,
-          severity,
+          severity:      effectiveSeverity,
+          baseSeverity:  severity,
+          complicationDamagePenalty: complicationInfo.penalty,
+          complications: complicationInfo.total,
+          complicationsBoughtOff: complicationInfo.boughtOff,
           protection,
           hasBraklul,
           potency,
+          weaponId:      weapon.id,
           weaponName:    weapon.name,
           weaponImg:     weapon.img,
           weaponColor:   config?.color ?? "blue",
@@ -3291,10 +3526,12 @@ export class CombatHUD {
         speaker: ChatMessage.getSpeaker({ token }),
       });
 
-      setTimeout(async () => {
-        try { await fireWeapon(config, isHit, token, targets); }
-        catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
-      }, 300);
+      if (!isHit) {
+        setTimeout(async () => {
+          try { await fireWeapon(config, false, token, targets); }
+          catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
+        }, 300);
+      }
 
       this._pendingWeapon   = null;
       this._pendingStunMode = true;
@@ -3332,7 +3569,7 @@ export class CombatHUD {
    * @param {number|null} opts.defenderSuccesses   - Successes from defender's opposed roll (if any)
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
     const actor   = token.actor;
     const targets = overrideTargets ?? Array.from(game.user.targets);
 
@@ -3340,6 +3577,15 @@ export class CombatHUD {
       ui.notifications.warn("No targets selected. Select a target token first.");
       return;
     }
+
+    await CombatHUD._autoAwardOpposedShipPool({
+      attackerToken: token,
+      defenderToken: targets[0] ?? null,
+      attackerSuccesses,
+      defenderSuccesses,
+      opposedDefenseType,
+      attackerAlreadyAwarded: opposedMomentumAwarded,
+    });
 
     const config = getWeaponConfig(weapon);
 
@@ -3394,11 +3640,23 @@ export class CombatHUD {
 
     // ── Build damage context ───────────────────────────────────────────────
     const hud = game.sta2eToolkit?.combatHud;
+    const wq = weapon.system?.qualities ?? {};
     const weaponPiercing = weapon.system?.qualities?.piercing ?? false;
     const isTorpedoWeapon = config?.type === "torpedo";
     const rfBonus = rapidFireBonus || ((isTorpedoWeapon && hasRapidFireTorpedoLauncher(actor)) ? 1 : 0);
 
     const cwBonus = calibrateWeaponsBonus;
+    const complicationInfo = isHit
+      ? await CombatHUD._resolveComplicationDamagePenalty({
+          complications,
+          attackerIsNpc: CombatHUD.isNpcShip(actor),
+          attackerName: token?.name ?? actor?.name ?? "Attacker",
+        })
+      : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
+    const areaAvailable = salvoMode === "area" || !!wq.area;
+    const areaActive = salvoMode === "area";
+    const spreadAvailable = spreadDeclared || salvoMode === "spread" || !!wq.spread;
+    const spreadActive = spreadDeclared || salvoMode === "spread";
 
     const targetData = targets.map(t => {
       const tActor      = t.actor;
@@ -3417,7 +3675,7 @@ export class CombatHUD {
       const baseResistance  = isPiercing ? 0 : (tActor?.system?.resistance ?? 0);
       const modulationBonus = (!isPiercing && CombatHUD.getModulatedShields(tActor)) ? 2 : 0;
       const resistance      = baseResistance + glancingBonus + modulationBonus;
-      const rawDamage   = total + scanBonus + rfBonus + cwBonus;
+      const rawDamage   = Math.max(0, total + scanBonus + rfBonus + cwBonus - complicationInfo.penalty);
       const finalDamage = Math.max(0, rawDamage - resistance);
       return {
         tokenId:              t.id,
@@ -3430,6 +3688,9 @@ export class CombatHUD {
         scanBonus,
         rapidFireBonus:       rfBonus,
         calibrateWeaponsBonus: cwBonus,
+        complicationDamagePenalty: complicationInfo.penalty,
+        complications:        complicationInfo.total,
+        complicationsBoughtOff: complicationInfo.boughtOff,
         glancingBonus,
         scanPiercing:    isPiercing,
         currentShields:  tActor?.system?.shields?.value ?? 0,
@@ -3444,16 +3705,18 @@ export class CombatHUD {
         attackerActorId:    actor?.id ?? null,
         trackerMessageId:   trackerMessageId ?? null,
         salvoMode,
-        area:           salvoMode === "area",
-        spread:         salvoMode === "spread",
+        area:           areaActive,
+        areaAvailable,
+        spreadAvailable,
+        spread:         spreadActive,
         attackerIsNpc:  CombatHUD.isNpcShip(actor),
         weaponImg:      weapon.img ?? null,
+        weaponId:       weapon.id ?? null,
         weaponName:     weapon.name,
       };
     });
 
     const targetNames = targets.map(t => t.name).join(", ");
-    const wq = weapon.system?.qualities ?? {};
     // If the caller didn't pass an explicit trackerMessageId, try to find the
     // most-recent active tracker for the attacker. Covers paths where the
     // tracker was posted by a different code site (e.g. roller summary card)
@@ -3464,8 +3727,8 @@ export class CombatHUD {
       floatingMomentum,
       qualities: {
         intense:   !!wq.intense,
-        area:      !!wq.area,
-        spread:    spreadDeclared || !!wq.spread,
+        area:      false,
+        spread:    spreadActive,
         piercing:  !!wq.piercing,
         versatile: Number(wq.versatilex ?? wq.versatile ?? 0) || 0,
       },
@@ -3484,9 +3747,11 @@ export class CombatHUD {
       speaker: ChatMessage.getSpeaker({ token }),
     });
 
-    setTimeout(async () => {
-      await fireWeapon(config, isHit, token, targets, { spreadDeclared, salvoMode });
-    }, 500);
+    if (!isHit) {
+      setTimeout(async () => {
+        await fireWeapon(config, false, token, targets, { spreadDeclared, salvoMode });
+      }, 500);
+    }
   }
 
   // ── Quick Actions ──────────────────────────────────────────────────────────
@@ -9478,21 +9743,85 @@ export class CombatHUD {
           letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};">
           ${w}
         </div>`).join("");
+      const complicationHtml = (t.complicationDamagePenalty ?? 0) > 0 ? `
+        <div style="margin-bottom:5px;padding:3px 6px;border-left:3px solid ${LC.red};
+          background:rgba(255,50,50,0.08);font-size:10px;color:${LC.red};
+          font-family:${LC.font};letter-spacing:0.06em;text-transform:uppercase;">
+          Complications: -${t.complicationDamagePenalty} damage
+          ${(t.complicationsBoughtOff ?? 0) > 0 ? `<span style="color:${LC.textDim};"> (${t.complicationsBoughtOff} bought off)</span>` : ""}
+        </div>` : "";
 
       // Encode target data for the Apply Damage button
       const highYield      = weapon?.system?.qualities?.highyield ?? false;
-      const spread         = weapon?.system?.qualities?.spread     ?? false;
+      const areaAvailable  = t.areaAvailable ?? (t.area ?? false);
+      const spreadAvailable = t.spreadAvailable ?? (weapon?.system?.qualities?.spread ?? false);
+      const selectedMode   = t.salvoMode ?? (t.spread ? "spread" : t.area ? "area" : null);
+      const areaSelected   = areaAvailable && selectedMode === "area";
+      const spread         = spreadAvailable && selectedMode === "spread";
+      const areaInfo       = areaAvailable
+        ? CombatHUD._getAreaSecondaryTargets(t.tokenId, t.attackerTokenId)
+        : { targets: [], usingZones: false, zoneName: null };
+      const areaTargetHtml = areaAvailable ? `
+        <div class="sta2e-main-area-targets" style="display:${areaSelected ? "block" : "none"};margin-top:5px;
+          padding:5px 6px;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(0,180,255,0.04);">
+          <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+            text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">
+            ${areaInfo.usingZones
+              ? `Additional ships in ${areaInfo.zoneName ?? "primary target zone"}`
+              : "Additional ships within 250 px"}
+          </div>
+          ${areaInfo.targets.length ? areaInfo.targets.map(tok => `
+            <label style="display:flex;align-items:center;gap:6px;margin:3px 0;
+              font-size:10px;color:${LC.text};font-family:${LC.font};cursor:pointer;">
+              <input class="sta2e-main-area-target" type="checkbox" value="${tok.id}"
+                ${areaSelected ? "" : "disabled"}
+                style="cursor:pointer;accent-color:${LC.primary};"/>
+              ${tok.name}
+            </label>`).join("") : `
+            <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};">
+              No eligible secondary targets.
+            </div>`}
+          <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};margin-top:4px;">
+            Cost: 1 ${t.attackerIsNpc ? "Threat" : "Momentum"} per selected ship.
+          </div>
+        </div>` : "";
+      const qualityControlsHtml = (areaAvailable || spreadAvailable) ? `
+        <div class="sta2e-attack-quality-controls" style="margin-bottom:5px;padding:5px 6px;
+          border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(255,153,0,0.035);">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            ${areaAvailable ? `
+              <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:${LC.text};
+                font-family:${LC.font};letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;">
+                <input class="sta2e-main-area-enabled" type="checkbox" ${areaSelected ? "checked" : ""}
+                  style="cursor:pointer;accent-color:${LC.primary};"/>
+                Area
+              </label>` : ""}
+            ${spreadAvailable ? `
+              <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:${LC.text};
+                font-family:${LC.font};letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;">
+                <input class="sta2e-main-spread-enabled" type="checkbox" ${spread ? "checked" : ""}
+                  style="cursor:pointer;accent-color:${LC.secondary};"/>
+                Spread
+              </label>` : ""}
+          </div>
+          ${areaTargetHtml}
+        </div>` : "";
       const encodedData    = encodeURIComponent(JSON.stringify({
         tokenId:            t.tokenId,
         actorId:            t.actorId,
         finalDamage:        t.finalDamage,
         highYield,
         spread,
+        spreadAvailable,
         area:               t.area ?? false,
+        areaAvailable,
+        areaSecondaryTokenIds: [],
+        salvoMode:          t.salvoMode ?? null,
         attackerTokenId:    t.attackerTokenId ?? null,
         attackerActorId:    t.attackerActorId ?? null,
         attackerIsNpc:      t.attackerIsNpc ?? false,
         weaponImg:          weapon?.img ?? null,
+        weaponId:           weapon?.id ?? null,
         weaponName:         weapon?.name ?? null,
         targetingSystem:    t.targetingSystem ?? null,
         defenderSuccesses:  t.defenderSuccesses ?? null,
@@ -9536,9 +9865,11 @@ export class CombatHUD {
             SHIELDS ${t.currentShields} → <span style="color:${shieldColor};font-weight:700;">${shieldAfter}</span> / ${t.maxShields}
           </div>
 
+          ${complicationHtml}
           ${warningHtml}
 
           <div class="sta2e-damage-controls" style="margin-top:5px;">
+            ${qualityControlsHtml}
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
               <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
                 text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Adj:</label>
@@ -9596,14 +9927,10 @@ export class CombatHUD {
             const defenderActor = canvas.tokens?.get(targetData[0]?.tokenId)?.actor
               ?? game.actors?.get(targetData[0]?.actorId);
             const defenderIsNpcShip = CombatHUD.isNpcShip(defenderActor);
-            const defPoolBtn = (defWinMargin !== null && defWinMargin > 0)
-              ? poolButtonHtml(defenderIsNpcShip ? "threat" : "momentum", defWinMargin, targetData[0]?.tokenId ?? "")
-              : "";
             const deltaLine = defWinMargin !== null
               ? `<div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
-                  ✗ Defender wins — +${defWinMargin} ${defenderIsNpcShip ? "Threat" : "Momentum"}
-                 </div>
-                 ${defPoolBtn}`
+                  ✗ Defender wins — +${defWinMargin} ${defenderIsNpcShip ? "Threat" : "Momentum"} awarded automatically
+                 </div>`
               : `<div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
                   ✗ Defender wins (attack missed)
                  </div>`;
@@ -11497,6 +11824,7 @@ export class CombatHUD {
       ui.notifications.error("STA2e Toolkit: Could not find target actor to apply damage.");
       return;
     }
+    let shipAttackAnimationPlayed = false;
 
     const isNpc         = CombatHUD.isNpcShip(actor);
     const currentShields = actor.system?.shields?.value ?? 0;
@@ -11596,6 +11924,12 @@ export class CombatHUD {
 
       // ── Resolve attack-level outcome ONCE after all breaches ────────────────
       // Critical damage and ship destruction are per-attack, not per-breach.
+      const willDestroyTarget = finalTotalBreaches > (actor.system?.scale ?? 1)
+        && CombatHUD.getShipStatus(actor) === "disabled";
+      if (willDestroyTarget) {
+        await CombatHUD._playShipAttackAnimation(payload);
+        shipAttackAnimationPlayed = true;
+      }
       await CombatHUD._resolveAttackOutcome(actor, token, finalTotalBreaches);
     }
 
@@ -11692,20 +12026,19 @@ export class CombatHUD {
       if (attackerSuccesses !== null) {
         const delta = attackerSuccesses - defSuccesses;
         if (delta > 0) {
+          const attackerPoolLabel = (payload.attackerIsNpc ?? false) ? "Threat" : "Momentum";
           // Attacker won — momentum for attacker
           deltaHtml = `
             <div style="font-size:11px;font-weight:700;color:${LC.green};font-family:${LC.font};margin-top:4px;">
-              ✓ Attacker wins — +${delta} Momentum
+              ✓ Attacker wins — +${delta} ${attackerPoolLabel} awarded automatically
             </div>`;
         } else if (delta < 0) {
           // Defender won — momentum/threat for defender
           const absDelta = Math.abs(delta);
-          const defPoolBtn = poolButtonHtml(isNpc ? "threat" : "momentum", absDelta, tokenId);
           deltaHtml = `
             <div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
-              ✗ Defender wins — +${absDelta} ${isNpc ? "Threat" : "Momentum"}
-            </div>
-            ${defPoolBtn}`;
+              ✗ Defender wins — +${absDelta} ${isNpc ? "Threat" : "Momentum"} awarded automatically
+            </div>`;
           // Counterattack button — available for Defensive Fire and Cover (not Evasive Action)
           if (oppDefType !== "evasive-action") {
             const cfPayload = encodeURIComponent(JSON.stringify({
@@ -11774,7 +12107,9 @@ export class CombatHUD {
         attackerActorId: payload.attackerActorId ?? null,
         attackerIsNpc:   atkIsNpc,
         weaponImg:       payload.weaponImg ?? null,
+        weaponId:        payload.weaponId ?? null,
         weaponName:      payload.weaponName ?? null,
+        salvoMode:       payload.salvoMode ?? null,
         trackerMessageId: payload.trackerMessageId ?? null,
       }));
       devastatingBtn = `
@@ -11790,36 +12125,14 @@ export class CombatHUD {
         </div>`;
     }
 
-    // Area Attack button — shown after primary hit so attacker can apply same damage to nearby ships
+    // Area targets are selected on the main damage card so the choice survives
+    // the primary target being destroyed/removed during damage resolution.
     let areaBtn = "";
-    if (!_isDevastating && payload.area && !payload.spread && finalDamage > 0) {
-      const atkIsNpc  = payload.attackerIsNpc ?? false;
-      const costLabel = atkIsNpc ? "1 THREAT" : "1 MOMENTUM";
-      const areaPayload = encodeURIComponent(JSON.stringify({
-        primaryTokenId:  tokenId,
-        finalDamage,
-        attackerTokenId: payload.attackerTokenId ?? null,
-        attackerIsNpc:   atkIsNpc,
-        weaponImg:       payload.weaponImg ?? null,
-        weaponName:      payload.weaponName ?? null,
-      }));
-      areaBtn = `
-        <div style="margin-top:6px;border-top:1px solid ${LC.borderDim};padding-top:6px;">
-          <button class="sta2e-area-attack"
-            data-payload="${areaPayload}"
-            style="width:100%;padding:4px;background:rgba(0,180,255,0.08);
-              border:1px solid ${LC.primary};border-radius:2px;
-              color:${LC.primary};font-size:10px;font-weight:700;
-              letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;font-family:${LC.font};">
-            AREA — APPLY TO ADDITIONAL TARGETS (${costLabel} EACH)
-          </button>
-        </div>`;
-    }
 
     const headerLabel = _isDevastating ? "DEVASTATING ATTACK" : `DAMAGE APPLIED${isNpc ? " — NPC" : ""}`;
     const headerColor = _isDevastating ? LC.secondary : LC.primary;
 
-    ChatMessage.create({
+    await ChatMessage.create({
       flags: { "sta2e-toolkit": { damageResult: true, actorId: actor.id } },
       content: lcarsCard(headerLabel, headerColor, `
         <div style="font-size:12px;font-weight:700;color:${LC.tertiary};margin-bottom:5px;font-family:${LC.font};">${actor.name}</div>
@@ -11841,6 +12154,54 @@ export class CombatHUD {
       `),
       speaker: { alias: "STA2e Toolkit" }
     });
+
+    if (!shipAttackAnimationPlayed) {
+      await CombatHUD._playShipAttackAnimation(payload);
+    }
+    await CombatHUD._applyAreaSecondaryTargets(payload);
+  }
+
+  static async _applyAreaSecondaryTargets(payload) {
+    if (payload._isDevastating || payload._isAreaSecondary || !payload.area) return;
+    const selectedIds = Array.from(new Set(
+      (Array.isArray(payload.areaSecondaryTokenIds) ? payload.areaSecondaryTokenIds : [])
+        .filter(Boolean)
+    ));
+    if (!selectedIds.length || (Number(payload.finalDamage) || 0) <= 0) return;
+
+    const attackerIsNpc = payload.attackerIsNpc ?? false;
+    const costPool = attackerIsNpc ? "threat" : "momentum";
+    const currentPool = readPool(costPool);
+    const totalCost = selectedIds.length;
+    if (currentPool < totalCost) {
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${attackerIsNpc ? "Threat" : "Momentum"} for Area attack (need ${totalCost}, have ${currentPool}).`);
+      return;
+    }
+    await writePool(costPool, currentPool - totalCost);
+
+    for (const tId of selectedIds) {
+      const tToken = canvas.tokens?.get(tId);
+      if (!tToken) continue;
+      await CombatHUD.applyDamage({
+        tokenId:        tId,
+        actorId:        tToken.actor?.id,
+        finalDamage:    payload.finalDamage,
+        highYield:      false,
+        noDevastating:  true,
+        area:           false,
+        areaAvailable:  false,
+        spread:         false,
+        areaSecondaryTokenIds: [],
+        attackerTokenId: payload.attackerTokenId ?? null,
+        attackerActorId: payload.attackerActorId ?? null,
+        attackerIsNpc,
+        weaponImg:      payload.weaponImg ?? null,
+        weaponId:       payload.weaponId ?? null,
+        weaponName:     payload.weaponName ?? null,
+        salvoMode:      payload.salvoMode ?? null,
+        _isAreaSecondary: true,
+      });
+    }
   }
 
   // ── Devastating Attack (2 Momentum, or 1 with Spread) ─────────────────────
@@ -11904,18 +12265,6 @@ export class CombatHUD {
       } catch (err) { console.error("STA2e Toolkit | decrementTracker error:", err); }
     }
 
-    // Resolve weapon config from the stored img slug so we can fire the animation
-    if (attackerToken && targetToken && weaponImg) {
-      const slug   = weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
-      const config = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
-      setTimeout(async () => {
-        try {
-          if (config) await fireWeapon(config, true, attackerToken, [targetToken]);
-          else        ui.notifications.warn("STA2e Toolkit: No animation config for this weapon.");
-        } catch(e) { console.warn("STA2e Toolkit | Devastating Attack animation failed:", e); }
-      }, 300);
-    }
-
     // Post a new damage card for the secondary hit — reuses full applyDamage flow
     // halfDamage is the base, GM can add extra via the input as usual
     await CombatHUD.applyDamage({
@@ -11925,8 +12274,12 @@ export class CombatHUD {
       highYield:   false,  // Devastating Attack doesn't chain
       spread:      false,
       attackerTokenId,
+      attackerActorId: payload.attackerActorId ?? null,
+      attackerIsNpc:  atkIsNpc,
       weaponImg,
+      weaponId:    payload.weaponId ?? null,
       weaponName,
+      salvoMode:   payload.salvoMode ?? null,
       _isDevastating: true,
     });
   }
@@ -11943,24 +12296,32 @@ export class CombatHUD {
     }
 
     const RADIUS_PX = 250;
-    const cx = primaryToken.x + (primaryToken.w ?? primaryToken.width  ?? 0) / 2;
-    const cy = primaryToken.y + (primaryToken.h ?? primaryToken.height ?? 0) / 2;
+    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
+    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
+    const zones = zonesEnabled ? getSceneZones() : [];
+    const primaryZone = zones.length ? getZoneAtPoint(primaryCenter.x, primaryCenter.y, zones) : null;
+    const usingZones = !!primaryZone;
 
     const nearby = (canvas.tokens?.placeables ?? []).filter(t => {
-      if (t.id === primaryTokenId) return false;
-      const isShip = t.actor?.type === "starship" || t.actor?.type === "spacecraft2e";
-      if (!isShip) return false;
-      const tx = t.x + (t.w ?? t.width  ?? 0) / 2;
-      const ty = t.y + (t.h ?? t.height ?? 0) / 2;
-      return Math.hypot(tx - cx, ty - cy) <= RADIUS_PX;
+      if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
+      if (!CombatHUD._isShipToken(t)) return false;
+      const center = CombatHUD._centerOfToken(t);
+      if (usingZones) {
+        const z = getZoneAtPoint(center.x, center.y, zones);
+        return z?.id === primaryZone.id;
+      }
+      return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
     });
 
     if (nearby.length === 0) {
-      ui.notifications.info("No nearby starship targets within 250 px of the primary target.");
+      ui.notifications.info(usingZones
+        ? `No additional starship targets in ${primaryZone?.name ?? "the primary target's zone"}.`
+        : "No nearby starship targets within 250 px of the primary target.");
       return;
     }
 
     const costLabel = attackerIsNpc ? "1 Threat" : "1 Momentum";
+    const costPool = attackerIsNpc ? "threat" : "momentum";
     const checkboxes = nearby.map(t =>
       `<label style="display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer;">
         <input type="checkbox" name="area-target" value="${t.id}" style="cursor:pointer;">
@@ -11973,8 +12334,12 @@ export class CombatHUD {
       content: `
         <div style="padding:6px 10px;font-family:${LC.font};">
           <p style="font-size:10px;color:${LC.textDim};margin-bottom:8px;">
-            Select targets within 250 px to receive <strong style="color:${LC.tertiary};">${finalDamage} damage</strong>.
+            Select ${usingZones ? `ships in <strong style="color:${LC.primary};">${primaryZone?.name ?? "the primary target's zone"}</strong>` : "nearby ships"}
+            to receive <strong style="color:${LC.tertiary};">${finalDamage} damage</strong>.
             Each costs <strong style="color:${LC.primary};">${costLabel}</strong>.
+          </p>
+          <p style="font-size:10px;color:${LC.textDim};margin-bottom:8px;">
+            Total cost = selected targets x ${costLabel}.
           </p>
           ${checkboxes}
         </div>`,
@@ -11995,19 +12360,18 @@ export class CombatHUD {
 
     if (!result || result === "cancel" || (Array.isArray(result) && result.length === 0)) return;
 
-    const selectedIds    = Array.isArray(result) ? result : [result];
-    const attackerToken  = canvas.tokens.get(attackerTokenId);
+    const selectedIds = Array.isArray(result) ? result : [result];
+    const totalCost = selectedIds.length;
+    const currentPool = readPool(costPool);
+    if (currentPool < totalCost) {
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${attackerIsNpc ? "Threat" : "Momentum"} for Area attack (need ${totalCost}, have ${currentPool}).`);
+      return;
+    }
+    if (totalCost > 0) await writePool(costPool, currentPool - totalCost);
 
     for (const tId of selectedIds) {
       const tToken = canvas.tokens.get(tId);
       if (!tToken) continue;
-
-      // Spend the resource cost per additional target
-      if (attackerIsNpc) {
-        await CombatHUD._applyToPool("threat",   -1, attackerToken);
-      } else {
-        await CombatHUD._applyToPool("momentum", -1, attackerToken);
-      }
 
       // Apply the same damage — no chained devastating or area from secondary hits
       await CombatHUD.applyDamage({
@@ -12017,22 +12381,14 @@ export class CombatHUD {
         highYield:      false,
         noDevastating:  true,
         area:           false,
+        areaAvailable:  false,
         attackerTokenId,
         attackerIsNpc,
         weaponImg,
+        weaponId:       payload.weaponId ?? null,
         weaponName,
+        salvoMode:      payload.salvoMode ?? null,
       });
-
-      // Fire animation to the additional target
-      if (attackerToken && weaponImg) {
-        const slug   = weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
-        const config = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
-        setTimeout(async () => {
-          try {
-            if (config) await fireWeapon(config, true, attackerToken, [tToken]);
-          } catch(e) { console.warn("STA2e Toolkit | Area attack animation failed:", e); }
-        }, 300);
-      }
     }
   }
 
@@ -12268,17 +12624,26 @@ export class CombatHUD {
 
       // Base payload — adjustment is always relative to this
       const basePayloadObj = {
+        attackerTokenId: t.attackerTokenId ?? null,
+        attackerActorId: t.attackerActorId ?? null,
         tokenId:       t.tokenId,
         actorId:       t.actorId,
         injuryName,
         useStun:       t.useStun,
           severity:      t.severity,
+          baseSeverity:  t.baseSeverity ?? t.severity,
+          complicationDamagePenalty: t.complicationDamagePenalty ?? 0,
+          complications: t.complications ?? 0,
+          complicationsBoughtOff: t.complicationsBoughtOff ?? 0,
           potency:       pot,
           basePotency:   pot,
           npcType:       t.npcType,
           isPlayerOwned: t.isPlayerOwned ?? false,
           currentStress: t.currentStress ?? 0,
           maxStress:     t.maxStress ?? 0,
+          weaponId:      t.weaponId ?? null,
+          weaponImg:     t.weaponImg ?? null,
+          weaponName:    t.weaponName ?? null,
           weaponColor:   t.weaponColor ?? "blue",
           weaponType:    t.weaponType  ?? "ground-beam",
         };
@@ -12300,6 +12665,12 @@ export class CombatHUD {
             ${avoidRule}
           </div>
           ${stressBar}
+          ${(t.complicationDamagePenalty ?? 0) > 0 ? `
+          <div style="font-size:9px;color:${LC.red};font-family:${LC.font};
+            margin-bottom:4px;padding-left:2px;text-transform:uppercase;letter-spacing:0.06em;">
+            Complications: -${t.complicationDamagePenalty} damage
+            ${(t.complicationsBoughtOff ?? 0) > 0 ? `<span style="color:${LC.textDim};"> (${t.complicationsBoughtOff} bought off)</span>` : ""}
+          </div>` : ""}
           <div style="font-size:10px;color:${LC.tertiary};font-family:${LC.font};
             margin-top:5px;margin-bottom:4px;">
             Injury if taken: <strong class="sta2e-injury-label" style="color:${injuryColor};">${injuryName}</strong>
@@ -12763,6 +13134,7 @@ export class CombatHUD {
               await CombatHUD._vaporizeToken(token, weaponColor);
             }
           }
+          await CombatHUD._playGroundAttackAnimation(payload);
           await CombatHUD._markInjuryCardResolved(messageId, actor.name);
           return;
         }
@@ -12803,6 +13175,7 @@ export class CombatHUD {
     }
 
     // Mark decision card resolved
+    await CombatHUD._playGroundAttackAnimation(payload);
     await CombatHUD._markInjuryCardResolved(messageId, actor.name);
   }
 
@@ -16639,6 +17012,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               const hasStun   = weapon.system?.qualities?.stun   ?? false;
               const hasDeadly = weapon.system?.qualities?.deadly ?? false;
               const severity  = weapon.system?.severity ?? 0;
+              const complicationInfo = passed
+                ? await CombatHUD._resolveComplicationDamagePenalty({
+                    complications: totalComplications,
+                    attackerIsNpc: groundIsNpc,
+                    attackerName: tokenObj?.name ?? charActor.name,
+                  })
+                : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
+              const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty);
 
               // Stun/Deadly was declared before the roll — read from weaponContext
               const isDual            = hasStun && hasDeadly;
@@ -16654,10 +17035,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 const baseProtection = CombatHUD._getTargetProtection(tActor);
                 const protection     = baseProtection + (isProneCovered ? 1 : 0);
                 const hasBraklul = CombatHUD._hasBraklul(tActor);
-                const rawPotency = severity - protection;
-                const potency    = severity > 0 ? Math.max(1, rawPotency) : 0;
+                const rawPotency = effectiveSeverity - protection;
+                const potency    = effectiveSeverity > 0 ? Math.max(1, rawPotency) : 0;
                 const profile = CombatHUD.getGroundCombatProfile(tActor, t.document);
                 return {
+                  attackerTokenId: tokenObj?.id ?? null,
+                  attackerActorId: charActor?.id ?? null,
                   tokenId:       t.id,
                   actorId:       tActor?.id,
                   name:          t.name,
@@ -16666,7 +17049,13 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   currentStress: tActor?.system?.stress?.value ?? 0,
                   maxStress:     tActor?.system?.stress?.max   ?? 0,
                   isProneCovered,
-                  useStun, isDual, severity, protection, hasBraklul, potency,
+                  useStun, isDual, severity: effectiveSeverity,
+                  baseSeverity: severity,
+                  complicationDamagePenalty: complicationInfo.penalty,
+                  complications: complicationInfo.total,
+                  complicationsBoughtOff: complicationInfo.boughtOff,
+                  protection, hasBraklul, potency,
+                  weaponId:    weapon.id,
                   weaponName: weapon.name,
                   weaponImg:  weapon.img,
                   weaponColor: config?.color ?? "blue",
@@ -16719,10 +17108,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 speaker: ChatMessage.getSpeaker({ token: tokenObj }),
               });
 
-              setTimeout(async () => {
-                try { await fireWeapon(config, passed, tokenObj, targets); }
-                catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
-              }, 300);
+              if (!passed) {
+                setTimeout(async () => {
+                  try { await fireWeapon(config, false, tokenObj, targets); }
+                  catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
+                }, 300);
+              }
             }
           } else {
             ui.notifications.warn(`Weapon "${weaponContext.name}" not found on character.`);
@@ -16762,6 +17153,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               floatingMomentum:     _shipFloating,
               intenseTalentBonus:   _shipIntenseBonus,
               trackerMessageId:     _trackerMessageId,
+              complications:         totalComplications,
+              opposedMomentumAwarded: opposedDefenseType !== null && (
+                _trackerBanked > 0
+                || _trackerFloat > 0
+                || !!_trackerMessageId
+              ),
             });
             // Clear calibrate weapons flag (GM only)
             if (calibrateWeaponsBonus && game.user.isGM) {
@@ -17252,6 +17649,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const hasBraklul = CombatHUD._hasBraklul(attackerActor);
 
         const targetData = [{
+          attackerTokenId: defenderToken?.id ?? null,
+          attackerActorId: defenderActor.id,
           tokenId:       attackerToken.id,
           actorId:       attackerActor.id,
           name:          attackerToken.name,
@@ -17261,6 +17660,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           maxStress:     attackerActor.system?.stress?.max   ?? 0,
           isProneCovered: false,
           useStun, isDual: hasStun && hasDeadly, severity, protection, hasBraklul, potency,
+          weaponId:     chosenWeapon.id,
           weaponName:  chosenWeapon.name,
           weaponImg:   chosenWeapon.img,
           weaponColor: config?.color ?? "blue",
@@ -17278,10 +17678,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           speaker: ChatMessage.getSpeaker({ token: defenderToken ?? null }),
         });
 
-        setTimeout(async () => {
-          try { await fireWeapon(config, true, defenderToken, [attackerToken]); }
-          catch(e) { console.warn("STA2e Toolkit | Ground counterattack animation failed:", e); }
-        }, 300);
       } catch(err) {
         console.error("STA2e Toolkit | Ground counterattack error:", err);
         ui.notifications.error("Failed to initiate counterattack — see console.");
@@ -17293,23 +17689,99 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
   // ── Ship combat — Apply Damage buttons (GM only) ─────────────────────────
   if (message.flags?.["sta2e-toolkit"]?.damageCard) {
+    const buildShipDamagePayload = (controls, basePayload, finalDamage) => {
+      const areaToggle = controls?.querySelector(".sta2e-main-area-enabled");
+      const spreadToggle = controls?.querySelector(".sta2e-main-spread-enabled");
+      const spreadSelected = spreadToggle ? !!spreadToggle.checked : !!basePayload.spread;
+      const areaSelected = !spreadSelected && (areaToggle ? !!areaToggle.checked : !!basePayload.area);
+      const areaSecondaryTokenIds = areaSelected
+        ? Array.from(controls?.querySelectorAll(".sta2e-main-area-target:checked") ?? []).map(inp => inp.value)
+        : [];
+      const salvoMode = areaSelected ? "area" : spreadSelected ? "spread" : basePayload.salvoMode;
+      return {
+        ...basePayload,
+        finalDamage,
+        area: areaSelected,
+        spread: spreadSelected,
+        areaSecondaryTokenIds,
+        salvoMode,
+      };
+    };
+
+    const syncShipDamageControls = (controls) => {
+      const input = controls?.querySelector(".sta2e-extra-damage");
+      const btn = controls?.querySelector(".sta2e-apply-damage");
+      const finalDisplay = controls?.querySelector(".sta2e-final-display strong");
+      if (!input || !btn) return;
+      const basePayload = JSON.parse(decodeURIComponent(input.dataset.basePayload));
+      const baseFinal = basePayload.finalDamage;
+      const extra = parseInt(input.value) || 0;
+      const newTotal = Math.max(0, baseFinal + extra);
+      if (finalDisplay) finalDisplay.textContent = newTotal;
+      btn.dataset.payload = encodeURIComponent(JSON.stringify(buildShipDamagePayload(controls, basePayload, newTotal)));
+    };
+
+    html.querySelectorAll(".sta2e-main-area-enabled").forEach(input => {
+      const controls = input.closest(".sta2e-damage-controls");
+      const targetWrap = controls?.querySelector(".sta2e-main-area-targets");
+      const sync = () => {
+        const enabled = !!input.checked;
+        if (enabled) {
+          const spreadToggle = controls?.querySelector(".sta2e-main-spread-enabled");
+          if (spreadToggle) spreadToggle.checked = false;
+        }
+        if (targetWrap) targetWrap.style.display = enabled ? "block" : "none";
+        controls?.querySelectorAll(".sta2e-main-area-target").forEach(tgt => {
+          tgt.disabled = !enabled;
+          if (!enabled) tgt.checked = false;
+        });
+        syncShipDamageControls(controls);
+      };
+      input.addEventListener("change", sync);
+      input.addEventListener("mousedown", e => e.stopPropagation());
+      input.addEventListener("click", e => e.stopPropagation());
+      sync();
+    });
+
+    html.querySelectorAll(".sta2e-main-spread-enabled").forEach(input => {
+      const controls = input.closest(".sta2e-damage-controls");
+      const sync = () => {
+        if (input.checked) {
+          const areaToggle = controls?.querySelector(".sta2e-main-area-enabled");
+          const targetWrap = controls?.querySelector(".sta2e-main-area-targets");
+          if (areaToggle) areaToggle.checked = false;
+          if (targetWrap) targetWrap.style.display = "none";
+          controls?.querySelectorAll(".sta2e-main-area-target").forEach(tgt => {
+            tgt.disabled = true;
+            tgt.checked = false;
+          });
+        }
+        syncShipDamageControls(controls);
+      };
+      input.addEventListener("change", sync);
+      input.addEventListener("mousedown", e => e.stopPropagation());
+      input.addEventListener("click", e => e.stopPropagation());
+      sync();
+    });
+
+    html.querySelectorAll(".sta2e-main-area-target").forEach(input => {
+      const controls = input.closest(".sta2e-damage-controls");
+      input.addEventListener("change", () => syncShipDamageControls(controls));
+      input.addEventListener("mousedown", e => e.stopPropagation());
+      input.addEventListener("click", e => e.stopPropagation());
+    });
+
     html.querySelectorAll(".sta2e-extra-damage").forEach(input => {
       const controls     = input.closest(".sta2e-damage-controls");
-      const btn          = controls?.querySelector(".sta2e-apply-damage");
-      const finalDisplay = controls?.querySelector(".sta2e-final-display strong");
-      const basePayload  = JSON.parse(decodeURIComponent(input.dataset.basePayload));
-      const baseFinal    = basePayload.finalDamage;
 
       const update = () => {
-        const extra    = parseInt(input.value) || 0;
-        const newTotal = Math.max(0, baseFinal + extra);
-        if (finalDisplay) finalDisplay.textContent = newTotal;
-        if (btn) btn.dataset.payload = encodeURIComponent(JSON.stringify({ ...basePayload, finalDamage: newTotal }));
+        syncShipDamageControls(controls);
       };
 
       input.addEventListener("input",  update);
       input.addEventListener("change", update);
       input.addEventListener("mousedown", e => e.stopPropagation());
+      update();
     });
 
     html.querySelectorAll(".sta2e-apply-damage").forEach(btn => {
@@ -17574,6 +18046,20 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       });
 
       // ── Area Attack — apply same damage to additional nearby starship tokens ──
+      html.querySelectorAll(".sta2e-area-enabled").forEach(input => {
+        const wrap = input.closest("div");
+        const btn = wrap?.querySelector(".sta2e-area-attack");
+        const sync = () => {
+          if (!btn) return;
+          btn.disabled = !input.checked;
+          btn.style.opacity = input.checked ? "1" : "0.45";
+          btn.style.cursor = input.checked ? "pointer" : "not-allowed";
+        };
+        input.addEventListener("change", sync);
+        input.addEventListener("mousedown", e => e.stopPropagation());
+        sync();
+      });
+
       html.querySelectorAll(".sta2e-area-attack").forEach(btn => {
         btn.addEventListener("click", async () => {
           try {

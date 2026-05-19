@@ -165,6 +165,8 @@
   "STA2E.Settings.AutoVaporizeMinorNpc.Hint": "When a minor NPC is killed by an eligible weapon (phaser, disruptor, grenade, Jem'Hadar), automatically play the vaporize effect and remove the token without prompting. Disable to always show the outcome dialog.",
   "STA2E.Settings.DeleteTokenOnDestruction.Name": "Ship Destruction — Delete Token After Animation",
   "STA2E.Settings.DeleteTokenOnDestruction.Hint": "When a ship is destroyed, fade out the token and delete it from the scene after the explosion animation completes. Disable to keep the token on the canvas.",
+  "STA2E.Settings.AlphaAwareWeaponHitPoints.Name": "Ship Weapon Animations — Avoid Transparent Token Areas",
+  "STA2E.Settings.AlphaAwareWeaponHitPoints.Hint": "When enabled, starship hit animations choose random visible pixels in the attacker and target token art. Disable to use Sequencer's original random token offsets.",
   "STA2E.Settings.BreachTokenFX.Name": "Ship Damage — Token Magic Breach FX",
   "STA2E.Settings.BreachTokenFX.Hint": "Show progressive damage splash effects on ship tokens as they take breaches. Requires Token Magic FX module.",
   "STA2E.Settings.BreachTrailFX.Name": "Ship Damage — Warp Core Breach Visual FX",

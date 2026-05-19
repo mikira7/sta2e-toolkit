@@ -60,11 +60,14 @@ function resolveCustomEffect(weaponName, isShip, isHit) {
 // ---------------------------------------------------------------------------
 
 // FireballBeam — long ship-scale energy beam (free & patron)
+const SHIP_PHASER_BEAM_FREE = "modules/JB2A_DnD5e/Library/Generic/RangedSpell/Beam/Beam002_03_Regular_Orange_90ft_4000x400.webm";
+
 function beamEffect(color) {
   const weaponKey = color === "green" ? "disruptor" : color === "purple" ? "polaron" : "phaser";
   return animOverride("shipWeapons", weaponKey, "animHit")
     ?? (isPatron()
       ? `modules/jb2a_patreon/Library/Generic/Weapon_Attacks/Ranged/Snipe_01_Regular_${{ orange: "Orange", green: "Green", purple: "Purple", blue: "Blue" }[color] ?? "Orange"}_90ft_4000x400.webm`
+      : color === "orange" ? SHIP_PHASER_BEAM_FREE
       : `modules/JB2A_DnD5e/Library/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`);
 }
 
@@ -464,6 +467,184 @@ function withSound(s, soundPath) {
   return soundPath ? s.sound().file(soundPath).volume(1) : s;
 }
 
+function useAlphaAwareWeaponHitPoints() {
+  try { return game.settings.get("sta2e-toolkit", "alphaAwareWeaponHitPoints") !== false; }
+  catch { return true; }
+}
+
+const TOKEN_ALPHA_MASK_CACHE = new Map();
+const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
+const TOKEN_ALPHA_THRESHOLD = 32;
+
+function tokenTextureSource(token) {
+  return token?.document?.texture?.src
+    ?? token?.texture?.src
+    ?? token?.document?.img
+    ?? token?.actor?.img
+    ?? null;
+}
+
+async function getTokenAlphaMask(src) {
+  if (!src) return null;
+  if (TOKEN_ALPHA_MASK_CACHE.has(src)) return TOKEN_ALPHA_MASK_CACHE.get(src);
+
+  const maskPromise = new Promise(resolve => {
+    let img;
+    try {
+      img = new Image();
+    } catch {
+      resolve(null);
+      return;
+    }
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const naturalWidth = img.naturalWidth || img.width;
+        const naturalHeight = img.naturalHeight || img.height;
+        if (!naturalWidth || !naturalHeight) {
+          resolve(null);
+          return;
+        }
+
+        const scale = Math.min(1, TOKEN_ALPHA_MASK_MAX_SIZE / Math.max(naturalWidth, naturalHeight));
+        const width = Math.max(1, Math.round(naturalWidth * scale));
+        const height = Math.max(1, Math.round(naturalHeight * scale));
+        const canvasEl = document.createElement("canvas");
+        canvasEl.width = width;
+        canvasEl.height = height;
+        const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const data = ctx.getImageData(0, 0, width, height).data;
+        const opaque = [];
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            if (data[((y * width + x) * 4) + 3] >= TOKEN_ALPHA_THRESHOLD) opaque.push({ x, y });
+          }
+        }
+        resolve(opaque.length ? { width, height, opaque } : null);
+      } catch (err) {
+        console.warn("STA2e Toolkit | Could not sample token alpha for weapon animation:", err);
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+
+  TOKEN_ALPHA_MASK_CACHE.set(src, maskPromise);
+  return maskPromise;
+}
+
+function tokenCenter(token) {
+  if (token?.center) return { x: token.center.x, y: token.center.y };
+  const doc = token?.document ?? token;
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  const width = (doc?.width ?? 1) * gridSize;
+  const height = (doc?.height ?? 1) * gridSize;
+  return {
+    x: (doc?.x ?? token?.x ?? 0) + width / 2,
+    y: (doc?.y ?? token?.y ?? 0) + height / 2,
+  };
+}
+
+function tokenDimensions(token) {
+  const doc = token?.document ?? token;
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  return {
+    width: token?.w ?? ((doc?.width ?? 1) * gridSize),
+    height: token?.h ?? ((doc?.height ?? 1) * gridSize),
+  };
+}
+
+async function randomOpaqueTokenPoint(token) {
+  if (!useAlphaAwareWeaponHitPoints()) return null;
+
+  const mask = await getTokenAlphaMask(tokenTextureSource(token));
+  if (!mask) return null;
+
+  const pixel = mask.opaque[Math.floor(Math.random() * mask.opaque.length)];
+  if (!pixel) return null;
+
+  const doc = token?.document ?? token;
+  const texture = doc?.texture ?? {};
+  const anchorX = Number(texture.anchorX ?? 0.5);
+  const anchorY = Number(texture.anchorY ?? 0.5);
+  const scaleX = Number(texture.scaleX ?? 1) || 1;
+  const scaleY = Number(texture.scaleY ?? 1) || 1;
+  const signX = scaleX < 0 ? -1 : 1;
+  const signY = scaleY < 0 ? -1 : 1;
+  const { width, height } = tokenDimensions(token);
+  const u = (pixel.x + Math.random()) / mask.width;
+  const v = (pixel.y + Math.random()) / mask.height;
+  const localX = (u - anchorX) * width * Math.abs(scaleX) * signX;
+  const localY = (v - anchorY) * height * Math.abs(scaleY) * signY;
+  const rotation = Number(doc?.rotation ?? token?.rotation ?? 0) * (Math.PI / 180);
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const center = tokenCenter(token);
+
+  return {
+    x: center.x + localX * cos - localY * sin,
+    y: center.y + localX * sin + localY * cos,
+  };
+}
+
+function offsetForTokenPoint(token, point) {
+  if (!point) return null;
+  const center = tokenCenter(token);
+  return { x: point.x - center.x, y: point.y - center.y };
+}
+
+function sequenceLocation(token, point, fallbackOptions = undefined) {
+  const offset = offsetForTokenPoint(token, point);
+  if (offset) return { location: token, options: { offset } };
+  return { location: token, options: fallbackOptions };
+}
+
+async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined } = {}) {
+  const [sourcePoint, targetPoint] = await Promise.all([
+    randomOpaqueTokenPoint(sourceToken),
+    randomOpaqueTokenPoint(targetToken),
+  ]);
+  return {
+    source: sequenceLocation(sourceToken, sourcePoint, sourceOptions),
+    target: sequenceLocation(targetToken, targetPoint, targetOptions),
+  };
+}
+
+function atSequenceLocation(effect, location) {
+  return location?.options
+    ? effect.atLocation(location.location, location.options)
+    : effect.atLocation(location.location);
+}
+
+function stretchToSequenceLocation(effect, location) {
+  return location?.options
+    ? effect.stretchTo(location.location, location.options)
+    : effect.stretchTo(location.location);
+}
+
+export function getStarshipDamageAnimationRepeatCount(finalDamage) {
+  const damage = Math.max(0, Number(finalDamage) || 0);
+  if (damage >= 8) return 3;
+  if (damage >= 4) return 2;
+  return 1;
+}
+
+function normalizeRepeatCount(repeatCount) {
+  const count = Math.floor(Number(repeatCount) || 1);
+  return Math.min(3, Math.max(1, count));
+}
+
+function cannonShotCount(repeatCount) {
+  return normalizeRepeatCount(repeatCount) * 2;
+}
+
 // ---------------------------------------------------------------------------
 // Ship-scale firing functions
 // ---------------------------------------------------------------------------
@@ -481,120 +662,173 @@ function getTimingTorpedoImpact() {
   catch { return 1000; }
 }
 
-async function fireBeamSingle(config, isHit, token, targets) {
+async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1) {
+  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
-    let s = withSound(seq(), soundPath).wait(50);
+    let s = seq();
     if (isHit) {
-      s.effect().file(config.effect).scale(0.5).atLocation(token).stretchTo(target)
-       .wait(getTimingBeamTravel())
-       .effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+      for (let i = 0; i < repeats; i++) {
+        const locations = await shipShotLocations(token, target);
+        s = withSound(s, soundPath).wait(50);
+        stretchToSequenceLocation(
+          atSequenceLocation(s.effect().file(config.effect).scale(0.5), locations.source),
+          locations.target
+        )
+          .wait(getTimingBeamTravel());
+        atSequenceLocation(s.effect().file(config.impact), locations.target).scaleToObject(1.5);
+        if (i < repeats - 1) s.wait(250);
+      }
     } else {
+      s = withSound(s, soundPath).wait(50);
       s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
     }
-    s.play();
+    await s.play();
   }
 }
 
-async function fireBeamSpread(config, isHit, token, targets) {
+async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1) {
+  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
-    let s = withSound(seq(), soundPath).wait(50);
+    let s = seq();
     if (isHit) {
-      const shots = config.shots ?? 4;
+      let impactLocation = sequenceLocation(target, null);
+      for (let i = 0; i < repeats; i++) {
+        const locations = await shipShotLocations(token, target, {
+          sourceOptions: { randomOffset: true },
+          targetOptions: { randomOffset: true },
+        });
+        impactLocation = locations.target;
+        s = withSound(s, soundPath).wait(50);
+        s = stretchToSequenceLocation(
+          atSequenceLocation(s.effect().file(config.effect).scale(0.5), locations.source),
+          locations.target
+        ).waitUntilFinished(-200);
+      }
+      atSequenceLocation(s.effect().file(config.impact), impactLocation).scaleToObject(1.5);
+    } else {
+      s = withSound(s, soundPath).wait(50);
+      s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
+    }
+    await s.play();
+  }
+}
+
+async function fireCannons(config, isHit, token, targets, repeatCount = 1) {
+  const shots = isHit ? cannonShotCount(repeatCount) : 1;
+  for (const target of targets) {
+    let s = seq();
+    if (isHit) {
+      let impactLocation = sequenceLocation(target, null);
       for (let i = 0; i < shots; i++) {
-        s = s.effect().file(config.effect).scale(0.5)
-             .atLocation(token, { randomOffset: true })
-             .stretchTo(target, { randomOffset: true })
-             .waitUntilFinished(-200);
+        const locations = await shipShotLocations(token, target, {
+          sourceOptions: { randomOffset: true },
+          targetOptions: { randomOffset: true },
+        });
+        impactLocation = locations.target;
+        s = withSound(s, config.sound).wait(50);
+        s = stretchToSequenceLocation(
+          atSequenceLocation(s.effect().file(config.effect), locations.source),
+          locations.target
+        ).wait(50);
       }
-      s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+      atSequenceLocation(s.effect().file(config.impact), impactLocation).scaleToObject(1.5);
     } else {
+      s = withSound(s, config.sound).wait(50);
       s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
     }
-    s.play();
+    await s.play();
   }
 }
 
-async function fireCannons(config, isHit, token, targets) {
-  for (const target of targets) {
-    let s = withSound(seq(), config.sound).wait(50);
-    if (isHit) {
-      for (let i = 0; i < (config.shots ?? 4); i++) {
-        s = s.effect().file(config.effect)
-             .atLocation(token, { randomOffset: true })
-             .stretchTo(target, { randomOffset: true }).wait(50);
-      }
-      s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
-    } else {
-      s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
-    }
-    s.play();
-  }
-}
-
-async function fireTorpedoSingle(config, isHit, token, targets) {
+async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1) {
+  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = config.sound;
     const s = seq();
-    if (soundPath) s.sound().file(soundPath).volume(1);
-    s.wait(150);
     if (isHit) {
-      s.effect().file(config.effect).atLocation(token).stretchTo(target);
-      s.wait(getTimingTorpedoImpact());
-      s.effect().file(config.explosion).atLocation(target).scaleToObject(1.5);
+      for (let i = 0; i < repeats; i++) {
+        const locations = await shipShotLocations(token, target);
+        if (soundPath) s.sound().file(soundPath).volume(1);
+        s.wait(150);
+        stretchToSequenceLocation(
+          atSequenceLocation(s.effect().file(config.effect), locations.source),
+          locations.target
+        );
+        s.wait(getTimingTorpedoImpact());
+        atSequenceLocation(s.effect().file(config.explosion), locations.target).scaleToObject(1.5);
+        if (i < repeats - 1) s.wait(250);
+      }
     } else {
+      if (soundPath) s.sound().file(soundPath).volume(1);
+      s.wait(150);
       s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
     }
-    s.play();
+    await s.play();
   }
 }
 
-async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode) {
-  const count = config.torpedoes ?? 3;
+async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1) {
+  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
 
   if (salvoMode === "spread") {
     // One torpedo per target — same as single but faster succession across targets
     for (const target of targets) {
       const soundPath = config.sound;
       const s = seq();
-      if (soundPath) s.sound().file(soundPath).volume(1);
-      s.wait(100);
       if (isHit) {
-        s.effect().file(config.effect).atLocation(token).stretchTo(target);
-        s.wait(getTimingTorpedoImpact());
-        s.effect().file(config.explosion).atLocation(target).scaleToObject(1.5);
+        for (let r = 0; r < repeats; r++) {
+          const locations = await shipShotLocations(token, target);
+          if (soundPath) s.sound().file(soundPath).volume(1);
+          s.wait(100);
+          stretchToSequenceLocation(
+            atSequenceLocation(s.effect().file(config.effect), locations.source),
+            locations.target
+          );
+          s.wait(getTimingTorpedoImpact());
+          atSequenceLocation(s.effect().file(config.explosion), locations.target).scaleToObject(1.5);
+          if (r < repeats - 1) s.wait(250);
+        }
       } else {
+        if (soundPath) s.sound().file(soundPath).volume(1);
+        s.wait(100);
         s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
       }
-      s.play();
+      await s.play();
     }
   } else {
-    // Area salvo — fire `count` torpedoes at the primary target with staggered
-    // timing and fanned launch offsets so each shot is visually distinct
+    // Area salvo uses damage-scaled shots, capped at three, with staggered
+    // timing and fanned launch offsets so each shot is visually distinct.
     for (const target of targets) {
       const soundPath = config.sound;
       const s = seq();
 
       if (isHit) {
-        for (let i = 0; i < count; i++) {
+        let explosionLocation = sequenceLocation(target, null);
+        for (let i = 0; i < repeats; i++) {
+          const locations = await shipShotLocations(token, target, {
+            sourceOptions: { randomOffset: 0.4 },
+            targetOptions: { randomOffset: 0.3 },
+          });
+          explosionLocation = locations.target;
           if (i > 0) s.wait(220);
           if (soundPath) s.sound().file(soundPath).volume(i === 0 ? 1 : 0.7);
-          s.effect()
-            .file(config.effect)
-            .atLocation(token, { randomOffset: 0.4 })
-            .stretchTo(target, { randomOffset: 0.3 });
+          stretchToSequenceLocation(
+            atSequenceLocation(s.effect().file(config.effect), locations.source),
+            locations.target
+          );
         }
         // Explosion after the last torpedo arrives
         s.wait(getTimingTorpedoImpact());
-        s.effect().file(config.explosion).atLocation(target).scaleToObject(2.0);
+        atSequenceLocation(s.effect().file(config.explosion), explosionLocation).scaleToObject(2.0);
       } else {
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.effect().file(config.effect).atLocation(token).stretchTo(target).missed();
       }
 
-      s.play();
+      await s.play();
     }
   }
 }
@@ -754,22 +988,23 @@ export async function fireTargetingSolution(attackerToken, targetToken) {
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
-export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area" } = {}) {
+export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1 } = {}) {
   if (!config) return;
   if (!combatAnimationsAvailable()) return;
+  const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
 
   switch (config.type) {
     // Ship-scale weapons
     case "beam":
-      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets);
-      else await fireBeamSingle(config, isHit, token, targets);
+      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, shipRepeatCount);
+      else await fireBeamSingle(config, isHit, token, targets, shipRepeatCount);
       break;
     case "cannon":
-      await fireCannons(config, isHit, token, targets);
+      await fireCannons(config, isHit, token, targets, shipRepeatCount);
       break;
     case "torpedo":
-      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode);
-      else              await fireTorpedoSingle(config, isHit, token, targets);
+      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount);
+      else              await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount);
       break;
 
     // Ground-scale weapons
