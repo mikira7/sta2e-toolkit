@@ -18,7 +18,7 @@ import { registerConditionHooks } from "./token-conditions.js";
 import { openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
-import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
+import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
 import { getLcTokens } from "./lcars-theme.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
@@ -36,6 +36,7 @@ import {
   openOpposedTaskSetup,
   startOpposedTask,
   startGroundCombatOpposedTask,
+  startStarshipCombatOpposedTask,
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
@@ -679,6 +680,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openOpposedTaskSetup = openOpposedTaskSetup;
   game.sta2eToolkit.startOpposedTask     = startOpposedTask;
   game.sta2eToolkit.startGroundCombatOpposedTask = startGroundCombatOpposedTask;
+  game.sta2eToolkit.startStarshipCombatOpposedTask = startStarshipCombatOpposedTask;
 
   // Expose zone system helpers for macros
   game.sta2eToolkit.ZoneHazard = ZoneHazard;
@@ -1095,6 +1097,14 @@ Hooks.once("ready", async () => {
       }
     }
 
+    else if (msg.action === "startStarshipCombatOpposedTask" && _isResponsibleGM()) {
+      try {
+        await startStarshipCombatOpposedTask(msg.opts ?? {});
+      } catch (e) {
+        console.error("STA2e Toolkit | startStarshipCombatOpposedTask via socket failed:", e);
+      }
+    }
+
     // ── Opposed Task (social/skill) — a non-GM player finished their roll ───
     // Only the GM can update the chat card's flags, so players forward results
     // over the socket and we apply them here.
@@ -1107,6 +1117,10 @@ Hooks.once("ready", async () => {
           successes:     msg.successes,
           complications: msg.complications,
           dice:          msg.dice,
+          rollData:      msg.rollData,
+          trackerMessageId: msg.trackerMessageId,
+          trackerFloat:  msg.trackerFloat,
+          trackerBanked: msg.trackerBanked,
         });
       } catch (e) {
         console.error("STA2e Toolkit | applyOpposedRollResult via socket failed:", e);
@@ -2014,6 +2028,47 @@ function _allWorldShips() {
     .map(a => ({ label: a.name, actorId: a.id, shipActor: a, shipToken: null }));
 }
 
+function _orderedShipRefs(allShips, assignedShipIds) {
+  const assigned = normalizeAssignedShips(assignedShipIds);
+  const byId = new Map(allShips.map(s => [s.actorId, s]));
+  const ordered = assigned.map(id => byId.get(id)).filter(Boolean);
+  const used = new Set(ordered.map(s => s.actorId));
+  return [
+    ...ordered,
+    ...allShips.filter(s => !used.has(s.actorId)),
+  ];
+}
+
+function _assignedShipRefs(allShips, actor) {
+  const assigned = normalizeAssignedShips(getAssignedShips(actor));
+  const byId = new Map(allShips.map(s => [s.actorId, s]));
+  return assigned.map(id => byId.get(id)).filter(Boolean);
+}
+
+function _serializeShipsForRoller(shipRefs) {
+  return shipRefs.map(s => ({
+    label:              s.label,
+    actorId:            s.actorId,
+    systems:            s.shipActor.system?.systems     ?? {},
+    depts:              s.shipActor.system?.departments ?? {},
+    hasAdvancedSensors: s.shipActor.items?.some(i =>
+      i.name.toLowerCase().includes("advanced sensor suites") ||
+      i.name.toLowerCase().includes("advanced sensors")
+    ) ?? false,
+    sensorsBreaches:    s.shipActor.system?.systems?.sensors?.breaches ?? 0,
+  }));
+}
+
+function _escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[ch]);
+}
+
 /**
  * Find the active combat ship for a character actor.
  * Checks two paths in priority order:
@@ -2023,22 +2078,25 @@ function _allWorldShips() {
  */
 function _getCombatShipContext(actor) {
   if (!game.combat?.active) return null;
-  const assignedIds = new Set(getAssignedShips(actor));
+  const assignedIds = normalizeAssignedShips(getAssignedShips(actor));
+  const combatShips = game.combat.combatants.filter(c => c.actor && _isShipActor(c.actor));
 
-  for (const combatant of game.combat.combatants) {
+  const contextForCombatant = (combatant) => {
     const shipActor = combatant.actor;
-    if (!shipActor || !_isShipActor(shipActor)) continue;
+    const manifest   = getCrewManifest(shipActor);
+    const stationIds = STATION_SLOTS
+      .filter(s => (manifest[s.id] ?? []).includes(actor.id))
+      .map(s => s.id);
+    return { shipActor, combatant, stationIds };
+  };
 
-    // Path 1: character is in the assignedShips list for this ship
-    if (assignedIds.has(shipActor.id)) {
-      const manifest   = getCrewManifest(shipActor);
-      const stationIds = STATION_SLOTS
-        .filter(s => (manifest[s.id] ?? []).includes(actor.id))
-        .map(s => s.id);
-      return { shipActor, combatant, stationIds };
-    }
+  for (const shipId of assignedIds) {
+    const combatant = combatShips.find(c => c.actor?.id === shipId);
+    if (combatant) return contextForCombatant(combatant);
+  }
 
-    // Path 2: character appears in the ship's own crew manifest
+  for (const combatant of combatShips) {
+    const shipActor = combatant.actor;
     const manifest   = getCrewManifest(shipActor);
     const stationIds = STATION_SLOTS
       .filter(s => (manifest[s.id] ?? []).includes(actor.id))
@@ -2070,11 +2128,27 @@ async function _openAssignShipsDialog(actor) {
     return;
   }
 
+  const _readOrderedIdsFromElement = (root) => {
+    const rows = [...root.querySelectorAll("[data-ship-row]")];
+    const checkedIds = rows
+      .filter(row => row.querySelector('input[name="ship"]')?.checked)
+      .map(row => row.dataset.shipId);
+    const defaultId = root.querySelector('input[name="default-ship"]:checked')?.value;
+    const ordered = defaultId && checkedIds.includes(defaultId)
+      ? [defaultId, ...checkedIds.filter(id => id !== defaultId)]
+      : checkedIds;
+    return normalizeAssignedShips(ordered);
+  };
+
   function _buildContent() {
     const LC = getLcTokens();
     const presets     = game.settings.get("sta2e-toolkit", "shipPresets") ?? {};
-    const current     = new Set(getAssignedShips(actor));
+    const currentIds  = normalizeAssignedShips(getAssignedShips(actor));
+    const current     = new Set(currentIds);
     const presetNames = Object.keys(presets);
+    const allRefs     = allShips.map(s => ({ label: s.name, actorId: s.id, shipActor: s, shipToken: null }));
+    const orderedShips = _orderedShipRefs(allRefs, currentIds).map(s => s.shipActor);
+    const defaultId   = currentIds.find(id => allShips.some(s => s.id === id)) ?? null;
 
     const inputStyle  = `background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};border-radius:3px;padding:3px 6px;`;
     const btnStyle    = (color = LC.primary) =>
@@ -2084,19 +2158,30 @@ async function _openAssignShipsDialog(actor) {
 
     const presetOptions = presetNames.length
       ? `<option value="" style="background:${LC.panel};">— Apply Preset —</option>` +
-        presetNames.map(n => `<option value="${n}" style="background:${LC.panel};color:${LC.text};">${n}</option>`).join("")
+        presetNames.map(n => `<option value="${_escapeHtml(n)}" style="background:${LC.panel};color:${LC.text};">${_escapeHtml(n)}</option>`).join("")
       : `<option value="" disabled style="background:${LC.panel};">No saved presets</option>`;
 
-    const rows = allShips.map(s => {
+    const rows = orderedShips.map(s => {
       const checked = current.has(s.id);
-      return `<label style="display:flex;align-items:center;gap:10px;padding:5px 8px;cursor:pointer;
+      const isDefault = checked && s.id === defaultId;
+      const safeId = _escapeHtml(s.id);
+      return `<div data-ship-row data-ship-id="${safeId}"
+                style="display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;align-items:center;gap:8px;padding:5px 8px;
                 border-radius:4px;border-left:3px solid ${checked ? LC.primary : LC.border};
-                background:${checked ? LC.panel : 'transparent'};transition:background 0.1s;"
-               data-ship-label>
-        <input type="checkbox" name="ship" value="${s.id}" ${checked ? "checked" : ""}
-               style="accent-color:${LC.primary};width:14px;height:14px;">
-        <span style="color:${LC.text};font-size:0.9em;letter-spacing:0.03em;">${s.name}</span>
-      </label>`;
+                background:${checked ? LC.panel : "transparent"};transition:background 0.1s;">
+        <input type="checkbox" name="ship" value="${safeId}" ${checked ? "checked" : ""}
+               title="Include this ship" style="accent-color:${LC.primary};width:14px;height:14px;">
+        <span style="color:${LC.text};font-size:0.9em;letter-spacing:0.03em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_escapeHtml(s.name)}</span>
+        <label style="display:flex;align-items:center;gap:4px;color:${LC.textDim};font-size:0.72em;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap;">
+          <input type="radio" name="default-ship" value="${safeId}" ${isDefault ? "checked" : ""} ${checked ? "" : "disabled"}
+                 title="Use this ship by default" style="accent-color:${LC.secondary};width:13px;height:13px;">
+          Default
+        </label>
+        <button type="button" data-ship-move="up" title="Move selected ship up"
+                style="${btnStyle(LC.tertiary ?? LC.primary)};padding:2px 6px;font-size:0.7em;" ${checked ? "" : "disabled"}>Up</button>
+        <button type="button" data-ship-move="down" title="Move selected ship down"
+                style="${btnStyle(LC.tertiary ?? LC.primary)};padding:2px 6px;font-size:0.7em;" ${checked ? "" : "disabled"}>Down</button>
+      </div>`;
     }).join("");
 
     return `
@@ -2139,17 +2224,105 @@ async function _openAssignShipsDialog(actor) {
   Hooks.once("renderDialogV2", (dlgApp, html) => {
     if (!html.querySelector("#sta2e-preset-select")) return; // wrong dialog
     const LC = getLcTokens();
+    const shipRows = () => [...html.querySelectorAll("[data-ship-row]")];
+    const checkedRows = () => shipRows().filter(row => row.querySelector('input[name="ship"]')?.checked);
 
-    // Live label highlight when a checkbox is toggled
-    function _syncLabel(cb) {
-      const label = cb.closest("label");
-      if (!label) return;
-      label.style.borderLeftColor = cb.checked ? LC.primary : LC.border;
-      label.style.background      = cb.checked ? LC.panel   : "transparent";
+    function _setDefaultIfNeeded(preferredId = null) {
+      const checked = checkedRows();
+      const defaultInputs = shipRows().map(row => row.querySelector('input[name="default-ship"]')).filter(Boolean);
+      if (!checked.length) {
+        defaultInputs.forEach(input => { input.checked = false; input.disabled = true; });
+        return;
+      }
+      const preferredRow = preferredId
+        ? checked.find(row => row.dataset.shipId === preferredId)
+        : null;
+      const existingRow = checked.find(row => row.querySelector('input[name="default-ship"]')?.checked);
+      const targetRow = preferredRow ?? existingRow ?? checked[0];
+      defaultInputs.forEach(input => {
+        const row = input.closest("[data-ship-row]");
+        input.disabled = !row?.querySelector('input[name="ship"]')?.checked;
+        input.checked = row === targetRow;
+      });
     }
+
+    function _syncRows() {
+      const checked = checkedRows();
+      const defaultRow = checked.find(row => row.querySelector('input[name="default-ship"]')?.checked);
+      shipRows().forEach(row => {
+        const cb = row.querySelector('input[name="ship"]');
+        const radio = row.querySelector('input[name="default-ship"]');
+        const up = row.querySelector('[data-ship-move="up"]');
+        const down = row.querySelector('[data-ship-move="down"]');
+        const selected = !!cb?.checked;
+        const idx = checked.indexOf(row);
+        row.style.borderLeftColor = selected ? LC.primary : LC.border;
+        row.style.background      = selected ? LC.panel   : "transparent";
+        if (radio) radio.disabled = !selected;
+        if (up) up.disabled = !selected || idx <= 1;
+        if (down) down.disabled = !selected || row === defaultRow || idx < 0 || idx === checked.length - 1;
+      });
+    }
+
+    function _moveUncheckedAfterChecked() {
+      const container = html.querySelector("#sta2e-ship-rows");
+      if (!container) return;
+      const selected = checkedRows();
+      const unselected = shipRows().filter(row => !row.querySelector('input[name="ship"]')?.checked);
+      [...selected, ...unselected].forEach(row => container.appendChild(row));
+    }
+
+    function _applyShipIdOrder(ids) {
+      const container = html.querySelector("#sta2e-ship-rows");
+      if (!container) return;
+      const orderedIds = normalizeAssignedShips(ids);
+      const idSet = new Set(orderedIds);
+      const rowById = new Map(shipRows().map(row => [row.dataset.shipId, row]));
+      const orderedRows = orderedIds.map(id => rowById.get(id)).filter(Boolean);
+      const remainingRows = shipRows().filter(row => !orderedRows.includes(row));
+      [...orderedRows, ...remainingRows].forEach(row => {
+        const cb = row.querySelector('input[name="ship"]');
+        if (cb) cb.checked = idSet.has(row.dataset.shipId);
+        container.appendChild(row);
+      });
+      _setDefaultIfNeeded(orderedIds[0]);
+      _moveUncheckedAfterChecked();
+      _syncRows();
+    }
+
     html.querySelectorAll('input[name="ship"]').forEach(cb => {
-      _syncLabel(cb);
-      cb.addEventListener("change", () => _syncLabel(cb));
+      cb.addEventListener("change", () => {
+        _setDefaultIfNeeded();
+        _moveUncheckedAfterChecked();
+        _syncRows();
+      });
+    });
+
+    html.querySelectorAll('input[name="default-ship"]').forEach(input => {
+      input.addEventListener("change", () => {
+        const row = input.closest("[data-ship-row]");
+        const firstChecked = checkedRows()[0];
+        if (row && firstChecked && row !== firstChecked) {
+          firstChecked.insertAdjacentElement("beforebegin", row);
+        }
+        _setDefaultIfNeeded(row?.dataset.shipId ?? null);
+        _syncRows();
+      });
+    });
+
+    html.querySelectorAll("[data-ship-move]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const row = btn.closest("[data-ship-row]");
+        if (!row) return;
+        const checked = checkedRows();
+        const idx = checked.indexOf(row);
+        if (btn.dataset.shipMove === "up" && idx > 1) {
+          checked[idx - 1].insertAdjacentElement("beforebegin", row);
+        } else if (btn.dataset.shipMove === "down" && idx >= 1 && idx < checked.length - 1) {
+          checked[idx + 1].insertAdjacentElement("afterend", row);
+        }
+        _syncRows();
+      });
     });
 
     // Hover effect on buttons
@@ -2168,7 +2341,7 @@ async function _openAssignShipsDialog(actor) {
       const names = Object.keys(presets);
       sel.innerHTML = names.length
         ? `<option value="" style="background:${LC.panel};">— Apply Preset —</option>` +
-          names.map(n => `<option value="${n}" style="background:${LC.panel};color:${LC.text};">${n}</option>`).join("")
+          names.map(n => `<option value="${_escapeHtml(n)}" style="background:${LC.panel};color:${LC.text};">${_escapeHtml(n)}</option>`).join("")
         : `<option value="" disabled style="background:${LC.panel};">No saved presets</option>`;
     }
 
@@ -2178,18 +2351,14 @@ async function _openAssignShipsDialog(actor) {
       if (!name) return;
       _presetApplied = name;
       const presets = game.settings.get("sta2e-toolkit", "shipPresets") ?? {};
-      const ids = new Set(presets[name] ?? []);
-      html.querySelectorAll('input[name="ship"]').forEach(cb => {
-        cb.checked = ids.has(cb.value);
-        _syncLabel(cb);
-      });
+      _applyShipIdOrder(presets[name] ?? []);
     });
 
     // Update preset — overwrite with current selection and push to subscribed characters
     html.querySelector("#sta2e-preset-update")?.addEventListener("click", async () => {
       const name = html.querySelector("#sta2e-preset-select")?.value;
       if (!name) { ui.notifications.warn("Select a preset to update first."); return; }
-      const ids = [...html.querySelectorAll('input[name="ship"]:checked')].map(el => el.value);
+      const ids = _readOrderedIdsFromElement(html);
       const presets = { ...(game.settings.get("sta2e-toolkit", "shipPresets") ?? {}), [name]: ids };
       await game.settings.set("sta2e-toolkit", "shipPresets", presets);
 
@@ -2224,13 +2393,17 @@ async function _openAssignShipsDialog(actor) {
     html.querySelector("#sta2e-preset-save")?.addEventListener("click", async () => {
       const name = html.querySelector("#sta2e-preset-name")?.value?.trim();
       if (!name) { ui.notifications.warn("Enter a preset name first."); return; }
-      const ids = [...html.querySelectorAll('input[name="ship"]:checked')].map(el => el.value);
+      const ids = _readOrderedIdsFromElement(html);
       const presets = { ...(game.settings.get("sta2e-toolkit", "shipPresets") ?? {}), [name]: ids };
       await game.settings.set("sta2e-toolkit", "shipPresets", presets);
       html.querySelector("#sta2e-preset-name").value = "";
       _refreshPresetDropdown();
       ui.notifications.info(`STA2e Toolkit: Preset "${name}" saved (${ids.length} ship${ids.length !== 1 ? "s" : ""}).`);
     });
+
+    _setDefaultIfNeeded();
+    _moveUncheckedAfterChecked();
+    _syncRows();
   });
 
   await foundry.applications.api.DialogV2.wait({
@@ -2244,8 +2417,8 @@ async function _openAssignShipsDialog(actor) {
         icon: "fas fa-save",
         default: true,
         callback: async (_event, _button, dlg) => {
-          const checked = [...dlg.element.querySelectorAll('input[name="ship"]:checked')].map(el => el.value);
-          await setAssignedShips(actor, checked);
+          const orderedShipIds = _readOrderedIdsFromElement(dlg.element);
+          await setAssignedShips(actor, orderedShipIds);
           // Subscribe this actor to the applied preset so future Updates push here
           if (_presetApplied)
             await actor.setFlag("sta2e-toolkit", "activePreset", _presetApplied);
@@ -2454,27 +2627,10 @@ function _applySheetRollerOverride(app, html) {
       const pcStats  = readOfficerStats(actor);
       const allShips = _allWorldShips();
 
-      // Serialize ship data for the in-roller ship selector.
-      // Assigned ships float to the top; unassigned ships follow after a separator.
-      const assignedIds    = new Set(getAssignedShips(actor));
-      const preferredShips = allShips.filter(s =>  assignedIds.has(s.actorId));
-      const otherShips     = allShips.filter(s => !assignedIds.has(s.actorId));
-      // Show only assigned ships when any are assigned; fall back to full list otherwise
-      const orderedShips = assignedIds.size > 0
-        ? preferredShips
-        : [...preferredShips, ...otherShips];
-
-      const serializedShips = orderedShips.map(s => ({
-        label:              s.label,
-        actorId:            s.actorId,
-        systems:            s.shipActor.system?.systems     ?? {},
-        depts:              s.shipActor.system?.departments ?? {},
-        hasAdvancedSensors: s.shipActor.items?.some(i =>
-          i.name.toLowerCase().includes("advanced sensor suites") ||
-          i.name.toLowerCase().includes("advanced sensors")
-        ) ?? false,
-        sensorsBreaches:    s.shipActor.system?.systems?.sensors?.breaches ?? 0,
-      }));
+      const assignedShips = _assignedShipRefs(allShips, actor);
+      const orderedShips = assignedShips.length > 0 ? assignedShips : allShips;
+      const serializedShips = _serializeShipsForRoller(orderedShips);
+      if (assignedShips.length > 0 && serializedShips[0]) serializedShips[0]._defaultShip = true;
 
       // ── Combat task context (only when character is on a ship in active combat) ──
       const combatCtx = _getCombatShipContext(actor);
@@ -2587,6 +2743,8 @@ function _applySheetRollerOverride(app, html) {
         sheetMode:           true,
         groundMode:          serializedShips.length === 0,
         availableShips:      serializedShips,
+        shipAssist:          assignedShips.length > 0,
+        selectedShipIdx:     assignedShips.length > 0 ? 0 : -1,
         combatTaskContext,
         // Apply target-flagging task effects when roll passes (scan-for-weakness etc.)
         taskCallback: combatTaskContext ? async ({ passed, successes = 0, momentum = 0 }) => {
@@ -2655,21 +2813,11 @@ function _applySheetRollerOverride(app, html) {
         onAssignShips: async () => {
           await _openAssignShipsDialog(actor);
           const allShips2  = _allWorldShips();
-          const assigned2  = new Set(getAssignedShips(actor));
-          const source     = assigned2.size > 0
-            ? allShips2.filter(s =>  assigned2.has(s.actorId))
-            : allShips2;
-          return source.map(s => ({
-            label:              s.label,
-            actorId:            s.actorId,
-            systems:            s.shipActor.system?.systems     ?? {},
-            depts:              s.shipActor.system?.departments ?? {},
-            hasAdvancedSensors: s.shipActor.items?.some(i =>
-              i.name.toLowerCase().includes("advanced sensor suites") ||
-              i.name.toLowerCase().includes("advanced sensors")
-            ) ?? false,
-            sensorsBreaches:    s.shipActor.system?.systems?.sensors?.breaches ?? 0,
-          }));
+          const assigned2  = _assignedShipRefs(allShips2, actor);
+          const source     = assigned2.length > 0 ? assigned2 : allShips2;
+          const ships      = _serializeShipsForRoller(source);
+          if (assigned2.length > 0 && ships[0]) ships[0]._defaultShip = true;
+          return ships;
         },
       });
     }, true); // capture phase fires before ApplicationV2's delegated handler

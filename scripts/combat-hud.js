@@ -66,6 +66,7 @@ import {
   getCollisionDamage,
 } from "./token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonePathWithCosts } from "./zone-data.js";
+import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "./weapon-range.js";
 import { makeSpendContext, actorHasIntenseTalent, readPool, writePool } from "./momentum-spend.js";
 import { createTracker, getActiveTracker } from "./momentum-tracker.js";
 
@@ -1329,6 +1330,8 @@ export async function checkOpposedTaskForTokens(weaponName, attackerToken, targe
     const defAttr    = defMode === "evasive-action" ? "daring" : "control";
     const defDisc    = defMode === "evasive-action" ? "conn"   : "security";
 
+    return { proceed: "pending", defMode, defenderTokenId: target.id };
+
     ChatMessage.create({
       content: lcarsCard(`${defIcon} SHIP DEFENSE — ${defLabel.toUpperCase()}`, LC.secondary, `
         <div style="font-size:11px;font-weight:700;color:${LC.tertiary};
@@ -1360,6 +1363,8 @@ export async function checkOpposedTaskForTokens(weaponName, attackerToken, targe
   // Check for cover on any ship target (only when no defense mode was found above)
   for (const target of targetTokens) {
     if (!target.document?.getFlag(MODULE, "coverActive")) continue;
+
+    return { proceed: "pending", defMode: "cover", defenderTokenId: target.id };
 
     ChatMessage.create({
       content: lcarsCard("🪨 SHIP DEFENSE — COVER", LC.secondary, `
@@ -2469,12 +2474,9 @@ export class CombatHUD {
             const _isTorpedo  = config?.type === "torpedo";
 
             // ── Area / Spread mode picker for arrays & salvos ─────────────
-            const _hasAreaQ_op   = weapon.system?.qualities?.area   ?? false;
-            const _hasSpreadQ_op = weapon.system?.qualities?.spread ?? false;
-            const _needsMode_op  = (config?.type === "beam" && config?.isArray)
-                                || (config?.type === "torpedo" && config?.salvo)
-                                || _hasAreaQ_op || _hasSpreadQ_op;
-            let _salvoMode_op = this._pendingSalvoMode ?? "area";
+            const _modeInfo_op  = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+            const _needsMode_op = _modeInfo_op.needsMode;
+            let _salvoMode_op = _needsMode_op ? (this._pendingSalvoMode ?? "area") : null;
             if (_needsMode_op && !this._pendingSalvoMode) {
               // Mode was not pre-selected in the HUD (e.g. came through roller path)
               // — ask now before storing the pending task.
@@ -2506,6 +2508,8 @@ export class CombatHUD {
             const _weaponCtx  = {
               name:      weapon.name,
               isTorpedo: _isTorpedo,
+              isArray:   _modeInfo_op.isArray,
+              isSalvo:   _modeInfo_op.isSalvo,
               damage:    total,
               qualities: this._weaponQualityString(weapon),
               salvoMode: _salvoMode_op,
@@ -2519,6 +2523,28 @@ export class CombatHUD {
             const _attackRunActive  = _hasAttackPattern && hasAttackRun(_helmActor);
             const _defLabel         = opposed.defMode === "evasive-action" ? "Evasive Action"
                                     : opposed.defMode === "defensive-fire"  ? "Defensive Fire" : "Cover";
+
+            const _defenderToken = canvas.tokens?.get(opposed.defenderTokenId);
+            const _starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
+            if (_starter && _defenderToken?.actor) {
+              await _starter({
+                taskName: `Attack - ${weapon.name}`,
+                attackerActorId: actor.id,
+                attackerTokenId: this._token.id,
+                defenderActorId: _defenderToken.actor.id,
+                defenderTokenId: _defenderToken.id,
+                defenseType: opposed.defMode,
+                weaponContext: _weaponCtx,
+                hasTargetingSolution: _hasTS,
+                hasRapidFireTorpedo: _hasRFT && _isTorpedo,
+                hasAttackPattern: _hasAttackPattern,
+                helmOfficer: _helmStats,
+                attackRunActive: _attackRunActive,
+                attackerOfficer: _tacticalOfficer,
+                attackerStationId: "tactical",
+              });
+              return;
+            }
 
             await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
               taskId:          `${this._token.id}-${Date.now()}`,
@@ -2564,6 +2590,7 @@ export class CombatHUD {
               damage:    total,
               qualities: this._weaponQualityString(weapon),
             };
+            const rangeWarningHtml = this._shipRangeWarningHtml(weapon);
 
             const choice = await foundry.applications.api.DialogV2.wait({
               window:  { title: `${weapon.name} — Attack Method` },
@@ -2576,6 +2603,7 @@ export class CombatHUD {
                     — Dmg <strong style="color:${LC.tertiary};">${total}</strong>
                   </div>
                   <div style="font-size:10px;color:${LC.textDim};">How do you want to resolve this attack?</div>
+                  ${rangeWarningHtml}
                 </div>`,
               buttons: [
                 {
@@ -2599,13 +2627,11 @@ export class CombatHUD {
 
             if (choice === "roller") {
               // Determine area/spread mode for weapons that need it
-              const _hasAreaQ   = weapon.system?.qualities?.area   ?? false;
-              const _hasSpreadQ = weapon.system?.qualities?.spread ?? false;
-              const _needsMode  = (config?.type === "beam" && config?.isArray)
-                               || (config?.type === "torpedo" && config?.salvo)
-                               || _hasAreaQ || _hasSpreadQ;
-              let salvoMode = "area";
+              const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+              const _needsMode = _modeInfo.needsMode;
+              let salvoMode = null;
               if (_needsMode) {
+                salvoMode = "area";
                 const modeChoice = await foundry.applications.api.DialogV2.wait({
                   window:  { title: `${weapon.name} — Attack Mode` },
                   content: `
@@ -2629,6 +2655,8 @@ export class CombatHUD {
                 if (!modeChoice || modeChoice === "cancel") return;
                 salvoMode = modeChoice;
               }
+              weaponCtx.isArray = _modeInfo.isArray;
+              weaponCtx.isSalvo = _modeInfo.isSalvo;
               weaponCtx.salvoMode = salvoMode;
 
               const tacticalOfficers = getStationOfficers(actor, "tactical");
@@ -2668,6 +2696,7 @@ export class CombatHUD {
             // "cancel" — do nothing
           } else {
             // Player ships: same Dice Roller / Hit/Miss choice as NPC ships
+            const rangeWarningHtml = this._shipRangeWarningHtml(weapon);
             const choice = await foundry.applications.api.DialogV2.wait({
               window:  { title: `${weapon.name} — Attack Method` },
               content: `
@@ -2679,6 +2708,7 @@ export class CombatHUD {
                     — Dmg <strong style="color:${LC.tertiary};">${total}</strong>
                   </div>
                   <div style="font-size:10px;color:${LC.textDim};">How do you want to resolve this attack?</div>
+                  ${rangeWarningHtml}
                 </div>`,
               buttons: [
                 { action: "roller",  label: "🎲 Dice Roller", icon: "fas fa-dice-d20", default: true },
@@ -2693,13 +2723,11 @@ export class CombatHUD {
               const isTorpedo = config?.type === "torpedo";
 
               // Determine area/spread mode for weapons that need it
-              const _hasAreaQ   = weapon.system?.qualities?.area   ?? false;
-              const _hasSpreadQ = weapon.system?.qualities?.spread ?? false;
-              const _needsMode  = (config?.type === "beam" && config?.isArray)
-                               || (config?.type === "torpedo" && config?.salvo)
-                               || _hasAreaQ || _hasSpreadQ;
-              let salvoMode = "area";
+              const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+              const _needsMode = _modeInfo.needsMode;
+              let salvoMode = null;
               if (_needsMode) {
+                salvoMode = "area";
                 const modeChoice = await foundry.applications.api.DialogV2.wait({
                   window:  { title: `${weapon.name} — Attack Mode` },
                   content: `
@@ -2727,6 +2755,8 @@ export class CombatHUD {
               const weaponCtx = {
                 name:      weapon.name,
                 isTorpedo,
+                isArray:   _modeInfo.isArray,
+                isSalvo:   _modeInfo.isSalvo,
                 damage:    total,
                 qualities: this._weaponQualityString(weapon),
                 salvoMode,
@@ -2773,17 +2803,70 @@ export class CombatHUD {
   _selectWeapon(weapon) {
     this._pendingWeapon = weapon;
     const _cfg = getWeaponConfig(weapon);
-    const _hasAreaQuality   = weapon.system?.qualities?.area   ?? false;
-    const _hasSpreadQuality = weapon.system?.qualities?.spread ?? false;
-    const _needsMode = (_cfg?.type === "beam"    && _cfg?.isArray)
-                    || (_cfg?.type === "torpedo" && _cfg?.salvo)
-                    || _hasAreaQuality || _hasSpreadQuality;
-    this._pendingSalvoMode = _needsMode ? "area" : null;
+    this._pendingSalvoMode = CombatHUD._shipAreaSpreadModeInfo(weapon, _cfg).needsMode ? "area" : null;
     this._refresh();
     // Scroll hit/miss into view
     setTimeout(() => {
       this._el?.querySelector(".sta2e-chud-hitmiss")?.scrollIntoView({ behavior: "smooth" });
     }, 50);
+  }
+
+  static _shipAreaSpreadModeInfo(weapon, config = getWeaponConfig(weapon)) {
+    const isShipWeapon = weapon?.type === "starshipweapon2e";
+    const isArray = isShipWeapon && config?.type === "beam" && config?.isArray === true;
+    const isSalvo = isShipWeapon && config?.type === "torpedo" && config?.salvo === true;
+    return {
+      isArray,
+      isSalvo,
+      needsMode: isArray || isSalvo,
+      label: isArray ? "Arrays" : isSalvo ? "Torpedo Salvo" : "Ship Weapon",
+    };
+  }
+
+  static _shipWeaponRangeSummary(weapon, sourceToken, targets = Array.from(game.user.targets ?? [])) {
+    if (weapon?.type !== "starshipweapon2e" || !sourceToken || !targets?.length) return null;
+    try {
+      const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
+      const zones = zonesEnabled ? getSceneZones() : [];
+      if (!zones.length) return null;
+      return getWeaponRangeSummary(weapon, sourceToken, targets, zones);
+    } catch (err) {
+      console.warn("STA2e Toolkit | weapon range summary failed:", err);
+      return null;
+    }
+  }
+
+  _shipWeaponRangeSummary(weapon, targets = Array.from(game.user.targets ?? [])) {
+    return CombatHUD._shipWeaponRangeSummary(weapon, this._token, targets);
+  }
+
+  static _rangeWarningHtml(summary) {
+    if (!summary?.hasWarning) return "";
+    const rows = summary.warnings.map(result => {
+      const targetName = result.target?.name ?? "Target";
+      const actual = result.actualRange ?? "out of zones";
+      const listed = result.listedRange ?? "unknown";
+      return `<div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.4;">
+        <strong style="color:${LC.red};">${targetName}</strong> is at
+        <strong>${actual}</strong>; listed range is <strong>${listed}</strong>.
+      </div>`;
+    }).join("");
+    return `
+      <div style="margin-top:6px;padding:5px 7px;background:rgba(255,50,50,0.08);
+        border-left:3px solid ${LC.red};border-radius:0 2px 2px 0;">
+        <div style="font-size:9px;color:${LC.red};font-family:${LC.font};
+          font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px;">
+          Range Declaration
+        </div>
+        ${rows}
+        <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};margin-top:3px;">
+          ${WEAPON_RANGE_WARNING}
+        </div>
+      </div>`;
+  }
+
+  _shipRangeWarningHtml(weapon, targets = Array.from(game.user.targets ?? [])) {
+    return CombatHUD._rangeWarningHtml(this._shipWeaponRangeSummary(weapon, targets));
   }
 
   /**
@@ -3063,6 +3146,15 @@ export class CombatHUD {
     labelRow.appendChild(cancelBtn);
     wrap.appendChild(labelRow);
 
+    const pendingRangeWarning = this._pendingWeapon.type === "starshipweapon2e"
+      ? this._shipRangeWarningHtml(this._pendingWeapon)
+      : "";
+    if (pendingRangeWarning) {
+      const rangeWrap = document.createElement("div");
+      rangeWrap.innerHTML = pendingRangeWarning;
+      wrap.appendChild(rangeWrap.firstElementChild);
+    }
+
     // ── Opposed task banner ────────────────────────────────────────────────────
     if (this._opposedDifficulty !== null && this._opposedDefenseType) {
       const defLabel  = this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover";
@@ -3098,14 +3190,13 @@ export class CombatHUD {
     const hasDeadly      = this._pendingWeapon.system?.qualities?.deadly  ?? false;
     const isDual         = hasStun && hasDeadly; // weapon can inflict either injury type
 
-    const _isArray          = config?.type === "beam"    && config?.isArray;
-    const _isSalvo          = config?.type === "torpedo" && config?.salvo;
-    const _hasAreaQuality   = this._pendingWeapon.system?.qualities?.area   ?? false;
-    const _hasSpreadQuality = this._pendingWeapon.system?.qualities?.spread ?? false;
-    const _needsMode = (_isArray || _isSalvo || _hasAreaQuality || _hasSpreadQuality) && !isGroundWeapon;
+    const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(this._pendingWeapon, config);
+    const _isArray = _modeInfo.isArray;
+    const _isSalvo = _modeInfo.isSalvo;
+    const _needsMode = _modeInfo.needsMode && !isGroundWeapon;
 
     if (_needsMode) {
-      const modeLabel     = _isArray ? "Arrays" : _isSalvo ? "Torpedo Salvo" : "Ship Weapon";
+      const modeLabel     = _modeInfo.label;
       const currentMode   = this._pendingSalvoMode ?? "area";
       const modeRow       = document.createElement("div");
       modeRow.style.cssText = "display:flex;align-items:center;gap:4px;padding-top:2px;";
@@ -3403,10 +3494,10 @@ export class CombatHUD {
     return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2 };
   }
 
-  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDefenseType, attackerAlreadyAwarded = false } = {}) {
+  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false } = {}) {
     if (!opposedDefenseType || attackerSuccesses === null || defenderSuccesses === null) return null;
     const atk = Number(attackerSuccesses);
-    const def = Number(defenderSuccesses);
+    const def = Number(opposedDifficulty ?? defenderSuccesses);
     if (!Number.isFinite(atk) || !Number.isFinite(def)) return null;
 
     const delta = atk - def;
@@ -3540,8 +3631,9 @@ export class CombatHUD {
     }
 
     // ── Ship combat path — delegate to static method ───────────────────────
+    const shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
     await CombatHUD.resolveShipAttack(token, weapon, isHit, {
-      salvoMode:          this._pendingSalvoMode ?? "area",
+      salvoMode:          shipModeInfo.needsMode ? (this._pendingSalvoMode ?? "area") : null,
       defenderSuccesses:  this._defenderSuccesses,
       opposedDefenseType: this._opposedDefenseType,
     });
@@ -3569,7 +3661,7 @@ export class CombatHUD {
    * @param {number|null} opts.defenderSuccesses   - Successes from defender's opposed roll (if any)
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
     const actor   = token.actor;
     const targets = overrideTargets ?? Array.from(game.user.targets);
 
@@ -3583,6 +3675,7 @@ export class CombatHUD {
       defenderToken: targets[0] ?? null,
       attackerSuccesses,
       defenderSuccesses,
+      opposedDifficulty,
       opposedDefenseType,
       attackerAlreadyAwarded: opposedMomentumAwarded,
     });
@@ -3591,8 +3684,9 @@ export class CombatHUD {
 
     // ── Area / Spread mode — pre-declared in HUD before the roll ─────────
     // spreadDeclared is kept for backward-compat (counterattack path).
-    let salvoMode = _salvoMode ?? "area";
-    if (spreadDeclared) salvoMode = "spread";
+    const areaSpreadMode = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+    let salvoMode = areaSpreadMode.needsMode ? (_salvoMode ?? "area") : null;
+    if (areaSpreadMode.needsMode && spreadDeclared) salvoMode = "spread";
 
     // ── Scan for Weakness ──────────────────────────────────────────────────
     let scanBonus    = 0;
@@ -3653,10 +3747,12 @@ export class CombatHUD {
           attackerName: token?.name ?? actor?.name ?? "Attacker",
         })
       : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
-    const areaAvailable = salvoMode === "area" || !!wq.area;
-    const areaActive = salvoMode === "area";
-    const spreadAvailable = spreadDeclared || salvoMode === "spread" || !!wq.spread;
-    const spreadActive = spreadDeclared || salvoMode === "spread";
+    const areaAvailable = areaSpreadMode.needsMode;
+    const areaActive = areaAvailable && salvoMode === "area";
+    const spreadAvailable = areaSpreadMode.needsMode;
+    const spreadActive = spreadAvailable && (spreadDeclared || salvoMode === "spread");
+    const rangeSummary = CombatHUD._shipWeaponRangeSummary(weapon, token, targets);
+    const rangeByTargetId = new Map((rangeSummary?.results ?? []).map(result => [result.target?.id, result]));
 
     const targetData = targets.map(t => {
       const tActor      = t.actor;
@@ -3677,6 +3773,7 @@ export class CombatHUD {
       const resistance      = baseResistance + glancingBonus + modulationBonus;
       const rawDamage   = Math.max(0, total + scanBonus + rfBonus + cwBonus - complicationInfo.penalty);
       const finalDamage = Math.max(0, rawDamage - resistance);
+      const rangeStatus = rangeByTargetId.get(t.id) ?? null;
       return {
         tokenId:              t.id,
         actorId:              tActor?.id,
@@ -3700,6 +3797,7 @@ export class CombatHUD {
         tsRerollGranted,
         opposedDefenseType,
         defenderSuccesses,
+        opposedDifficulty,
         attackerSuccesses,
         attackerTokenId:    token?.id ?? null,
         attackerActorId:    actor?.id ?? null,
@@ -3713,6 +3811,13 @@ export class CombatHUD {
         weaponImg:      weapon.img ?? null,
         weaponId:       weapon.id ?? null,
         weaponName:     weapon.name,
+        rangeStatus:    rangeStatus ? {
+          known:       rangeStatus.known,
+          within:      rangeStatus.within,
+          listedRange: rangeStatus.listedRange,
+          actualRange: rangeStatus.actualRange,
+          warning:     rangeStatus.warning,
+        } : null,
       };
     });
 
@@ -4134,13 +4239,15 @@ export class CombatHUD {
         });
         forceBtn.addEventListener("click", async () => {
           const weapon    = this._pendingWeapon;
-          const salvoMode = this._pendingSalvoMode ?? "area";
+          const weaponConfig = getWeaponConfig(weapon);
+          const modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, weaponConfig);
+          const salvoMode = modeInfo.needsMode ? (this._pendingSalvoMode ?? "area") : null;
           this._pendingWeapon    = null;
           this._pendingSalvoMode = null;
           this._refresh();
           await CombatHUD.resolveShipAttack(this._token, weapon, true, {
             salvoMode,
-            rapidFireBonus: hasRapidFireTorpedoLauncher(actor) && getWeaponConfig(weapon)?.type === "torpedo" ? 1 : 0,
+            rapidFireBonus: hasRapidFireTorpedoLauncher(actor) && weaponConfig?.type === "torpedo" ? 1 : 0,
           });
         });
         panelWrap.appendChild(forceBtn);
@@ -8281,14 +8388,18 @@ export class CombatHUD {
       const isTorpedo = weapon.system?.type === "torpedo"
         || weapon.name?.toLowerCase().includes("torpedo")
         || !!(weapon.system?.qualities?.spread);
+      const modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
       const dmgParts = [];
       if (weapon.system?.damage)   dmgParts.push(`${weapon.system.damage}⚡`);
       if (weapon.system?.severity) dmgParts.push(`Sev ${weapon.system.severity}`);
       const weaponCtx = {
         name:      weapon.name,
         isTorpedo,
+        isArray:   modeInfo.isArray,
+        isSalvo:   modeInfo.isSalvo,
         damage:    dmgParts.join(" "),
         qualities: this._weaponQualityString(weapon),
+        salvoMode: modeInfo.needsMode ? "area" : null,
       };
 
       // Check for opposed defense (evasive action / defensive fire)
@@ -8300,6 +8411,26 @@ export class CombatHUD {
         const _hasRFT = hasRapidFireTorpedoLauncher(actor);
         const _defLabel = opposed.defMode === "evasive-action" ? "Evasive Action"
                         : opposed.defMode === "defensive-fire"  ? "Defensive Fire" : "Cover";
+
+        const _defenderToken = canvas.tokens?.get(opposed.defenderTokenId);
+        const _starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
+        if (_starter && _defenderToken?.actor) {
+          await _starter({
+            taskName: `Override - Fire ${weapon.name}`,
+            attackerActorId: actor.id,
+            attackerTokenId: token.id,
+            defenderActorId: _defenderToken.actor.id,
+            defenderTokenId: _defenderToken.id,
+            defenseType: opposed.defMode,
+            overridePenalty: 1,
+            weaponContext: weaponCtx,
+            hasTargetingSolution: _hasTS,
+            hasRapidFireTorpedo: _hasRFT && isTorpedo,
+            attackerOfficer: resolvedOfficer,
+            attackerStationId: station.id,
+          });
+          return;
+        }
 
         await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
           taskId:          `${token.id}-${Date.now()}`,
@@ -9750,11 +9881,22 @@ export class CombatHUD {
           Complications: -${t.complicationDamagePenalty} damage
           ${(t.complicationsBoughtOff ?? 0) > 0 ? `<span style="color:${LC.textDim};"> (${t.complicationsBoughtOff} bought off)</span>` : ""}
         </div>` : "";
+      const rangeStatus = t.rangeStatus ?? null;
+      const rangeHtml = rangeStatus ? `
+        <div style="margin-bottom:5px;padding:3px 6px;border-left:3px solid ${rangeStatus.within || !rangeStatus.known ? LC.green : LC.red};
+          background:${rangeStatus.within || !rangeStatus.known ? "rgba(0,200,100,0.06)" : "rgba(255,50,50,0.08)"};
+          font-size:10px;color:${rangeStatus.within || !rangeStatus.known ? LC.green : LC.red};
+          font-family:${LC.font};letter-spacing:0.06em;text-transform:uppercase;">
+          Range: ${rangeStatus.known
+            ? `${rangeStatus.actualRange ?? "Out of zones"} / listed ${rangeStatus.listedRange}${rangeStatus.within ? "" : " - outside listed range"}`
+            : "Unknown"}
+          ${rangeStatus.warning ? `<div style="color:${LC.textDim};font-size:9px;text-transform:none;letter-spacing:0;margin-top:2px;">${rangeStatus.warning}</div>` : ""}
+        </div>` : "";
 
       // Encode target data for the Apply Damage button
       const highYield      = weapon?.system?.qualities?.highyield ?? false;
       const areaAvailable  = t.areaAvailable ?? (t.area ?? false);
-      const spreadAvailable = t.spreadAvailable ?? (weapon?.system?.qualities?.spread ?? false);
+      const spreadAvailable = t.spreadAvailable ?? false;
       const selectedMode   = t.salvoMode ?? (t.spread ? "spread" : t.area ? "area" : null);
       const areaSelected   = areaAvailable && selectedMode === "area";
       const spread         = spreadAvailable && selectedMode === "spread";
@@ -9866,6 +10008,7 @@ export class CombatHUD {
           </div>
 
           ${complicationHtml}
+          ${rangeHtml}
           ${warningHtml}
 
           <div class="sta2e-damage-controls" style="margin-top:5px;">
@@ -9894,6 +10037,32 @@ export class CombatHUD {
       `;
     }).join("") : "";
 
+    const rangeDeclarationHtml = (() => {
+      const rows = targetData
+        .filter(t => t.rangeStatus?.known && !t.rangeStatus.within)
+        .map(t => {
+          const rs = t.rangeStatus;
+          const detail = rs.known
+            ? `${rs.actualRange ?? "Out of zones"} / listed ${rs.listedRange}`
+            : "Range unknown";
+          return `<div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.4;">
+            <strong style="color:${rs.known ? LC.red : LC.textDim};">${t.name}</strong>: ${detail}
+          </div>`;
+        });
+      if (!rows.length) return "";
+      return `<div style="margin-bottom:6px;padding:4px 7px;border-left:3px solid ${LC.red};
+        background:rgba(255,50,50,0.08);border-radius:0 2px 2px 0;">
+        <div style="font-size:9px;color:${LC.red};font-family:${LC.font};
+          font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px;">
+          Range Declaration
+        </div>
+        ${rows.join("")}
+        <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};margin-top:3px;">
+          ${WEAPON_RANGE_WARNING}
+        </div>
+      </div>`;
+    })();
+
     return lcarsCard(
       `${isHit ? "✓ HIT" : "✗ MISS"} — ${attacker} / ${weapon.name}`,
       isHit ? LC.primary : LC.red,
@@ -9901,6 +10070,7 @@ export class CombatHUD {
         <div style="font-size:11px;color:${LC.textDim};margin-bottom:6px;font-family:${LC.font};letter-spacing:0.06em;">
           TARGET: ${targets} &nbsp;|&nbsp; RANGE: ${range.toUpperCase()}
         </div>
+        ${!isHit ? rangeDeclarationHtml : ""}
 
         ${isHit ? `
           ${breakdown ? `<div style="font-size:9px;color:${LC.textDim};margin-bottom:6px;font-family:${LC.font};">${breakdown}</div>` : ""}
@@ -12017,6 +12187,7 @@ export class CombatHUD {
     let opposedResultHtml = "";
     const oppDefType    = payload.opposedDefenseType ?? null;
     const defSuccesses  = payload.defenderSuccesses  ?? null;
+    const opposedDifficulty = payload.opposedDifficulty ?? defSuccesses;
     if (oppDefType !== null && defSuccesses !== null && !_isDevastating) {
       const attackerSuccesses = payload.attackerSuccesses ?? null;
       const defLabel   = oppDefType === "evasive-action" ? "Evasive Action" : oppDefType === "defensive-fire" ? "Defensive Fire" : "Cover";
@@ -12024,7 +12195,7 @@ export class CombatHUD {
 
       let deltaHtml = "";
       if (attackerSuccesses !== null) {
-        const delta = attackerSuccesses - defSuccesses;
+        const delta = attackerSuccesses - opposedDifficulty;
         if (delta > 0) {
           const attackerPoolLabel = (payload.attackerIsNpc ?? false) ? "Threat" : "Momentum";
           // Attacker won — momentum for attacker
@@ -12082,6 +12253,7 @@ export class CombatHUD {
             <div>
               <span style="color:${LC.textDim};">Defender: </span>
               <span style="color:${LC.tertiary};font-weight:700;">${defSuccesses} success${defSuccesses !== 1 ? "es" : ""}</span>
+              ${opposedDifficulty !== defSuccesses ? `<div style="color:${LC.textDim};font-size:9px;">Final Difficulty ${opposedDifficulty}</div>` : ""}
             </div>
             ${attackerSuccesses !== null ? `
             <div>
@@ -16024,6 +16196,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         const config    = getWeaponConfig(weapon);
         const isTorpedo = config?.type === "torpedo";
+        const modeInfo  = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
         const hasTS     = CombatHUD.hasTargetingSolution(tokenObj);
         const hasRFT    = hasRapidFireTorpedoLauncher(shipActor) && isTorpedo;
         const hasAP     = tokenObj ? hasCondition(tokenObj, "attack-pattern") : false;
@@ -16053,8 +16226,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const weaponCtx = {
           name:      weapon.name,
           isTorpedo,
+          isArray:   modeInfo.isArray,
+          isSalvo:   modeInfo.isSalvo,
           damage:    weapon.system?.damage ?? 0,
           qualities: _quals,
+          salvoMode: modeInfo.needsMode ? "area" : null,
         };
 
         openPlayerRoller(shipActor, tokenObj, {
@@ -16802,7 +16978,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           difficulty, weaponContext, rallyContext,
           hasRapidFireTorpedo, hasCalibrateWeapons,
           defenderSuccesses, opposedDefenseType,
-          groundMode, groundIsNpc, noPoolButton,
+          groundMode, groundIsNpc, noPoolButton, playerMode,
+          suppressWeaponResolution,
         } = payload;
         const skipCompletionEffects = !!payload.completionEffectsRun;
 
@@ -16844,7 +17021,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         // Post final resolved summary card
         const passColor  = passed ? (LC.green ?? "#00cc66") : (LC.red ?? "#ff4444");
         // Determine whether this roll generates Momentum (PC) or Threat (NPC)
-        const isNpcRoll  = groundMode ? groundIsNpc : CombatHUD.isNpcShip(shipActor);
+        const isNpcRoll  = groundMode ? groundIsNpc : (playerMode ? false : CombatHUD.isNpcShip(shipActor));
         const poolLabel  = isNpcRoll ? "Threat" : "Momentum";
         const poolColor  = momentum > 0 ? (LC.secondary ?? "#cc88ff") : (LC.textDim ?? "#888");
         const totalComplications = allDice.filter(d => d.complication).length;
@@ -16994,7 +17171,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         }
 
         // Weapon attack resolution
-        if (!skipCompletionEffects && weaponContext && groundMode) {
+        if (!skipCompletionEffects && !suppressWeaponResolution && weaponContext && groundMode) {
           // ── Ground character weapon ────────────────────────────────────────
           const charActor = tokenObj?.actor ?? game.actors.get(actorId);
           const weapon    = charActor?.items.find(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
@@ -17118,7 +17295,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           } else {
             ui.notifications.warn(`Weapon "${weaponContext.name}" not found on character.`);
           }
-        } else if (!skipCompletionEffects && weaponContext && (shipActor || weaponContext.shipActorId)) {
+        } else if (!skipCompletionEffects && !suppressWeaponResolution && weaponContext && (shipActor || weaponContext.shipActorId)) {
           // ── Starship weapon ────────────────────────────────────────────────
           // Sheet-roller path: weaponContext carries shipActorId + weaponId; actorId is the character.
           // HUD-roller path: actorId IS the ship actor; no weaponContext.shipActorId.
@@ -17143,8 +17320,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _intenseSubject = game.actors.get(actorId) ?? null;
             const _shipIntenseBonus = (passed && _shipThreatBought > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
               ? _shipThreatBought : 0;
+            const _shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {
-              salvoMode:            weaponContext.salvoMode ?? "area",
+              salvoMode:            _shipModeInfo.needsMode ? (weaponContext.salvoMode ?? "area") : null,
               rapidFireBonus:       hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
               calibrateWeaponsBonus,
               defenderSuccesses:    defenderSuccesses ?? null,
@@ -17213,6 +17391,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 state:  null,   // no live state object in the chat-card path
                 actor:  cbEntry.actor,
                 token:  cbEntry.token,
+                rollData: confirmedRollData,
+                trackerMessageId: _trackerMessageId,
+                trackerFloat: _trackerFloat,
+                trackerBanked: _trackerBanked,
               });
             } catch(err) {
               console.error("STA2e Toolkit | playerConfirm taskCallback error:", err);
@@ -18204,12 +18386,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
           // ── Area / Spread mode for counterattack (arrays & torpedo salvos) ──
           const caConfig    = getWeaponConfig(defWeapon);
-          const caIsArray   = caConfig?.type === "beam"    && (caConfig?.isArray ?? false);
-          const caIsSalvo   = caConfig?.type === "torpedo" && (caConfig?.salvo   ?? false);
-          const caHasAreaQ  = defWeapon.system?.qualities?.area   ?? false;
-          const caHasSpreadQ= defWeapon.system?.qualities?.spread ?? false;
-          const caNeedsMode = caIsArray || caIsSalvo || caHasAreaQ || caHasSpreadQ;
-          let caSalvoMode   = "area";
+          const caModeInfo  = CombatHUD._shipAreaSpreadModeInfo(defWeapon, caConfig);
+          const caNeedsMode = caModeInfo.needsMode;
+          let caSalvoMode   = caNeedsMode ? "area" : null;
           if (caNeedsMode) {
             const caModeChoice = await foundry.applications.api.DialogV2.wait({
               window:  { title: `${defWeapon.name} — Counterattack Mode` },

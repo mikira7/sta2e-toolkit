@@ -130,15 +130,22 @@ export function readOfficerStats(actor) {
 
 const SHIPS_FLAG = "assignedShips";
 
+export function normalizeAssignedShips(shipIds) {
+  const ids = Array.isArray(shipIds) ? shipIds : [];
+  return ids
+    .map(id => String(id ?? "").trim())
+    .filter((id, idx, arr) => id && arr.indexOf(id) === idx);
+}
+
 export function getAssignedShips(actor) {
   const { doc } = _manifestStore(actor);
-  return doc?.getFlag(MODULE, SHIPS_FLAG) ?? [];
+  return normalizeAssignedShips(doc?.getFlag(MODULE, SHIPS_FLAG));
 }
 
 export async function setAssignedShips(actor, shipIds) {
   const { doc } = _manifestStore(actor);
   if (!doc) return;
-  await doc.setFlag(MODULE, SHIPS_FLAG, shipIds);
+  await doc.setFlag(MODULE, SHIPS_FLAG, normalizeAssignedShips(shipIds));
 }
 
 // ── Drag data resolution ──────────────────────────────────────────────────────

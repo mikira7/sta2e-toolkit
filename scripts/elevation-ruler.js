@@ -15,6 +15,7 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { getSceneZones, getZoneDistance, rangeBandColor } from "./zone-data.js";
+import { evaluateWeaponRange, getStarshipWeapons } from "./weapon-range.js";
 
 // ---------------------------------------------------------------------------
 // State — one label at a time
@@ -45,6 +46,10 @@ function _isZonesActive() {
     const perScene = canvas?.scene?.getFlag("sta2e-toolkit", "zonesEnabled");
     return perScene !== false;
   } catch { return false; }
+}
+
+function _isCombatActive() {
+  return !!game.combat && game.combat.started !== false;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +116,25 @@ function _computeDistance(from, to) {
   };
 }
 
+function _clipText(value, max = 20) {
+  const text = String(value ?? "");
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function _weaponRowsForZoneHover(sourceToken, zoneInfo) {
+  const LC = getLcTokens();
+  return getStarshipWeapons(sourceToken?.actor).map(weapon => {
+    const status = evaluateWeaponRange(weapon, zoneInfo);
+    return {
+      name: _clipText(weapon.name, 22),
+      range: status.listedRange ?? "?",
+      color: status.known
+        ? (status.within ? LC.green : LC.red)
+        : LC.textDim,
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // LCARS panel builder
 // ---------------------------------------------------------------------------
@@ -131,13 +155,14 @@ function _computeDistance(from, to) {
 //
 // timeLines = null  |  Array<{ label: string, time: string }>
 
-function _buildPanel(token, mainText, subText, timeLines, mainColorOverride) {
+function _buildPanel(token, mainText, subText, timeLines, mainColorOverride, weaponRows = null) {
   const LC = getLcTokens();
+  const weaponList = Array.isArray(weaponRows) ? weaponRows : [];
 
   // ── Geometry ───────────────────────────────────────────────────────────────
   const RADIUS     = 8;
   const PILL_W     = 46;
-  const DATA_W     = 130;
+  const DATA_W     = weaponList.length ? 172 : 130;
   const TOTAL_W    = PILL_W + DATA_W;
   const PAD_X      = 7;
   const ROW1_H     = 26;
@@ -146,7 +171,10 @@ function _buildPanel(token, mainText, subText, timeLines, mainColorOverride) {
   const TIME_ROW_H = 18;
   const GAP        = timeLines?.length ? 4 : 0;
   const TIME_H     = timeLines?.length ? timeLines.length * TIME_ROW_H : 0;
-  const TOTAL_H    = RANGE_H + GAP + TIME_H;
+  const WEAPON_ROW_H = 16;
+  const WEAPON_GAP   = weaponList.length ? 4 : 0;
+  const WEAPON_H     = weaponList.length ? 20 + weaponList.length * WEAPON_ROW_H : 0;
+  const TOTAL_H      = RANGE_H + GAP + TIME_H + WEAPON_GAP + WEAPON_H;
 
   // ── Colours ────────────────────────────────────────────────────────────────
   const cPrimary   = _hex(LC.primary);
@@ -222,6 +250,38 @@ function _buildPanel(token, mainText, subText, timeLines, mainColorOverride) {
   }
 
   // ── Assemble container ─────────────────────────────────────────────────────
+  if (weaponList.length) {
+    const wy = RANGE_H + GAP + TIME_H + WEAPON_GAP;
+
+    g.beginFill(cPanel, 1);
+    g.drawRoundedRect(0, wy, TOTAL_W, WEAPON_H, RADIUS);
+    g.endFill();
+
+    g.beginFill(cSecondary, 1);
+    g.drawRoundedRect(0, wy, PILL_W + RADIUS, WEAPON_H, RADIUS);
+    g.endFill();
+    g.beginFill(cPanel, 1);
+    g.drawRect(PILL_W, wy, RADIUS + 1, WEAPON_H);
+    g.endFill();
+
+    g.lineStyle(1, cBorder, 0.7);
+    g.moveTo(PILL_W, wy + 3); g.lineTo(PILL_W, wy + WEAPON_H - 3);
+    g.lineStyle(0);
+
+    for (let i = 0; i < weaponList.length; i++) {
+      g.lineStyle(1, cBorder, 0.28);
+      g.moveTo(PILL_W + 2, wy + 20 + i * WEAPON_ROW_H);
+      g.lineTo(TOTAL_W - 3, wy + 20 + i * WEAPON_ROW_H);
+      g.lineStyle(0);
+    }
+
+    g.lineStyle(1, cBorder, 0.85);
+    g.beginFill(0, 0);
+    g.drawRoundedRect(0.5, wy + 0.5, TOTAL_W - 1, WEAPON_H - 1, RADIUS);
+    g.endFill();
+    g.lineStyle(0);
+  }
+
   const ctr = new PIXI.Container();
   ctr.addChild(g);
 
@@ -282,6 +342,34 @@ function _buildPanel(token, mainText, subText, timeLines, mainColorOverride) {
     });
   }
 
+  if (weaponList.length) {
+    const wy = RANGE_H + GAP + TIME_H + WEAPON_GAP;
+
+    const weaponLbl = mkText("WEAPONS", 7, cBg, "700");
+    weaponLbl.anchor.set(0.5, 0.5);
+    weaponLbl.position.set(PILL_W / 2, wy + WEAPON_H / 2);
+    ctr.addChild(weaponLbl);
+
+    const head = mkText("LISTED RANGE", 8, cTextDim, "700");
+    head.anchor.set(0, 0.5);
+    head.position.set(PILL_W + PAD_X, wy + 10);
+    ctr.addChild(head);
+
+    weaponList.forEach((row, i) => {
+      const rowY = wy + 20 + i * WEAPON_ROW_H + WEAPON_ROW_H / 2;
+
+      const name = mkText(row.name, 9, cTextDim);
+      name.anchor.set(0, 0.5);
+      name.position.set(PILL_W + PAD_X, rowY);
+      ctr.addChild(name);
+
+      const status = mkText(row.range, 9, _hex(row.color), "700");
+      status.anchor.set(1, 0.5);
+      status.position.set(TOTAL_W - PAD_X, rowY);
+      ctr.addChild(status);
+    });
+  }
+
   // Position above the hovered token, centred horizontally
   ctr.position.set(
     token.w / 2 - TOTAL_W / 2,
@@ -326,7 +414,8 @@ function _showLabel(hoveredToken) {
           const subText = parts.length ? parts.join("  ·  ") : null;
 
           _hideLabel();
-          const container = _buildPanel(hoveredToken, mainText, subText, null, bandColor);
+          const weaponRows = _isCombatActive() ? _weaponRowsForZoneHover(source, zInfo) : null;
+          const container = _buildPanel(hoveredToken, mainText, subText, null, bandColor, weaponRows);
           hoveredToken.addChild(container);
           _elevLabel = { container, token: hoveredToken };
           return;

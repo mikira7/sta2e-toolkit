@@ -25,7 +25,7 @@
 
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
 import { openNpcRoller, openPlayerRoller } from "./npc-roller.js";
-import { readOfficerStats } from "./crew-manifest.js";
+import { getStationOfficers, readOfficerStats } from "./crew-manifest.js";
 import { CombatHUD } from "./combat-hud.js";
 import { createTracker } from "./momentum-tracker.js";
 
@@ -62,6 +62,111 @@ const COMPLICATION_RANGES = [1, 2, 3, 4, 5];
 
 const DEFAULT_KIND = { key: "social", label: "Social", icon: "Social" };
 
+function _clampInt(value, min, max, fallback = min) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function _normalizeTraitModifier(source = {}) {
+  const mode = ["increase", "reduce"].includes(source?.traitModifierMode)
+    ? source.traitModifierMode
+    : "none";
+  const potency = _clampInt(source?.traitModifierPotency, 1, 5, 1);
+  const name = String(source?.traitModifierName ?? "").trim();
+  return {
+    traitModifierMode: mode,
+    traitModifierPotency: potency,
+    traitModifierName: name,
+  };
+}
+
+function _traitModifierDelta(options = {}) {
+  const mod = _normalizeTraitModifier(options);
+  if (mod.traitModifierMode === "increase") return mod.traitModifierPotency;
+  if (mod.traitModifierMode === "reduce") return -mod.traitModifierPotency;
+  return 0;
+}
+
+function _traitModifierLabel(options = {}) {
+  const mod = _normalizeTraitModifier(options);
+  const delta = _traitModifierDelta(mod);
+  if (!delta) return "";
+  const sign = delta > 0 ? "+" : "-";
+  const name = mod.traitModifierName ? ` (${_esc(mod.traitModifierName)})` : "";
+  return `Trait ${sign}${Math.abs(delta)}${name}`;
+}
+
+function _calculateOpposedDifficulty(taskData = {}) {
+  const options = taskData.options ?? {};
+  const base = Number(taskData.defender?.successes ?? 0);
+  const guardPenalty = Number(options.guardPenalty ?? 0);
+  const pronePenalty = Number(options.pronePenalty ?? 0);
+  const overridePenalty = Number(options.overridePenalty ?? 0);
+  const traitDelta = _traitModifierDelta(options);
+  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + traitDelta);
+  return { base, guardPenalty, pronePenalty, overridePenalty, traitDelta, total };
+}
+
+async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
+  if (!game.user.isGM) return _normalizeTraitModifier(defaultValue);
+
+  const initial = _normalizeTraitModifier(defaultValue);
+  let captured = initial;
+  const selectMode = (mode) => `
+    <option value="${mode}" ${initial.traitModifierMode === mode ? "selected" : ""}>${
+      mode === "increase" ? "Increase attacker Difficulty"
+      : mode === "reduce" ? "Reduce attacker Difficulty"
+      : "No trait modifier"
+    }</option>`;
+
+  const result = await foundry.applications.api.DialogV2.wait({
+    window: { title },
+    content: `
+      <div style="font-family:${LC.font};display:flex;flex-direction:column;gap:8px;color:${LC.text};">
+        <div style="font-size:11px;color:${LC.textDim};line-height:1.4;">
+          Apply a manual trait modifier to the attacker's final opposed difficulty.
+        </div>
+        <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:${LC.textDim};">
+          Trait Effect
+          <select class="sta2e-op-trait-mode" style="background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};border-radius:2px;padding:5px;">
+            ${selectMode("none")}
+            ${selectMode("increase")}
+            ${selectMode("reduce")}
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:${LC.textDim};">
+          Potency
+          <input class="sta2e-op-trait-potency" type="number" min="1" max="5" value="${initial.traitModifierPotency}"
+            style="width:64px;background:${LC.panel};color:${LC.tertiary};border:1px solid ${LC.border};border-radius:2px;padding:5px;text-align:center;font-weight:700;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:${LC.textDim};">
+          Trait Name / Reason
+          <input class="sta2e-op-trait-name" type="text" value="${_esc(initial.traitModifierName)}"
+            placeholder="e.g. Nebula Interference"
+            style="background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};border-radius:2px;padding:5px;">
+        </label>
+      </div>`,
+    buttons: [
+      {
+        action: "apply",
+        label: "Apply",
+        default: true,
+        callback: (_event, _button, dlg) => {
+          captured = _normalizeTraitModifier({
+            traitModifierMode: dlg.element.querySelector(".sta2e-op-trait-mode")?.value ?? "none",
+            traitModifierPotency: dlg.element.querySelector(".sta2e-op-trait-potency")?.value ?? 1,
+            traitModifierName: dlg.element.querySelector(".sta2e-op-trait-name")?.value ?? "",
+          });
+        },
+      },
+      { action: "none", label: "No Modifier", callback: () => { captured = _normalizeTraitModifier({ traitModifierMode: "none" }); } },
+    ],
+  });
+
+  return result ? captured : initial;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Setup Dialog
 // ─────────────────────────────────────────────────────────────────────────
@@ -96,6 +201,7 @@ export function openOpposedTaskSetup(prefill = {}) {
     options: {
       defenderComplicationRange: prefill.options?.defenderComplicationRange ?? prefill.defenderComplicationRange ?? prefill.options?.complicationRange ?? prefill.complicationRange ?? 1,
       attackerComplicationRange: prefill.options?.attackerComplicationRange ?? prefill.attackerComplicationRange ?? prefill.options?.complicationRange ?? prefill.complicationRange ?? 1,
+      ..._normalizeTraitModifier(prefill.options ?? prefill),
     },
   };
 
@@ -142,6 +248,7 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
     `<option value="${d.key}" ${selectedKey === d.key ? "selected" : ""}>${d.label}</option>`).join("");
   const defCompRange = Number(state.options?.defenderComplicationRange ?? 1);
   const atkCompRange = Number(state.options?.attackerComplicationRange ?? 1);
+  const traitMod = _normalizeTraitModifier(state.options ?? {});
   const compDesc = (n) => n <= 1 ? "Complications on: 20" : `Complications on: ${21 - n}-20`;
 
   const recentOpts = recent.map((s, i) => {
@@ -215,6 +322,27 @@ function _buildDialogHtml(state, { recent, lastSnap }) {
       <div class="op-comp-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;">
         ${_complicationSliderHtml("defender", "Defender", defCompRange, LC.primary)}
         ${_complicationSliderHtml("attacker", "Attacker", atkCompRange, LC.secondary)}
+      </div>
+
+      <div class="op-panel op-trait-panel" style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;display:grid;grid-template-columns:minmax(0,1.3fr) 90px minmax(0,1.4fr);gap:8px;align-items:end;">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${LC.textDim};">
+          Trait Effect
+          <select class="op-trait-mode" style="background:${LC.bg};color:${LC.text};border:1px solid ${LC.border};padding:6px 8px;border-radius:10px 3px 10px 3px;">
+            <option value="none" ${traitMod.traitModifierMode === "none" ? "selected" : ""}>No trait modifier</option>
+            <option value="increase" ${traitMod.traitModifierMode === "increase" ? "selected" : ""}>Increase attacker Difficulty</option>
+            <option value="reduce" ${traitMod.traitModifierMode === "reduce" ? "selected" : ""}>Reduce attacker Difficulty</option>
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${LC.textDim};">
+          Potency
+          <input type="number" min="1" max="5" class="op-trait-potency" value="${traitMod.traitModifierPotency}"
+            style="background:${LC.bg};color:${LC.tertiary};border:1px solid ${LC.border};padding:6px 8px;border-radius:10px 3px 10px 3px;text-align:center;font-weight:700;"/>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${LC.textDim};">
+          Trait Name / Reason
+          <input type="text" class="op-trait-name" value="${_esc(traitMod.traitModifierName)}"
+            style="background:${LC.bg};color:${LC.text};border:1px solid ${LC.border};padding:6px 8px;border-radius:10px 3px 10px 3px;"/>
+        </label>
       </div>
 
       <div class="op-slot-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
@@ -538,6 +666,7 @@ function _applySnapshot(root, state, snap) {
   state.options               = {
     defenderComplicationRange: snap.options?.defenderComplicationRange ?? snap.options?.complicationRange ?? snap.defenderComplicationRange ?? snap.complicationRange ?? 1,
     attackerComplicationRange: snap.options?.attackerComplicationRange ?? snap.options?.complicationRange ?? snap.attackerComplicationRange ?? snap.complicationRange ?? 1,
+    ..._normalizeTraitModifier(snap.options ?? snap),
   };
   root.querySelector(".op-task-name").value = state.taskName;
   root.querySelector(".op-flavor").value = state.flavor;
@@ -553,6 +682,10 @@ function _applySnapshot(root, state, snap) {
   root.querySelector(".op-defender-disc").value = state.defenderSuggestedDisc;
   root.querySelector(".op-attacker-attr").value = state.attackerSuggestedAttr;
   root.querySelector(".op-attacker-disc").value = state.attackerSuggestedDisc;
+  const traitMod = _normalizeTraitModifier(state.options);
+  root.querySelector(".op-trait-mode").value = traitMod.traitModifierMode;
+  root.querySelector(".op-trait-potency").value = String(traitMod.traitModifierPotency);
+  root.querySelector(".op-trait-name").value = traitMod.traitModifierName;
   _assignSlot(root, state, "defender", state.defenderActorId);
   _assignSlot(root, state, "attacker", state.attackerActorId);
 }
@@ -568,6 +701,11 @@ function _readDialogState(root, state) {
   state.options = {
     defenderComplicationRange: Math.max(1, Math.min(5, Number(root.querySelector(".op-defender-complication-range")?.value) || 1)),
     attackerComplicationRange: Math.max(1, Math.min(5, Number(root.querySelector(".op-attacker-complication-range")?.value) || 1)),
+    ..._normalizeTraitModifier({
+      traitModifierMode: root.querySelector(".op-trait-mode")?.value ?? "none",
+      traitModifierPotency: root.querySelector(".op-trait-potency")?.value ?? 1,
+      traitModifierName: root.querySelector(".op-trait-name")?.value ?? "",
+    }),
   };
 }
 
@@ -603,6 +741,7 @@ export async function startOpposedTask(opts = {}) {
     options:               {
       defenderComplicationRange: opts.options?.defenderComplicationRange ?? opts.defenderComplicationRange ?? opts.options?.complicationRange ?? opts.complicationRange ?? 1,
       attackerComplicationRange: opts.options?.attackerComplicationRange ?? opts.attackerComplicationRange ?? opts.options?.complicationRange ?? opts.complicationRange ?? 1,
+      ..._normalizeTraitModifier(opts.options ?? opts),
       ...(opts.options ?? {}),
     },
   });
@@ -632,6 +771,9 @@ export async function startGroundCombatOpposedTask(opts = {}) {
   const guardPenalty = Number(opts.guardPenalty ?? 0);
   const pronePenalty = Number(opts.pronePenalty ?? 0);
   const targetIsProne = !!opts.targetIsProne;
+  const traitModifier = opts.traitModifierMode || opts.options?.traitModifierMode
+    ? _normalizeTraitModifier(opts.options ?? opts)
+    : await _promptTraitModifier({ title: "Ground Opposed Task - Trait in Play", defaultValue: opts.options ?? opts });
   const taskData = {
     taskId,
     mode: "groundCombat",
@@ -649,6 +791,7 @@ export async function startGroundCombatOpposedTask(opts = {}) {
       targetIsProneInCover: !!opts.targetIsProneInCover,
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
       attackerComplicationRange: opts.attackerComplicationRange ?? 1,
+      ...traitModifier,
     },
     combat: {
       attackerTokenId: opts.attackerTokenId ?? null,
@@ -672,6 +815,111 @@ export async function startGroundCombatOpposedTask(opts = {}) {
       actorImg: attackerActor.img ?? "icons/svg/mystery-man.svg",
       suggestedAttr: opts.attackerSuggestedAttr ?? "daring",
       suggestedDisc: opts.attackerSuggestedDisc ?? "security",
+      rolled: false,
+      successes: null,
+      complications: null,
+    },
+  };
+
+  return ChatMessage.create({
+    content: _renderCardHtml(taskData),
+    speaker: ChatMessage.getSpeaker({ token: attackerToken ?? null }),
+    flags: { [MODULE]: { type: "opposedTask", taskData } },
+  });
+}
+
+export async function startStarshipCombatOpposedTask(opts = {}) {
+  if (!game.user.isGM) {
+    game.socket.emit("module.sta2e-toolkit", {
+      action: "startStarshipCombatOpposedTask",
+      requesterUserId: game.user.id,
+      opts,
+    });
+    return null;
+  }
+
+  const attackerToken = opts.attackerTokenId ? canvas.tokens?.get(opts.attackerTokenId) : null;
+  const defenderToken = opts.defenderTokenId ? canvas.tokens?.get(opts.defenderTokenId) : null;
+  const attackerActor = attackerToken?.actor ?? game.actors.get(opts.attackerActorId);
+  const defenderActor = defenderToken?.actor ?? game.actors.get(opts.defenderActorId);
+  if (!attackerActor || !defenderActor) {
+    ui.notifications.error("STA2e Toolkit: Starship opposed task actor missing.");
+    return null;
+  }
+
+  const defenseType = opts.defenseType ?? opts.defMode ?? "evasive-action";
+  const defLabel = defenseType === "evasive-action" ? "Evasive Action"
+    : defenseType === "defensive-fire" ? "Defensive Fire"
+    : "Cover";
+  const defIcon = defenseType === "evasive-action" ? "Evasive"
+    : defenseType === "defensive-fire" ? "Defensive"
+    : "Cover";
+  const defStationId = opts.defenderStationId ?? (defenseType === "defensive-fire" ? "tactical" : "helm");
+  const atkStationId = opts.attackerStationId ?? "tactical";
+  const defenderSuggestedAttr = opts.defenderSuggestedAttr ?? (defenseType === "defensive-fire" ? "control" : "daring");
+  const defenderSuggestedDisc = opts.defenderSuggestedDisc ?? (defenseType === "defensive-fire" ? "security" : "conn");
+  const attackerSuggestedAttr = opts.attackerSuggestedAttr ?? "control";
+  const attackerSuggestedDisc = opts.attackerSuggestedDisc ?? "security";
+  const traitModifier = opts.traitModifierMode || opts.options?.traitModifierMode
+    ? _normalizeTraitModifier(opts.options ?? opts)
+    : await _promptTraitModifier({ title: "Starship Opposed Task - Trait in Play", defaultValue: opts.options ?? opts });
+
+  const defenderOfficers = getStationOfficers(defenderActor, defStationId);
+  const attackerOfficers = getStationOfficers(attackerActor, atkStationId);
+  const defenderOfficer = opts.defenderOfficer ?? (defenderOfficers[0] ? readOfficerStats(defenderOfficers[0]) : null);
+  const attackerOfficer = opts.attackerOfficer ?? (attackerOfficers[0] ? readOfficerStats(attackerOfficers[0]) : null);
+
+  const taskId = foundry.utils.randomID();
+  const taskData = {
+    taskId,
+    mode: "starshipCombat",
+    status: "awaiting-defender",
+    taskName: opts.taskName ?? `${defLabel} Defense`,
+    flavor: opts.flavor ?? "",
+    kind: "starshipCombat",
+    kindLabel: defLabel,
+    kindIcon: defIcon,
+    opposedDifficulty: null,
+    options: {
+      defenseType,
+      overridePenalty: opts.overridePenalty ? 1 : Number(opts.overridePenalty ?? 0),
+      defenderComplicationRange: opts.defenderComplicationRange ?? 1,
+      attackerComplicationRange: opts.attackerComplicationRange ?? 1,
+      ...traitModifier,
+    },
+    combat: {
+      attackerTokenId: opts.attackerTokenId ?? null,
+      defenderTokenId: opts.defenderTokenId ?? null,
+      weaponContext: opts.weaponContext ?? null,
+      hasTargetingSolution: !!opts.hasTargetingSolution,
+      hasRapidFireTorpedo: !!opts.hasRapidFireTorpedo,
+      hasCalibrateWeapons: !!opts.hasCalibrateWeapons,
+      hasAttackPattern: !!opts.hasAttackPattern,
+      helmOfficer: opts.helmOfficer ?? null,
+      attackRunActive: !!opts.attackRunActive,
+      attackerStationId: atkStationId,
+      defenderStationId: defStationId,
+      attackerOfficer,
+      defenderOfficer,
+      attackerCrewQuality: opts.attackerCrewQuality ?? (CombatHUD.isNpcShip(attackerActor) && !attackerOfficer ? CombatHUD.getCrewQuality(attackerActor) : null),
+      defenderCrewQuality: opts.defenderCrewQuality ?? (CombatHUD.isNpcShip(defenderActor) && !defenderOfficer ? CombatHUD.getCrewQuality(defenderActor) : null),
+    },
+    defender: {
+      actorId: defenderActor.id,
+      actorName: defenderActor.name,
+      actorImg: defenderActor.img ?? "icons/svg/mystery-man.svg",
+      suggestedAttr: defenderSuggestedAttr,
+      suggestedDisc: defenderSuggestedDisc,
+      rolled: false,
+      successes: null,
+      complications: null,
+    },
+    attacker: {
+      actorId: attackerActor.id,
+      actorName: attackerActor.name,
+      actorImg: attackerActor.img ?? "icons/svg/mystery-man.svg",
+      suggestedAttr: attackerSuggestedAttr,
+      suggestedDisc: attackerSuggestedDisc,
       rolled: false,
       successes: null,
       complications: null,
@@ -782,9 +1030,12 @@ function _renderCardHtml(d) {
   const canRollAtk = defRolled && !atkRolled;
   const resolved = defRolled && atkRolled;
   const isGroundCombat = d.mode === "groundCombat";
+  const isStarshipCombat = d.mode === "starshipCombat";
   const guardPenalty = Number(d.options?.guardPenalty ?? 0);
   const pronePenalty = Number(d.options?.pronePenalty ?? 0);
-  const adjustedTarget = (d.defender.successes ?? 0) + guardPenalty + pronePenalty;
+  const difficultyInfo = _calculateOpposedDifficulty(d);
+  const adjustedTarget = difficultyInfo.total;
+  const traitLabel = _traitModifierLabel(d.options ?? {});
 
   const defAttrKey = d.defender?.suggestedAttr ?? d.suggestedAttr;
   const defDiscKey = d.defender?.suggestedDisc ?? d.suggestedDisc;
@@ -830,7 +1081,7 @@ function _renderCardHtml(d) {
   };
 
   // Resolved-side status text — used for "X successes" / "X successes — HIT"
-  const isResolvedHit = defRolled && atkRolled && d.attacker.successes >= (isGroundCombat ? adjustedTarget : d.defender.successes);
+  const isResolvedHit = defRolled && atkRolled && d.attacker.successes >= adjustedTarget;
   const buildSideStatus = (sideObj, isAttacker) => {
     if (!sideObj.rolled) {
       return `<span style="color:${textDim};font-style:italic;">Awaiting roll…</span>`;
@@ -851,7 +1102,7 @@ function _renderCardHtml(d) {
   // Resolution: attacker must meet or beat defender successes
   let resolutionBlock = "";
   if (resolved) {
-    const target = isGroundCombat ? adjustedTarget : d.defender.successes;
+    const target = adjustedTarget;
     const diff = d.attacker.successes - target;
     const passed = d.attacker.successes >= target;
     const rewardSide = passed ? "attacker" : "defender";
@@ -872,11 +1123,16 @@ function _renderCardHtml(d) {
 
     // Breakdown details under the verdict
     const breakdownParts = [];
-    if (isGroundCombat) {
+    if (isGroundCombat || isStarshipCombat) {
       breakdownParts.push(`${d.attacker.successes} succ vs Diff ${target}`);
       if (guardPenalty) breakdownParts.push(`Guard +${guardPenalty}`);
       if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
+      if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
+      if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
       if (d.options?.targetIsProne && passed) breakdownParts.push(`<span style="color:${LC.secondary ?? "#cc88ff"};">+2 Mom on prone target</span>`);
+    } else {
+      breakdownParts.push(`${d.attacker.successes} succ vs Diff ${target}`);
+      if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
     }
     const compsTotal = (d.defender.complications ?? 0) + (d.attacker.complications ?? 0);
     if (compsTotal > 0) breakdownParts.push(`<span style="color:${LC.red ?? "#cc4444"};">${compsTotal} Complication${compsTotal === 1 ? "" : "s"}</span>`);
@@ -885,7 +1141,7 @@ function _renderCardHtml(d) {
       ? `<div style="margin-top:3px;font-size:10px;color:${textDim};">${breakdownParts.join(" · ")}</div>`
       : "";
 
-    const rewardBlock = isGroundCombat ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount);
+    const rewardBlock = (isGroundCombat || isStarshipCombat) ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount);
 
     resolutionBlock = `
       <div class="sta2e-op-v2-resolution"
@@ -939,9 +1195,9 @@ function _renderCardHtml(d) {
         title="GM only — cancel this opposed task">✕</button>`
     : "";
 
-  const groundNote = isGroundCombat && !resolved
+  const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
-        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}.
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}.
       </div>`
     : "";
 
@@ -971,14 +1227,14 @@ function _renderCardHtml(d) {
       display:flex;justify-content:space-between;align-items:center;
       font-weight:700;letter-spacing:0.16em;text-transform:uppercase;border-radius:0;">
     <span style="font-size:11px;">Opposed Task</span>
-    <span style="font-size:10px;opacity:0.9;">${isGroundCombat ? "Ground Combat" : "Social Contest"}</span>
+    <span style="font-size:10px;opacity:0.9;">${isStarshipCombat ? "Starship Combat" : isGroundCombat ? "Ground Combat" : "Social Contest"}</span>
   </div>
 
   <div style="padding:8px 12px 4px;">
     <div style="font-size:14px;font-weight:700;color:${primary};letter-spacing:0.02em;">${_esc(d.taskName)}</div>
     ${d.flavor ? `<div style="margin-top:2px;font-size:10px;color:${textDim};font-style:italic;line-height:1.4;">${_esc(d.flavor)}</div>` : ""}
   </div>
-  ${groundNote}
+  ${opposedNote}
 
   <div class="sta2e-op-v2-sides"
     style="display:flex;margin:6px 10px 0;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(0,0,0,0.25);">
@@ -1117,16 +1373,20 @@ function _launchRoller(message, taskData, side, actor) {
   const profile = _getOpposedActorProfile(actor, token);
   const forcedGroundNpc = taskData.mode === "groundCombat" && _isOpposedGroundNpcActor(actor, token);
   const isGroundCombat = taskData.mode === "groundCombat";
-  const groundModifier = isGroundCombat
-    ? Number(taskData.options?.guardPenalty ?? 0) + Number(taskData.options?.pronePenalty ?? 0)
-    : 0;
+  const isStarshipCombat = taskData.mode === "starshipCombat";
+  const difficultyInfo = _calculateOpposedDifficulty(taskData);
   // Defender rolls at difficulty 0 (free roll to set the bar);
   // attacker must meet or beat defender's successes.
   const difficulty = side === "defender"
     ? 0
-    : (taskData.defender.successes ?? 0) + groundModifier;
+    : difficultyInfo.total;
 
-  const stats = readOfficerStats(actor);
+  const starshipOfficer = isStarshipCombat
+    ? (side === "defender" ? taskData.combat?.defenderOfficer : taskData.combat?.attackerOfficer)
+    : null;
+  const starshipOfficerActor = starshipOfficer?.id ? game.actors.get(starshipOfficer.id) : null;
+  const starshipUsesPlayerPayment = isStarshipCombat && !!(starshipOfficerActor?.hasPlayerOwner || profile.isPlayerOwned);
+  const stats = starshipOfficer ?? readOfficerStats(actor);
   const sideData = side === "defender" ? taskData.defender : taskData.attacker;
   const suggestedAttr = sideData?.suggestedAttr ?? taskData.suggestedAttr ?? null;
   const suggestedDisc = sideData?.suggestedDisc ?? taskData.suggestedDisc ?? null;
@@ -1135,11 +1395,32 @@ function _launchRoller(message, taskData, side, actor) {
     : (taskData.options?.attackerComplicationRange ?? taskData.options?.complicationRange ?? 1);
   const hasAttr = stats && Object.keys(stats.attributes ?? {}).includes(suggestedAttr);
   const hasDisc = stats && Object.keys(stats.disciplines ?? {}).includes(suggestedDisc);
+  const starshipRollerOpts = isStarshipCombat
+    ? {
+        stationId: side === "defender" ? taskData.combat?.defenderStationId : taskData.combat?.attackerStationId,
+        officer: starshipOfficer ?? undefined,
+        crewQuality: side === "defender" ? taskData.combat?.defenderCrewQuality : taskData.combat?.attackerCrewQuality,
+        weaponContext: side === "attacker" ? (taskData.combat?.weaponContext ?? null) : null,
+        hasTargetingSolution: side === "attacker" && !!taskData.combat?.hasTargetingSolution,
+        hasRapidFireTorpedo: side === "attacker" && !!taskData.combat?.hasRapidFireTorpedo,
+        hasCalibrateWeapons: side === "attacker" && !!taskData.combat?.hasCalibrateWeapons,
+        hasAttackPattern: side === "attacker" && !!taskData.combat?.hasAttackPattern,
+        helmOfficer: side === "attacker" ? (taskData.combat?.helmOfficer ?? null) : null,
+        attackRunActive: side === "attacker" && !!taskData.combat?.attackRunActive,
+        opposedDifficulty: side === "attacker" ? difficulty : null,
+        opposedDefenseType: side === "attacker" ? (taskData.options?.defenseType ?? null) : null,
+        defenderSuccesses: side === "attacker" ? (taskData.defender.successes ?? 0) : null,
+        playerMode: starshipUsesPlayerPayment,
+        usesPlayerPayment: starshipUsesPlayerPayment,
+        suppressWeaponResolution: side === "attacker",
+      }
+    : {};
 
   const rollerOpts = {
     difficulty,
     complicationRange,
-    noPoolButton: !isGroundCombat || side === "defender",
+    noPoolButton: (!isGroundCombat && !isStarshipCombat) || side === "defender",
+    ...starshipRollerOpts,
     taskLabel: isGroundCombat
       ? (side === "defender" ? "Melee Defender" : taskData.taskName)
       : `${taskData.kindIcon} ${taskData.taskName}`,
@@ -1156,14 +1437,14 @@ function _launchRoller(message, taskData, side, actor) {
     } : {}),
     defaultAttr: hasAttr ? suggestedAttr : null,
     defaultDisc: hasDisc ? suggestedDisc : null,
-    taskCallback: async ({ successes, complications: reportedComplications = null, state }) => {
+    taskCallback: async ({ successes, complications: reportedComplications = null, state, rollData = null, trackerMessageId = null, trackerFloat = 0, trackerBanked = 0 }) => {
       // Count complications across the primary pools (crew + assists + ship)
       const allDice = [
-        ...(state?.crewDice ?? []),
-        ...(state?.crewAssistDice ?? []),
-        ...(state?.namedAssistDice ?? []),
-        ...(state?.apAssistDice ?? []),
-        ...(state?.shipDice ?? []),
+        ...(state?.crewDice ?? rollData?.crewDice ?? []),
+        ...(state?.crewAssistDice ?? rollData?.crewAssistDice ?? []),
+        ...(state?.namedAssistDice ?? rollData?.namedAssistDice ?? []),
+        ...(state?.apAssistDice ?? rollData?.apAssistDice ?? []),
+        ...(state?.shipDice ?? rollData?.shipDice ?? []),
       ];
       const complications = reportedComplications ?? allDice.filter(d => d?.complication).length;
       // Serialize a compact dice array for chat-card display
@@ -1182,6 +1463,10 @@ function _launchRoller(message, taskData, side, actor) {
           successes,
           complications,
           dice,
+          rollData,
+          trackerMessageId,
+          trackerFloat,
+          trackerBanked,
         });
       } else {
         game.socket.emit("module.sta2e-toolkit", {
@@ -1192,13 +1477,17 @@ function _launchRoller(message, taskData, side, actor) {
           successes,
           complications,
           dice,
+          rollData,
+          trackerMessageId,
+          trackerFloat,
+          trackerBanked,
         });
       }
     },
   };
 
   if (profile.isShip) {
-    const launcher = profile.isPlayerOwned ? openPlayerRoller : openNpcRoller;
+    const launcher = (isStarshipCombat ? starshipUsesPlayerPayment : profile.isPlayerOwned) ? openPlayerRoller : openNpcRoller;
     launcher(actor, token, rollerOpts);
     return;
   }
@@ -1300,7 +1589,7 @@ function _renderOpposedPoolReward(taskData, side, amount) {
  * Must run on the GM's client (only the GM can update arbitrary ChatMessages
  * and flip state across all users).
  */
-export async function applyOpposedRollResult({ messageId, taskId, side, successes, complications, dice }) {
+export async function applyOpposedRollResult({ messageId, taskId, side, successes, complications, dice, rollData = null, trackerMessageId = null, trackerFloat = 0, trackerBanked = 0 }) {
   if (!game.user.isGM) return;
   const message = game.messages.get(messageId);
   if (!message) {
@@ -1320,6 +1609,20 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
   sideData.successes = Math.max(0, successes ?? 0);
   sideData.complications = Math.max(0, complications ?? 0);
   sideData.dice = Array.isArray(dice) ? dice : [];
+  sideData.rollData = rollData ?? null;
+  if (trackerMessageId || trackerFloat || trackerBanked) {
+    sideData.tracker = {
+      messageId: trackerMessageId ?? null,
+      float: Number(trackerFloat ?? 0),
+      banked: Number(trackerBanked ?? 0),
+    };
+  }
+  if (side === "defender") {
+    taskData.opposedDifficulty = _calculateOpposedDifficulty(taskData).total;
+  }
+  if (side === "attacker") {
+    taskData.opposedDifficulty = _calculateOpposedDifficulty(taskData).total;
+  }
 
   // Status transitions
   if (side === "defender") taskData.status = "awaiting-attacker";
@@ -1327,8 +1630,8 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
 
   // Auto-bank the margin to the winner's pool for social opposed tasks.
   // Ground combat keeps its existing weapon/damage pipeline — skip here.
-  if (side === "attacker" && taskData.mode !== "groundCombat") {
-    const target = taskData.defender.successes ?? 0;
+  if (side === "attacker" && taskData.mode !== "groundCombat" && taskData.mode !== "starshipCombat") {
+    const target = _calculateOpposedDifficulty(taskData).total;
     const atkSuc = taskData.attacker.successes ?? 0;
     const passed = atkSuc >= target;
     const rewardAmount = Math.abs(atkSuc - target);
@@ -1368,6 +1671,14 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
   };
 
   if (side === "attacker") {
+    if (taskData.mode === "starshipCombat") {
+      await _resolveStarshipOpposedAttack(taskData, {
+        rollData,
+        trackerMessageId,
+        trackerFloat,
+        trackerBanked,
+      });
+    }
     try {
       await ChatMessage.create({
         content: newContent,
@@ -1391,6 +1702,60 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
     content: newContent,
     [`flags.${MODULE}.taskData`]: taskData,
   }).catch(e => console.error("STA2e Toolkit | apply opposed result failed:", e));
+}
+
+async function _resolveStarshipOpposedAttack(taskData, { rollData = null, trackerMessageId = null, trackerFloat = 0, trackerBanked = 0 } = {}) {
+  const combat = taskData.combat ?? {};
+  const weaponContext = combat.weaponContext ?? {};
+  const attackerToken = combat.attackerTokenId ? canvas.tokens?.get(combat.attackerTokenId) : null;
+  const defenderToken = combat.defenderTokenId ? canvas.tokens?.get(combat.defenderTokenId) : null;
+  const attackerActor = attackerToken?.actor ?? game.actors.get(taskData.attacker?.actorId);
+  const weaponActor = weaponContext.shipActorId
+    ? game.actors.get(weaponContext.shipActorId)
+    : attackerActor;
+  const weapon = weaponContext.weaponId
+    ? weaponActor?.items.get(weaponContext.weaponId)
+    : weaponActor?.items.find(i => i.type === "starshipweapon2e" && i.name === weaponContext.name);
+
+  if (!attackerToken || !defenderToken || !weapon) {
+    ui.notifications.warn("STA2e Toolkit: Starship opposed attack could not resolve; attacker, defender, or weapon missing.");
+    return;
+  }
+
+  const finalDifficulty = _calculateOpposedDifficulty(taskData).total;
+  const isHit = (taskData.attacker?.successes ?? 0) >= finalDifficulty;
+
+  if (rollData?.hasTargetingSolution && rollData?.tsChoice) {
+    const benefit = rollData.hasFastTargeting ? "both" : rollData.tsChoice;
+    await CombatHUD.setTargetingSolution(attackerToken, {
+      active: true,
+      benefit,
+      system: rollData.tsSystem ?? null,
+    });
+  }
+
+  const calibrateWeaponsBonus = combat.hasCalibrateWeapons ? 1 : 0;
+  const attackerTracker = taskData.attacker?.tracker ?? {};
+  await CombatHUD.resolveShipAttack(attackerToken, weapon, isHit, {
+    salvoMode: weaponContext.salvoMode ?? "area",
+    rapidFireBonus: combat.hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
+    calibrateWeaponsBonus,
+    defenderSuccesses: taskData.defender?.successes ?? null,
+    opposedDifficulty: finalDifficulty,
+    opposedDefenseType: taskData.options?.defenseType ?? null,
+    attackerSuccesses: taskData.attacker?.successes ?? null,
+    overrideTargets: [defenderToken],
+    floatingMomentum: Number(trackerFloat ?? attackerTracker.float ?? 0),
+    trackerMessageId: trackerMessageId ?? attackerTracker.messageId ?? null,
+    complications: taskData.attacker?.complications ?? 0,
+    opposedMomentumAwarded: !!(trackerMessageId ?? attackerTracker.messageId)
+      || Number(trackerFloat ?? attackerTracker.float ?? 0) > 0
+      || Number(trackerBanked ?? attackerTracker.banked ?? 0) > 0,
+  });
+
+  if (calibrateWeaponsBonus) {
+    attackerToken.document?.unsetFlag?.(MODULE, "calibrateWeapons")?.catch?.(() => {});
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

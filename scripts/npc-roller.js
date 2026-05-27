@@ -2872,7 +2872,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1 } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -3070,29 +3070,34 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   // Pull live system/dept maps from the actor
   const actorSystems = actor.system?.systems ?? {};
   const actorDepts = actor.system?.departments ?? {};
+  const initialSelectedShip = sheetMode && availableShips?.length > 0 && initialShipIdx >= 0
+    ? (availableShips[initialShipIdx] ?? null)
+    : null;
+  const initialShipSystems = initialSelectedShip?.systems ?? actorSystems;
+  const initialShipDepts = initialSelectedShip?.depts ?? actorDepts;
   // Mutable reference — swapped by the in-roller ship selector when sheetMode + availableShips
-  const _shipDataRef = { systems: actorSystems, depts: actorDepts };
+  const _shipDataRef = { systems: initialShipSystems, depts: initialShipDepts };
 
   // Default selections: weapons system, first dept key available
-  const defaultSysKey = Object.keys(actorSystems)[0] in actorSystems
-    ? (actorSystems.weapons ? "weapons" : Object.keys(actorSystems)[0])
+  const defaultSysKey = Object.keys(initialShipSystems)[0] in initialShipSystems
+    ? (initialShipSystems.weapons ? "weapons" : Object.keys(initialShipSystems)[0])
     : "weapons";
-  const defaultDeptKey = actorDepts.security ? "security"
-    : (Object.keys(actorDepts)[0] ?? "security");
+  const defaultDeptKey = initialShipDepts.security ? "security"
+    : (Object.keys(initialShipDepts)[0] ?? "security");
 
   // Detect Advanced Sensors talent — grants a bonus ship die but ONLY when
   // the Sensors system is selected. Also check Sensors breaches.
-  const hasAdvancedSensors = actor.items.some(i =>
+  const hasAdvancedSensors = initialSelectedShip?.hasAdvancedSensors ?? actor.items.some(i =>
     i.name.toLowerCase().includes("advanced sensor suites") ||
     i.name.toLowerCase().includes("advanced sensors")
   );
 
   // Check if Sensors system has any breaches — Advanced Sensors can't be used if so
-  const sensorsBreaches = actor.system?.systems?.sensors?.breaches ?? 0;
+  const sensorsBreaches = initialSelectedShip?.sensorsBreaches ?? actor.system?.systems?.sensors?.breaches ?? 0;
 
   // If opened from a weapon button, default to Weapons system + Security dept
   const weaponContextSysKey = weaponContext ? "weapons" : defaultSysKey;
-  const weaponContextDeptKey = weaponContext ? (actorDepts.security ? "security" : defaultDeptKey) : defaultDeptKey;
+  const weaponContextDeptKey = weaponContext ? (initialShipDepts.security ? "security" : defaultDeptKey) : defaultDeptKey;
 
   // Re-evaluate Advanced Sensors for the starting system
   const startIsSensors = weaponContextSysKey === "sensors";
@@ -3218,8 +3223,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     crewDept: 2,
     shipSystemKey: overrideShipSysKey ?? weaponContextSysKey,
     shipDeptKey: overrideShipDeptKey ?? weaponContextDeptKey,
-    shipSystems: actorSystems[overrideShipSysKey ?? weaponContextSysKey]?.value ?? 8,
-    shipDept: actorDepts[overrideShipDeptKey ?? weaponContextDeptKey]?.value ?? 2,
+    shipSystems: initialShipSystems[overrideShipSysKey ?? weaponContextSysKey]?.value ?? 8,
+    shipDept: initialShipDepts[overrideShipDeptKey ?? weaponContextDeptKey]?.value ?? 2,
     // Roll state
     phase: "setup",
     crewFailed: false,
@@ -3251,6 +3256,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     taskLabel,            // short label shown in dialog title + chat card header, e.g. "Rally"
     taskContext,          // optional longer description shown in chat card subheader
     taskCallback,         // optional fn({ successes, passed, state, actor, token }) called after post
+    suppressWeaponResolution,
     breachPenalty,        // { breaches, destroyThreshold, difficultyPenalty, isDestroyed, penaltyNote }
     // Apply breach difficulty penalty to starting difficulty
     // Priority: startDifficulty > opposedDifficulty > weapon type default (torpedo=3, energy=2)
@@ -3420,6 +3426,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       detRerollUsed: state.detRerollUsed ?? false,
       genericRerollUsed: state.genericRerollUsed ?? false,
       hasTargetingSolution: state.hasTargetingSolution ?? false,
+      hasFastTargeting: state.hasFastTargeting ?? false,
       tsChoice: state.tsChoice ?? null,
       tsSystem: state.tsSystem ?? null,
       tsRerollUsed: state.tsRerollUsed ?? false,
@@ -3483,6 +3490,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       groundMode: state.groundMode ?? false,
       groundIsNpc: state.groundIsNpc ?? false,
       noPoolButton: state.noPoolButton ?? false,
+      suppressWeaponResolution: state.suppressWeaponResolution ?? false,
       // Snapshot of payment slots — used by downstream consumers (e.g. damage
       // card spend panel) to detect Threat-purchased d20s for Andorian Intense.
       paymentSlots: Array.isArray(state.paymentSlots) ? [...state.paymentSlots] : [],
@@ -3505,6 +3513,21 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
   // ── Render setup dialog ──────────────────────────────────────────────────────
   let dialog;
+  let dialogPosition = null;
+
+  const _rememberDialogPosition = () => {
+    if (!dialog) return;
+    const pos = dialog.position ?? {};
+    const rect = dialog.element?.getBoundingClientRect?.();
+    const left = Number.isFinite(pos.left) ? pos.left : rect?.left;
+    const top = Number.isFinite(pos.top) ? pos.top : rect?.top;
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+
+    dialogPosition = {
+      left,
+      top,
+    };
+  };
 
   const openDialog = async () => {
     // Player mode, NPC ship mode, ground character, OR ship-sheet assist:
@@ -3519,6 +3542,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     }
 
     if (dialog) {
+      _rememberDialogPosition();
       try { dialog.close(); } catch { }
     }
 
@@ -3532,7 +3556,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             ? `${actor.name} — ${state.taskLabel}`
             : `Adv. Dice Roller — ${actor.name}`, resizable: false
       },
-      content: buildDialogContent(state, actorSystems, actorDepts, actor),
+      ...(dialogPosition ? { position: dialogPosition } : {}),
+      content: buildDialogContent(state, _shipDataRef.systems, _shipDataRef.depts, actor),
       buttons: isRolled
         ? [
           ...(state.weaponContext ? [{
@@ -3982,6 +4007,28 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
   // Normalise to an id string for the pending task; fall back to actor id.
   const _tokenId  = token?.id ?? token?.document?.id ?? actor?.id ?? "unknown";
   const _actorId  = actor?.id ?? state.actorId ?? "unknown";
+  const starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
+  const attackerToken = canvas.tokens?.get(_tokenId) ?? canvas.tokens?.placeables.find(t => t.actor?.id === _actorId) ?? null;
+  if (starter && attackerToken?.actor && targetToken?.actor) {
+    await starter({
+      taskName: state.taskLabel ?? `Attack - ${state.weaponContext?.name ?? "Weapon"}`,
+      attackerActorId: attackerToken.actor.id,
+      attackerTokenId: attackerToken.id,
+      defenderActorId: targetToken.actor.id,
+      defenderTokenId: targetToken.id,
+      defenseType: defMode,
+      weaponContext: state.weaponContext,
+      hasTargetingSolution: state.hasTargetingSolution ?? false,
+      hasRapidFireTorpedo: state.hasRapidFireTorpedo ?? false,
+      hasAttackPattern: state.hasAttackPattern ?? false,
+      helmOfficer: state.helmOfficer ?? null,
+      attackRunActive: state.attackRunActive ?? false,
+      attackerOfficer: state.officer ?? null,
+      attackerStationId: state.stationId ?? "tactical",
+      attackerCrewQuality: state._isNpc && !state.officer ? state.crewQuality : null,
+    });
+    return;
+  }
 
   await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
     taskId:          `${_tokenId}-${Date.now()}`,
@@ -4965,8 +5012,9 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         try {
           const newShips = await state.onAssignShips();
           state.availableShips = newShips;
-          state.selectedShipIdx = -1;
-          state.shipAssist = false;
+          const defaultIdx = (newShips ?? []).findIndex(s => s?._defaultShip);
+          state.selectedShipIdx = defaultIdx;
+          state.shipAssist = defaultIdx >= 0;
           if (openDialog) openDialog();
         } finally {
           manageShipsBtn.disabled = false;
