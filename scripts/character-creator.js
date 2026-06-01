@@ -142,8 +142,13 @@ const CHARACTER_TYPE_DEFINITIONS = {
     name: "Major NPC",
     description: "GM-only major adversary or recurring NPC creation.",
     npcType: "major",
-    attributeArray: [12, 11, 10, 9, 9, 8],
-    departmentArray: [5, 4, 3, 2, 1, 1],
+    scoreMode: "pointBuy",
+    attributeBase: 7,
+    attributePoints: 14,
+    attributeMax: 12,
+    departmentBase: 1,
+    departmentPoints: 10,
+    departmentMax: 5,
     valueCount: 4,
     minValueCount: 2,
     focusCount: 6,
@@ -774,6 +779,69 @@ function normalizeScoreSpends(spends = {}, keys = [], limit = 0, perKeyLimit = I
   return normalized;
 }
 
+function scorePointBuyContext(assignments = {}, keys = [], labels = {}, {
+  base = 0,
+  points = 0,
+  max = Infinity,
+} = {}) {
+  const baseValue = Number(base) || 0;
+  const spendLimit = Math.max(0, Number(points) || 0);
+  const perKeyLimit = Number.isFinite(max) ? Math.max(0, Number(max) - baseValue) : Infinity;
+  const spends = normalizeScoreSpends(assignments, keys, spendLimit, perKeyLimit);
+  const spent = scoreTotal(spends, keys);
+  const scores = Object.fromEntries(keys.map(key => [key, baseValue + (spends[key] ?? 0)]));
+
+  return {
+    base: baseValue,
+    max,
+    points: spendLimit,
+    spends,
+    spent,
+    remaining: Math.max(0, spendLimit - spent),
+    scores,
+    rows: keys.map(key => ({
+      key,
+      label: labels[key],
+      baseValue,
+      spend: spends[key] ?? 0,
+      value: scores[key],
+      canDecrease: (spends[key] ?? 0) > 0,
+      canIncrease: spent < spendLimit && (spends[key] ?? 0) < perKeyLimit,
+    })),
+  };
+}
+
+function definitionUsesNpcPointBuy(definition) {
+  return definition?.scoreMode === "pointBuy";
+}
+
+function npcCustomSpeciesFromState(state = {}) {
+  const attributeBoosts = ATTRIBUTE_KEYS
+    .filter(key => Array.isArray(state.npcCustomSpeciesAttributeBoosts) && state.npcCustomSpeciesAttributeBoosts.includes(key))
+    .slice(0, 3);
+  const attributeChoiceBoosts = ATTRIBUTE_KEYS
+    .filter(key => Array.isArray(state.npcCustomSpeciesAttributeChoiceBoosts) && state.npcCustomSpeciesAttributeChoiceBoosts.includes(key));
+  const boostRuleTotal = attributeBoosts.length + (attributeChoiceBoosts.length ? 1 : 0);
+  const normalizedAttributeBoosts = boostRuleTotal <= 3
+    ? attributeBoosts
+    : attributeBoosts.slice(0, Math.max(0, 3 - (attributeChoiceBoosts.length ? 1 : 0)));
+
+  return normalizeSpecies({
+    id: "npc-custom-species",
+    name: state.npcCustomSpeciesName,
+    description: state.npcCustomSpeciesDescription,
+    trait: state.npcCustomSpeciesTraitName,
+    traitDescription: state.npcCustomSpeciesTraitDescription,
+    tokenImage: state.npcCustomSpeciesTokenImage,
+    extraFocusCount: state.npcCustomSpeciesExtraFocusCount,
+    attributeBoosts: normalizedAttributeBoosts,
+    attributeChoiceBoosts,
+    speciesAbilityName: state.npcCustomSpeciesAbilityName,
+    speciesAbilityDescription: state.npcCustomSpeciesAbilityDescription,
+    custom: true,
+  });
+}
+
 function canIncreaseLimitedScore(scores, key, limit) {
   const max = Number(limit?.max ?? 0) || 0;
   if (!key || !(key in scores) || (scores[key] ?? 0) >= max) return false;
@@ -1360,6 +1428,7 @@ function normalizeSpecies(row = {}) {
     id: row.id || foundry.utils.randomID(),
     name: String(row.name ?? "").trim(),
     trait: String(row.trait ?? "").trim(),
+    traitDescription: String(row.traitDescription ?? "").trim(),
     traitUuid: traitUuids[0] ?? "",
     traitUuids,
     description: String(row.description ?? "").trim(),
@@ -1369,6 +1438,8 @@ function normalizeSpecies(row = {}) {
     attributeBoosts: ATTRIBUTE_KEYS.filter(key => Array.isArray(row.attributeBoosts) && row.attributeBoosts.includes(key)).slice(0, 3),
     attributeChoiceBoosts: ATTRIBUTE_KEYS.filter(key => Array.isArray(row.attributeChoiceBoosts) && row.attributeChoiceBoosts.includes(key)),
     speciesAbilityUuid: String(row.speciesAbilityUuid ?? "").trim(),
+    speciesAbilityName: String(row.speciesAbilityName ?? "").trim(),
+    speciesAbilityDescription: String(row.speciesAbilityDescription ?? "").trim(),
     speciesTalentUuids: Array.isArray(row.speciesTalentUuids)
       ? row.speciesTalentUuids.map(u => String(u).trim()).filter(Boolean)
       : [],
@@ -1382,6 +1453,7 @@ function normalizeSpecies(row = {}) {
     firstNames: normalizeNameList(row.firstNames),
     surnames: normalizeNameList(row.surnames),
     surnameFirst: !!row.surnameFirst,
+    custom: !!row.custom,
   };
 }
 
@@ -1411,7 +1483,8 @@ async function prepareSpeciesForContext(species, creatorData) {
     prepareTalents(species.speciesEsotericTalentUuids),
     prepareUuidListForContext(species.speciesValueUuids ?? []),
   ]);
-  const abilityName = abilityDoc?.name ?? species.speciesAbilityUuid ?? "";
+  const abilityName = abilityDoc?.name ?? species.speciesAbilityName ?? species.speciesAbilityUuid ?? "";
+  const abilityDescription = descriptionForDoc(abilityDoc) || species.speciesAbilityDescription || "";
   esotericTalents.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang, { sensitivity: "base" }));
   const traits = traitUuids.map((uuid, index) => {
     const doc = traitDocs[index];
@@ -1430,9 +1503,9 @@ async function prepareSpeciesForContext(species, creatorData) {
     traitName: primaryTrait?.name ?? species.trait ?? species.traitUuid ?? "",
     traitUuid: primaryTrait?.uuid ?? "",
     traitUuids,
-    traitDescription: primaryTrait?.description ?? "",
+    traitDescription: primaryTrait?.description ?? species.traitDescription ?? "",
     abilityName,
-    abilityDescription: descriptionForDoc(abilityDoc),
+    abilityDescription,
     talents,
     esotericTalents,
     values,
@@ -4334,6 +4407,17 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       supportingCustomValueDescription: "",
       npcAttributeAssignments: {},
       npcDepartmentAssignments: {},
+      npcUseCustomSpecies: false,
+      npcCustomSpeciesName: "",
+      npcCustomSpeciesDescription: "",
+      npcCustomSpeciesTraitName: "",
+      npcCustomSpeciesTraitDescription: "",
+      npcCustomSpeciesAbilityName: "",
+      npcCustomSpeciesAbilityDescription: "",
+      npcCustomSpeciesTokenImage: "",
+      npcCustomSpeciesAttributeBoosts: [],
+      npcCustomSpeciesAttributeChoiceBoosts: [],
+      npcCustomSpeciesExtraFocusCount: 0,
       npcRoleTraitUuid: "",
       npcCustomRoleTraitName: "",
       npcCustomRoleTraitDescription: "",
@@ -4444,7 +4528,10 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     const shouldApplyUpbringing = currentStep >= 3;
     const shouldApplyCareer = currentStep >= 4;
     const species = data.species.map(normalizeSpecies).filter(s => s.name);
-    if (!this._creatorState.primarySpeciesId && species.length) this._creatorState.primarySpeciesId = species[0].id;
+    if (isNpcCharacter && !species.length) this._creatorState.npcUseCustomSpecies = true;
+    const npcUseCustomSpecies = isNpcCharacter && !!this._creatorState.npcUseCustomSpecies;
+    const npcCustomSpecies = npcCustomSpeciesFromState(this._creatorState);
+    if (!npcUseCustomSpecies && !this._creatorState.primarySpeciesId && species.length) this._creatorState.primarySpeciesId = species[0].id;
     const environments = data.environments.map(normalizeEnvironment).filter(e => e.name);
     if (!this._creatorState.environmentId && environments.length) this._creatorState.environmentId = environments[0].id;
     const upbringings = data.upbringings.map(normalizeUpbringing).filter(u => u.name);
@@ -4457,12 +4544,15 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     const careerEvents = data.careerEvents.map(normalizeCareerEvent).filter(event => event.name);
     updateOpeningLoader(this, 38, "Resolving species and lifepath data");
 
-    const primary = species.find(s => s.id === this._creatorState.primarySpeciesId) ?? species[0] ?? null;
+    const primary = npcUseCustomSpecies
+      ? npcCustomSpecies
+      : species.find(s => s.id === this._creatorState.primarySpeciesId) ?? species[0] ?? null;
     const mixedSpeciesForced = isLiberatedBorgSpecies(primary);
     const requiresHumanAugmentTalents = isHumanAugmentSpecies(primary);
-    if (mixedSpeciesForced) this._creatorState.mixedSpecies = true;
+    if (npcUseCustomSpecies) this._creatorState.mixedSpecies = false;
+    else if (mixedSpeciesForced) this._creatorState.mixedSpecies = true;
     if (this._creatorState.secondarySpeciesId === primary?.id) this._creatorState.secondarySpeciesId = "";
-    const secondary = this._creatorState.mixedSpecies
+    const secondary = !npcUseCustomSpecies && this._creatorState.mixedSpecies
       ? species.find(s => s.id === this._creatorState.secondarySpeciesId && s.id !== primary?.id) ?? null
       : null;
     const environment = environments.find(e => e.id === this._creatorState.environmentId) ?? environments[0] ?? null;
@@ -5534,25 +5624,59 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     const supportingValueSummary = selectedSupportingValue ? [selectedSupportingValue] : [];
 
     const npcDefinition = npcDefinitionForType(characterType);
-    const npcAttributeAssignments = normalizeScoreArrayAssignments(
-      this._creatorState.npcAttributeAssignments,
-      ATTRIBUTE_KEYS,
-      npcDefinition?.attributeArray ?? CHARACTER_TYPE_DEFINITIONS.minorNpc.attributeArray,
-    );
-    const npcDepartmentAssignments = normalizeScoreArrayAssignments(
-      this._creatorState.npcDepartmentAssignments,
-      DISCIPLINE_KEYS,
-      npcDefinition?.departmentArray ?? CHARACTER_TYPE_DEFINITIONS.minorNpc.departmentArray,
-    );
+    const npcUsesPointBuy = definitionUsesNpcPointBuy(npcDefinition);
+    let npcAttributeAssignments = {};
+    let npcDepartmentAssignments = {};
+    let npcAttributePointContext = null;
+    let npcDepartmentPointContext = null;
+    let npcAttributes = {};
+    let npcDisciplines = {};
+    if (npcUsesPointBuy) {
+      npcAttributePointContext = scorePointBuyContext(
+        this._creatorState.npcAttributeAssignments,
+        ATTRIBUTE_KEYS,
+        ATTRIBUTE_LABELS,
+        {
+          base: npcDefinition.attributeBase,
+          points: npcDefinition.attributePoints,
+          max: npcDefinition.attributeMax,
+        },
+      );
+      npcDepartmentPointContext = scorePointBuyContext(
+        this._creatorState.npcDepartmentAssignments,
+        DISCIPLINE_KEYS,
+        DISCIPLINE_LABELS,
+        {
+          base: npcDefinition.departmentBase,
+          points: npcDefinition.departmentPoints,
+          max: npcDefinition.departmentMax,
+        },
+      );
+      npcAttributeAssignments = npcAttributePointContext.spends;
+      npcDepartmentAssignments = npcDepartmentPointContext.spends;
+      npcAttributes = { ...npcAttributePointContext.scores };
+      npcDisciplines = { ...npcDepartmentPointContext.scores };
+    } else {
+      npcAttributeAssignments = normalizeScoreArrayAssignments(
+        this._creatorState.npcAttributeAssignments,
+        ATTRIBUTE_KEYS,
+        npcDefinition?.attributeArray ?? CHARACTER_TYPE_DEFINITIONS.minorNpc.attributeArray,
+      );
+      npcDepartmentAssignments = normalizeScoreArrayAssignments(
+        this._creatorState.npcDepartmentAssignments,
+        DISCIPLINE_KEYS,
+        npcDefinition?.departmentArray ?? CHARACTER_TYPE_DEFINITIONS.minorNpc.departmentArray,
+      );
+      npcAttributes = { ...npcAttributeAssignments };
+      npcDisciplines = { ...npcDepartmentAssignments };
+    }
     if (isNpcCharacter) {
       this._creatorState.npcAttributeAssignments = npcAttributeAssignments;
       this._creatorState.npcDepartmentAssignments = npcDepartmentAssignments;
     }
-    const npcAttributes = { ...npcAttributeAssignments };
     for (const key of effectivePrimary?.attributeBoosts ?? []) {
       if (key in npcAttributes) npcAttributes[key] = Math.min(12, (npcAttributes[key] ?? 0) + 1);
     }
-    const npcDisciplines = { ...npcDepartmentAssignments };
     const npcTraitOptions = await prepareUuidListForContext(data.config.traits);
     const npcCustomRoleTrait = this._creatorState.npcCustomRoleTraitName.trim()
       ? {
@@ -5737,6 +5861,9 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     const npcPersonalThreat = npcDefinition?.npcType === "major"
       ? 6 + npcValueSummary.length
       : npcDefinition?.npcType === "notable" ? 3 : 0;
+    const npcCustomFixedAttributeCount = (npcCustomSpecies.attributeBoosts ?? []).length;
+    const npcCustomHasAttributeChoice = (npcCustomSpecies.attributeChoiceBoosts ?? []).length > 0;
+    const npcCustomBoostRuleCount = npcCustomFixedAttributeCount + (npcCustomHasAttributeChoice ? 1 : 0);
 
     updateOpeningLoader(this, 92, "Building character creator window");
     return {
@@ -5771,6 +5898,8 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       stepSevenActive: currentStep === 7,
       reviewActive: currentStep === 8,
       hasSpecies: species.length > 0,
+      hasNpcSpeciesChoice: species.length > 0 || isNpcCharacter,
+      isNpcCustomSpecies: npcUseCustomSpecies,
       hasEnvironments: environments.length > 0,
       hasUpbringings: upbringings.length > 0,
       hasCareerPaths: careerPaths.length > 0,
@@ -5794,6 +5923,26 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         secondarySelected: s.id === secondary?.id,
         showSecondaryPicker: this._creatorState.mixedSpecies,
         disabledAsSecondary: s.id === primary?.id,
+      })),
+      npcCustomSpeciesName: this._creatorState.npcCustomSpeciesName,
+      npcCustomSpeciesDescription: this._creatorState.npcCustomSpeciesDescription,
+      npcCustomSpeciesTraitName: this._creatorState.npcCustomSpeciesTraitName,
+      npcCustomSpeciesTraitDescription: this._creatorState.npcCustomSpeciesTraitDescription,
+      npcCustomSpeciesAbilityName: this._creatorState.npcCustomSpeciesAbilityName,
+      npcCustomSpeciesAbilityDescription: this._creatorState.npcCustomSpeciesAbilityDescription,
+      npcCustomSpeciesTokenImage: this._creatorState.npcCustomSpeciesTokenImage,
+      npcCustomSpeciesExtraFocusCount: normalizeExtraFocusCount(this._creatorState.npcCustomSpeciesExtraFocusCount),
+      npcCustomSpeciesAttributeBoostChoices: ATTRIBUTE_KEYS.map(key => ({
+        key,
+        label: ATTRIBUTE_LABELS[key],
+        selected: npcCustomSpecies.attributeBoosts.includes(key),
+        disabled: !npcCustomSpecies.attributeBoosts.includes(key) && npcCustomBoostRuleCount >= 3,
+      })),
+      npcCustomSpeciesAttributeChoiceBoostChoices: ATTRIBUTE_KEYS.map(key => ({
+        key,
+        label: ATTRIBUTE_LABELS[key],
+        selected: npcCustomSpecies.attributeChoiceBoosts.includes(key),
+        disabled: !npcCustomSpecies.attributeChoiceBoosts.includes(key) && npcCustomFixedAttributeCount >= 3,
       })),
       mixedSpecies: this._creatorState.mixedSpecies,
       mixedSpeciesForced,
@@ -5842,6 +5991,13 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       speciesFocusOptions,
       speciesFocusSelections,
       selectedSpeciesAbilityUuid: effectivePrimary?.speciesAbilityUuid ?? "",
+      selectedCustomSpeciesAbility: npcUseCustomSpecies && primaryCtx?.abilityName
+        ? {
+          name: primaryCtx.abilityName,
+          description: primaryCtx.abilityDescription,
+          custom: true,
+        }
+        : null,
       selectedSpeciesTraitUuids: uniqueUuidList([
         ...normalizeUuidList(primary?.traitUuids),
         primary?.traitUuid,
@@ -6190,13 +6346,23 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         label: ATTRIBUTE_LABELS[key],
         value: npcAttributes[key],
         baseValue: npcAttributeAssignments[key],
+        spend: npcAttributePointContext?.spends?.[key] ?? 0,
+        canDecrease: !!npcAttributePointContext?.rows?.find(row => row.key === key)?.canDecrease,
+        canIncrease: !!npcAttributePointContext?.rows?.find(row => row.key === key)?.canIncrease,
         boosted: effectivePrimary?.attributeBoosts?.includes(key),
       })),
       npcDepartmentRows: DISCIPLINE_KEYS.map(key => ({
         key,
         label: DISCIPLINE_LABELS[key],
         value: npcDisciplines[key],
+        baseValue: npcDepartmentPointContext?.base ?? npcDepartmentAssignments[key],
+        spend: npcDepartmentPointContext?.spends?.[key] ?? 0,
+        canDecrease: !!npcDepartmentPointContext?.rows?.find(row => row.key === key)?.canDecrease,
+        canIncrease: !!npcDepartmentPointContext?.rows?.find(row => row.key === key)?.canIncrease,
       })),
+      npcUsesPointBuy,
+      npcAttributePointContext,
+      npcDepartmentPointContext,
       npcAttributeTotal: scoreTotal(npcAttributes, ATTRIBUTE_KEYS),
       npcDepartmentTotal: scoreTotal(npcDisciplines, DISCIPLINE_KEYS),
       npcPersonalThreat,
@@ -6404,6 +6570,32 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         assignments[payload.key] = assignments[targetKey];
         assignments[targetKey] = sourceValue;
         this._creatorState[stateKey] = assignments;
+        this.render({ force: true });
+      });
+    });
+
+    el.querySelectorAll("[data-npc-score-step]").forEach(button => {
+      button.addEventListener("click", event => {
+        const kind = event.currentTarget.dataset.kind;
+        const key = event.currentTarget.dataset.scoreKey;
+        const delta = Number(event.currentTarget.dataset.delta ?? 0) || 0;
+        const definition = npcDefinitionForType(this._creatorState.characterType);
+        if (!definitionUsesNpcPointBuy(definition)) return;
+        const keys = kind === "attribute" ? ATTRIBUTE_KEYS : DISCIPLINE_KEYS;
+        if (!keys.includes(key)) return;
+        const stateKey = kind === "attribute" ? "npcAttributeAssignments" : "npcDepartmentAssignments";
+        const points = kind === "attribute" ? definition.attributePoints : definition.departmentPoints;
+        const base = kind === "attribute" ? definition.attributeBase : definition.departmentBase;
+        const max = kind === "attribute" ? definition.attributeMax : definition.departmentMax;
+        const perKeyLimit = Math.max(0, (Number(max) || 0) - (Number(base) || 0));
+        const spends = normalizeScoreSpends(this._creatorState[stateKey], keys, points, perKeyLimit);
+        const current = spends[key] ?? 0;
+        const spent = scoreTotal(spends, keys);
+        let next = Math.max(0, Math.min(perKeyLimit, current + delta));
+        if (delta > 0 && spent >= points) next = current;
+        if (next) spends[key] = next;
+        else delete spends[key];
+        this._creatorState[stateKey] = normalizeScoreSpends(spends, keys, points, perKeyLimit);
         this.render({ force: true });
       });
     });
@@ -6703,6 +6895,7 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
 
     el.querySelectorAll("[data-field='primarySpecies']").forEach(input => {
       input.addEventListener("change", event => {
+        this._creatorState.npcUseCustomSpecies = false;
         this._creatorState.primarySpeciesId = event.target.value;
         this._creatorState.selectedFreeAttributes = [];
         this._creatorState.selectedSpeciesAttributeChoice = "";
@@ -6736,6 +6929,74 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         this._creatorState.vortaCloningCustomFocusName = "";
         this._creatorState.vortaCloningCustomFocusDescription = "";
         if (this._creatorState.secondarySpeciesId === this._creatorState.primarySpeciesId) this._creatorState.secondarySpeciesId = "";
+        this.render({ force: true });
+      });
+    });
+
+    el.querySelector("[data-field='npcUseCustomSpecies']")?.addEventListener("change", event => {
+      this._creatorState.npcUseCustomSpecies = !!event.target.checked;
+      this._creatorState.selectedFreeAttributes = [];
+      this._creatorState.selectedSpeciesAttributeChoice = "";
+      this._creatorState.selectedSpeciesEsotericTalentUuid = "";
+      this._creatorState.selectedSpeciesEsotericTalentUuids = [];
+      this._creatorState.mixedSpecies = false;
+      this._creatorState.secondarySpeciesId = "";
+      this._creatorState.speciesFocusUuids = ["", "", "", "", "", ""];
+      this._creatorState.speciesCustomFocusNames = ["", "", "", "", "", ""];
+      this.render({ force: true });
+    });
+
+    const syncNpcCustomSpeciesText = () => {
+      this._creatorState.npcCustomSpeciesName = el.querySelector("[data-field='npcCustomSpeciesName']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesDescription = el.querySelector("[data-field='npcCustomSpeciesDescription']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesTraitName = el.querySelector("[data-field='npcCustomSpeciesTraitName']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesTraitDescription = el.querySelector("[data-field='npcCustomSpeciesTraitDescription']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesAbilityName = el.querySelector("[data-field='npcCustomSpeciesAbilityName']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesAbilityDescription = el.querySelector("[data-field='npcCustomSpeciesAbilityDescription']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesTokenImage = el.querySelector("[data-field='npcCustomSpeciesTokenImage']")?.value ?? "";
+      this._creatorState.npcCustomSpeciesExtraFocusCount = Math.max(0, Math.min(6, Number(el.querySelector("[data-field='npcCustomSpeciesExtraFocusCount']")?.value ?? 0) || 0));
+    };
+    el.querySelectorAll([
+      "[data-field='npcCustomSpeciesName']",
+      "[data-field='npcCustomSpeciesDescription']",
+      "[data-field='npcCustomSpeciesTraitName']",
+      "[data-field='npcCustomSpeciesTraitDescription']",
+      "[data-field='npcCustomSpeciesAbilityName']",
+      "[data-field='npcCustomSpeciesAbilityDescription']",
+      "[data-field='npcCustomSpeciesTokenImage']",
+      "[data-field='npcCustomSpeciesExtraFocusCount']",
+    ].join(",")).forEach(input => {
+      input.addEventListener("input", syncNpcCustomSpeciesText);
+      input.addEventListener("change", () => {
+        syncNpcCustomSpeciesText();
+        this.render({ force: true });
+      });
+    });
+
+    el.querySelectorAll("[data-field='npcCustomSpeciesAttributeBoost']").forEach(input => {
+      input.addEventListener("change", () => {
+        const choiceBoosts = Array.from(el.querySelectorAll("[data-field='npcCustomSpeciesAttributeChoiceBoost']:checked")).map(choice => choice.value);
+        const fixedLimit = Math.max(0, 3 - (choiceBoosts.length ? 1 : 0));
+        this._creatorState.npcCustomSpeciesAttributeBoosts = Array.from(el.querySelectorAll("[data-field='npcCustomSpeciesAttributeBoost']:checked"))
+          .map(choice => choice.value)
+          .filter(key => ATTRIBUTE_KEYS.includes(key))
+          .slice(0, fixedLimit);
+        this._creatorState.npcCustomSpeciesAttributeChoiceBoosts = choiceBoosts.filter(key => ATTRIBUTE_KEYS.includes(key));
+        this.render({ force: true });
+      });
+    });
+
+    el.querySelectorAll("[data-field='npcCustomSpeciesAttributeChoiceBoost']").forEach(input => {
+      input.addEventListener("change", () => {
+        const fixedBoosts = Array.from(el.querySelectorAll("[data-field='npcCustomSpeciesAttributeBoost']:checked")).map(choice => choice.value);
+        const fixedLimit = Math.min(3, fixedBoosts.length);
+        this._creatorState.npcCustomSpeciesAttributeBoosts = fixedBoosts.filter(key => ATTRIBUTE_KEYS.includes(key)).slice(0, fixedLimit);
+        this._creatorState.npcCustomSpeciesAttributeChoiceBoosts = Array.from(el.querySelectorAll("[data-field='npcCustomSpeciesAttributeChoiceBoost']:checked"))
+          .map(choice => choice.value)
+          .filter(key => ATTRIBUTE_KEYS.includes(key));
+        if (!this._creatorState.npcCustomSpeciesAttributeChoiceBoosts.includes(this._creatorState.selectedSpeciesAttributeChoice)) {
+          this._creatorState.selectedSpeciesAttributeChoice = "";
+        }
         this.render({ force: true });
       });
     });
@@ -7600,8 +7861,13 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     }
     if (NPC_CHARACTER_TYPES.includes(type)) {
       const definition = CHARACTER_TYPE_DEFINITIONS[type];
-      this._creatorState.npcAttributeAssignments = normalizeScoreArrayAssignments({}, ATTRIBUTE_KEYS, definition.attributeArray);
-      this._creatorState.npcDepartmentAssignments = normalizeScoreArrayAssignments({}, DISCIPLINE_KEYS, definition.departmentArray);
+      if (definitionUsesNpcPointBuy(definition)) {
+        this._creatorState.npcAttributeAssignments = {};
+        this._creatorState.npcDepartmentAssignments = {};
+      } else {
+        this._creatorState.npcAttributeAssignments = normalizeScoreArrayAssignments({}, ATTRIBUTE_KEYS, definition.attributeArray);
+        this._creatorState.npcDepartmentAssignments = normalizeScoreArrayAssignments({}, DISCIPLINE_KEYS, definition.departmentArray);
+      }
       this._creatorState.npcValueUuids = ["", "", "", ""];
       this._creatorState.npcCustomValueNames = ["", "", "", ""];
       this._creatorState.npcCustomValueDescriptions = ["", "", "", ""];
@@ -7644,6 +7910,13 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         addUniqueItemData(items, customEmbeddedItemData("trait", trait.name, trait.description ?? ""));
       }
       await addUuid(context.selectedSpeciesAbilityUuid);
+      if (context.selectedCustomSpeciesAbility?.name) {
+        addUniqueItemData(items, customEmbeddedItemData(
+          "talent",
+          context.selectedCustomSpeciesAbility.name,
+          context.selectedCustomSpeciesAbility.description ?? "",
+        ));
+      }
       for (const talent of context.selectedSpeciesEsotericTalents ?? []) await addUuid(talent.uuid);
       for (const talent of context.selectedBorgImplants ?? []) await addUuid(talent.uuid);
       for (const talent of context.selectedHumanAugmentTalents ?? []) await addUuid(talent.uuid);
@@ -8059,6 +8332,15 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       ui.notifications.warn("STA2e Toolkit: Only GMs can create NPCs.");
       return;
     }
+    if (context.isNpcCharacter) {
+      const scoreWarning = this._validationWarningForStep({ ...context, step: 2 });
+      if (scoreWarning) {
+        ui.notifications.warn(`STA2e Toolkit: ${scoreWarning}`);
+        this._creatorState.step = 2;
+        this.render({ force: true });
+        return;
+      }
+    }
     const validationStep = context.isNpcCharacter ? 3 : context.isSupportingCharacter ? 3 : 7;
     const warning = this._validationWarningForStep({ ...context, step: validationStep });
     if (warning) {
@@ -8090,13 +8372,17 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       switch (context.step) {
         case 1:
           if (!game.user.isGM) return "Only GMs can create NPCs.";
+          if (context.isNpcCustomSpecies && !hasText(context.npcCustomSpeciesName)) return "Enter the custom species name before continuing.";
+          if (context.isNpcCustomSpecies && !hasText(context.npcCustomSpeciesTraitName)) return "Enter the custom species trait before continuing.";
           if (!context.primary) return "Choose a primary species before continuing.";
-          if (context.mixedSpecies && !context.secondary) return "Choose a secondary species for a mixed-species NPC.";
+          if (!context.isNpcCustomSpecies && context.mixedSpecies && !context.secondary) return "Choose a secondary species for a mixed-species NPC.";
           if (context.primaryFreeAttributeSelection && context.selectedFreeAttributeCount < 3) return "Choose three species attributes before continuing.";
           if (context.hasSpeciesAttributeChoice && !context.selectedSpeciesAttributeChoice) return "Choose the species attribute option before continuing.";
           if ((context.speciesFocusSelections ?? []).some(slot => !slot.selected)) return "Choose or write all species bonus focuses.";
           return "";
         case 2:
+          if ((context.npcAttributePointContext?.remaining ?? 0) > 0) return "Spend all Major NPC attribute points before continuing.";
+          if ((context.npcDepartmentPointContext?.remaining ?? 0) > 0) return "Spend all Major NPC department points before continuing.";
           if ((context.npcAttributeTotal ?? 0) < 0 || (context.npcDepartmentTotal ?? 0) < 0) return "Assign NPC scores before continuing.";
           return "";
         case 3:
@@ -8947,6 +9233,20 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       const shuffled = shuffledCopy(values);
       return Object.fromEntries(keys.map((key, index) => [key, shuffled[index] ?? values[index] ?? 0]));
     };
+    const assignPointSpends = (keys, points, perKeyLimit) => {
+      const spends = Object.fromEntries(keys.map(key => [key, 0]));
+      let remaining = Math.max(0, Number(points) || 0);
+      let guard = 0;
+      while (remaining > 0 && guard < 500) {
+        guard += 1;
+        const options = shuffledCopy(keys).filter(key => spends[key] < perKeyLimit);
+        if (!options.length) break;
+        const key = options[0];
+        spends[key] += 1;
+        remaining -= 1;
+      }
+      return Object.fromEntries(Object.entries(spends).filter(([_key, value]) => value > 0));
+    };
     const randomCount = (min, max) => {
       const floor = Math.max(0, Number(min) || 0);
       const ceiling = Math.max(floor, Number(max) || floor);
@@ -8954,12 +9254,26 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     };
 
     this._creatorState.primarySpeciesId = primary.id;
+    this._creatorState.npcUseCustomSpecies = false;
     this._creatorState.mixedSpecies = false;
     this._creatorState.secondarySpeciesId = "";
     this._creatorState.selectedFreeAttributes = primary.freeAttributeSelection ? randomSample(ATTRIBUTE_KEYS, 3) : [];
     this._creatorState.selectedSpeciesAttributeChoice = randomElement(primary.attributeChoiceBoosts ?? []) ?? "";
-    this._creatorState.npcAttributeAssignments = normalizeScoreArrayAssignments(assignScores(ATTRIBUTE_KEYS, definition.attributeArray), ATTRIBUTE_KEYS, definition.attributeArray);
-    this._creatorState.npcDepartmentAssignments = normalizeScoreArrayAssignments(assignScores(DISCIPLINE_KEYS, definition.departmentArray), DISCIPLINE_KEYS, definition.departmentArray);
+    if (definitionUsesNpcPointBuy(definition)) {
+      this._creatorState.npcAttributeAssignments = assignPointSpends(
+        ATTRIBUTE_KEYS,
+        definition.attributePoints,
+        Math.max(0, definition.attributeMax - definition.attributeBase),
+      );
+      this._creatorState.npcDepartmentAssignments = assignPointSpends(
+        DISCIPLINE_KEYS,
+        definition.departmentPoints,
+        Math.max(0, definition.departmentMax - definition.departmentBase),
+      );
+    } else {
+      this._creatorState.npcAttributeAssignments = normalizeScoreArrayAssignments(assignScores(ATTRIBUTE_KEYS, definition.attributeArray), ATTRIBUTE_KEYS, definition.attributeArray);
+      this._creatorState.npcDepartmentAssignments = normalizeScoreArrayAssignments(assignScores(DISCIPLINE_KEYS, definition.departmentArray), DISCIPLINE_KEYS, definition.departmentArray);
+    }
 
     const traits = await prepareUuidListForContext(data.config.traits);
     const roleTrait = randomElement(traits);

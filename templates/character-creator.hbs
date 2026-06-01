@@ -1864,7 +1864,7 @@
     {{/if}}
 
     {{#if isNpcCharacter}}
-    {{#if hasSpecies}}
+    {{#if hasNpcSpeciesChoice}}
     <section class="sta2e-cc-panel">
       <div class="sta2e-cc-title-row">
         <div>
@@ -1896,11 +1896,75 @@
       <article class="sta2e-cc-panel sta2e-cc-species-list-panel">
         <div class="sta2e-cc-title-row">
           <h2>Species</h2>
+          {{#unless isNpcCustomSpecies}}
           <label class="sta2e-cc-toggle">
             <input type="checkbox" data-field="mixedSpecies" {{checked mixedSpecies}} {{#if mixedSpeciesForced}}disabled{{/if}} />
             <span>Mixed Species</span>
           </label>
+          {{/unless}}
+          <label class="sta2e-cc-toggle">
+            <input type="checkbox" data-field="npcUseCustomSpecies" {{checked isNpcCustomSpecies}} />
+            <span>Custom Species</span>
+          </label>
         </div>
+        {{#if isNpcCustomSpecies}}
+        <div class="sta2e-cc-final-details-grid">
+          <label class="sta2e-cc-field">
+            <span>Species Name</span>
+            <input type="text" data-field="npcCustomSpeciesName" value="{{npcCustomSpeciesName}}" placeholder="Creature species" />
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Token Image</span>
+            <input type="text" data-field="npcCustomSpeciesTokenImage" value="{{npcCustomSpeciesTokenImage}}" placeholder="icons/svg/mystery-man.svg" />
+          </label>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Description</span>
+            <textarea data-field="npcCustomSpeciesDescription" rows="2" placeholder="Species description">{{npcCustomSpeciesDescription}}</textarea>
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Trait Name</span>
+            <input type="text" data-field="npcCustomSpeciesTraitName" value="{{npcCustomSpeciesTraitName}}" placeholder="Species trait" />
+          </label>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Trait Description</span>
+            <textarea data-field="npcCustomSpeciesTraitDescription" rows="2" placeholder="Trait description">{{npcCustomSpeciesTraitDescription}}</textarea>
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Ability Name</span>
+            <input type="text" data-field="npcCustomSpeciesAbilityName" value="{{npcCustomSpeciesAbilityName}}" placeholder="Species ability" />
+          </label>
+          <label class="sta2e-cc-field sta2e-cc-field--wide">
+            <span>Ability Description</span>
+            <textarea data-field="npcCustomSpeciesAbilityDescription" rows="2" placeholder="Ability description">{{npcCustomSpeciesAbilityDescription}}</textarea>
+          </label>
+          <label class="sta2e-cc-field">
+            <span>Extra Focuses</span>
+            <input type="number" data-field="npcCustomSpeciesExtraFocusCount" value="{{npcCustomSpeciesExtraFocusCount}}" min="0" max="6" />
+          </label>
+        </div>
+        <div class="sta2e-cc-free-attrs">
+          <h2>Fixed Attribute Boosts</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each npcCustomSpeciesAttributeBoostChoices as |attr|}}
+            <label class="{{#if attr.disabled}}is-disabled{{/if}}">
+              <input type="checkbox" data-field="npcCustomSpeciesAttributeBoost" value="{{attr.key}}" {{checked attr.selected}} {{#if attr.disabled}}disabled{{/if}} />
+              {{attr.label}} +1
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        <div class="sta2e-cc-free-attrs">
+          <h2>Attribute Choice Pool</h2>
+          <div class="sta2e-cc-check-grid">
+            {{#each npcCustomSpeciesAttributeChoiceBoostChoices as |attr|}}
+            <label class="{{#if attr.disabled}}is-disabled{{/if}}">
+              <input type="checkbox" data-field="npcCustomSpeciesAttributeChoiceBoost" value="{{attr.key}}" {{checked attr.selected}} {{#if attr.disabled}}disabled{{/if}} />
+              {{attr.label}}
+            </label>
+            {{/each}}
+          </div>
+        </div>
+        {{else}}
         <label class="sta2e-cc-field sta2e-cc-species-search">
           <span>Search Species</span>
           <input type="search" data-species-filter value="{{speciesSearch}}" placeholder="Filter species" />
@@ -1942,6 +2006,7 @@
           {{/each}}
           <li class="is-empty" data-species-filter-empty hidden>No species match this search.</li>
         </ul>
+        {{/if}}
       </article>
 
       <article class="sta2e-cc-panel">
@@ -2006,6 +2071,23 @@
     <section class="sta2e-cc-grid sta2e-cc-two">
       <article class="sta2e-cc-panel">
         <h2>Attributes</h2>
+        {{#if npcUsesPointBuy}}
+        <p>{{npcAttributePointContext.remaining}} point(s) remaining.</p>
+        <div class="sta2e-cc-attribute-steppers">
+          {{#each npcAttributeRows as |row|}}
+          <div class="sta2e-cc-stepper {{#if row.boosted}}is-boosted{{/if}}">
+            <span>{{row.label}}</span>
+            <button type="button" data-npc-score-step data-kind="attribute" data-score-key="{{row.key}}" data-delta="-1" {{#unless row.canDecrease}}disabled{{/unless}} title="Decrease {{row.label}}">
+              <i class="fas fa-minus"></i>
+            </button>
+            <input type="number" value="{{row.value}}" readonly />
+            <button type="button" data-npc-score-step data-kind="attribute" data-score-key="{{row.key}}" data-delta="1" {{#unless row.canIncrease}}disabled{{/unless}} title="Increase {{row.label}}">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+          {{/each}}
+        </div>
+        {{else}}
         <div class="sta2e-cc-score-assign-list">
           {{#each npcAttributeRows as |row|}}
           <div class="sta2e-cc-score-drop-row {{#if row.boosted}}is-boosted{{/if}}" data-supporting-score-drop data-score-kind="attribute" data-score-key="{{row.key}}">
@@ -2017,9 +2099,27 @@
           </div>
           {{/each}}
         </div>
+        {{/if}}
       </article>
       <article class="sta2e-cc-panel">
         <h2>Departments</h2>
+        {{#if npcUsesPointBuy}}
+        <p>{{npcDepartmentPointContext.remaining}} point(s) remaining.</p>
+        <div class="sta2e-cc-attribute-steppers">
+          {{#each npcDepartmentRows as |row|}}
+          <div class="sta2e-cc-stepper">
+            <span>{{row.label}}</span>
+            <button type="button" data-npc-score-step data-kind="department" data-score-key="{{row.key}}" data-delta="-1" {{#unless row.canDecrease}}disabled{{/unless}} title="Decrease {{row.label}}">
+              <i class="fas fa-minus"></i>
+            </button>
+            <input type="number" value="{{row.value}}" readonly />
+            <button type="button" data-npc-score-step data-kind="department" data-score-key="{{row.key}}" data-delta="1" {{#unless row.canIncrease}}disabled{{/unless}} title="Increase {{row.label}}">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+          {{/each}}
+        </div>
+        {{else}}
         <div class="sta2e-cc-score-assign-list">
           {{#each npcDepartmentRows as |row|}}
           <div class="sta2e-cc-score-drop-row" data-supporting-score-drop data-score-kind="department" data-score-key="{{row.key}}">
@@ -2031,6 +2131,7 @@
           </div>
           {{/each}}
         </div>
+        {{/if}}
       </article>
     </section>
     {{/if}}
