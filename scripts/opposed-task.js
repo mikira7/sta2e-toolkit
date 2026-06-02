@@ -1420,6 +1420,11 @@ function _launchRoller(message, taskData, side, actor) {
     difficulty,
     complicationRange,
     noPoolButton: (!isGroundCombat && !isStarshipCombat) || side === "defender",
+    opposedTaskRef: {
+      messageId: message.id,
+      taskId: taskData.taskId,
+      side,
+    },
     ...starshipRollerOpts,
     taskLabel: isGroundCombat
       ? (side === "defender" ? "Melee Defender" : taskData.taskName)

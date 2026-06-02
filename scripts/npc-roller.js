@@ -2872,7 +2872,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -3183,7 +3183,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     hasActorAtStation: _hasActorAtStation,  // used to hide generic crew-assist checkbox
     // Ship — always 1 die; Advanced Sensor Suites forces 2 when Sensors is selected
     shipNumDice: advancedSensorsActive ? 2 : 1,
-    shipAssist: initialShipAssist !== null ? initialShipAssist : (!isAssistRoll && !groundMode && !rallyContext && !noShipAssist),
+    shipAssist: initialShipAssist !== null ? initialShipAssist : false,
     hasAdvancedSensors,
     sensorsBreaches,
     advancedSensorsActive,
@@ -3256,6 +3256,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     taskLabel,            // short label shown in dialog title + chat card header, e.g. "Rally"
     taskContext,          // optional longer description shown in chat card subheader
     taskCallback,         // optional fn({ successes, passed, state, actor, token }) called after post
+    opposedTaskRef,       // optional serializable link back to an opposed-task chat card
     suppressWeaponResolution,
     breachPenalty,        // { breaches, destroyThreshold, difficultyPenalty, isDestroyed, penaltyNote }
     // Apply breach difficulty penalty to starting difficulty
@@ -3368,6 +3369,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
     const rollData = {
       callbackId,
+      opposedTaskRef: state.opposedTaskRef ?? null,
       actorId: actor.id,
       tokenId: token?.id ?? null,
       actorName: actor.name,
@@ -5012,9 +5014,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         try {
           const newShips = await state.onAssignShips();
           state.availableShips = newShips;
-          const defaultIdx = (newShips ?? []).findIndex(s => s?._defaultShip);
-          state.selectedShipIdx = defaultIdx;
-          state.shipAssist = defaultIdx >= 0;
+          state.selectedShipIdx = -1;
+          state.shipAssist = false;
           if (openDialog) openDialog();
         } finally {
           manageShipsBtn.disabled = false;

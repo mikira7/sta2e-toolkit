@@ -40,7 +40,7 @@ import {
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
-import { registerMomentumSpend, readPool, writePool } from "./momentum-spend.js";
+import { registerMomentumSpend } from "./momentum-spend.js";
 import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker, setTrackerBucket } from "./momentum-tracker.js";
 
 function getShipCardAllowedUserIds(message, payload = {}) {
@@ -216,13 +216,29 @@ function _isResponsibleGM() {
   return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
 }
 
+function _staTrackerPoolLimit(resource) {
+  if (resource !== "momentum") return Number.POSITIVE_INFINITY;
+  const Tracker = game.STATracker?.constructor ?? null;
+  if (Tracker?.LimitOf) {
+    try { return Number(Tracker.LimitOf(resource)) || 6; }
+    catch { return 6; }
+  }
+  return 6;
+}
+
 async function _setStaTrackerPoolValue(resource, value) {
-  const nextValue = Math.max(0, Number(value) || 0);
+  const nextValue = Math.max(0, Math.min(Number(value) || 0, _staTrackerPoolLimit(resource)));
   const Tracker = game.STATracker?.constructor ?? null;
 
-  if (Tracker && (Tracker.UserHasPermissionFor?.(resource) || !_canWriteWorldSettings())) {
-    await Tracker.DoUpdateResource(resource, nextValue);
-    if ((Tracker.ValueOf(resource) ?? 0) === nextValue) return true;
+  if (Tracker) {
+    try {
+      if (Tracker.UserHasPermissionFor?.(resource) || !_canWriteWorldSettings()) {
+        await Tracker.DoUpdateResource(resource, nextValue);
+        if ((Tracker.ValueOf(resource) ?? 0) === nextValue) return true;
+      }
+    } catch (err) {
+      console.warn(`STA2e Toolkit | STATracker write failed for ${resource}:`, err);
+    }
   }
 
   if (!_canWriteWorldSettings()) return false;
@@ -679,6 +695,7 @@ Hooks.once("ready", async () => {
   // Expose Opposed Task entry points
   game.sta2eToolkit.openOpposedTaskSetup = openOpposedTaskSetup;
   game.sta2eToolkit.startOpposedTask     = startOpposedTask;
+  game.sta2eToolkit.applyOpposedRollResult = applyOpposedRollResult;
   game.sta2eToolkit.startGroundCombatOpposedTask = startGroundCombatOpposedTask;
   game.sta2eToolkit.startStarshipCombatOpposedTask = startStarshipCombatOpposedTask;
 
@@ -932,19 +949,17 @@ Hooks.once("ready", async () => {
       const source = msg.source === "threat" ? "threat" : "momentum";
       const amount = Math.max(0, Number(msg.amount) || 0);
       if (amount <= 0) return;
-      const cur = readPool(source);
-      await writePool(source, cur - amount);
+      const updated = await _adjustStaTrackerPoolValue(source, -amount);
+      if (!updated) console.warn(`STA2e Toolkit | spendPool ignored: no connected GM can write STA ${source}.`);
     }
 
     else if (msg.action === "addPool" && _isResponsibleGM()) {
       // Player-initiated auto-bank (e.g. from createTracker on a player roll).
-      // writePool is cap-aware; we also pre-clamp to avoid sending a value
-      // above the pool's limit (avoids STA system warnings on race conditions).
       const pool = msg.pool === "threat" ? "threat" : "momentum";
       const amount = Math.max(0, Number(msg.amount) || 0);
       if (amount <= 0) return;
-      const cur = readPool(pool);
-      await writePool(pool, cur + amount);
+      const updated = await _adjustStaTrackerPoolValue(pool, amount);
+      if (!updated) console.warn(`STA2e Toolkit | addPool ignored: no connected GM can write STA ${pool}.`);
     }
 
     else if (msg.action === "createOverflowTracker" && _isResponsibleGM()) {
@@ -2743,8 +2758,8 @@ function _applySheetRollerOverride(app, html) {
         sheetMode:           true,
         groundMode:          serializedShips.length === 0,
         availableShips:      serializedShips,
-        shipAssist:          assignedShips.length > 0,
-        selectedShipIdx:     assignedShips.length > 0 ? 0 : -1,
+        shipAssist:          false,
+        selectedShipIdx:     -1,
         combatTaskContext,
         // Apply target-flagging task effects when roll passes (scan-for-weakness etc.)
         taskCallback: combatTaskContext ? async ({ passed, successes = 0, momentum = 0 }) => {

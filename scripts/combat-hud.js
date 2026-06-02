@@ -67,7 +67,7 @@ import {
 } from "./token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonePathWithCosts } from "./zone-data.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "./weapon-range.js";
-import { makeSpendContext, actorHasIntenseTalent, readPool, writePool } from "./momentum-spend.js";
+import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit } from "./momentum-spend.js";
 import { createTracker, getActiveTracker } from "./momentum-tracker.js";
 
 const MODULE      = "sta2e-toolkit";
@@ -10594,21 +10594,21 @@ export class CombatHUD {
   static async _applyToPool(pool, amount, speakerToken = null) {
     if (amount <= 0) return;
     try {
-      // Access the static methods via the instance Foundry creates at renderSidebar
-      const Tracker = game.STATracker?.constructor;
-      if (!Tracker) {
-        ui.notifications?.warn("STA Tracker not available — cannot update pool.");
-        return;
-      }
-
       if (pool === "momentum") {
-        const current  = Tracker.ValueOf("momentum");
-        const max      = Tracker.LimitOf("momentum");
+        const current  = readPool("momentum");
+        const max      = poolLimit("momentum");
         const canAdd   = Math.max(0, Math.min(amount, max - current));
         const overflow = amount - canAdd;
 
         if (canAdd > 0) {
-          await Tracker.DoUpdateResource("momentum", current + canAdd);
+          const updated = await writePool("momentum", current + canAdd);
+          if (!updated && !game.user.isGM) {
+            game.socket.emit(`module.${MODULE}`, {
+              action: "addPool",
+              pool: "momentum",
+              amount: canAdd,
+            });
+          }
         }
 
         if (overflow > 0) {
@@ -10641,8 +10641,15 @@ export class CombatHUD {
         }
       } else {
         // Threat — no cap enforced here; LimitOf returns 99
-        const current = Tracker.ValueOf("threat");
-        await Tracker.DoUpdateResource("threat", current + amount);
+        const current = readPool("threat");
+        const updated = await writePool("threat", current + amount);
+        if (!updated && !game.user.isGM) {
+          game.socket.emit(`module.${MODULE}`, {
+            action: "addPool",
+            pool: "threat",
+            amount,
+          });
+        }
       }
     } catch(e) {
       console.error("STA2e Toolkit | _applyToPool error:", e);
@@ -17142,6 +17149,36 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           "flags.sta2e-toolkit.confirmed": true,
           "flags.sta2e-toolkit.rollData": confirmedRollData,
         });
+
+        const opposedTaskRef = confirmedRollData.opposedTaskRef ?? null;
+        if (!skipCompletionEffects && opposedTaskRef?.messageId && opposedTaskRef?.taskId && opposedTaskRef?.side) {
+          const opposedDice = allDice.map(d => ({
+            value: d?.value ?? null,
+            success: !!d?.success,
+            crit: !!d?.crit,
+            complication: !!d?.complication,
+          }));
+          const opposedResult = {
+            messageId: opposedTaskRef.messageId,
+            taskId: opposedTaskRef.taskId,
+            side: opposedTaskRef.side,
+            successes: totalSuccesses,
+            complications: totalComplications,
+            dice: opposedDice,
+            rollData: confirmedRollData,
+            trackerMessageId: _trackerMessageId,
+            trackerFloat: _trackerFloat,
+            trackerBanked: _trackerBanked,
+          };
+          if (game.user.isGM) {
+            await game.sta2eToolkit?.applyOpposedRollResult?.(opposedResult);
+          } else {
+            game.socket.emit("module.sta2e-toolkit", {
+              action: "opposedTaskRollComplete",
+              ...opposedResult,
+            });
+          }
+        }
         if (false) await ChatMessage.create({
           content: lcarsCard(
             weaponContext

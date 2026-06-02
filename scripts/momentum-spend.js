@@ -25,6 +25,9 @@ const MODULE = "sta2e-toolkit";
 // ─── Pool R/W (shared with npc-roller) ───────────────────────────────────────
 
 function _STClass() { return game.STATracker?.constructor ?? null; }
+function _canWriteWorldSettings() {
+  return game.permissions?.SETTINGS_MODIFY?.includes(game.user.role) ?? game.user.isGM;
+}
 export function readPool(key) {
   const ST = _STClass();
   if (ST) return ST.ValueOf(key) ?? 0;
@@ -42,8 +45,27 @@ export async function writePool(key, v) {
   const ST = _STClass();
   // Cap-aware write — STA's DoUpdateResource throws above the pool's limit.
   const capped = Math.max(0, Math.min(Number(v) || 0, poolLimit(key)));
-  if (ST) { await ST.DoUpdateResource(key, capped); return; }
-  try { await game.settings.set("sta", key, capped); } catch { /* ignore */ }
+  if (ST) {
+    try {
+      if (ST.UserHasPermissionFor?.(key) || !_canWriteWorldSettings()) {
+        await ST.DoUpdateResource(key, capped);
+        if ((ST.ValueOf(key) ?? 0) === capped) return true;
+      }
+    } catch (err) {
+      console.warn(`STA2e Toolkit | STATracker write failed for ${key}:`, err);
+    }
+  }
+  if (!_canWriteWorldSettings()) return false;
+  try {
+    await game.settings.set("sta", key, capped);
+    try {
+      ST?.SendUpdateMessage?.(ST.MessageType?.UpdateResource, key, capped);
+      ST?.UpdateTracker?.();
+    } catch (err) {
+      console.warn(`STA2e Toolkit | Could not refresh STA ${key} tracker after direct setting write:`, err);
+    }
+    return true;
+  } catch { return false; }
 }
 
 // ─── Intense (Andorian) species ability detection ────────────────────────────
