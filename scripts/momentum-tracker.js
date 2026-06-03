@@ -118,14 +118,7 @@ export async function createTracker(ownerActor, { totalGenerated = 0, bonus = 0,
     banked = Math.max(0, Math.min(totalGenerated, limit - cur));
     float  = totalGenerated - banked;
     if (banked > 0) {
-      if (game.user.isGM) {
-        await writePool(pool, cur + banked);
-      } else {
-        game.socket.emit(`module.${MODULE}`, {
-          action: "addPool",
-          pool, amount: banked,
-        });
-      }
+      await writePool(pool, cur + banked, { source: "overflow", actor: ownerActor, token: speakerToken });
     }
   }
 

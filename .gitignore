@@ -1,5 +1,6 @@
 .claude/
 *.log
+*.zip
 *.bak
 *.bak2
 Thumbs.db

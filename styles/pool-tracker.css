@@ -1,0 +1,298 @@
+#sta2e-pool-tracker {
+  position: fixed;
+  z-index: 9997;
+  width: 188px;
+  background: transparent;
+  border: 1px solid var(--sta2e-pool-primary);
+  border-left: 4px solid var(--sta2e-pool-primary);
+  border-radius: 3px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.38);
+  color: var(--sta2e-pool-text);
+  font-family: var(--sta2e-pool-font);
+  user-select: none;
+  backdrop-filter: blur(2px);
+}
+
+#sta2e-pool-tracker.sta2e-pool-tracker--docked {
+  top: auto;
+  right: var(--sta2e-pool-dock-right, 312px);
+  bottom: clamp(180px, 30vh, 360px);
+  max-width: calc(100vw - 16px);
+}
+
+#sta2e-pool-tracker.sta2e-pool-tracker--floating {
+  max-width: calc(100vw - 16px);
+}
+
+#sta2e-pool-tracker[hidden] {
+  display: none;
+}
+
+.sta2e-pool-tracker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--sta2e-pool-text);
+}
+
+.sta2e-pool-tracker--floating .sta2e-pool-tracker__header {
+  cursor: grab;
+}
+
+.sta2e-pool-tracker--docked .sta2e-pool-tracker__header {
+  cursor: default;
+}
+
+.sta2e-pool-tracker__title {
+  flex: 1;
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sta2e-pool-tracker__collapse,
+.sta2e-pool-tracker__layout-toggle,
+.sta2e-pool-tracker__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sta2e-pool-tracker__collapse,
+.sta2e-pool-tracker__layout-toggle {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--sta2e-pool-text);
+  font-size: 10px;
+}
+
+.sta2e-pool-tracker__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  padding: 5px;
+  background: transparent;
+}
+
+.sta2e-pool-tracker--collapsed .sta2e-pool-tracker__body {
+  display: none;
+}
+
+#sta2e-pool-tracker.sta2e-pool-tracker--auto-hide {
+  border-color: transparent;
+  border-left-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    backdrop-filter 140ms ease;
+}
+
+#sta2e-pool-tracker.sta2e-pool-tracker--auto-hide:hover,
+#sta2e-pool-tracker.sta2e-pool-tracker--auto-hide:focus-within {
+  border-color: var(--sta2e-pool-primary);
+  border-left-color: var(--sta2e-pool-primary);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(2px);
+}
+
+.sta2e-pool-tracker--auto-hide .sta2e-pool-tracker__header {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    max-height 140ms ease,
+    padding 140ms ease,
+    opacity 140ms ease,
+    visibility 0s linear 140ms;
+}
+
+.sta2e-pool-tracker--auto-hide:hover .sta2e-pool-tracker__header,
+.sta2e-pool-tracker--auto-hide:focus-within .sta2e-pool-tracker__header {
+  max-height: 32px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  visibility: visible;
+  opacity: 1;
+  transition:
+    max-height 140ms ease,
+    padding 140ms ease,
+    opacity 140ms ease;
+}
+
+.sta2e-pool-tracker--auto-hide.sta2e-pool-tracker--collapsed .sta2e-pool-tracker__body {
+  display: grid;
+}
+
+.sta2e-pool-tracker__pool {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sta2e-pool-tracker--auto-hide .sta2e-pool-tracker__pool {
+  background: transparent;
+  border-color: transparent;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.sta2e-pool-tracker--auto-hide:hover .sta2e-pool-tracker__pool,
+.sta2e-pool-tracker--auto-hide:focus-within .sta2e-pool-tracker__pool {
+  background: rgba(0, 0, 0, 0.14);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.sta2e-pool-tracker__token {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+}
+
+.sta2e-pool-tracker__token img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.sta2e-pool-tracker__value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  appearance: textfield;
+  background: transparent;
+  border: 0;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  text-shadow:
+    0 2px 2px #000,
+    0 0 8px #000;
+}
+
+.sta2e-pool-tracker__value::-webkit-outer-spin-button,
+.sta2e-pool-tracker__value::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.sta2e-pool-tracker__value:hover,
+.sta2e-pool-tracker__value:focus-visible {
+  color: var(--sta2e-pool-primary);
+  outline: none;
+}
+
+.sta2e-pool-tracker__value--disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.sta2e-pool-tracker__value--disabled:hover,
+.sta2e-pool-tracker__value--disabled:focus-visible {
+  color: #fff;
+  outline: none;
+}
+
+.sta2e-pool-tracker__controls {
+  display: grid;
+  grid-template-columns: 22px 1fr 22px;
+  align-items: center;
+  gap: 3px;
+}
+
+.sta2e-pool-tracker--auto-hide .sta2e-pool-tracker__controls {
+  max-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    max-height 140ms ease,
+    opacity 140ms ease,
+    visibility 0s linear 140ms;
+}
+
+.sta2e-pool-tracker--auto-hide:hover .sta2e-pool-tracker__controls,
+.sta2e-pool-tracker--auto-hide:focus-within .sta2e-pool-tracker__controls {
+  max-height: 24px;
+  visibility: visible;
+  opacity: 1;
+  transition:
+    max-height 140ms ease,
+    opacity 140ms ease;
+}
+
+.sta2e-pool-tracker__label {
+  overflow: hidden;
+  color: var(--sta2e-pool-dim);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sta2e-pool-tracker__btn {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--sta2e-pool-dim);
+  border-radius: 2px;
+  color: var(--sta2e-pool-text);
+  font-size: 9px;
+}
+
+.sta2e-pool-tracker__btn:hover:not(:disabled) {
+  border-color: var(--sta2e-pool-primary);
+  color: var(--sta2e-pool-primary);
+}
+
+.sta2e-pool-tracker__btn:disabled,
+.sta2e-pool-tracker__btn--disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.sta2e-pool-tracker__pool--momentum .sta2e-pool-tracker__label,
+.sta2e-pool-tracker__pool--momentum .sta2e-pool-tracker__btn:hover:not(:disabled) {
+  color: var(--sta2e-pool-secondary);
+}
+
+.sta2e-pool-tracker__pool--threat .sta2e-pool-tracker__label,
+.sta2e-pool-tracker__pool--threat .sta2e-pool-tracker__btn:hover:not(:disabled) {
+  color: var(--sta2e-pool-threat);
+}

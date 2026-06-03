@@ -18,6 +18,7 @@ import { getLcTokens } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { actorHasIntenseTalent } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
+import { adjustPool, readPool } from "./pool-service.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -51,6 +52,23 @@ export function countSuccesses(dice) {
 
 function countComplications(dice) {
   return dice.filter(d => d.complication).length;
+}
+
+function autoSuccesses(source) {
+  return Math.max(0, Number(source?.persistentAutoSuccesses ?? 0) || 0);
+}
+
+function autoComplications(source) {
+  return Math.max(0, Number(source?.persistentAutoComplications ?? 0) || 0);
+}
+
+export function taskDifficulty(source) {
+  const base = Math.max(0, Number(source?.difficulty ?? 0) || 0);
+  return base + (source?.showOffSelected ? 1 : 0);
+}
+
+export function showOffBonusMomentum(source, passed) {
+  return passed && source?.showOffSelected ? 2 : 0;
 }
 
 // When Reserve Power is active, each ship die complication counts as 2.
@@ -235,6 +253,23 @@ function detectMakeYourOwnLuck(actor) {
   return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
 }
 
+function detectPersistentTalent(actor) {
+  if (!actor?.items) return { hasTalent: false, source: null };
+  const found = actor.items.find(i => i.name.toLowerCase() === "persistent");
+  return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
+}
+
+function detectShowOffTalent(actor) {
+  if (!actor?.items) return { hasTalent: false, source: null };
+  const normalize = value => String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+  const found = actor.items.find(i => normalize(i.name) === "show off");
+  return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
+}
+
 export function isCommunicationsOfficerShipAssistActive(rollState) {
   return !!rollState?.hasCommunicationsOfficer
     && (rollState.shipSystemKey === "computers" || rollState.shipSystemKey === "communications");
@@ -401,14 +436,15 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
 
 // ── Result summary row ─────────────────────────────────────────────────────────
 
-function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarget, reservePower = false) {
+function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarget, reservePower = false, resultMods = null) {
+  const effectiveDifficulty = taskDifficulty({ difficulty, showOffSelected: resultMods?.showOffSelected });
   const crewSucc = countSuccesses(crewDice);
   const shipSucc = countSuccesses(shipDice);
-  const total = crewSucc + shipSucc;
+  const total = crewSucc + shipSucc + autoSuccesses(resultMods);
   // Reserve Power: ship complications count as 2 each
-  const compls = countComplicationsTotal(crewDice, [], shipDice, reservePower);
-  const passed = total >= difficulty;
-  const momentum = Math.max(0, total - difficulty);
+  const compls = countComplicationsTotal(crewDice, [], shipDice, reservePower) + autoComplications(resultMods);
+  const passed = total >= effectiveDifficulty;
+  const momentum = Math.max(0, total - effectiveDifficulty);
 
   const passColor = passed ? LC.green : LC.red;
   const passText = passed ? "SUCCESS" : "FAILURE";
@@ -417,6 +453,12 @@ function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarge
   const reserveNote = reservePower && shipRawCompls > 0
     ? `<div style="font-size:9px;color:${LC.red};font-family:${LC.font};margin-top:2px;">
         ⚡ Reserve Power — ${shipRawCompls} ship complication${shipRawCompls > 1 ? "s" : ""} × 2 = ${shipRawCompls * 2}
+      </div>`
+    : "";
+
+  const persistentNote = autoSuccesses(resultMods) > 0 || autoComplications(resultMods) > 0
+    ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};margin-top:2px;">
+        Persistent: +${autoSuccesses(resultMods)} success, +${autoComplications(resultMods)} complication
       </div>`
     : "";
 
@@ -436,7 +478,7 @@ function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarge
         <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
           text-transform:uppercase;letter-spacing:0.1em;">Difficulty</div>
         <div style="font-size:20px;font-weight:700;color:${LC.text};
-          font-family:${LC.font};">${difficulty}</div>
+          font-family:${LC.font};">${effectiveDifficulty}</div>
       </div>
       <div style="text-align:center;">
         <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
@@ -451,7 +493,9 @@ function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarge
           font-family:${LC.font};">${compls}</div>
       </div>
     </div>
-    ${reserveNote}
+    ${resultMods?.showOffSelected ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};padding:2px 10px 0;background:rgba(0,0,0,0.4);">
+      ${resultMods.showOffSource ?? "Show-Off"} - Difficulty increased by 1
+    </div>` : ""}${reserveNote}${persistentNote}
     <div style="
       text-align:center;padding:6px 10px 8px;
       font-size:14px;font-weight:700;letter-spacing:0.15em;
@@ -1199,6 +1243,26 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 Spend Determination — force one die to roll 1
               </span>
             </label>
+            ${state.hasPersistentTalent && !state.isAssistRoll ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="has-persistent" type="checkbox"
+                ${state.persistentSelected ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                Persistent - +1 automatic success, +1 automatic complication
+              </span>
+            </label>` : ""}
+            ${state.hasShowOff && !state.isAssistRoll ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="has-show-off" type="checkbox"
+                ${state.showOffSelected ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.showOffSource ?? "Show-Off"} - +1 Difficulty, +2 bonus Momentum on success
+              </span>
+            </label>` : ""}
             ${isOfficerMode ? `
             ${state.hasTalentReroll ? `
             <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
@@ -2242,7 +2306,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         </button>
       </div>` : ""}
 
-      ${resultSummaryHtml([...crewDice, ...(crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...apAssistDice], shipDice, difficulty, crewTarget, shipTarget, state.reservePower)}
+      ${resultSummaryHtml([...crewDice, ...(crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...apAssistDice], shipDice, difficulty, crewTarget, shipTarget, state.reservePower, state)}
 
     </div>`;
 }
@@ -2271,10 +2335,11 @@ function buildChatCard(actorName, state) {
   const shipTarget = shipSystems + shipDept;
   const assistDice = [...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? [])];
   const crewFailed = state.crewFailed ?? false;
-  const total = countSuccesses(crewDice) + countSuccesses(assistDice) + countSuccesses(shipDice);
-  const compls = countComplicationsTotal(crewDice, assistDice, shipDice, crewFailed ? false : state.reservePower);
-  const passed = total >= difficulty;
-  const momentum = Math.max(0, total - difficulty);
+  const total = countSuccesses(crewDice) + countSuccesses(assistDice) + countSuccesses(shipDice) + autoSuccesses(state);
+  const compls = countComplicationsTotal(crewDice, assistDice, shipDice, crewFailed ? false : state.reservePower) + autoComplications(state);
+  const effectiveDifficulty = taskDifficulty(state);
+  const passed = total >= effectiveDifficulty;
+  const momentum = Math.max(0, total - effectiveDifficulty);
   const passColor = passed ? LC.green : LC.red;
   const passText = passed ? "✓ SUCCESS" : "✗ FAILURE";
 
@@ -2354,6 +2419,8 @@ function buildChatCard(actorName, state) {
         state.techExpertiseUsed ? (state.techExpertiseSource ?? "Technical Expertise") : null,
         state.proceduralUsed ? "Procedural Compliance (auto-success)" : null,
         state.hasAutoSuccessTrade ? "Auto-Success Trade (−1 die, +1 success)" : null,
+        state.persistentUsed ? "Persistent (+1 success, +1 complication)" : null,
+        state.showOffSelected ? `${state.showOffSource ?? "Show-Off"} (+1 Difficulty, +2 bonus Momentum on success)` : null,
         state.hasChiefOfStaff ? (state.chiefOfStaffSource ?? "Chief of Staff") : null,
         state.shipTalentRerollUsed ? (state.shipTalentRerollSource ?? "Ship Talent Reroll") : null,
         state.hasPiercingSalvo ? "Piercing Salvo (spend 2 Momentum)" : null,
@@ -2440,7 +2507,7 @@ function buildChatCard(actorName, state) {
         padding:6px 10px;border-top:1px solid ${LC.borderDim};">
         ${[
       ["Successes", total, LC.tertiary],
-      ["Difficulty", difficulty, LC.text],
+      ["Difficulty", effectiveDifficulty, LC.text],
       [state.playerMode ? "Momentum" : "Threat", momentum, momentum > 0 ? LC.secondary : LC.textDim],
       ["Complic.", compls, compls > 0 ? LC.red : LC.textDim],
       ["Comp. Range", compRangeDisplay, _compRange > 1 ? LC.red : LC.textDim],
@@ -2493,7 +2560,7 @@ function buildChatCard(actorName, state) {
  */
 export function buildPlayerRollCardHtml(rollData) {
   const {
-    taskLabel, taskContext: rawTaskContext, officerName: rawOfficerName, difficulty,
+    taskLabel, taskContext: rawTaskContext, officerName: rawOfficerName, difficulty: baseDifficulty,
     crewDice, shipDice, crewAssistDice, apAssistDice, namedAssistDice,
     crewFailed, shipTarget,
     pendingAssists,
@@ -2514,14 +2581,16 @@ export function buildPlayerRollCardHtml(rollData) {
     hasTechExpertise, techExpertiseUsed, techExpertiseSource,
     isAssistRoll, assistOfficerName, assistApplied, playerMode,
     confirmed, confirmedSuccesses, confirmedMomentum, confirmedPassed,
+    persistentUsed, persistentAutoSuccesses, persistentAutoComplications,
   } = rollData;
+  const difficulty = taskDifficulty({ ...rollData, difficulty: baseDifficulty });
 
   const compRangeDisplay = (complicationRange ?? 1) <= 1 ? "20" : `${21 - (complicationRange ?? 1)}–20`;
 
   const allAssistDice = [...(crewAssistDice ?? []), ...(namedAssistDice ?? []), ...(apAssistDice ?? [])];
   const totalSuccesses = (dice => dice.reduce((s, d) => s + (d.success ? (d.crit ? 2 : 1) : 0), 0))(
     [...(crewDice ?? []), ...allAssistDice, ...(shipDice ?? [])]
-  );
+  ) + autoSuccesses(rollData);
   const contextLeftLabel = rawTaskContext || rawOfficerName || "";
   const contextRightLabel = `Comp Range ${compRangeDisplay}`;
   const taskContext = null;
@@ -2532,22 +2601,18 @@ export function buildPlayerRollCardHtml(rollData) {
        </span>`
     : null;
   const displaySuccesses = confirmed ? (confirmedSuccesses ?? totalSuccesses) : totalSuccesses;
-  const displayMomentum = confirmed ? (confirmedMomentum ?? Math.max(0, totalSuccesses - (difficulty ?? 0))) : Math.max(0, totalSuccesses - (difficulty ?? 0));
-  const passed = confirmed ? !!confirmedPassed : (totalSuccesses >= (difficulty ?? 0));
+  const effectiveDifficulty = taskDifficulty(rollData);
+  const displayMomentum = confirmed ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty)) : Math.max(0, totalSuccesses - effectiveDifficulty);
+  const passed = confirmed ? !!confirmedPassed : (totalSuccesses >= effectiveDifficulty);
   const passColor = passed ? LC.green : LC.red;
   const finalResultLabel = passed ? "Success" : "Failed";
   const poolLabel = groundIsNpc ? "Threat" : "Momentum";
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
   const totalComplications = [...(crewDice ?? []), ...allAssistDice, ...(shipDice ?? [])]
-    .filter(d => d.complication).length;
+    .filter(d => d.complication).length + autoComplications(rollData);
   const completedPoolButton = confirmed && displayMomentum > 0 && !noPoolButton
     ? (rollData.autoBanked
-        ? `<div style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.25);
-            border:2px solid ${LC.secondary};border-radius:2px;
-            font-family:${LC.font};font-size:11px;font-weight:700;
-            color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
-            ${groundIsNpc ? "⚡" : "💫"} +${rollData.trackerBanked ?? displayMomentum} ${groundIsNpc ? "Threat" : "Momentum"} banked to pool${(rollData.trackerFloat ?? 0) > 0 ? `<div style="font-size:9px;font-weight:400;margin-top:2px;">${rollData.trackerFloat} floating — see tracker</div>` : ""}
-          </div>`
+        ? ""
         : `<button class="sta2e-add-to-pool"
             data-pool="${groundIsNpc ? "threat" : "momentum"}"
             data-amount="${displayMomentum}"
@@ -2602,6 +2667,34 @@ export function buildPlayerRollCardHtml(rollData) {
   // When interactive payment is off we fall back to always-valid (no way to verify resource).
   const interactiveActive = game.settings.get("sta2e-toolkit", "interactiveDicePayment");
   const _spent = rollData.paymentSpent ?? {};
+  const renderResourceTokens = (label, count, type, color) => {
+    const numeric = Number(count ?? 0);
+    const total = Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+    if (!total) return "";
+    const src = type === "momentum"
+      ? "modules/sta2e-toolkit/assets/momentum.svg"
+      : "modules/sta2e-toolkit/assets/threat.svg";
+    const tokens = Array.from({ length: total }, () => `
+        <img src="${src}" alt="" title="${label}"
+          style="width:21px;height:21px;border-radius:50%;object-fit:contain;
+            filter:drop-shadow(0 0 2px ${color});flex:0 0 auto;" />`).join("");
+    return `<span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;">
+        <span style="font-size:9px;color:${LC.textDim};font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${label}</span>
+        <span aria-label="${total} ${label}" style="display:inline-flex;align-items:center;gap:3px;flex-wrap:wrap;">${tokens}</span>
+      </span>`;
+  };
+  const resourcesGainedBlock = confirmed && displayMomentum > 0 && !noPoolButton
+    ? `<div style="padding:4px 10px 5px;border-top:1px solid ${LC.borderDim};">
+        <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
+          letter-spacing:0.08em;margin-bottom:3px;">Resources Gained</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          ${renderResourceTokens(poolLabel, displayMomentum, groundIsNpc ? "threat" : "momentum", LC.secondary)}
+          ${rollData.autoBanked ? `<span style="font-size:9px;color:${LC.textDim};letter-spacing:0.06em;text-transform:uppercase;">
+            ${rollData.trackerBanked ?? displayMomentum} banked to pool${(rollData.trackerFloat ?? 0) > 0 ? ` · ${rollData.trackerFloat} floating` : ""}
+          </span>` : ""}
+        </div>
+      </div>`
+    : "";
   const _talentName = (talentRerollSource ?? "").toLowerCase();
   const _isBold     = _talentName.includes("bold");
   const _isCautious = _talentName.includes("cautious");
@@ -2724,6 +2817,18 @@ export function buildPlayerRollCardHtml(rollData) {
     ${diceRow(shipDice)}
   </div>` : ""}
 
+  ${persistentUsed ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    Persistent: +${persistentAutoSuccesses ?? 1} success, +${persistentAutoComplications ?? 1} complication
+  </div>` : ""}
+
+  ${rollData.showOffSelected ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.showOffSource ?? "Show-Off"}: +1 Difficulty, +2 bonus Momentum on success
+  </div>` : ""}
+
   ${!isAssistRoll ? `<div style="display:grid;grid-template-columns:repeat(${totalComplications > 0 ? 5 : 4},1fr);gap:4px;
     padding:6px 10px;border-top:1px solid ${LC.borderDim};">
     ${[
@@ -2741,14 +2846,16 @@ export function buildPlayerRollCardHtml(rollData) {
 
   ${interactiveActive && ((_spent.momentum ?? 0) > 0 || (_spent.threat ?? 0) > 0 || (_spent.personalThreat ?? 0) > 0) ? `
   <div style="padding:4px 10px 5px;border-top:1px solid ${LC.borderDim};">
-    <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;
+    <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:3px;">Resources Spent</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      ${(_spent.momentum ?? 0) > 0 ? `<span style="font-size:9px;color:${LC.tertiary};font-weight:700;">${_spent.momentum} Momentum</span>` : ""}
-      ${(_spent.threat ?? 0) > 0 ? `<span style="font-size:9px;color:${LC.red};font-weight:700;">${_spent.threat} Threat</span>` : ""}
-      ${(_spent.personalThreat ?? 0) > 0 ? `<span style="font-size:9px;color:${LC.secondary};font-weight:700;">${_spent.personalThreat} Personal Threat</span>` : ""}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      ${renderResourceTokens("Momentum", _spent.momentum, "momentum", LC.tertiary)}
+      ${renderResourceTokens("Threat", _spent.threat, "threat", LC.red)}
+      ${renderResourceTokens("Personal Threat", _spent.personalThreat, "threat", LC.secondary)}
     </div>
   </div>` : ""}
+
+  ${resourcesGainedBlock}
 
   ${!confirmed && !crewFailed && (pendingAssists ?? []).length > 0 ? `
   <div class="sta2e-working-actions sta2e-working-actions--assists"
@@ -3154,6 +3261,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _makeYourOwnLuck = _officerActorFull
     ? detectMakeYourOwnLuck(_officerActorFull)
     : { hasTalent: false, source: null };
+  const _persistentTalent = _officerActorFull
+    ? detectPersistentTalent(_officerActorFull)
+    : { hasTalent: false, source: null };
+  const _showOffTalent = _officerActorFull
+    ? detectShowOffTalent(_officerActorFull)
+    : { hasTalent: false, source: null };
 
   // Mutable roller state — lives outside the dialog so button callbacks can mutate it
   const state = {
@@ -3193,6 +3306,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     hasDedicatedFocus: false,  // dedicated focus talent → crit range = 1 to (disc × 2)
     hasDetermination: false,  // officer may spend Determination to force one die to 1 (pre-roll)
     determinationAutoUsed: false,  // set true in _doRoll after force-to-1 fires
+    hasPersistentTalent: _persistentTalent.hasTalent,
+    persistentTalentSource: _persistentTalent.source,
+    persistentSelected: false,
+    persistentUsed: false,
+    persistentAutoSuccesses: 0,
+    persistentAutoComplications: 0,
+    hasShowOff: _showOffTalent.hasTalent,
+    showOffSource: _showOffTalent.source,
+    showOffSelected: false,
     shipSystemKey: defaultSysKey,
     shipDeptKey: defaultDeptKey,
     // Task
@@ -3463,6 +3585,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       hasMakeYourOwnLuck: state.hasMakeYourOwnLuck ?? false,
       makeYourOwnLuckSource: state.makeYourOwnLuckSource ?? null,
       makeYourOwnLuckUsed: state.makeYourOwnLuckUsed ?? false,
+      hasPersistentTalent: state.hasPersistentTalent ?? false,
+      persistentTalentSource: state.persistentTalentSource ?? null,
+      persistentSelected: state.persistentSelected ?? false,
+      persistentUsed: state.persistentUsed ?? false,
+      persistentAutoSuccesses: state.persistentAutoSuccesses ?? 0,
+      persistentAutoComplications: state.persistentAutoComplications ?? 0,
+      hasShowOff: state.hasShowOff ?? false,
+      showOffSource: state.showOffSource ?? null,
+      showOffSelected: state.showOffSelected ?? false,
       sheetMode: state.sheetMode ?? false,
       availableShips: state.availableShips ?? [],
       selectedShipIdx: state.selectedShipIdx ?? -1,
@@ -3564,16 +3695,19 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
         ? [
           ...(state.weaponContext ? [{
             action: "resolve",
-            label: `${countSuccesses([...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice]) >= state.difficulty ? "⚡ Resolve HIT" : "✗ Resolve MISS"}`,
+            label: `${countSuccesses([...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice]) + autoSuccesses(state) >= taskDifficulty(state) ? "⚡ Resolve HIT" : "✗ Resolve MISS"}`,
             icon: "fas fa-crosshairs",
             default: true,
             callback: async () => {
               const totalSuccesses = countSuccesses([
                 ...state.crewDice,
                 ...(state.crewAssistDice ?? []),
+                ...(state.namedAssistDice ?? []),
+                ...(state.apAssistDice ?? []),
                 ...state.shipDice,
-              ]);
-              const isHit = totalSuccesses >= state.difficulty;
+              ]) + autoSuccesses(state);
+              const effectiveDifficulty = taskDifficulty(state);
+              const isHit = totalSuccesses >= effectiveDifficulty;
 
               // Find the weapon item.
               // Sheet-roller path: weaponId + shipActorId are stored on weaponContext.
@@ -3600,24 +3734,23 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 ...(state.namedAssistDice ?? []),
                 ...(state.apAssistDice ?? []),
                 ...state.shipDice,
-              ]);
-              const _hitMomentum = state.opposedDefenseType !== null
-                ? Math.max(0, _hitSuccesses - (state.defenderSuccesses ?? 0))
-                : Math.max(0, _hitSuccesses - state.difficulty);
+              ]) + autoSuccesses(state);
+              const _hitMomentum = Math.max(0, _hitSuccesses - effectiveDifficulty);
               const _hitThreatBought = (state.paymentSlots ?? []).filter(s =>
                 s === "threat" || s === "poolThreat" || s === "personalThreat"
               ).length;
               const _hitIntenseSubject = state.officer ?? actor ?? null;
               const _hitIntenseBonus = (isHit && _hitThreatBought > 0 && _hitIntenseSubject && actorHasIntenseTalent(_hitIntenseSubject))
                 ? _hitThreatBought : 0;
+              const _hitShowOffBonus = showOffBonusMomentum(state, isHit);
               const _hitPool = state.playerMode ? "momentum" : "threat";
               const _hitWQ = weapon?.system?.qualities ?? {};
               const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
-              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitVersatile > 0)) {
+              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitVersatile > 0)) {
                 try {
                   const _hitTrackerRes = await createTracker(actor, {
                     totalGenerated: _hitMomentum,
-                    bonus: _hitIntenseBonus,
+                    bonus: _hitIntenseBonus + _hitShowOffBonus,
                     versatile: _hitVersatile,
                     weaponName: weapon?.name ?? null,
                     pool:  _hitPool,
@@ -3658,14 +3791,14 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 ...(state.namedAssistDice ?? []),
                 ...(state.apAssistDice ?? []),
                 ...state.shipDice,
-              ]);
+              ]) + autoSuccesses(state);
               const attackComplications = [
                 ...state.crewDice,
                 ...(state.crewAssistDice ?? []),
                 ...(state.namedAssistDice ?? []),
                 ...(state.apAssistDice ?? []),
                 ...state.shipDice,
-              ].filter(d => d.complication).length;
+              ].filter(d => d.complication).length + autoComplications(state);
 
               // Sheet-roller path: use the ship token, not the character token
               const resolveToken = state.weaponContext.shipActorId
@@ -3701,6 +3834,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _intenseSubject = state.officer ?? actor ?? null;
               const _intenseTalentBonus = (isHit && _threatBoughtDice > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
                 ? _threatBoughtDice : 0;
+              const _showOffTalentBonus = showOffBonusMomentum(state, isHit);
               await CombatHUD.resolveShipAttack(resolveToken, weapon, isHit, {
                 salvoMode: state.weaponContext.salvoMode ?? "area",
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
@@ -3709,7 +3843,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 opposedDefenseType: state.opposedDefenseType,
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
                 floatingMomentum: _floatingMomentum,
-                intenseTalentBonus: _intenseTalentBonus,
+                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
                 complications: attackComplications,
                 opposedMomentumAwarded: state.opposedDefenseType !== null && (
@@ -3734,22 +3868,24 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // of the manual → Pool button, and downstream damage cards (from
               // taskCallback) can link via state.trackerMessageId.
               const _prAllDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice];
-              const _prSuccesses = countSuccesses(_prAllDice);
-              const _prPassed = _prSuccesses >= state.difficulty;
-              const _prMomentum = Math.max(0, _prSuccesses - state.difficulty);
-              const _prComplications = _prAllDice.filter(d => d.complication).length;
+              const _prSuccesses = countSuccesses(_prAllDice) + autoSuccesses(state);
+              const _prDifficulty = taskDifficulty(state);
+              const _prPassed = _prSuccesses >= _prDifficulty;
+              const _prMomentum = Math.max(0, _prSuccesses - _prDifficulty);
+              const _prComplications = _prAllDice.filter(d => d.complication).length + autoComplications(state);
               const _prThreatBought = (state.paymentSlots ?? []).filter(s =>
                 s === "threat" || s === "poolThreat" || s === "personalThreat"
               ).length;
               const _prIntenseSubject = state.officer ?? actor ?? null;
               const _prIntenseBonus = (_prPassed && _prThreatBought > 0 && _prIntenseSubject && actorHasIntenseTalent(_prIntenseSubject))
                 ? _prThreatBought : 0;
+              const _prShowOffBonus = showOffBonusMomentum(state, _prPassed);
               const _prPool = state.playerMode ? "momentum" : "threat";
-              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0)) {
+              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0)) {
                 try {
                   const _prTrackerRes = await createTracker(actor, {
                     totalGenerated: _prMomentum,
-                    bonus: _prIntenseBonus,
+                    bonus: _prIntenseBonus + _prShowOffBonus,
                     pool:  _prPool,
                     speakerToken: token,
                   });
@@ -3786,7 +3922,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // Rally: immediately follow with a Threat/Momentum result card
               if (state.rallyContext) {
                 const allDice = [...state.crewDice, ...(state.crewAssistDice ?? [])];
-                const successes = countSuccesses(allDice);
+                const successes = countSuccesses(allDice) + autoSuccesses(state);
                 const isNpc = state._isNpc ?? true;
                 const currency = isNpc ? "Threat" : "Momentum";
                 const icon = isNpc ? "⚡" : "💫";
@@ -4170,6 +4306,8 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     const focusCb = el.querySelector("#has-focus");
     const dedForceCb = el.querySelector("#has-dedicated-forces");
     const determCb = el.querySelector("#has-determination");
+    const persistentCb = el.querySelector("#has-persistent");
+    const showOffCb = el.querySelector("#has-show-off");
     if (attrSel?.value) state.officerAttrKey = attrSel.value;
     if (discSel?.value) state.officerDiscKey = discSel.value;
     if (focusCb !== null) state.hasFocus = focusCb.checked;
@@ -4177,6 +4315,8 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     // Dedicated Focus overrides plain focus — can't have both
     if (state.hasDedicatedFocus) state.hasFocus = false;
     if (determCb !== null) state.hasDetermination = determCb.checked;
+    state.persistentSelected = !!(persistentCb?.checked && state.hasPersistentTalent && !state.isAssistRoll);
+    state.showOffSelected = !!(showOffCb?.checked && state.hasShowOff && !state.isAssistRoll);
     state.crewAttr = state.officer.attributes[state.officerAttrKey] ?? state.crewAttr;
     state.crewDept = state.officer.disciplines[state.officerDiscKey] ?? state.crewDept;
   }
@@ -4240,28 +4380,21 @@ async function _doRoll(state, speaker) {
 
     state.paymentSpent = { momentum: momentumUsed, threat: threatUsed, personalThreat: personalThreatUsed };
 
-    const _ST = game.STATracker?.constructor ?? null;
-    const _readPool  = (key) => { if (_ST) return _ST.ValueOf(key) ?? 0; try { return game.settings.get("sta", key) ?? 0; } catch { return 0; } };
-    const _writePool = async (key, v) => { if (_ST) { await _ST.DoUpdateResource(key, Math.max(0, v)); return; } try { await game.settings.set("sta", key, Math.max(0, v)); } catch { /* ignore */ } };
-
     const usesPlayerPayment = _usesPlayerPayment(state);
+    const paymentContext = {
+      actor: game.actors.get(state.actorId),
+      token: canvas.tokens?.placeables.find(t => t.actor?.id === state.actorId) ?? null,
+    };
     if (usesPlayerPayment) {
       if (momentumUsed > 0) {
-        await _writePool("momentum", _readPool("momentum") - momentumUsed);
+        await adjustPool("momentum", -momentumUsed, { source: "diceRoller", ...paymentContext });
       }
       if (threatUsed > 0) {
-        if (game.user.isGM) {
-          await _writePool("threat", _readPool("threat") + threatUsed);
-        } else {
-          game.socket.emit("module.sta2e-toolkit", {
-            action: "adjustThreatFromRoll",
-            delta: threatUsed,
-          });
-        }
+        await adjustPool("threat", threatUsed, { source: "diceRoller", ...paymentContext });
       }
     } else {
       if (threatUsed > 0) {
-        await _writePool("threat", _readPool("threat") - threatUsed);
+        await adjustPool("threat", -threatUsed, { source: "diceRoller", ...paymentContext });
       }
       if (personalThreatUsed > 0) {
         const _ptActor = canvas.tokens?.placeables.find(t => t.actor?.id === state.actorId)?.actor
@@ -4355,7 +4488,11 @@ async function _doRoll(state, speaker) {
     state.crewDice = [autoSuccessDie, ...rollPool(Math.max(0, state.crewNumDice - 1), crewTarget, compThresh, crewCritThresh)];
   }
 
-  const crewSuccesses = countSuccesses(state.crewDice);
+  state.persistentUsed = !!(state.officer && state.hasPersistentTalent && state.persistentSelected && !state.isAssistRoll);
+  state.persistentAutoSuccesses = state.persistentUsed ? 1 : 0;
+  state.persistentAutoComplications = state.persistentUsed ? 1 : 0;
+
+  const crewSuccesses = countSuccesses(state.crewDice) + autoSuccesses(state);
 
   // ── Step 2: Crew must get ≥1 success for assist/ship to roll ─────────────
   state.crewFailed = crewSuccesses === 0;
@@ -4597,15 +4734,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
 
     // Determine currently available pools to validate drops
     const _getAvailablePool = (type) => {
-      const T = game.STATracker?.constructor ?? null;
       if (type === "momentum") {
-        if (T) return T.ValueOf("momentum") ?? 0;
-        try { return game.settings.get("sta", "momentum") ?? 0; } catch { return 0; }
+        return readPool("momentum");
       } else if (type === "threat" || type === "poolThreat") {
         const usesPlayerPayment = _usesPlayerPayment(state);
         if (usesPlayerPayment && type === "threat") return 99; // players generate threat, no pool cap
-        if (T) return T.ValueOf("threat") ?? 0;
-        try { return game.settings.get("sta", "threat") ?? 0; } catch { return 0; }
+        return readPool("threat");
       } else if (type === "personalThreat") {
         const a = canvas.tokens?.placeables.find(t => t.actor?.id === state.actorId)?.actor
           ?? game.actors.get(state.actorId);

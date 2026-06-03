@@ -42,6 +42,7 @@ import {
   PlayerRollCallbacks, rollPool, clearStationAssistFlag, buildPlayerRollCardHtml,
   diePipHtml, dsnShowPool,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
+  taskDifficulty, showOffBonusMomentum,
 } from "./npc-roller.js";
 import {
   STATION_SLOTS,
@@ -217,6 +218,9 @@ function _rollEditGetShipSource(rollData, selectedShipIdx) {
 
 function _rollEditRecomputeDie(die, target, compThresh, critThresh) {
   if (!die || typeof die.value !== "number") return die;
+  if (die.determinationForced) {
+    return { ...die, value: 1, success: true, crit: true, complication: false, critThreshold: critThresh };
+  }
   if (die.proceduralForced || die.autoSuccessTradeForced) {
     return { ...die, success: true, crit: false, complication: false, critThreshold: critThresh };
   }
@@ -234,7 +238,197 @@ function _rollEditCountSuccesses(dice = []) {
   return dice.reduce((sum, die) => sum + (die?.success ? (die.crit ? 2 : 1) : 0), 0);
 }
 
-async function _applyMakeYourOwnLuckStress(actor) {
+function _rollResultAutoSuccesses(rollData) {
+  return Math.max(0, Number(rollData?.persistentAutoSuccesses ?? 0) || 0);
+}
+
+function _rollResultAutoComplications(rollData) {
+  return Math.max(0, Number(rollData?.persistentAutoComplications ?? 0) || 0);
+}
+
+function _rollEditClampInt(value, min, max, fallback = min) {
+  const n = parseInt(value ?? fallback, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function _rollEditPaymentSpent(value = {}) {
+  return {
+    momentum: _rollEditClampInt(value.momentum, 0, 6, 0),
+    threat: _rollEditClampInt(value.threat, 0, 6, 0),
+    personalThreat: _rollEditClampInt(value.personalThreat, 0, 6, 0),
+  };
+}
+
+function _rollEditPaymentSlotsFromSpent(spent = {}, usesPlayerPayment = true) {
+  const slots = [];
+  const pushMany = (type, count) => {
+    for (let i = 0; i < count; i++) slots.push(type);
+  };
+  pushMany("momentum", spent.momentum ?? 0);
+  pushMany(usesPlayerPayment ? "threat" : "poolThreat", spent.threat ?? 0);
+  pushMany("personalThreat", spent.personalThreat ?? 0);
+  return slots.slice(0, 6);
+}
+
+function _rollEditUsesPlayerPayment(rollData) {
+  if (rollData?.usesPlayerPayment === true) return true;
+  if (rollData?.usesPlayerPayment === false) return false;
+
+  const actor = rollData?.actorId ? game.actors.get(rollData.actorId) : null;
+  const sheetClass = actor?.sheet?.constructor?.name ?? "";
+  const npcType = `${actor?.system?.npcType ?? ""}`.trim().toLowerCase();
+  const isNpcType = npcType === "minor" || npcType === "notable" || npcType === "major";
+  const isNpcSheet = /npc/i.test(sheetClass);
+  const isPlayerCharacterSheet = sheetClass === "STACharacterSheet2e"
+    || sheetClass === "STASupportingSheet2e"
+    || sheetClass === "STACharacterSheet";
+
+  if (isNpcSheet || npcType === "notable" || npcType === "major") return false;
+  if (npcType === "minor" && !isPlayerCharacterSheet) return false;
+  if (rollData?.playerMode) return true;
+  if (rollData?.groundMode) return !rollData.groundIsNpc;
+  return !!(rollData?.sheetMode && isPlayerCharacterSheet && !isNpcType);
+}
+
+function _rollEditInferDieTarget(die, fallbackTarget) {
+  return _rollEditClampInt(
+    die?.target ?? die?.rollTarget ?? die?.crewTarget ?? die?.shipTarget,
+    1,
+    20,
+    _rollEditClampInt(fallbackTarget, 1, 20, 11)
+  );
+}
+
+function _rollEditNormalizeManualDie(originalDie, row, target, compThresh, critThresh) {
+  const value = _rollEditClampInt(row.value, 1, 20, originalDie?.value ?? 1);
+  const forced = !!row.determination;
+  const die = {
+    ...(originalDie ?? {}),
+    value: forced ? 1 : value,
+  };
+  if (forced) {
+    die.determinationForced = true;
+    delete die.proceduralForced;
+    delete die.autoSuccessTradeForced;
+    delete die.makeYourOwnLuckForced;
+  } else if (die.determinationForced) {
+    delete die.determinationForced;
+  }
+  return _rollEditRecomputeDie(die, target, compThresh, critThresh);
+}
+
+function _rollEditRowsForPool(formData, pool) {
+  return (formData.diceRows ?? []).filter(row => row.pool === pool);
+}
+
+function _rollEditTrimDiceToCount(dice, count) {
+  const next = [...dice];
+  while (next.length > count) {
+    let idx = next.findIndex(d =>
+      !d?.determinationForced && !d?.proceduralForced && !d?.autoSuccessTradeForced
+    );
+    if (idx < 0) idx = next.length - 1;
+    next.splice(idx, 1);
+  }
+  return next;
+}
+
+function _rollEditBuildCrewDice(originalDice, formData, target, compThresh, critThresh) {
+  const rows = _rollEditRowsForPool(formData, "crew");
+  let dice = rows
+    .filter(row => !row.remove)
+    .map(row => _rollEditNormalizeManualDie(originalDice[row.index], row, target, compThresh, critThresh));
+
+  const requestedCount = Math.min(5, 2 + _rollEditClampInt(formData.extraDice, 0, 3, Math.max(0, dice.length - 2)));
+  const removedAny = rows.some(row => row.remove);
+  const targetCount = removedAny ? Math.min(requestedCount, dice.length) : requestedCount;
+
+  if (dice.length > targetCount) dice = _rollEditTrimDiceToCount(dice, targetCount);
+  while (dice.length < targetCount) {
+    dice.push(...rollPool(1, target, compThresh, critThresh).map(d => ({ ...d, editAdded: true })));
+  }
+  return dice.slice(0, 5);
+}
+
+function _rollEditBuildDiceList(originalDice, rows, target, compThresh, critThresh, { allowRemove = true, inferPerDieTarget = false } = {}) {
+  return rows
+    .filter(row => !(allowRemove && row.remove))
+    .map(row => {
+      const original = originalDice[row.index] ?? {};
+      const dieTarget = inferPerDieTarget ? _rollEditInferDieTarget(original, target) : target;
+      const dieCrit = _rollEditClampInt(original.critThreshold, 1, 20, critThresh);
+      return _rollEditNormalizeManualDie(original, row, dieTarget, compThresh, dieCrit);
+    });
+}
+
+function _rollEditDiceRowsHtml(title, pool, dice = [], { removable = false, determination = false, note = "" } = {}) {
+  const rowHtml = dice.length
+    ? dice.map((die, index) => {
+        const canRemove = removable || (pool === "crew" && index >= 2);
+        return `
+          <div class="sta2e-edit-die-row" data-pool="${pool}" data-index="${index}"
+            style="display:grid;grid-template-columns:1fr 64px auto auto auto;gap:5px;align-items:center;
+              padding:4px 5px;border:1px solid ${LC.borderDim};background:rgba(0,0,0,0.16);">
+            <div style="font-size:10px;color:${LC.text};letter-spacing:0.04em;">
+              ${title} ${index + 1}${die?.determinationForced ? ` <span style="color:${LC.secondary};">(Determination)</span>` : ""}
+            </div>
+            <input class="sta2e-edit-die-value" type="number" min="1" max="20" value="${die?.value ?? 1}"
+              style="padding:3px 5px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+            <button type="button" class="sta2e-edit-die-random"
+              style="padding:3px 6px;background:rgba(0,150,255,0.10);border:1px solid ${LC.secondary};
+                color:${LC.secondary};font-family:${LC.font};font-size:9px;cursor:pointer;">Roll</button>
+            ${determination ? `<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:${LC.textDim};">
+              <input class="sta2e-edit-die-determination" type="checkbox" ${die?.determinationForced ? "checked" : ""}> Det
+            </label>` : `<span></span>`}
+            ${canRemove ? `<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:${LC.red};">
+              <input class="sta2e-edit-die-remove" type="checkbox"> Remove
+            </label>` : `<span></span>`}
+          </div>`;
+      }).join("")
+    : `<div style="font-size:9px;color:${LC.textDim};padding:4px 5px;">No dice in this section.</div>`;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid ${LC.borderDim};">
+      <div style="font-size:9px;color:${LC.textDim};font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">
+        ${title}${note ? ` <span style="font-weight:400;text-transform:none;letter-spacing:0;color:${LC.textDim};">${note}</span>` : ""}
+      </div>
+      ${rowHtml}
+    </div>`;
+}
+
+async function _rollEditApplyPaymentDelta(oldRollData, newRollData) {
+  const oldSpent = _rollEditPaymentSpent(oldRollData?.paymentSpent ?? {});
+  const newSpent = _rollEditPaymentSpent(newRollData?.paymentSpent ?? {});
+  const usesPlayerPayment = _rollEditUsesPlayerPayment(newRollData);
+  const tokenObj = newRollData?.tokenId ? canvas.tokens?.get(newRollData.tokenId) : null;
+  const poolContext = { source: "rollEdit", token: tokenObj };
+  const setPool = async (pool, value) => {
+    const max = pool === "momentum" ? poolLimit("momentum") : 99;
+    await writePool(pool, Math.min(max, Math.max(0, value)), poolContext);
+  };
+
+  const momentumDelta = (newSpent.momentum ?? 0) - (oldSpent.momentum ?? 0);
+  const threatDelta = (newSpent.threat ?? 0) - (oldSpent.threat ?? 0);
+  const personalDelta = (newSpent.personalThreat ?? 0) - (oldSpent.personalThreat ?? 0);
+
+  if (usesPlayerPayment) {
+    if (momentumDelta !== 0) await setPool("momentum", readPool("momentum") - momentumDelta);
+    if (threatDelta !== 0) await setPool("threat", readPool("threat") + threatDelta);
+  } else {
+    if (threatDelta !== 0) await setPool("threat", readPool("threat") - threatDelta);
+    if (personalDelta !== 0) {
+      const actor = newRollData?.actorId ? game.actors.get(newRollData.actorId) : null;
+      const tokenDoc = tokenObj?.document ?? null;
+      if (actor && CombatHUD?.getNpcPersonalThreat && CombatHUD?.setNpcPersonalThreat) {
+        const current = CombatHUD.getNpcPersonalThreat(actor, tokenDoc);
+        await CombatHUD.setNpcPersonalThreat(actor, tokenDoc, current - personalDelta);
+      }
+    }
+  }
+}
+
+async function _applyMakeYourOwnLuckStress(actor, { apply = true } = {}) {
   if (!actor?.system?.stress) {
     ui.notifications.warn(`${actor?.name ?? "Actor"} has no Stress track.`);
     return null;
@@ -248,7 +442,7 @@ async function _applyMakeYourOwnLuckStress(actor) {
       return null;
     }
     const next = max > 0 ? Math.min(max, current + 1) : current + 1;
-    await actor.update({ "system.stress.value": next });
+    if (apply) await actor.update({ "system.stress.value": next });
     return { before: current, after: next, mode: stressMode };
   }
   if (current <= 0) {
@@ -256,7 +450,7 @@ async function _applyMakeYourOwnLuckStress(actor) {
     return null;
   }
   const next = Math.max(0, current - 1);
-  await actor.update({ "system.stress.value": next });
+  if (apply) await actor.update({ "system.stress.value": next });
   return { before: current, after: next, mode: stressMode };
 }
 
@@ -266,7 +460,8 @@ function _rollDataHasAnyRerollUsed(rollData) {
     || rollData?.systemRerollUsed || rollData?.shipTalentRerollUsed
     || rollData?.detRerollUsed || rollData?.genericRerollUsed
     || rollData?.tsRerollUsed || rollData?.csRerollUsed
-    || rollData?.techExpertiseUsed || ((rollData?.aimRerollsUsed ?? 0) > 0)
+    || rollData?.techExpertiseUsed || rollData?.rfRerollUsed
+    || ((rollData?.aimRerollsUsed ?? 0) > 0)
   );
 }
 
@@ -311,22 +506,41 @@ function _rollEditApplyChanges(rollData, formData) {
         : 1
     : Math.max(1, crewDept);
 
-  next.crewDice = (next.crewDice ?? []).map(d =>
-    _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh)
-  );
-  next.crewAssistDice = (next.crewAssistDice ?? []).map(d =>
-    _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh)
-  );
-  next.namedAssistDice = (next.namedAssistDice ?? []).map(d => ({
-    ...d,
-    complication: typeof d.value === "number" ? d.value >= compThresh : !!d.complication,
-  }));
-  next.apAssistDice = (next.apAssistDice ?? []).map(d => ({
-    ...d,
-    complication: typeof d.value === "number" ? d.value >= compThresh : !!d.complication,
-  }));
+  next.crewDice = formData.diceRows
+    ? _rollEditBuildCrewDice(next.crewDice ?? [], formData, next.crewTarget, compThresh, next.crewCritThresh)
+    : (next.crewDice ?? []).map(d => _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh));
+  next.crewAssistDice = formData.diceRows
+    ? _rollEditBuildDiceList(next.crewAssistDice ?? [], _rollEditRowsForPool(formData, "crewAssist"), next.crewTarget, compThresh, next.crewCritThresh, { allowRemove: true })
+    : (next.crewAssistDice ?? []).map(d => _rollEditRecomputeDie(d, next.crewTarget, compThresh, next.crewCritThresh));
+  next.namedAssistDice = formData.diceRows
+    ? _rollEditBuildDiceList(next.namedAssistDice ?? [], _rollEditRowsForPool(formData, "namedAssist"), next.crewTarget, compThresh, next.crewCritThresh, { allowRemove: true, inferPerDieTarget: true })
+    : (next.namedAssistDice ?? []).map(d => ({
+        ...d,
+        complication: typeof d.value === "number" ? d.value >= compThresh : !!d.complication,
+      }));
+  next.apAssistDice = formData.diceRows
+    ? _rollEditBuildDiceList(next.apAssistDice ?? [], _rollEditRowsForPool(formData, "apAssist"), next.crewTarget, compThresh, next.crewCritThresh, { allowRemove: true, inferPerDieTarget: true })
+    : (next.apAssistDice ?? []).map(d => ({
+        ...d,
+        complication: typeof d.value === "number" ? d.value >= compThresh : !!d.complication,
+      }));
 
-  const crewFailed = _rollEditCountSuccesses(next.crewDice ?? []) === 0;
+  const usesPlayerPayment = _rollEditUsesPlayerPayment(next);
+  next.usesPlayerPayment = usesPlayerPayment;
+  next.paymentSpent = _rollEditPaymentSpent(formData.paymentSpent ?? next.paymentSpent ?? {});
+  next.paymentSlots = _rollEditPaymentSlotsFromSpent(next.paymentSpent, usesPlayerPayment);
+
+  next.hasTargetingSolution = !!formData.grantTargetingSolution || !!next.hasTargetingSolution;
+  if (formData.grantTargetingSolution) {
+    next.tsChoice = "reroll";
+    next.tsRerollUsed = false;
+  }
+  next.hasCalibratesensors = !!formData.grantCalibrateSensors || !!next.hasCalibratesensors;
+  if (formData.grantCalibrateSensors) next.csRerollUsed = false;
+  next.aimRerolls = _rollEditClampInt(formData.aimRerolls, 0, 2, next.aimRerolls ?? 0);
+  if (formData.resetAimUsed) next.aimRerollsUsed = 0;
+
+  const crewFailed = (_rollEditCountSuccesses(next.crewDice ?? []) + _rollResultAutoSuccesses(next)) === 0;
   next.crewFailed = crewFailed;
   next.shipAssist = !!formData.shipAssist;
 
@@ -359,6 +573,9 @@ function _rollEditApplyChanges(rollData, formData) {
     && (next.sensorsBreaches ?? 0) === 0;
   next.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(next);
 
+  const shipRows = formData.diceRows ? _rollEditRowsForPool(formData, "ship") : null;
+  if (shipRows?.length && shipRows.every(row => row.remove)) next.shipAssist = false;
+
   if (crewFailed || !next.shipAssist) {
     if (crewFailed) {
       next.crewAssistDice = [];
@@ -379,9 +596,9 @@ function _rollEditApplyChanges(rollData, formData) {
   const requiredShipDice = next.advancedSensorsActive ? 2 : 1;
   let sourceShipDice = next.shipDice?.length ? next.shipDice : (next._editSuppressedShipDice ?? []);
   sourceShipDice = sourceShipDice.filter(d => !d.communicationsOfficerForced);
-  let shipDice = sourceShipDice.map(d =>
-    _rollEditRecomputeDie(d, next.shipTarget, compThresh, next.shipCritThresh)
-  );
+  let shipDice = shipRows?.length
+    ? _rollEditBuildDiceList(sourceShipDice, shipRows, next.shipTarget, compThresh, next.shipCritThresh, { allowRemove: true })
+    : sourceShipDice.map(d => _rollEditRecomputeDie(d, next.shipTarget, compThresh, next.shipCritThresh));
   if (shipDice.length > requiredShipDice) shipDice = shipDice.slice(0, requiredShipDice);
   if (shipDice.length < requiredShipDice) {
     const missing = requiredShipDice - shipDice.length;
@@ -439,11 +656,25 @@ async function _openRollCardEditDialog(rollData) {
   const deptOptions = Object.keys(initialDepts).map(key =>
     `<option value="${key}"${key === rollData.shipDeptKey ? " selected" : ""}>${_rollEditLabel(_ROLL_EDIT_DEPT_LABELS, key)} (${_rollEditValue(initialDepts, key)})</option>`
   ).join("");
+  const spent = _rollEditPaymentSpent(rollData.paymentSpent ?? {});
+  const currentExtraDice = Math.min(3, Math.max(0, (rollData.crewDice?.length ?? 2) - 2));
+  const aimRerolls = _rollEditClampInt(rollData.aimRerolls, 0, 2, 0);
+  const aimUsed = _rollEditClampInt(rollData.aimRerollsUsed, 0, 2, 0);
+  const diceSections = [
+    _rollEditDiceRowsHtml("Dice", "crew", rollData.crewDice ?? [], {
+      determination: true,
+      note: "(extra dice can be removed by lowering the purchased extra dice count)",
+    }),
+    _rollEditDiceRowsHtml("Crew Assist Dice", "crewAssist", rollData.crewAssistDice ?? [], { removable: true }),
+    _rollEditDiceRowsHtml("Named Assist Dice", "namedAssist", rollData.namedAssistDice ?? [], { removable: true }),
+    _rollEditDiceRowsHtml("Attack Pattern Dice", "apAssist", rollData.apAssistDice ?? [], { removable: true }),
+    _rollEditDiceRowsHtml("Ship Assist Dice", "ship", (rollData.shipDice ?? []).filter(d => !d.communicationsOfficerForced), { removable: true }),
+  ].join("");
 
   return foundry.applications.api.DialogV2.wait({
     window: { title: "Edit Dice Results" },
     content: `
-      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:8px;font-family:${LC.font};">
+      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:8px;font-family:${LC.font};max-height:70vh;overflow:auto;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
             Difficulty
@@ -483,6 +714,48 @@ async function _openRollCardEditDialog(rollData) {
             </label>
           </div>
         </div>` : ""}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:6px 8px;border:1px solid ${LC.borderDim};">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Extra Dice
+            <input id="sta2e-edit-extra-dice" type="number" min="0" max="3" value="${currentExtraDice}"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Momentum Spent
+            <input id="sta2e-edit-spent-momentum" type="number" min="0" max="6" value="${spent.momentum}"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Threat Spent
+            <input id="sta2e-edit-spent-threat" type="number" min="0" max="6" value="${spent.threat}"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">
+            Personal Threat
+            <input id="sta2e-edit-spent-personal-threat" type="number" min="0" max="6" value="${spent.personalThreat}"
+              style="padding:4px 6px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;padding:6px 8px;border:1px solid ${LC.borderDim};">
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+            <input id="sta2e-edit-grant-ts" type="checkbox" ${rollData.hasTargetingSolution && rollData.tsChoice !== "system" && !rollData.tsRerollUsed ? "checked" : ""}>
+            Grant Targeting Solution reroll
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+            <input id="sta2e-edit-grant-cs" type="checkbox" ${rollData.hasCalibratesensors && !rollData.csRerollUsed ? "checked" : ""}>
+            Grant Calibrate Sensors reroll
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+            Aim Rerolls
+            <input id="sta2e-edit-aim-rerolls" type="number" min="0" max="2" value="${aimRerolls}"
+              style="width:52px;padding:3px 5px;background:${LC.panel};border:1px solid ${LC.border};color:${LC.text};font-family:${LC.font};">
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${LC.text};">
+            <input id="sta2e-edit-reset-aim-used" type="checkbox" ${aimUsed > 0 ? "" : "disabled"}>
+            Reset Aim used (${aimUsed})
+          </label>
+        </div>
+        ${diceSections}
         <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;border:1px solid ${LC.borderDim};">
           <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:${LC.text};">
             <input id="sta2e-edit-ship-assist" type="checkbox" ${rollData.shipAssist ? "checked" : ""}> Ship assists this roll
@@ -523,6 +796,23 @@ async function _openRollCardEditDialog(rollData) {
         callback: (_event, _button, dlg) => ({
           difficulty: dlg.element.querySelector("#sta2e-edit-difficulty")?.value,
           complicationRange: dlg.element.querySelector("#sta2e-edit-complication")?.value,
+          extraDice: dlg.element.querySelector("#sta2e-edit-extra-dice")?.value,
+          paymentSpent: {
+            momentum: dlg.element.querySelector("#sta2e-edit-spent-momentum")?.value,
+            threat: dlg.element.querySelector("#sta2e-edit-spent-threat")?.value,
+            personalThreat: dlg.element.querySelector("#sta2e-edit-spent-personal-threat")?.value,
+          },
+          grantTargetingSolution: !!dlg.element.querySelector("#sta2e-edit-grant-ts")?.checked,
+          grantCalibrateSensors: !!dlg.element.querySelector("#sta2e-edit-grant-cs")?.checked,
+          aimRerolls: dlg.element.querySelector("#sta2e-edit-aim-rerolls")?.value,
+          resetAimUsed: !!dlg.element.querySelector("#sta2e-edit-reset-aim-used")?.checked,
+          diceRows: Array.from(dlg.element.querySelectorAll(".sta2e-edit-die-row")).map(row => ({
+            pool: row.dataset.pool,
+            index: _rollEditClampInt(row.dataset.index, 0, 99, 0),
+            value: row.querySelector(".sta2e-edit-die-value")?.value,
+            remove: !!row.querySelector(".sta2e-edit-die-remove")?.checked,
+            determination: !!row.querySelector(".sta2e-edit-die-determination")?.checked,
+          })),
           attrKey: dlg.element.querySelector("#sta2e-edit-officer-attr")?.value,
           discKey: dlg.element.querySelector("#sta2e-edit-officer-disc")?.value,
           hasFocus: !!dlg.element.querySelector("#sta2e-edit-focus")?.checked,
@@ -545,6 +835,25 @@ async function _openRollCardEditDialog(rollData) {
       const focus = dlg.element.querySelector("#sta2e-edit-focus");
       dedicated?.addEventListener("change", () => {
         if (dedicated.checked && focus) focus.checked = true;
+      });
+      dlg.element.querySelectorAll(".sta2e-edit-die-random").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const input = btn.closest(".sta2e-edit-die-row")?.querySelector(".sta2e-edit-die-value");
+          if (input) input.value = String(Math.ceil(Math.random() * 20));
+        });
+      });
+      dlg.element.querySelectorAll(".sta2e-edit-die-determination").forEach(cb => {
+        cb.addEventListener("change", () => {
+          if (!cb.checked) return;
+          const input = cb.closest(".sta2e-edit-die-row")?.querySelector(".sta2e-edit-die-value");
+          if (input) input.value = "1";
+        });
+      });
+      dlg.element.querySelectorAll(".sta2e-edit-die-remove").forEach(cb => {
+        cb.addEventListener("change", () => {
+          const row = cb.closest(".sta2e-edit-die-row");
+          if (row) row.style.opacity = cb.checked ? "0.45" : "1";
+        });
       });
 
       const syncAdvancedSensors = () => {
@@ -10469,8 +10778,7 @@ export class CombatHUD {
   }
 
   static async promptNpcThreatSplit(actor, tokenDoc, potency, tierLabel = "NPC") {
-    const Tracker        = game.STATracker?.constructor;
-    const currentThreat  = Tracker ? Tracker.ValueOf("threat") : 0;
+    const currentThreat  = readPool("threat");
     const personalThreat = CombatHUD.getNpcPersonalThreat(actor, tokenDoc);
     if ((personalThreat + currentThreat) < potency) return null;
 
@@ -10577,19 +10885,9 @@ export class CombatHUD {
   }
 
   /**
-   * Add momentum or threat to the STA tracker pool.
-   * For momentum: enforces the cap (default 6) and posts an overflow chat card
-   * for any excess that must be spent immediately or lost.
-   * For threat: no cap — just adds.
-   * @param {"momentum"|"threat"} pool
-   * @param {number} amount
-   * @param {Token|null} speakerToken  Used as the chat speaker for overflow cards.
-   */
-  /**
-   * Add momentum or threat via the STA system's own STATracker API.
-   * STATracker.DoUpdateResource handles GM/player permission routing,
-   * updates the tracker DOM, and syncs all clients via the 'system.sta' socket.
-   * We calculate the cap here so we can post an overflow card for excess momentum.
+   * Add momentum or threat through the toolkit pool service while keeping STA
+   * settings as the shared source of truth. Momentum still posts an overflow
+   * card for any amount above the cap.
    */
   static async _applyToPool(pool, amount, speakerToken = null) {
     if (amount <= 0) return;
@@ -10601,14 +10899,8 @@ export class CombatHUD {
         const overflow = amount - canAdd;
 
         if (canAdd > 0) {
-          const updated = await writePool("momentum", current + canAdd);
-          if (!updated && !game.user.isGM) {
-            game.socket.emit(`module.${MODULE}`, {
-              action: "addPool",
-              pool: "momentum",
-              amount: canAdd,
-            });
-          }
+          const updated = await writePool("momentum", current + canAdd, { source: "combat", token: speakerToken });
+          if (!updated) ui.notifications?.warn("STA2e Toolkit: Momentum pool update was blocked by STA permissions.");
         }
 
         if (overflow > 0) {
@@ -10642,14 +10934,8 @@ export class CombatHUD {
       } else {
         // Threat — no cap enforced here; LimitOf returns 99
         const current = readPool("threat");
-        const updated = await writePool("threat", current + amount);
-        if (!updated && !game.user.isGM) {
-          game.socket.emit(`module.${MODULE}`, {
-            action: "addPool",
-            pool: "threat",
-            amount,
-          });
-        }
+        const updated = await writePool("threat", current + amount, { source: "combat", token: speakerToken });
+        if (!updated) ui.notifications?.warn("STA2e Toolkit: Threat pool update was blocked by STA permissions.");
       }
     } catch(e) {
       console.error("STA2e Toolkit | _applyToPool error:", e);
@@ -12420,8 +12706,7 @@ export class CombatHUD {
 
     if (remaining > 0) {
       // Need to pull the rest from the world pool.
-      const Tracker = game.STATracker?.constructor;
-      const current = Tracker?.ValueOf?.(pool) ?? 0;
+      const current = readPool(pool);
       if (current < remaining) {
         ui.notifications.warn(
           `STA2e Toolkit: Not enough ${atkIsNpc ? "Threat" : "Momentum"} for Devastating Attack` +
@@ -12429,7 +12714,7 @@ export class CombatHUD {
         );
         return;
       }
-      if (Tracker) await Tracker.DoUpdateResource(pool, current - remaining);
+      await writePool(pool, current - remaining);
     }
 
     // Decrement tracker for any tracker draws.
@@ -12988,8 +13273,7 @@ export class CombatHUD {
 
     } else if (isNotable) {
       const notableAvoided = tokenDoc?.getFlag("sta2e-toolkit", "notableAvoided") ?? false;
-      const Tracker        = game.STATracker?.constructor;
-      const currentThreat  = Tracker ? Tracker.ValueOf("threat") : 0;
+      const currentThreat  = readPool("threat");
       const personalThreat = CombatHUD.getNpcPersonalThreat(actor, tokenDoc);
       const canAvoidTotal    = !notableAvoided && (personalThreat + currentThreat) >= potency;
 
@@ -13017,8 +13301,7 @@ export class CombatHUD {
       </button>`;
 
     } else if (isMajor) {
-      const Tracker          = game.STATracker?.constructor;
-      const currentThreat    = Tracker ? Tracker.ValueOf("threat") : 0;
+      const currentThreat    = readPool("threat");
       const personalThreat   = CombatHUD.getNpcPersonalThreat(actor, tokenDoc);
       const canAvoidTotal    = (personalThreat + currentThreat) >= potency;
 
@@ -13166,13 +13449,12 @@ export class CombatHUD {
       });
 
     } else if (choice === "avoid-npc" && (isMajor || isNotable)) {
-      const Tracker = game.STATracker?.constructor;
       const split = await CombatHUD.promptNpcThreatSplit(actor, tokenDoc, potency, isMajor ? "Major NPC" : "Notable NPC");
       if (!split) return;
       const { personalThreat, currentThreat, spendPersonal, spendPool } = split;
       const newPersonal = personalThreat - spendPersonal;
       const newThreat   = currentThreat - spendPool;
-      if (Tracker) await Tracker.DoUpdateResource("threat", newThreat);
+      await writePool("threat", newThreat);
       await CombatHUD.setNpcPersonalThreat(actor, tokenDoc, newPersonal);
       if (isNotable && tokenDoc) await tokenDoc.setFlag("sta2e-toolkit", "notableAvoided", true);
       ChatMessage.create({
@@ -13191,11 +13473,10 @@ export class CombatHUD {
       });
 
     } else if (choice === "avoid-pool") {
-      const Tracker       = game.STATracker?.constructor;
-      const currentThreat = Tracker ? Tracker.ValueOf("threat") : 0;
+      const currentThreat = readPool("threat");
       const tierLabel     = isMajor ? "Major" : "Notable";
       const tierColor     = isMajor ? LC.orange : LC.yellow;
-      if (Tracker) await Tracker.DoUpdateResource("threat", currentThreat - potency);
+      await writePool("threat", currentThreat - potency);
       if (isNotable && tokenDoc) await tokenDoc.setFlag("sta2e-toolkit", "notableAvoided", true);
       ChatMessage.create({
         content: lcarsCard("INJURY AVOIDED", tierColor, `
@@ -16474,6 +16755,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           if (!formData || formData === "cancel") return;
           const { rollData, newlyRolledShipDice } = _rollEditApplyChanges(payload, formData);
           newRollData = rollData;
+          await _rollEditApplyPaymentDelta(payload, newRollData);
           if (newlyRolledShipDice.length > 0) {
             const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
             const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
@@ -16583,8 +16865,29 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             });
         if (choice === null || choice === undefined || choice === "cancel") return;
 
-        const actor = payload.actorId ? game.actors.get(payload.actorId) : null;
-        const stressResult = await _applyMakeYourOwnLuckStress(actor);
+        const actor = payload.actorId
+          ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(payload.actorId))
+          : null;
+        const canApplyStressDirect = !!(
+          game.user.isGM
+          || actor?.canUserModify?.(game.user, "update")
+          || actor?.isOwner
+        );
+        let stressAlreadyApplied = false;
+        let stressResult = null;
+        if (canApplyStressDirect) {
+          try {
+            stressResult = await _applyMakeYourOwnLuckStress(actor);
+            stressAlreadyApplied = !!stressResult;
+          } catch (err) {
+            if (game.user.isGM) throw err;
+            console.warn("STA2e Toolkit | Make Your Own Luck direct stress update failed; asking GM client.", err);
+            stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
+            stressAlreadyApplied = false;
+          }
+        } else {
+          stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
+        }
         if (!stressResult) return;
 
         const target = Math.min(20, Math.max(1, Number(payload.crewTarget ?? 1) || 1));
@@ -16609,7 +16912,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         let newRollData = {
           ...payload,
           crewDice: newCrewDice,
-          crewFailed: countCrewSuccesses(newCrewDice) === 0,
+          crewFailed: (countCrewSuccesses(newCrewDice) + _rollResultAutoSuccesses(payload)) === 0,
           makeYourOwnLuckUsed: true,
           makeYourOwnLuckDieIndex: choice,
           makeYourOwnLuckStress: stressResult,
@@ -16651,10 +16954,30 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         btn.style.opacity = "0.5";
         btn.style.cursor = "default";
         btn.textContent = "Used";
-        await message.update({
-          content: buildPlayerRollCardHtml(newRollData),
-          "flags.sta2e-toolkit.rollData": newRollData,
-        });
+        const canUpdateMessageDirect = game.user.isGM || message.author?.id === game.user.id;
+        const emitMakeYourOwnLuckUpdate = () => {
+          game.socket.emit("module.sta2e-toolkit", {
+            action: "applyMakeYourOwnLuckTaskRoll",
+            messageId: message.id,
+            requesterUserId: game.user.id,
+            newRollData,
+            stressAlreadyApplied,
+          });
+        };
+        if (canUpdateMessageDirect && stressAlreadyApplied) {
+          try {
+            await message.update({
+              content: buildPlayerRollCardHtml(newRollData),
+              "flags.sta2e-toolkit.rollData": newRollData,
+            });
+          } catch (err) {
+            if (game.user.isGM) throw err;
+            console.warn("STA2e Toolkit | Make Your Own Luck direct card update failed; asking GM client.", err);
+            emitMakeYourOwnLuckUpdate();
+          }
+        } else {
+          emitMakeYourOwnLuckUpdate();
+        }
       } catch (err) {
         console.error("STA2e Toolkit | Make Your Own Luck error:", err);
         ui.notifications.error("Make Your Own Luck failed - see console.");
@@ -16699,7 +17022,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             ...rollData,
             shipDice: [...(rollData.shipDice ?? [])],
           };
-          const crewFailedNow = countCrewSuccesses(nextRollData.crewDice ?? []) === 0;
+          const crewFailedNow = (countCrewSuccesses(nextRollData.crewDice ?? []) + _rollResultAutoSuccesses(nextRollData)) === 0;
           nextRollData.crewFailed = crewFailedNow;
 
           if (crewFailedNow) {
@@ -16998,9 +17321,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           ...(apAssistDice   ?? []),
           ...(shipDice       ?? []),
         ];
-        const totalSuccesses = countSuc(allDice);
-        const passed   = totalSuccesses >= (difficulty ?? 0);
-        const momentum = Math.max(0, totalSuccesses - (difficulty ?? 0));
+        const totalSuccesses = countSuc(allDice) + _rollResultAutoSuccesses(payload);
+        const effectiveDifficulty = taskDifficulty(payload);
+        const passed   = totalSuccesses >= effectiveDifficulty;
+        const momentum = Math.max(0, totalSuccesses - effectiveDifficulty);
 
         // When this is a defense roll, trigger the opposed task resolution so the
         // attacker's roller opens automatically with the defender's success count
@@ -17031,7 +17355,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const isNpcRoll  = groundMode ? groundIsNpc : (playerMode ? false : CombatHUD.isNpcShip(shipActor));
         const poolLabel  = isNpcRoll ? "Threat" : "Momentum";
         const poolColor  = momentum > 0 ? (LC.secondary ?? "#cc88ff") : (LC.textDim ?? "#888");
-        const totalComplications = allDice.filter(d => d.complication).length;
+        const totalComplications = allDice.filter(d => d.complication).length + _rollResultAutoComplications(payload);
 
         // Auto-bank momentum/threat to the pool and post a Momentum Overflow
         // Tracker chat card. The tracker holds float (mirror of the just-
@@ -17046,6 +17370,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const _trackerCharActor = game.actors.get(actorId) ?? null;
         const _trackerIntenseBonus = (passed && _trackerThreatBought > 0 && _trackerCharActor && actorHasIntenseTalent(_trackerCharActor))
           ? _trackerThreatBought : 0;
+        const _trackerShowOffBonus = showOffBonusMomentum(payload, passed);
         // Versatile X is per-weapon — only present on ship weapon attacks.
         // The damage-card spend panel + Devastating Attack button both pull
         // from the tracker, so we seed it here when the weapon has the quality.
@@ -17066,11 +17391,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         let _trackerMessageId = null;
         let _trackerFloat = 0;     // Unbanked overflow available for this action's spends.
         let _trackerBanked = 0;    // What auto-banked to the pool (for display).
-        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerVersatile > 0)) {
+        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerVersatile > 0)) {
           try {
             const trackerRes = await createTracker(_trackerOwner, {
               totalGenerated: momentum,
-              bonus:          _trackerIntenseBonus,
+              bonus:          _trackerIntenseBonus + _trackerShowOffBonus,
               versatile:      _trackerVersatile,
               weaponName:     _trackerWeaponName,
               pool:           _trackerPool,
@@ -17105,7 +17430,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             <div style="display:grid;grid-template-columns:${mainCols};gap:4px;">
               ${statCell("Successes", totalSuccesses, LC.tertiary ?? "#ffcc66")}
               ${totalComplications > 0 ? statCell("Complications", totalComplications, LC.red ?? "#ff4444") : ""}
-              ${statCell("Difficulty", difficulty ?? 0, LC.text ?? "#ffffff")}
+              ${statCell("Difficulty", effectiveDifficulty, LC.text ?? "#ffffff")}
               ${statCell("Result", passed ? "PASS" : "FAIL", passColor, "11px")}
             </div>
             ${isDefenseRoll ? `
@@ -17312,7 +17637,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 attackerIsNpc: groundIsNpc,
                 attackerActorId: charActor?.id ?? null,
                 attackerTokenId: tokenId ?? null,
-                intenseTalentBonus: _intenseBonus,
+                intenseTalentBonus: _intenseBonus + _trackerShowOffBonus,
                 trackerMessageId: _trackerMessageId,
               }) : null;
 
@@ -17357,6 +17682,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _intenseSubject = game.actors.get(actorId) ?? null;
             const _shipIntenseBonus = (passed && _shipThreatBought > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
               ? _shipThreatBought : 0;
+            const _shipShowOffBonus = showOffBonusMomentum(payload, passed);
             const _shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {
               salvoMode:            _shipModeInfo.needsMode ? (weaponContext.salvoMode ?? "area") : null,
@@ -17366,7 +17692,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               opposedDefenseType:   opposedDefenseType ?? null,
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
               floatingMomentum:     _shipFloating,
-              intenseTalentBonus:   _shipIntenseBonus,
+              intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus,
               trackerMessageId:     _trackerMessageId,
               complications:         totalComplications,
               opposedMomentumAwarded: opposedDefenseType !== null && (
@@ -17830,15 +18156,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         // Spend 2 Momentum (player) or 2 Threat (NPC) for the counterattack
         const caGndPool    = defenderIsNpc ? "threat" : "momentum";
-        const caGndTracker = game.STATracker?.constructor;
-        if (caGndTracker) {
-          const caGndCurrent = caGndTracker.ValueOf(caGndPool);
-          if (caGndCurrent < 2) {
-            ui.notifications.warn(`STA2e Toolkit: Not enough ${defenderIsNpc ? "Threat" : "Momentum"} to counterattack (need 2, have ${caGndCurrent}).`);
-            return;
-          }
-          await caGndTracker.DoUpdateResource(caGndPool, caGndCurrent - 2);
+        const caGndCurrent = readPool(caGndPool);
+        if (caGndCurrent < 2) {
+          ui.notifications.warn(`STA2e Toolkit: Not enough ${defenderIsNpc ? "Threat" : "Momentum"} to counterattack (need 2, have ${caGndCurrent}).`);
+          return;
         }
+        await writePool(caGndPool, caGndCurrent - 2);
 
         btn.disabled      = true;
         btn.style.opacity = "0.5";
@@ -18321,13 +18644,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           // Determine pool type — NPC ships spend Threat, player ships spend Momentum
           const isNpcDefender = CombatHUD.isNpcShip(defenderActor);
           const caPool        = isNpcDefender ? "threat" : "momentum";
-          const Tracker       = game.STATracker?.constructor;
-          if (Tracker) {
-            const caPoolCurrent = Tracker.ValueOf(caPool);
-            if (caPoolCurrent < 2) {
-              ui.notifications.warn(`STA2e Toolkit: Not enough ${isNpcDefender ? "Threat" : "Momentum"} to counterattack (need 2, have ${caPoolCurrent}).`);
-              return;
-            }
+          const caPoolCurrent = readPool(caPool);
+          if (caPoolCurrent < 2) {
+            ui.notifications.warn(`STA2e Toolkit: Not enough ${isNpcDefender ? "Threat" : "Momentum"} to counterattack (need 2, have ${caPoolCurrent}).`);
+            return;
           }
 
           // For Defensive Fire: only energy weapons (no torpedoes per rules)
@@ -18461,9 +18781,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           btn.style.opacity = "0.5";
 
           // Spend 2 Momentum (player) or 2 Threat (NPC) for the counterattack
-          if (Tracker) {
-            await Tracker.DoUpdateResource(caPool, Tracker.ValueOf(caPool) - 2);
-          }
+          await writePool(caPool, readPool(caPool) - 2);
 
           // Auto-hit — pass the attacker token directly so no target selection needed
           await CombatHUD.resolveShipAttack(defenderToken, defWeapon, true, {

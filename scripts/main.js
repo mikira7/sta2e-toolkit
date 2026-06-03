@@ -15,9 +15,10 @@ import { AlertHUD } from "./alert-hud.js";
 import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination } from "./combat-hud.js";
 import { buildWeaponContext } from "./weapon-configs.js";
 import { registerConditionHooks } from "./token-conditions.js";
-import { openNpcRoller, openPlayerRoller } from "./npc-roller.js";
+import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
+import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
 import { getLcTokens } from "./lcars-theme.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
@@ -97,6 +98,48 @@ function getShipCardUserAccess(message, payload = {}, userId = game.user.id) {
       ? allowedUserIds.includes(userId)
       : !!fallbackCanUse),
   };
+}
+
+function taskRollDataHasAnyRerollUsed(rollData) {
+  return !!(
+    rollData?.talentRerollUsed || rollData?.advisorRerollUsed
+    || rollData?.systemRerollUsed || rollData?.shipTalentRerollUsed
+    || rollData?.detRerollUsed || rollData?.genericRerollUsed
+    || rollData?.tsRerollUsed || rollData?.csRerollUsed
+    || rollData?.techExpertiseUsed || rollData?.rfRerollUsed
+    || ((rollData?.aimRerollsUsed ?? 0) > 0)
+  );
+}
+
+async function applyMakeYourOwnLuckStressFromRollData(rollData = {}) {
+  const actor = rollData.tokenId
+    ? (canvas?.tokens?.get(rollData.tokenId)?.actor ?? game.actors.get(rollData.actorId))
+    : game.actors.get(rollData.actorId);
+  if (!actor?.system?.stress) {
+    console.warn("STA2e Toolkit | Make Your Own Luck: actor has no Stress track", rollData.actorId);
+    return null;
+  }
+
+  const stressMode = game.settings.get("sta2e-toolkit", "stressMode") ?? "countdown";
+  const current = Number(actor.system.stress.value ?? 0);
+  const max = Number(actor.system.stress.max ?? 0);
+  if (stressMode === "countup") {
+    if (max > 0 && current >= max) {
+      console.warn(`STA2e Toolkit | Make Your Own Luck: ${actor.name} cannot suffer more Stress.`);
+      return null;
+    }
+    const next = max > 0 ? Math.min(max, current + 1) : current + 1;
+    await actor.update({ "system.stress.value": next });
+    return { before: current, after: next, mode: stressMode };
+  }
+
+  if (current <= 0) {
+    console.warn(`STA2e Toolkit | Make Your Own Luck: ${actor.name} has no Stress available.`);
+    return null;
+  }
+  const next = Math.max(0, current - 1);
+  await actor.update({ "system.stress.value": next });
+  return { before: current, after: next, mode: stressMode };
 }
 
 function canUserStartGroundOpposedTask(opts = {}, userId = game.user.id) {
@@ -214,55 +257,6 @@ function _isResponsibleGM() {
     .filter(user => user?.active && user.isGM)
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
-}
-
-function _staTrackerPoolLimit(resource) {
-  if (resource !== "momentum") return Number.POSITIVE_INFINITY;
-  const Tracker = game.STATracker?.constructor ?? null;
-  if (Tracker?.LimitOf) {
-    try { return Number(Tracker.LimitOf(resource)) || 6; }
-    catch { return 6; }
-  }
-  return 6;
-}
-
-async function _setStaTrackerPoolValue(resource, value) {
-  const nextValue = Math.max(0, Math.min(Number(value) || 0, _staTrackerPoolLimit(resource)));
-  const Tracker = game.STATracker?.constructor ?? null;
-
-  if (Tracker) {
-    try {
-      if (Tracker.UserHasPermissionFor?.(resource) || !_canWriteWorldSettings()) {
-        await Tracker.DoUpdateResource(resource, nextValue);
-        if ((Tracker.ValueOf(resource) ?? 0) === nextValue) return true;
-      }
-    } catch (err) {
-      console.warn(`STA2e Toolkit | STATracker write failed for ${resource}:`, err);
-    }
-  }
-
-  if (!_canWriteWorldSettings()) return false;
-
-  await game.settings.set("sta", resource, nextValue);
-  try {
-    Tracker?.SendUpdateMessage?.(Tracker.MessageType?.UpdateResource, resource, nextValue);
-    Tracker?.UpdateTracker?.();
-  } catch (err) {
-    console.warn(`STA2e Toolkit | Could not refresh STA ${resource} tracker after direct setting write:`, err);
-  }
-  return true;
-}
-
-async function _adjustStaTrackerPoolValue(resource, delta) {
-  const Tracker = game.STATracker?.constructor ?? null;
-  const current = Tracker
-    ? (Tracker.ValueOf(resource) ?? 0)
-    : (() => {
-        try { return game.settings.get("sta", resource) ?? 0; }
-        catch { return 0; }
-      })();
-
-  return _setStaTrackerPoolValue(resource, current + delta);
 }
 
 Hooks.once("init", () => {
@@ -606,6 +600,7 @@ Hooks.once("ready", async () => {
   const alertHud        = new AlertHUD();
   const combatHud       = new CombatHUD();
   const toolkitWidget   = new ToolkitWidget();
+  const poolTracker     = new ToolkitPoolTracker();
 
   game.sta2eToolkit = new ToolkitAPI({ campaignStore, hud, dateEditor, campaignManager });
   game.sta2eToolkit.openWarpCalc    = openWarpCalc;
@@ -686,6 +681,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.EffectConfigMenu = EffectConfigMenu; // class ref for external access
   game.sta2eToolkit.openTransporter = openTransporter;
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
+  game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.openCharacterCreator = openCharacterCreator;
   game.sta2eToolkit.openTextFormatter = openTextFormatter;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
@@ -701,6 +697,7 @@ Hooks.once("ready", async () => {
 
   // Expose zone system helpers for macros
   game.sta2eToolkit.ZoneHazard = ZoneHazard;
+  poolTracker.init();
 
   // Zone toolbar has no canvas dependency — create it now so it is always available.
   // (canvasReady can fire before game.sta2eToolkit is set, so we cannot rely on it.)
@@ -924,6 +921,11 @@ Hooks.once("ready", async () => {
       _applySheetTheme();   // re-inject sheet CSS on every client when theme changes
     }
 
+    else if (msg.action === "refreshPoolTracker") {
+      game.sta2eToolkit?.poolTracker?.applyMode?.();
+      game.sta2eToolkit?.poolTracker?.refresh?.();
+    }
+
     else if (msg.action === "setAlert" && msg.condition) {
       // Broadcast from a GM — update UI on all receiving clients.
       // Only GMs can write world-scoped settings; players just update their local UI.
@@ -942,24 +944,6 @@ Hooks.once("ready", async () => {
       await game.settings.set("sta2e-toolkit", "alertCondition", msg.condition);
       game.socket.emit("module.sta2e-toolkit", { action: "setAlert", condition: msg.condition });
       game.sta2eToolkit?.alertHud?._onConditionChanged(prev, msg.condition);
-    }
-
-    else if (msg.action === "spendPool" && _isResponsibleGM()) {
-      // Player-driven momentum/threat spend on a damage card.
-      const source = msg.source === "threat" ? "threat" : "momentum";
-      const amount = Math.max(0, Number(msg.amount) || 0);
-      if (amount <= 0) return;
-      const updated = await _adjustStaTrackerPoolValue(source, -amount);
-      if (!updated) console.warn(`STA2e Toolkit | spendPool ignored: no connected GM can write STA ${source}.`);
-    }
-
-    else if (msg.action === "addPool" && _isResponsibleGM()) {
-      // Player-initiated auto-bank (e.g. from createTracker on a player roll).
-      const pool = msg.pool === "threat" ? "threat" : "momentum";
-      const amount = Math.max(0, Number(msg.amount) || 0);
-      if (amount <= 0) return;
-      const updated = await _adjustStaTrackerPoolValue(pool, amount);
-      if (!updated) console.warn(`STA2e Toolkit | addPool ignored: no connected GM can write STA ${pool}.`);
     }
 
     else if (msg.action === "createOverflowTracker" && _isResponsibleGM()) {
@@ -1026,6 +1010,34 @@ Hooks.once("ready", async () => {
         console.error("STA2e Toolkit | applyAssistToTaskCard update failed:", e));
     }
 
+    else if (msg.action === "applyMakeYourOwnLuckTaskRoll" && _isResponsibleGM()) {
+      const { messageId, requesterUserId, stressAlreadyApplied } = msg;
+      let newRollData = msg.newRollData;
+      if (!messageId || !newRollData?.makeYourOwnLuckUsed) return;
+      const m = game.messages.get(messageId);
+      if (!m) {
+        console.warn(`STA2e Toolkit | applyMakeYourOwnLuckTaskRoll: message ${messageId} not found`);
+        return;
+      }
+      if (!getShipCardUserAccess(m, newRollData, requesterUserId).canUse) return;
+      if (m.getFlag("sta2e-toolkit", "confirmed")) return;
+
+      const currentRollData = m.getFlag("sta2e-toolkit", "rollData") ?? {};
+      if (currentRollData.makeYourOwnLuckUsed || taskRollDataHasAnyRerollUsed(currentRollData)) return;
+
+      if (!stressAlreadyApplied) {
+        const stressResult = await applyMakeYourOwnLuckStressFromRollData(newRollData);
+        if (!stressResult) return;
+        newRollData = { ...newRollData, makeYourOwnLuckStress: stressResult };
+      }
+
+      await m.update({
+        content: buildPlayerRollCardHtml(newRollData),
+        "flags.sta2e-toolkit.rollData": newRollData,
+      }).catch(e =>
+        console.error("STA2e Toolkit | applyMakeYourOwnLuckTaskRoll update failed:", e));
+    }
+
     else if (msg.action === "applyScanForWeakness" && _isResponsibleGM()) {
       // Player confirmed a Scan for Weakness roll — apply conditions/flags to the target token.
       const { sourceTokenId, targetTokenId, sourceName } = msg;
@@ -1083,18 +1095,11 @@ Hooks.once("ready", async () => {
     }
 
     else if (msg.action === "zoneMovementPayment" && _isResponsibleGM()) {
-      game.sta2eToolkit?.zoneMovementLog?.processPayment(msg.messageId, msg.payment, msg.isNpc, msg.cost);
-    }
-
-    else if (msg.action === "adjustThreatFromRoll" && _isResponsibleGM()) {
-      const { delta } = msg;
-      if (!delta || typeof delta !== "number") return;
-      try {
-        const updated = await _adjustStaTrackerPoolValue("threat", delta);
-        if (!updated) console.warn("STA2e Toolkit | adjustThreatFromRoll ignored: no connected GM can write STA threat.");
-      } catch(e) {
-        console.error("STA2e Toolkit | adjustThreatFromRoll failed:", e);
-      }
+      game.sta2eToolkit?.zoneMovementLog?.processPayment(msg.messageId, msg.payment, msg.isNpc, msg.cost, {
+        userId: msg.requesterUserId,
+        actorId: msg.actorId,
+        tokenId: msg.tokenId,
+      });
     }
 
     // Player-started ground opposed tasks are created by the GM client so

@@ -25,6 +25,7 @@ import { getLcTokens }                                from "./lcars-theme.js";
 import { CombatHUD }                                  from "./combat-hud.js";
 import { getSceneZones, updateZone, pointInPolygon }  from "./zone-data.js";
 import { PaymentPrompt }                              from "./payment-prompt.js";
+import { readPool, setPool }                          from "./pool-service.js";
 
 const LC     = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const MODULE = "sta2e-toolkit";
@@ -33,32 +34,20 @@ const MODULE = "sta2e-toolkit";
 // Momentum & Threat pool helpers (bridge to STA game system)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _staTracker() {
-  return game.STATracker?.constructor ?? null;
-}
-
 function _getMomentum() {
-  const T = _staTracker();
-  if (T) return T.ValueOf("momentum") ?? 0;
-  try { return game.settings.get("sta", "momentum") ?? 0; } catch { return 0; }
+  return readPool("momentum");
 }
 
 async function _setMomentum(value) {
-  const T = _staTracker();
-  if (T) { await T.DoUpdateResource("momentum", Math.max(0, value)); return; }
-  try { await game.settings.set("sta", "momentum", Math.max(0, value)); } catch { /* ignore */ }
+  await setPool("momentum", value, { source: "zoneHazard" });
 }
 
 function _getThreat() {
-  const T = _staTracker();
-  if (T) return T.ValueOf("threat") ?? 0;
-  try { return game.settings.get("sta", "threat") ?? 0; } catch { return 0; }
+  return readPool("threat");
 }
 
 async function _setThreat(value) {
-  const T = _staTracker();
-  if (T) { await T.DoUpdateResource("threat", Math.max(0, value)); return; }
-  try { await game.settings.set("sta", "threat", Math.max(0, value)); } catch { /* ignore */ }
+  await setPool("threat", value, { source: "zoneHazard" });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

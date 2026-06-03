@@ -44,6 +44,49 @@ export function registerSettings() {
     default: CHARACTER_CREATOR_DEFAULT_DATA,
   });
 
+  game.settings.register("sta2e-toolkit", "poolTrackerMode", {
+    name:    "STA2E.Settings.PoolTrackerMode.Name",
+    hint:    "STA2E.Settings.PoolTrackerMode.Hint",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      "sta":     "STA2E.Settings.PoolTrackerMode.Sta",
+      "toolkit": "STA2E.Settings.PoolTrackerMode.Toolkit",
+    },
+    default: "sta",
+    onChange: () => {
+      game.sta2eToolkit?.poolTracker?.applyMode?.();
+      game.socket?.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
+    },
+  });
+
+  game.settings.register("sta2e-toolkit", "poolChangeChatLog", {
+    name:    "STA2E.Settings.PoolChangeChatLog.Name",
+    hint:    "STA2E.Settings.PoolChangeChatLog.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
+
+  game.settings.register("sta2e-toolkit", "poolTrackerLayout", {
+    name:    "STA2E.Settings.PoolTrackerLayout.Name",
+    hint:    "STA2E.Settings.PoolTrackerLayout.Hint",
+    scope:   "client",
+    config:  true,
+    type:    String,
+    choices: {
+      "docked":   "STA2E.Settings.PoolTrackerLayout.Docked",
+      "floating": "STA2E.Settings.PoolTrackerLayout.Floating",
+    },
+    default: "docked",
+    onChange: () => {
+      game.sta2eToolkit?.poolTracker?.applyMode?.();
+      game.sta2eToolkit?.poolTracker?.refresh?.();
+    },
+  });
+
   // ── Sounds & Animations config menu button ─────────────────────────────
   game.settings.registerMenu("sta2e-toolkit", "effectConfigMenu", {
     name:       "STA2E.Settings.EffectConfig.Name",

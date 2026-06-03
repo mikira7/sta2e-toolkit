@@ -19,6 +19,7 @@ import { getSceneZones, getZoneAtPoint, getZonePathWithCosts, rangeBandFor } fro
 import { getLcTokens } from "./lcars-theme.js";
 import { PaymentPrompt } from "./payment-prompt.js";
 import { CombatHUD } from "./combat-hud.js";
+import { readPool, setPool } from "./pool-service.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const MODULE = "sta2e-toolkit";
@@ -27,29 +28,17 @@ const MODULE = "sta2e-toolkit";
 // Momentum / Threat pool helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _staTracker() {
-  return game.STATracker?.constructor ?? null;
-}
-
 function _getMomentum() {
-  const T = _staTracker();
-  if (T) return T.ValueOf("momentum") ?? 0;
-  try { return game.settings.get("sta", "momentum") ?? 0; } catch { return 0; }
+  return readPool("momentum");
 }
-async function _setMomentum(v) {
-  const T = _staTracker();
-  if (T) { await T.DoUpdateResource("momentum", Math.max(0, v)); return; }
-  try { await game.settings.set("sta", "momentum", Math.max(0, v)); } catch { /* ignore */ }
+async function _setMomentum(v, options = {}) {
+  await setPool("momentum", v, { source: "zoneMovement", ...options });
 }
 function _getThreat() {
-  const T = _staTracker();
-  if (T) return T.ValueOf("threat") ?? 0;
-  try { return game.settings.get("sta", "threat") ?? 0; } catch { return 0; }
+  return readPool("threat");
 }
-async function _setThreat(v) {
-  const T = _staTracker();
-  if (T) { await T.DoUpdateResource("threat", Math.max(0, v)); return; }
-  try { await game.settings.set("sta", "threat", Math.max(0, v)); } catch { /* ignore */ }
+async function _setThreat(v, options = {}) {
+  await setPool("threat", v, { source: "zoneMovement", ...options });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,6 +248,8 @@ export class ZoneMovementLog {
           type:            hasTerrain ? "zoneMovementTerrain" : "zoneMovement",
           cost,
           isNpc,
+          tokenId:         tokenDoc.id,
+          actorId:         tokenDoc.actor?.id ?? null,
           resolved:        false,
           terrainPayloads: hasTerrain ? terrainPayloads : undefined,
         },
@@ -307,8 +298,9 @@ export class ZoneMovementLog {
         const cost  = flags.cost;
         const isNpc = flags.isNpc;
         if (game.user.isGM) {
+          const context = { actor: game.actors.get(flags.actorId), token: canvas.tokens?.get(flags.tokenId) };
           if (isNpc) {
-            await _setThreat(_getThreat() - cost);
+            await _setThreat(_getThreat() - cost, context);
             ui.notifications.info(`Spent ${cost} Threat for zone movement cost.`);
             await message.update({
               [`flags.${MODULE}.resolved`]:  true,
@@ -319,8 +311,8 @@ export class ZoneMovementLog {
             const payment = await PaymentPrompt.promptCost(cost);
             if (!payment) return; // User cancelled
 
-            await _setMomentum(_getMomentum() - payment.momentumSpent);
-            await _setThreat(_getThreat() + payment.threatAdded);
+            await _setMomentum(_getMomentum() - payment.momentumSpent, context);
+            await _setThreat(_getThreat() + payment.threatAdded, context);
             ui.notifications.info(`Paid ${cost} movement cost (${payment.momentumSpent} Momentum, +${payment.threatAdded} Threat).`);
 
             await message.update({
@@ -342,6 +334,9 @@ export class ZoneMovementLog {
             isNpc,
             payment:   payment ?? { threatSpent: cost },
             cost,
+            requesterUserId: game.user.id,
+            actorId: flags.actorId ?? null,
+            tokenId: flags.tokenId ?? null,
           });
           ui.notifications.info(
             isNpc
@@ -366,11 +361,17 @@ export class ZoneMovementLog {
 
   // ── Socket payment handler (called on GM client) ─────────────────────────
 
-  async processPayment(messageId, payment, isNpc, cost) {
+  async processPayment(messageId, payment, isNpc, cost, context = {}) {
     const message = game.messages.get(messageId);
     if (!message) return;
+    const flags = message.flags?.[MODULE] ?? {};
+    const poolContext = {
+      userId: context.userId ?? game.user.id,
+      actor: game.actors.get(context.actorId ?? flags.actorId),
+      token: canvas.tokens?.get(context.tokenId ?? flags.tokenId),
+    };
     if (isNpc) {
-      await _setThreat(_getThreat() - cost);
+      await _setThreat(_getThreat() - cost, poolContext);
       ui.notifications.info(`Spent ${cost} Threat for zone movement cost.`);
       await message.update({
         [`flags.${MODULE}.resolved`]:  true,
@@ -378,8 +379,8 @@ export class ZoneMovementLog {
         [`flags.${MODULE}.paymentDetails`]: { threatSpent: cost }
       });
     } else {
-      await _setMomentum(_getMomentum() - payment.momentumSpent);
-      await _setThreat(_getThreat() + payment.threatAdded);
+      await _setMomentum(_getMomentum() - payment.momentumSpent, poolContext);
+      await _setThreat(_getThreat() + payment.threatAdded, poolContext);
       ui.notifications.info(`Paid ${cost} movement cost (${payment.momentumSpent} Momentum, +${payment.threatAdded} Threat).`);
       await message.update({
         [`flags.${MODULE}.resolved`]:  true,

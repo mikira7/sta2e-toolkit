@@ -13,6 +13,7 @@ import {
   advanceCustomStardate,
   advanceCalendarTime,
 } from "./stardate-calc.js";
+import { readPool, setPool } from "./pool-service.js";
 
 // ---------------------------------------------------------------------------
 // Default campaign template
@@ -128,17 +129,12 @@ export class CampaignStore {
   // The public savePools() / restorePools(id) below are still available for
   // macros that want explicit control with user-facing notifications.
 
-  // Pool read/write helpers — mirrors the pattern in zone-movement-log.js so
-  // both the STATracker API and the raw settings fallback work on The Forge.
+  // Pool read/write helpers keep campaign sync pointed at shared STA values.
   static _getPoolValue(key) {
-    const T = game.STATracker?.constructor ?? null;
-    if (T) return T.ValueOf(key) ?? 0;
-    try { return game.settings.get("sta", key) ?? 0; } catch { return 0; }
+    return readPool(key);
   }
   static async _setPoolValue(key, value) {
-    const T = game.STATracker?.constructor ?? null;
-    if (T) { await T.DoUpdateResource(key, Math.max(0, value)); return; }
-    try { await game.settings.set("sta", key, Math.max(0, value)); } catch { /* ignore */ }
+    await setPool(key, value, { source: "campaign", notify: false });
   }
 
   static _canWriteSettings() {
@@ -168,7 +164,7 @@ export class CampaignStore {
    * tracker.  Silent — called automatically by setActiveCampaign.
    * Null values (campaign never played) default to 0 so the tracker always
    * reflects the incoming campaign rather than carrying over stale pool values.
-   * Falls back to direct game.settings.set if STATracker is unavailable (Forge).
+   * Uses the toolkit pool service, which preserves the shared STA values.
    * @param {string} id
    */
   async _silentRestorePools(id) {
@@ -209,11 +205,6 @@ export class CampaignStore {
     const campaign = this.getCampaignById(id);
     if (!campaign) return;
 
-    const Tracker = game.STATracker?.constructor;
-    if (!Tracker) {
-      ui.notifications.warn("STA2e Toolkit: STATracker not available — pool values not restored.");
-      return;
-    }
     const { savedMomentum, savedThreat } = campaign;
     if (savedMomentum === null && savedThreat === null) {
       ui.notifications.warn(`STA2e Toolkit: No saved pools found for "${campaign.name}".`);
