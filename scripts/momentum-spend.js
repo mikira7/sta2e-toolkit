@@ -87,6 +87,8 @@ export function makeSpendContext({
       area:      !!qualities.area,
       spread:    !!qualities.spread,
       piercing:  !!qualities.piercing,
+      depleting: !!qualities.depleting,
+      persistent: !!qualities.persistent,
       versatile: Math.max(0, (qualities.versatile | 0) || 0),
       isShip:    scope === "ship",
     },
@@ -133,10 +135,11 @@ export function readTrackerState(messageId, attackerActorId = null) {
 
 // ─── Cost rules ──────────────────────────────────────────────────────────────
 
-function extraDamageCost(qualities) { return qualities.intense ? 1 : 2; }
+function extraDamageCost(qualities) { return (qualities.depleting || qualities.intense) ? 1 : 2; }
 function devastatingCost(qualities) { return qualities.spread ? 1 : 2; }
 const SECONDARY_TARGET_COST = 1;
 const TRAIT_CREATION_COST = 2;
+const PERSISTENT_ROUND_COST = 1;
 
 // What spends versatile bonus momentum is allowed to fund.
 function versatileEligible(spendKey) {
@@ -181,6 +184,7 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
   const q = spendCtx.qualities;
   const showSecondary   = q.area;
   const showTrait       = q.isShip;
+  const showPersistent  = q.isShip && q.persistent;
   const extraCost = extraDamageCost(q);
   const groundMax = !q.isShip ? 2 : null;
 
@@ -202,6 +206,7 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
     extraCost,
     secondaryCost: SECONDARY_TARGET_COST,
     traitCost: TRAIT_CREATION_COST,
+    persistentCost: PERSISTENT_ROUND_COST,
     groundMax,
   }));
 
@@ -231,6 +236,7 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
     ${rowBase("extraDamage",  `Extra Damage Die${groundMax ? ` (max ${groundMax})` : ""}`, `${extraCost}/die`, groundMax)}
     ${rowBase("secondary",    `Secondary Target (Area)`,                                     `${SECONDARY_TARGET_COST}`, 1, showSecondary)}
     ${rowBase("trait",        `Create Trait`,                                                `${TRAIT_CREATION_COST}`,   3, showTrait)}
+    ${rowBase("persistent",   `Persistent Rounds`,                                           `${PERSISTENT_ROUND_COST}/round`, 3, showPersistent)}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px;gap:6px;flex-wrap:wrap;">
       <div style="display:flex;gap:6px;align-items:center;">
         <label style="${labelStyle}">Source:</label>
@@ -265,6 +271,7 @@ function recomputeSpend(panelEl) {
     { key: "extraDamage", qty: getQty("extraDamage"), cost: blob.extraCost,     versatileOk: true },
     { key: "secondary",   qty: getQty("secondary"),   cost: blob.secondaryCost,  versatileOk: false },
     { key: "trait",       qty: getQty("trait"),       cost: blob.traitCost,      versatileOk: true },
+    { key: "persistent",  qty: getQty("persistent"),  cost: blob.persistentCost, versatileOk: false },
   ];
 
   let needVersatile = 0;
@@ -333,6 +340,7 @@ function recomputeSpend(panelEl) {
     extraDice: spends.find(s => s.key === "extraDamage").qty,
     secondary: spends.find(s => s.key === "secondary").qty > 0,
     trait: spends.find(s => s.key === "trait").qty,
+    persistentRounds: spends.find(s => s.key === "persistent").qty,
   };
 }
 

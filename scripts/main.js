@@ -9,6 +9,9 @@ import { StardateHUD } from "./stardate-hud.js";
 import { DateEditor } from "./date-editor.js";
 import { CampaignManager } from "./campaign-manager.js";
 import { EffectConfigMenu } from "./effect-config.js";
+import { VFXTestPanel } from "./vfx-test-panel.js";
+import { NativeTractorBeamVFX } from "./tractor-beam-vfx.js";
+import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
@@ -524,6 +527,17 @@ async function _npcRollerLaunch() {
   openNpcRoller(actor, sceneToken);
 }
 
+let _vfxTestPanel = null;
+
+function _openVfxTestPanel() {
+  if (!game.user?.isGM) {
+    ui.notifications.warn("STA2e Toolkit: Only the GM can open the VFX test panel.");
+    return;
+  }
+  if (!_vfxTestPanel) _vfxTestPanel = new VFXTestPanel();
+  _vfxTestPanel.render({ force: true });
+}
+
 // ── Scene Controls — single toggle button for the floating toolkit widget ─────
 // One button in the token controls toggles the floating ToolkitWidget.
 // v13: icon must be a FontAwesome class string.
@@ -628,9 +642,10 @@ Hooks.once("ready", async () => {
     // Ship combat uses overridePenalty (+1 for Override actions). Neither applies to the other.
     const guardPenalty = pending.guardPenalty ?? 0;
     const pronePenalty = pending.pronePenalty ?? 0;
+    const cumbersomePenalty = pending.rollerOpts?.cumbersomePenalty ?? pending.cumbersomePenalty ?? 0;
     const difficulty = pending.overridePenalty
-      ? clampedSuccesses + 1                               // ship override: +1 on top
-      : clampedSuccesses + guardPenalty + pronePenalty;    // ground: add situational penalties
+      ? clampedSuccesses + 1 + cumbersomePenalty           // ship override: +1 on top
+      : clampedSuccesses + guardPenalty + pronePenalty + cumbersomePenalty;    // ground: add situational penalties
 
     // Build the taskContext string now that defender's actual successes are known
     let taskContext;
@@ -684,6 +699,10 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.openCharacterCreator = openCharacterCreator;
   game.sta2eToolkit.openTextFormatter = openTextFormatter;
+  game.sta2eToolkit.openVfxTestPanel = _openVfxTestPanel;
+  game.sta2eToolkit.testTractorBeamVFX = options => NativeTractorBeamVFX.testSelectedToTargeted(options);
+  game.sta2eToolkit.stopTractorBeamVFX = () => NativeTractorBeamVFX.stopActive();
+  game.sta2eToolkit.openShipVfxAnchorEditor = openShipVfxAnchorEditor;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   // Expose NPC roller launcher so the widget button can call it
   game.sta2eToolkit.launchNpcRoller = _npcRollerLaunch;
@@ -697,7 +716,11 @@ Hooks.once("ready", async () => {
 
   // Expose zone system helpers for macros
   game.sta2eToolkit.ZoneHazard = ZoneHazard;
-  poolTracker.init();
+  try {
+    poolTracker.init();
+  } catch (err) {
+    console.error("STA2e Toolkit | Pool tracker init failed:", err);
+  }
 
   // Zone toolbar has no canvas dependency — create it now so it is always available.
   // (canvasReady can fire before game.sta2eToolkit is set, so we cannot rely on it.)
@@ -1606,6 +1629,9 @@ Hooks.on("updateCombat", async (combat, changes) => {
   if (game.user.isGM && "round" in changes) {
     await ZoneHazard.applyLingeringForRound().catch(err =>
       console.warn("STA2e Toolkit | Lingering hazard round-start failed:", err)
+    );
+    await CombatHUD.applyPersistentShipDamageForRound?.().catch(err =>
+      console.warn("STA2e Toolkit | Persistent ship damage round-start failed:", err)
     );
   }
 
@@ -2986,6 +3012,12 @@ async function openShipToolkitSettings(actor) {
         openCrewManifest(actor);
       });
 
+    dialogHtml.querySelector(".sta2e-open-vfx-anchors-btn")
+      ?.addEventListener("click", (e) => {
+        e.preventDefault();
+        openShipVfxAnchorEditor(actor);
+      });
+
     dialogHtml.querySelector(".sta2e-browse-shield-diagram-btn")
       ?.addEventListener("click", (e) => {
         e.preventDefault();
@@ -3043,6 +3075,13 @@ async function openShipToolkitSettings(actor) {
         <button type="button" class="sta2e-open-manifest-btn"
           style="width:100%;cursor:pointer;">
           Manage Crew Manifest
+        </button>
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin-bottom:12px;" />
+        <div style="font-size:0.75em;letter-spacing:0.07em;text-transform:uppercase;
+                    opacity:0.55;margin-bottom:8px;">Ship VFX Anchors</div>
+        <button type="button" class="sta2e-open-vfx-anchors-btn"
+          style="width:100%;cursor:pointer;">
+          Edit VFX Anchors
         </button>
       </form>`,
     ok: {

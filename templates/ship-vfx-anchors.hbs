@@ -1,0 +1,775 @@
+{{!-- sta2e-toolkit | ship-vfx-anchors.hbs --}}
+<div class="sta2e-ship-vfx-anchors">
+  <style>
+    .sta2e-ship-vfx-anchors {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      height: 100%;
+      max-height: calc(100vh - 120px);
+      overflow: hidden;
+      padding: 10px;
+      background: #10141f;
+      color: #c8d6ef;
+      font-family: var(--font-primary, sans-serif);
+      font-size: 12px;
+    }
+    .sta2e-anchor-status {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 4px 8px;
+      padding: 8px;
+      background: #171d2c;
+      border-left: 3px solid #33aaff;
+    }
+    .sta2e-anchor-label {
+      color: #6d8caf;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sta2e-anchor-value {
+      min-width: 0;
+      overflow: hidden;
+      color: #e5edf8;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sta2e-anchor-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 6px;
+      background: #090c13;
+      border: 1px solid #26314a;
+    }
+    .sta2e-anchor-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 180px;
+      min-height: 28px;
+      padding: 4px 8px;
+      border: 1px solid #26314a;
+      border-radius: 2px;
+      background: #121a2a;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-anchor-tab:hover {
+      border-color: #33aaff;
+      color: #d8ecff;
+    }
+    .sta2e-anchor-tab.is-active {
+      border-color: #33aaff;
+      background: #07324f;
+      color: #ffffff;
+      box-shadow: inset 0 -2px 0 #33aaff;
+    }
+    .sta2e-anchor-tab img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+      flex: 0 0 auto;
+    }
+    .sta2e-anchor-tab-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sta2e-anchor-tab-count {
+      flex: 0 0 auto;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 9px;
+      background: rgba(51, 170, 255, 0.18);
+      color: #cbe9ff;
+      font-size: 9px;
+      line-height: 18px;
+      text-align: center;
+    }
+    .sta2e-hit-system-picker {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+      padding: 6px;
+      background: #090c13;
+      border: 1px solid #26314a;
+    }
+    .sta2e-hit-system-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid #26314a;
+      border-radius: 2px;
+      background: #121a2a;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-hit-system-button:hover {
+      border-color: #33aaff;
+      color: #d8ecff;
+    }
+    .sta2e-hit-system-button.is-active {
+      border-color: var(--system-color, #33aaff);
+      background: #182238;
+      color: #ffffff;
+      box-shadow: inset 0 -2px 0 var(--system-color, #33aaff);
+    }
+    .sta2e-hit-system-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--system-color, #33aaff);
+      box-shadow: 0 0 8px var(--system-color, #33aaff);
+      flex: 0 0 auto;
+    }
+    .sta2e-anchor-mode-picker {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 6px;
+      background: #090c13;
+      border: 1px solid #26314a;
+    }
+    .sta2e-anchor-mode-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid #26314a;
+      border-radius: 2px;
+      background: #121a2a;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-anchor-mode-button:hover {
+      border-color: #33aaff;
+      color: #d8ecff;
+    }
+    .sta2e-anchor-mode-button.is-active {
+      border-color: #33aaff;
+      background: #07324f;
+      color: #ffffff;
+      box-shadow: inset 0 -2px 0 #33aaff;
+    }
+    .sta2e-curve-build-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 6px;
+      background: #090c13;
+      border: 1px solid #26314a;
+      border-top: none;
+    }
+    .sta2e-curve-build-actions button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 26px;
+      padding: 4px 8px;
+      border: 1px solid #26314a;
+      border-radius: 2px;
+      background: #121a2a;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-curve-build-actions button:hover {
+      border-color: #33aaff;
+      color: #d8ecff;
+    }
+    .sta2e-curve-build-actions button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .sta2e-curve-finish {
+      border-color: #33aaff !important;
+      background: #06405f !important;
+      color: #ffffff !important;
+    }
+    .sta2e-curve-build-hint {
+      margin: 4px 0 2px;
+      font-size: 10px;
+      line-height: 1.35;
+      color: #8fa6c4;
+    }
+    .sta2e-vfx-settings {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      max-height: 210px;
+      overflow-y: auto;
+      padding: 8px;
+      background: #090c13;
+      border: 1px solid #26314a;
+    }
+    .sta2e-vfx-settings-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #d8e8ff;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sta2e-vfx-settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 8px;
+    }
+    .sta2e-vfx-settings-row {
+      display: grid;
+      grid-template-columns: 108px 1fr;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .sta2e-vfx-settings-row label {
+      min-width: 0;
+      overflow: hidden;
+      color: #8fb3d1;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .sta2e-vfx-settings-row input,
+    .sta2e-vfx-settings-row select {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      background: #101827;
+      border: 1px solid #2a3550;
+      border-radius: 2px;
+      color: #d8e8ff;
+      font-size: 11px;
+      padding: 4px 6px;
+    }
+    .sta2e-vfx-preview-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto auto;
+      align-items: center;
+      gap: 8px;
+      padding-top: 2px;
+    }
+    .sta2e-vfx-preview-status {
+      min-width: 0;
+      overflow: hidden;
+      color: #8fb3d1;
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sta2e-vfx-preview-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #c8d6ef;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .sta2e-vfx-preview-check input {
+      margin: 0;
+    }
+    .sta2e-vfx-settings button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 26px;
+      padding: 4px 8px;
+      border: 1px solid #26314a;
+      border-radius: 2px;
+      background: #121a2a;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-vfx-settings button:hover {
+      border-color: #33aaff;
+      color: #d8ecff;
+    }
+    .sta2e-anchor-stage-wrap {
+      min-height: 0;
+      overflow: auto;
+      padding: 8px;
+      background: #090c13;
+      border: 1px solid #26314a;
+    }
+    .sta2e-anchor-stage {
+      position: relative;
+      width: 100%;
+      min-height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: crosshair;
+      overflow: hidden;
+    }
+    .sta2e-anchor-image-frame {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    .sta2e-zoom-controls {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 4px;
+      background: rgba(9, 12, 19, 0.82);
+      border: 1px solid #26314a;
+      border-radius: 4px;
+    }
+    .sta2e-zoom-controls button {
+      width: 22px;
+      height: 22px;
+      min-width: 22px;
+      padding: 0;
+      line-height: 1;
+      border: 1px solid #2c3a57;
+      background: #0d1320;
+      color: #cfe4ff;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .sta2e-zoom-controls button:hover {
+      border-color: #33aaff;
+      color: #ffffff;
+    }
+    /* zoom HUD */
+    .sta2e-zoom-level {
+      min-width: 38px;
+      text-align: center;
+      font-size: 10px;
+      color: #8fa6c4;
+      font-variant-numeric: tabular-nums;
+    }
+    .sta2e-anchor-stage img {
+      display: block;
+      max-width: 100%;
+      max-height: 430px;
+      object-fit: contain;
+      user-select: none;
+      pointer-events: none;
+    }
+    .sta2e-anchor-marker {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      margin-left: -8px;
+      margin-top: -8px;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      background: #33aaff;
+      box-shadow: 0 0 0 2px rgba(51, 170, 255, 0.45), 0 0 14px rgba(51, 170, 255, 0.8);
+      cursor: move;
+      pointer-events: auto;
+      color: #ffffff;
+      font-size: 9px;
+      font-weight: 800;
+      line-height: 12px;
+      text-align: center;
+    }
+    .sta2e-anchor-marker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 2px;
+      height: 28px;
+      margin-left: -1px;
+      margin-top: -14px;
+      background: rgba(255, 255, 255, 0.75);
+      transform: rotate(45deg);
+    }
+    .sta2e-array-curve-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .sta2e-array-curve-handle {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.38);
+      stroke-width: 0.45;
+      stroke-dasharray: 1.5 1.5;
+      vector-effect: non-scaling-stroke;
+    }
+    .sta2e-array-curve-path {
+      fill: none;
+      stroke: #ff9a33;
+      stroke-width: 1.2;
+      filter: drop-shadow(0 0 3px rgba(255, 154, 51, 0.9));
+      vector-effect: non-scaling-stroke;
+    }
+    .sta2e-array-curve-marker {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      margin-left: -7px;
+      margin-top: -7px;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      background: #ff9a33;
+      box-shadow: 0 0 0 2px rgba(255, 154, 51, 0.34), 0 0 14px rgba(255, 154, 51, 0.78);
+      cursor: move;
+      pointer-events: auto;
+      color: #ffffff;
+      font-size: 8px;
+      font-weight: 800;
+      line-height: 10px;
+      text-align: center;
+    }
+    .sta2e-array-curve-marker.is-control {
+      width: 12px;
+      height: 12px;
+      margin-left: -6px;
+      margin-top: -6px;
+      background: #66ccff;
+      box-shadow: 0 0 0 2px rgba(102, 204, 255, 0.28), 0 0 12px rgba(102, 204, 255, 0.72);
+      font-size: 7px;
+      line-height: 8px;
+    }
+    .sta2e-array-curve-marker.is-pending {
+      background: #ffffff;
+      color: #111827;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24), 0 0 14px rgba(255, 242, 192, 0.8);
+    }
+    .sta2e-anchor-empty {
+      padding: 24px;
+      color: #8fb3d1;
+      text-align: center;
+    }
+    .sta2e-anchor-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+      max-height: 120px;
+      overflow-y: auto;
+      padding: 8px;
+      background: #090c13;
+      border: 1px solid #26314a;
+    }
+    .sta2e-anchor-list-row {
+      display: grid;
+      grid-template-columns: 30px 1fr 32px;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      color: #d8e8ff;
+    }
+    .sta2e-anchor-list-heading {
+      padding: 4px 0 2px;
+      color: #6d8caf;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sta2e-anchor-pill {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #33aaff;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 20px;
+      text-align: center;
+      box-shadow: 0 0 10px rgba(51, 170, 255, 0.6);
+    }
+    .sta2e-anchor-remove {
+      min-width: 28px !important;
+      width: 28px;
+      height: 26px;
+      padding: 0 !important;
+    }
+    .sta2e-anchor-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 2px;
+      border-top: 1px solid #26314a;
+    }
+    .sta2e-anchor-actions button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 82px;
+      justify-content: center;
+      padding: 6px 10px;
+      border: 1px solid #2d3a58;
+      border-radius: 2px;
+      background: #172033;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-anchor-actions button:hover {
+      border-color: #33aaff;
+      color: #33aaff;
+      background: #10233a;
+    }
+    .sta2e-anchor-save {
+      border-color: #33aaff !important;
+      background: #06405f !important;
+      color: #ffffff !important;
+    }
+  </style>
+
+  <div class="sta2e-anchor-status">
+    <div class="sta2e-anchor-label">Ship</div>
+    <div class="sta2e-anchor-value">{{actorName}}</div>
+    <div class="sta2e-anchor-label">Texture</div>
+    <div class="sta2e-anchor-value" title="{{textureSrc}}">{{#if textureSrc}}{{textureSrc}}{{else}}No image found{{/if}}</div>
+    <div class="sta2e-anchor-label">Points</div>
+    <div class="sta2e-anchor-value" data-anchor-coords>{{activeEmitterCount}} {{activePointKind}} point(s){{#if isArrayWeaponTab}} / {{activeCurveCount}} curve(s){{/if}} for {{activeTabLabel}}</div>
+    <div class="sta2e-anchor-label">Alpha</div>
+    <div class="sta2e-anchor-value" data-anchor-opacity>{{#if opaqueState}}{{opaqueState}}{{else}}Not checked{{/if}}</div>
+  </div>
+
+  <div class="sta2e-anchor-tabs">
+    {{#each tabs}}
+    <button type="button" class="sta2e-anchor-tab {{#if active}}is-active{{/if}}" data-anchor-tab="{{id}}" title="{{title}}">
+      {{#if img}}<img src="{{img}}" alt="" />{{else}}<i class="fas fa-crosshairs"></i>{{/if}}
+      <span class="sta2e-anchor-tab-label">{{label}}</span>
+      <span class="sta2e-anchor-tab-count">{{count}}</span>
+    </button>
+    {{/each}}
+  </div>
+
+  {{#if hitSystemOptions}}
+  <div class="sta2e-hit-system-picker">
+    {{#each hitSystemOptions}}
+    <button type="button" class="sta2e-hit-system-button {{#if active}}is-active{{/if}}" data-hit-system="{{key}}" style="--system-color: {{color}};" title="{{label}} hit locations">
+      <span class="sta2e-hit-system-dot"></span>
+      <span class="sta2e-anchor-tab-label">{{label}}</span>
+      <span class="sta2e-anchor-tab-count">{{count}}</span>
+    </button>
+    {{/each}}
+  </div>
+  {{/if}}
+
+  {{#if isArrayWeaponTab}}
+  <div class="sta2e-anchor-mode-picker">
+    <button type="button" class="sta2e-anchor-mode-button {{#if pointModeActive}}is-active{{/if}}" data-placement-mode="points" title="Place regular emitter points">
+      <i class="fas fa-crosshairs"></i>
+      <span>Emitters</span>
+    </button>
+    <button type="button" class="sta2e-anchor-mode-button {{#if curveModeActive}}is-active{{/if}}" data-placement-mode="curve" title="Place Bezier array curves">
+      <i class="fas fa-wave-square"></i>
+      <span>Array Curve</span>
+      {{#if curveModeActive}}<span class="sta2e-anchor-tab-count">{{pendingCurveCount}}</span>{{/if}}
+    </button>
+  </div>
+  {{#if curveModeActive}}
+  <div class="sta2e-curve-build-actions">
+    <button type="button" class="sta2e-curve-finish" data-finish-curve {{#unless canFinishCurve}}disabled{{/unless}}>
+      <i class="fas fa-check"></i>
+      <span>Finish Curve</span>
+    </button>
+    <button type="button" data-cancel-curve>
+      <i class="fas fa-times"></i>
+      <span>Cancel Curve</span>
+    </button>
+    <button type="button" data-convert-curve title="Convert saved point curves into editable bezier handles">
+      <i class="fas fa-bezier-curve"></i>
+      <span>Convert To Handles</span>
+    </button>
+    <span class="sta2e-anchor-value">{{pendingCurveCount}} point(s) placed; click {{nextCurvePointLabel}}</span>
+  </div>
+  <div class="sta2e-curve-build-hint">
+    Drag a numbered anchor to move it (its handles follow). Drag a small handle dot to bend the segment. Shift-click the ship to add a point on the curve. Right-click an anchor to remove it.
+  </div>
+  {{/if}}
+  {{/if}}
+
+  {{#if isWeaponTab}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading">
+      <span>VFX Settings</span>
+      <button type="button" data-reset-offset title="Reset source offset"><i class="fas fa-undo"></i> Offset</button>
+    </div>
+    <div class="sta2e-anchor-value">Ship offset is fixed to the token art. Adaptive offset follows the shot direction.</div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-vfx-offset-x">Ship X</label>
+        <input id="sta2e-vfx-offset-x" type="number" min="-500" max="500" step="1" value="{{activeWeaponSettings.sourceOffset.x}}" data-vfx-setting="sourceOffset.x" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-vfx-offset-y">Ship Y</label>
+        <input id="sta2e-vfx-offset-y" type="number" min="-500" max="500" step="1" value="{{activeWeaponSettings.sourceOffset.y}}" data-vfx-setting="sourceOffset.y" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-vfx-offset-along">Along Shot</label>
+        <input id="sta2e-vfx-offset-along" type="number" min="-500" max="500" step="1" value="{{activeWeaponSettings.sourceOffset.adaptiveAlong}}" data-vfx-setting="sourceOffset.adaptiveAlong" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-vfx-offset-side">Side Shot</label>
+        <input id="sta2e-vfx-offset-side" type="number" min="-500" max="500" step="1" value="{{activeWeaponSettings.sourceOffset.adaptiveSide}}" data-vfx-setting="sourceOffset.adaptiveSide" />
+      </div>
+    </div>
+
+    {{#if isArrayWeaponTab}}
+    <div class="sta2e-vfx-settings-heading">
+      <span>Array Charge PIXI</span>
+      <button type="button" data-reset-charge title="Reset charge settings"><i class="fas fa-undo"></i> Charge</button>
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-charge-easing">Easing</label>
+        <select id="sta2e-charge-easing" data-charge-setting="easing">
+          {{#each chargeEasingOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-charge-blend">Blend</label>
+        <select id="sta2e-charge-blend" data-charge-setting="blendMode">
+          {{#each chargeBlendOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      {{#each activeChargeRows}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-charge-{{key}}" title="{{label}}">{{label}}</label>
+        <input id="sta2e-charge-{{key}}" type="{{type}}" {{#if min}}min="{{min}}"{{/if}} {{#if max}}max="{{max}}"{{/if}} {{#if step}}step="{{step}}"{{/if}} value="{{value}}" placeholder="{{placeholder}}" data-charge-setting="{{key}}" />
+      </div>
+      {{/each}}
+    </div>
+    {{/if}}
+
+    <div class="sta2e-vfx-preview-bar">
+      <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Source: {{previewSourceName}}</div>
+      <div class="sta2e-vfx-preview-status" title="{{previewTargetName}}">Target: {{previewTargetName}}</div>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
+      <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
+    </div>
+  </div>
+  {{/if}}
+
+  <div class="sta2e-anchor-stage-wrap">
+    {{#if hasTexture}}
+    <div class="sta2e-anchor-stage" data-anchor-stage>
+      <div class="sta2e-zoom-controls">
+        <button type="button" data-zoom-out title="Zoom out (scroll down)"><i class="fas fa-minus"></i></button>
+        <span class="sta2e-zoom-level" data-zoom-level>100%</span>
+        <button type="button" data-zoom-in title="Zoom in (scroll up)"><i class="fas fa-plus"></i></button>
+        <button type="button" data-zoom-reset title="Reset zoom"><i class="fas fa-expand"></i></button>
+      </div>
+      <div class="sta2e-anchor-image-frame">
+        <img src="{{textureSrc}}" alt="{{actorName}}" data-anchor-image />
+        {{#if isArrayWeaponTab}}
+        <svg class="sta2e-array-curve-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {{#each activeCurves}}
+          {{#each handles}}
+          <path class="sta2e-array-curve-handle" data-curve-handle="{{curveIndex}}" data-curve-handle-index="{{index}}" d="{{path}}"></path>
+          {{/each}}
+          <path class="sta2e-array-curve-path" data-curve-path="{{index}}" d="{{path}}"></path>
+          {{/each}}
+        </svg>
+        {{#each activeCurves}}
+          {{#each pointMarkers}}
+          <div class="sta2e-array-curve-marker {{#if isControl}}is-control{{/if}}" data-move-curve="{{curveIndex}}" data-move-curve-point="{{pointKey}}" title="Curve point {{label}} - {{coords}}" style="left: {{left}}; top: {{top}};">{{label}}</div>
+          {{/each}}
+        {{/each}}
+        {{#each pendingCurveMarkers}}
+        <div class="sta2e-array-curve-marker is-pending {{#if isControl}}is-control{{/if}}" title="{{coords}}" style="left: {{left}}; top: {{top}};">{{label}}</div>
+        {{/each}}
+        {{/if}}
+        {{#each activeMarkers}}
+        <div class="sta2e-anchor-marker" data-anchor-marker data-move-emitter="{{index}}" title="{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}" style="left: {{left}}; top: {{top}}; background: {{markerColor}}; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28), 0 0 14px {{markerColor}};">{{displayIndex}}</div>
+        {{/each}}
+      </div>
+    </div>
+    {{else}}
+    <div class="sta2e-anchor-empty">No ship image is available for anchor placement.</div>
+    {{/if}}
+  </div>
+
+  <div class="sta2e-anchor-list">
+    {{#if isArrayWeaponTab}}
+      <div class="sta2e-anchor-list-heading">Array Curves</div>
+      {{#if hasActiveCurves}}
+        {{#each activeCurves}}
+        <div class="sta2e-anchor-list-row">
+          <div class="sta2e-anchor-pill" style="background: #ff9a33;">{{displayIndex}}</div>
+          <div>{{coords}}</div>
+          <button type="button" class="sta2e-anchor-remove" data-remove-curve="{{index}}" title="Remove curve {{displayIndex}}">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
+        {{/each}}
+      {{else}}
+        <div class="sta2e-anchor-empty">No array curves saved for {{activeTabLabel}}.</div>
+      {{/if}}
+      <div class="sta2e-anchor-list-heading">Emitter Points</div>
+    {{/if}}
+    {{#if hasActiveEmitters}}
+      {{#each activeMarkers}}
+      <div class="sta2e-anchor-list-row">
+        <div class="sta2e-anchor-pill" style="background: {{markerColor}};">{{displayIndex}}</div>
+        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}</div>
+        <button type="button" class="sta2e-anchor-remove" data-remove-emitter="{{index}}" title="Remove point {{displayIndex}}">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+      {{/each}}
+    {{else}}
+      <div class="sta2e-anchor-empty">No {{activePointKind}} points saved for {{activeTabLabel}}.</div>
+    {{/if}}
+  </div>
+
+  <div class="sta2e-anchor-actions">
+    <button type="button" data-action="clear"><i class="fas fa-eraser"></i> Clear Tab</button>
+    <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
+    <button type="button" class="sta2e-anchor-save" data-action="save"><i class="fas fa-save"></i> Save</button>
+  </div>
+</div>

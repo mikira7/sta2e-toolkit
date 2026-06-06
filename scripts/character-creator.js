@@ -2023,8 +2023,8 @@ function createOpeningLoader({ title, detail }) {
   return { setProgress, close };
 }
 
-function startOpeningLoader(app, title, detail) {
-  if (app._initialRenderComplete || app._openingLoader) return;
+function startOpeningLoader(app, title, detail, { allowAfterInitialRender = false } = {}) {
+  if ((!allowAfterInitialRender && app._initialRenderComplete) || app._openingLoader) return;
   app._openingLoader = createOpeningLoader({ title, detail });
 }
 
@@ -7849,10 +7849,12 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       ui.notifications.warn("STA2e Toolkit: Only GMs can create NPCs.");
       return;
     }
+    const definition = CHARACTER_TYPE_DEFINITIONS[type];
+    target.disabled = true;
+    startOpeningLoader(this, "Loading Character Creation", `Preparing ${definition.name} options`, { allowAfterInitialRender: true });
     this._creatorState.characterType = type;
     this._creatorState.step = 1;
     if (SUPPORTING_CHARACTER_TYPES.includes(type)) {
-      const definition = CHARACTER_TYPE_DEFINITIONS[type];
       this._creatorState.supportingAttributeAssignments = normalizeScoreArrayAssignments({}, ATTRIBUTE_KEYS, definition.attributeArray);
       this._creatorState.supportingDepartmentAssignments = normalizeScoreArrayAssignments({}, DISCIPLINE_KEYS, definition.departmentArray);
       this._creatorState.supportingFocusUuids = ["", "", "", ""];
@@ -7860,7 +7862,6 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
       this._activeCreatorTabs.finishing = "details";
     }
     if (NPC_CHARACTER_TYPES.includes(type)) {
-      const definition = CHARACTER_TYPE_DEFINITIONS[type];
       if (definitionUsesNpcPointBuy(definition)) {
         this._creatorState.npcAttributeAssignments = {};
         this._creatorState.npcDepartmentAssignments = {};

@@ -1,0 +1,267 @@
+{{!-- sta2e-toolkit | vfx-test-panel.hbs --}}
+<div class="sta2e-vfx-panel">
+  <style>
+    .sta2e-vfx-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+      max-height: calc(100vh - 140px);
+      overflow-y: auto;
+      background: #10141f;
+      color: #c8d6ef;
+      font-family: var(--font-primary, sans-serif);
+      font-size: 12px;
+    }
+    .sta2e-vfx-status {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 4px 8px;
+      padding: 8px;
+      background: #171d2c;
+      border-left: 3px solid #33aaff;
+    }
+    .sta2e-vfx-status-label {
+      color: #6d8caf;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .sta2e-vfx-status-value {
+      min-width: 0;
+      overflow: hidden;
+      color: #e5edf8;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sta2e-vfx-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .sta2e-vfx-row {
+      display: grid;
+      grid-template-columns: 128px 1fr 58px;
+      align-items: center;
+      gap: 8px;
+    }
+    .sta2e-vfx-row label {
+      color: #8fb3d1;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .sta2e-vfx-row input,
+    .sta2e-vfx-row select {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      background: #090c13;
+      border: 1px solid #2a3550;
+      border-radius: 2px;
+      color: #d8e8ff;
+      font-size: 11px;
+      padding: 4px 6px;
+    }
+    .sta2e-vfx-row input[type="range"] {
+      padding: 0;
+      accent-color: #33aaff;
+    }
+    .sta2e-vfx-row.is-disabled {
+      opacity: 0.48;
+    }
+    .sta2e-vfx-row.is-disabled input {
+      cursor: not-allowed;
+    }
+    .sta2e-vfx-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sta2e-vfx-check input {
+      width: auto;
+      margin: 0;
+    }
+    .sta2e-vfx-number {
+      text-align: right;
+    }
+    .sta2e-vfx-color {
+      display: grid;
+      grid-template-columns: 1fr 42px;
+      gap: 6px;
+    }
+    .sta2e-vfx-color input[type="color"] {
+      height: 26px;
+      padding: 2px;
+    }
+    .sta2e-vfx-actions {
+      position: sticky;
+      bottom: -10px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 2px;
+      padding-bottom: 2px;
+      background: #10141f;
+      border-top: 1px solid #26314a;
+    }
+    .sta2e-vfx-actions button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 82px;
+      justify-content: center;
+      padding: 6px 10px;
+      border: 1px solid #2d3a58;
+      border-radius: 2px;
+      background: #172033;
+      color: #9ebad6;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .sta2e-vfx-actions button:hover {
+      border-color: #33aaff;
+      color: #33aaff;
+      background: #10233a;
+    }
+    .sta2e-vfx-play {
+      border-color: #33aaff !important;
+      background: #06405f !important;
+      color: #ffffff !important;
+    }
+  </style>
+
+  <div class="sta2e-vfx-status">
+    <div class="sta2e-vfx-status-label">Source</div>
+    <div class="sta2e-vfx-status-value">{{sourceName}}</div>
+    <div class="sta2e-vfx-status-label">Target</div>
+    <div class="sta2e-vfx-status-value">{{targetName}}</div>
+  </div>
+
+  <div class="sta2e-vfx-grid">
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-preset">Preset</label>
+      <select id="sta2e-vfx-preset" name="preset">
+        {{#each presets}}
+        <option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+      <span></span>
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-color">Color</label>
+      <div class="sta2e-vfx-color">
+        <input id="sta2e-vfx-color" type="text" name="color" value="{{values.color}}" />
+        <input type="color" value="{{values.color}}" data-color-picker />
+      </div>
+      <span></span>
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-placement">Placement</label>
+      <select id="sta2e-vfx-placement" name="placement">
+        <option value="above" {{#if placementAbove}}selected{{/if}}>Above tokens</option>
+        <option value="below" {{#if placementBelow}}selected{{/if}}>Below tokens</option>
+      </select>
+      <span></span>
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-adaptive">Adaptive</label>
+      <div class="sta2e-vfx-check">
+        <input id="sta2e-vfx-adaptive" type="checkbox" name="adaptiveSizing" {{#if adaptiveSizing}}checked{{/if}} />
+        <span>Auto size to target</span>
+      </div>
+      <span></span>
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-target-bubble">Target Bubble</label>
+      <div class="sta2e-vfx-check">
+        <input id="sta2e-vfx-target-bubble" type="checkbox" name="targetBubble" {{#if targetBubble}}checked{{/if}} />
+        <span>Show lock field</span>
+      </div>
+      <span></span>
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-target-envelope">Envelope Gaps</label>
+      <div class="sta2e-vfx-check">
+        <input id="sta2e-vfx-target-envelope" type="checkbox" name="targetEnvelope" {{#if targetEnvelope}}checked{{/if}} />
+        <span>Widen to lock field</span>
+      </div>
+      <span></span>
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-duration">Duration</label>
+      <input id="sta2e-vfx-duration" type="range" min="500" max="20000" step="250" name="duration" value="{{values.duration}}" data-sync-range="duration" />
+      <input type="number" min="500" max="60000" step="250" class="sta2e-vfx-number" value="{{values.duration}}" data-sync-number="duration" />
+    </div>
+
+    <div class="sta2e-vfx-row {{#if adaptiveSizing}}is-disabled{{/if}}" data-manual-width-row>
+      <label for="sta2e-vfx-source-width">Emitter Width</label>
+      <input id="sta2e-vfx-source-width" type="range" min="8" max="400" step="2" name="sourceWidth" value="{{values.sourceWidth}}" data-sync-range="sourceWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
+      <input type="number" min="8" max="400" step="2" class="sta2e-vfx-number" value="{{values.sourceWidth}}" data-sync-number="sourceWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
+    </div>
+
+    <div class="sta2e-vfx-row {{#if adaptiveSizing}}is-disabled{{/if}}" data-manual-width-row>
+      <label for="sta2e-vfx-cone-width">Cone Width</label>
+      <input id="sta2e-vfx-cone-width" type="range" min="60" max="900" step="10" name="coneWidth" value="{{values.coneWidth}}" data-sync-range="coneWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
+      <input type="number" min="60" max="900" step="10" class="sta2e-vfx-number" value="{{values.coneWidth}}" data-sync-number="coneWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-edge-feather">Edge Feather</label>
+      <input id="sta2e-vfx-edge-feather" type="range" min="0" max="180" step="2" name="edgeFeather" value="{{values.edgeFeather}}" data-sync-range="edgeFeather" />
+      <input type="number" min="0" max="180" step="2" class="sta2e-vfx-number" value="{{values.edgeFeather}}" data-sync-number="edgeFeather" />
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-opacity">Opacity</label>
+      <input id="sta2e-vfx-opacity" type="range" min="0.05" max="1" step="0.05" name="opacity" value="{{values.opacity}}" data-sync-range="opacity" />
+      <input type="number" min="0.05" max="1" step="0.05" class="sta2e-vfx-number" value="{{values.opacity}}" data-sync-number="opacity" />
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-pulse">Pulse Speed</label>
+      <input id="sta2e-vfx-pulse" type="range" min="0.1" max="6" step="0.05" name="pulseSpeed" value="{{values.pulseSpeed}}" data-sync-range="pulseSpeed" />
+      <input type="number" min="0.1" max="6" step="0.05" class="sta2e-vfx-number" value="{{values.pulseSpeed}}" data-sync-number="pulseSpeed" />
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-lines">Line Count</label>
+      <input id="sta2e-vfx-lines" type="range" min="1" max="24" step="1" name="lineCount" value="{{values.lineCount}}" data-sync-range="lineCount" />
+      <input type="number" min="1" max="24" step="1" class="sta2e-vfx-number" value="{{values.lineCount}}" data-sync-number="lineCount" />
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-amplitude">Oscillation</label>
+      <input id="sta2e-vfx-amplitude" type="range" min="0" max="160" step="2" name="oscillationAmplitude" value="{{values.oscillationAmplitude}}" data-sync-range="oscillationAmplitude" />
+      <input type="number" min="0" max="160" step="2" class="sta2e-vfx-number" value="{{values.oscillationAmplitude}}" data-sync-number="oscillationAmplitude" />
+    </div>
+
+    <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-osc-speed">Wave Speed</label>
+      <input id="sta2e-vfx-osc-speed" type="range" min="0" max="8" step="0.05" name="oscillationSpeed" value="{{values.oscillationSpeed}}" data-sync-range="oscillationSpeed" />
+      <input type="number" min="0" max="8" step="0.05" class="sta2e-vfx-number" value="{{values.oscillationSpeed}}" data-sync-number="oscillationSpeed" />
+    </div>
+  </div>
+
+  <div class="sta2e-vfx-actions">
+    <button type="button" data-action="saveClient"><i class="fas fa-user-gear"></i> Save Client</button>
+    <button type="button" data-action="saveWorld"><i class="fas fa-globe"></i> Save World</button>
+    <button type="button" data-action="reset"><i class="fas fa-rotate-left"></i> Reset</button>
+    <button type="button" data-action="stop"><i class="fas fa-stop"></i> Stop</button>
+    <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
+    <button type="button" class="sta2e-vfx-play" data-action="play"><i class="fas fa-play"></i> Play</button>
+  </div>
+</div>

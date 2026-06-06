@@ -82,6 +82,50 @@ const LC = new Proxy({}, {
   get(_, prop) { return getLcTokens()[prop]; },
 });
 
+function _weaponQualityFlag(weapon, key) {
+  return weapon?.system?.qualities?.[key] === true;
+}
+
+function _shipDamageSpendQualities(weapon, { area = false, spread = false } = {}) {
+  const q = weapon?.system?.qualities ?? {};
+  return {
+    intense:   _weaponQualityFlag(weapon, "intense"),
+    area:      !!area,
+    spread:    !!spread || _weaponQualityFlag(weapon, "spread"),
+    piercing:  _weaponQualityFlag(weapon, "piercing"),
+    depleting: _weaponQualityFlag(weapon, "depleting"),
+    persistent: _weaponQualityFlag(weapon, "persistent"),
+    versatile: Math.max(0, Number(q.versatilex ?? q.versatile ?? 0) || 0),
+  };
+}
+
+function _shipWeaponIsTorpedo(weapon, config = null) {
+  return weapon?.type === "starshipweapon2e"
+    && (config?.type === "torpedo"
+      || _weaponQualityFlag(weapon, "torpedo")
+      || weapon?.system?.includescale === "torpedo");
+}
+
+function _shipWeaponBlocksSalvo(weapon, config = null) {
+  return _weaponQualityFlag(weapon, "cumbersome")
+    && _shipWeaponIsTorpedo(weapon, config)
+    && config?.salvo === true;
+}
+
+function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null) {
+  const base = baseDifficulty ?? (_shipWeaponIsTorpedo(weapon, config) ? 3 : 2);
+  return base + (_weaponQualityFlag(weapon, "cumbersome") ? 1 : 0);
+}
+
+function _shipWeaponConfigForRules(weapon, config = getWeaponConfig(weapon)) {
+  if (!_shipWeaponBlocksSalvo(weapon, config)) return config;
+  const next = { ...config, salvo: false, torpedoes: 1 };
+  if (typeof next.nativeVfxKey === "string" && next.nativeVfxKey.endsWith("-salvo")) {
+    next.nativeVfxKey = next.nativeVfxKey.replace("-salvo", "");
+  }
+  return next;
+}
+
 // Helper: extract R/G/B channel from a 6-digit hex color string (e.g. "#ff3333")
 function _hexR(hex) { return parseInt(hex.slice(1,3),16); }
 function _hexG(hex) { return parseInt(hex.slice(3,5),16); }
@@ -2816,9 +2860,12 @@ export class CombatHUD {
 
             const _weaponCtx  = {
               name:      weapon.name,
+              weaponId:  weapon.id ?? null,
+              shipActorId: actor.id ?? null,
               isTorpedo: _isTorpedo,
               isArray:   _modeInfo_op.isArray,
               isSalvo:   _modeInfo_op.isSalvo,
+              cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
               damage:    total,
               qualities: this._weaponQualityString(weapon),
               salvoMode: _salvoMode_op,
@@ -2851,6 +2898,7 @@ export class CombatHUD {
                 attackRunActive: _attackRunActive,
                 attackerOfficer: _tacticalOfficer,
                 attackerStationId: "tactical",
+                cumbersomePenalty: _weaponQualityFlag(weapon, "cumbersome") ? 1 : 0,
               });
               return;
             }
@@ -2873,6 +2921,7 @@ export class CombatHUD {
                 hasAttackPattern:     _hasAttackPattern,
                 helmOfficer:          _helmStats,
                 attackRunActive:      _attackRunActive,
+                cumbersomePenalty:    _weaponQualityFlag(weapon, "cumbersome") ? 1 : 0,
                 taskLabel:            `Attack — ${weapon.name}`,
                 taskContext:          `Opposed — ${_defLabel}`,
                 // opposedDifficulty / opposedDefenseType / defenderSuccesses
@@ -2884,7 +2933,7 @@ export class CombatHUD {
           if (!opposed.proceed) return; // unexpected cancel path
 
           // Store opposed context for the roller and hit/miss flow
-          this._opposedDifficulty  = opposed.difficulty;
+          this._opposedDifficulty  = _shipAttackDifficulty(weapon, config, opposed.difficulty);
           this._opposedDefenseType = opposed.defenseType;
           this._defenderSuccesses  = opposed.defenderSuccesses;
 
@@ -2895,7 +2944,10 @@ export class CombatHUD {
             const isTorpedo = config?.type === "torpedo";
             const weaponCtx = {
               name:      weapon.name,
+              weaponId:  weapon.id ?? null,
+              shipActorId: actor.id ?? null,
               isTorpedo,
+              cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
               damage:    total,
               qualities: this._weaponQualityString(weapon),
             };
@@ -2991,6 +3043,7 @@ export class CombatHUD {
                 opposedDifficulty:    this._opposedDifficulty,
                 opposedDefenseType:   this._opposedDefenseType,
                 defenderSuccesses:    this._defenderSuccesses,
+                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config) : null,
                 hasAttackPattern,
                 helmOfficer:          helmOfficerStats,
                 attackRunActive,
@@ -3063,9 +3116,12 @@ export class CombatHUD {
 
               const weaponCtx = {
                 name:      weapon.name,
+                weaponId:  weapon.id ?? null,
+                shipActorId: actor.id ?? null,
                 isTorpedo,
                 isArray:   _modeInfo.isArray,
                 isSalvo:   _modeInfo.isSalvo,
+                cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
                 damage:    total,
                 qualities: this._weaponQualityString(weapon),
                 salvoMode,
@@ -3087,6 +3143,7 @@ export class CombatHUD {
                 opposedDifficulty:    this._opposedDifficulty,
                 opposedDefenseType:   this._opposedDefenseType,
                 defenderSuccesses:    this._defenderSuccesses,
+                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config) : null,
                 hasAttackPattern,
                 helmOfficer:          helmOfficerStats,
                 attackRunActive,
@@ -3123,7 +3180,8 @@ export class CombatHUD {
   static _shipAreaSpreadModeInfo(weapon, config = getWeaponConfig(weapon)) {
     const isShipWeapon = weapon?.type === "starshipweapon2e";
     const isArray = isShipWeapon && config?.type === "beam" && config?.isArray === true;
-    const isSalvo = isShipWeapon && config?.type === "torpedo" && config?.salvo === true;
+    const isSalvo = isShipWeapon && config?.type === "torpedo" && config?.salvo === true
+      && !_shipWeaponBlocksSalvo(weapon, config);
     return {
       isArray,
       isSalvo,
@@ -3726,8 +3784,10 @@ export class CombatHUD {
     const targetToken = targetOverride ?? canvas.tokens?.get(payload.tokenId ?? payload.primaryTokenId);
     if (!attackerToken || !targetToken || !payload.weaponImg) return;
     const slug = payload.weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
-    const config = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
-    if (!config) return;
+    const rawConfig = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
+    if (!rawConfig) return;
+    const weapon = CombatHUD._weaponFromPayload(attackerToken, payload, "starshipweapon2e");
+    const config = _shipWeaponConfigForRules(weapon, rawConfig);
     try {
       const animSalvoMode = payload.salvoMode ?? (payload.spread ? "spread" : "area");
       const repeatCount = getStarshipDamageAnimationRepeatCount(payload.finalDamage);
@@ -3735,6 +3795,8 @@ export class CombatHUD {
         spreadDeclared: animSalvoMode === "spread",
         salvoMode: animSalvoMode,
         repeatCount,
+        weapon,
+        targetSystem: payload.hitLocationSystem ?? payload.targetingSystem ?? null,
       });
     } catch(e) {
       console.warn("STA2e Toolkit | Ship weapon animation failed:", e);
@@ -3989,7 +4051,7 @@ export class CombatHUD {
       attackerAlreadyAwarded: opposedMomentumAwarded,
     });
 
-    const config = getWeaponConfig(weapon);
+    const config = _shipWeaponConfigForRules(weapon, getWeaponConfig(weapon));
 
     // ── Area / Spread mode — pre-declared in HUD before the roll ─────────
     // spreadDeclared is kept for backward-compat (counterattack path).
@@ -4043,8 +4105,7 @@ export class CombatHUD {
 
     // ── Build damage context ───────────────────────────────────────────────
     const hud = game.sta2eToolkit?.combatHud;
-    const wq = weapon.system?.qualities ?? {};
-    const weaponPiercing = weapon.system?.qualities?.piercing ?? false;
+    const weaponPiercing = _weaponQualityFlag(weapon, "piercing");
     const isTorpedoWeapon = config?.type === "torpedo";
     const rfBonus = rapidFireBonus || ((isTorpedoWeapon && hasRapidFireTorpedoLauncher(actor)) ? 1 : 0);
 
@@ -4067,21 +4128,28 @@ export class CombatHUD {
       const tActor      = t.actor;
       const { total }   = hud ? hud._weaponDamageBreakdown(weapon, actor)
                               : { total: weapon.system?.damage ?? 0 };
-      const isPiercing  = scanPiercing || weaponPiercing;
+      const resistanceIgnored = scanPiercing || weaponPiercing;
       // Glancing Impact: if the target has Evasive Action active and their
       // Helm officer has the Glancing Impact talent, +2 Resistance
       const targetToken     = canvas.tokens?.get(t.id);
       const targetDefMode   = targetToken ? getDefenseMode(targetToken) : null;
-      const glancingBonus   = (() => {
-        if (isPiercing || targetDefMode !== "evasive-action") return 0;
+      const hasGlancingImpactBonus = (() => {
+        if (targetDefMode !== "evasive-action") return false;
         const helmOfficers = getStationOfficers(tActor, "helm");
-        return helmOfficers.some(o => hasGlancingImpact(o)) ? 2 : 0;
+        return helmOfficers.some(o => hasGlancingImpact(o));
       })();
-      const baseResistance  = isPiercing ? 0 : (tActor?.system?.resistance ?? 0);
-      const modulationBonus = (!isPiercing && CombatHUD.getModulatedShields(tActor)) ? 2 : 0;
+      const hasModulatedShields = CombatHUD.getModulatedShields(tActor);
+      const listedResistance = Number(tActor?.system?.resistance ?? 0) || 0;
+      const baseResistance  = resistanceIgnored ? 0 : listedResistance;
+      const glancingBonus   = !resistanceIgnored && hasGlancingImpactBonus ? 2 : 0;
+      const modulationBonus = !resistanceIgnored && hasModulatedShields ? 2 : 0;
       const resistance      = baseResistance + glancingBonus + modulationBonus;
+      const ignoredResistance = resistanceIgnored
+        ? listedResistance + (hasGlancingImpactBonus ? 2 : 0) + (hasModulatedShields ? 2 : 0)
+        : 0;
       const rawDamage   = Math.max(0, total + scanBonus + rfBonus + cwBonus - complicationInfo.penalty);
       const finalDamage = Math.max(0, rawDamage - resistance);
+      const persistentDamage = Math.ceil(Math.max(0, total) / 2);
       const rangeStatus = rangeByTargetId.get(t.id) ?? null;
       return {
         tokenId:              t.id,
@@ -4094,11 +4162,15 @@ export class CombatHUD {
         scanBonus,
         rapidFireBonus:       rfBonus,
         calibrateWeaponsBonus: cwBonus,
+        persistentDamage,
         complicationDamagePenalty: complicationInfo.penalty,
         complications:        complicationInfo.total,
         complicationsBoughtOff: complicationInfo.boughtOff,
         glancingBonus,
-        scanPiercing:    isPiercing,
+        scanPiercing,
+        weaponPiercing,
+        resistanceIgnored,
+        ignoredResistance,
         currentShields:  tActor?.system?.shields?.value ?? 0,
         maxShields:      tActor?.system?.shields?.max   ?? 0,
         shaken:          tActor?.system?.shaken         ?? false,
@@ -4139,13 +4211,10 @@ export class CombatHUD {
       ?? (actor?.id ? (getActiveTracker(actor.id)?.id ?? null) : null);
     const spendContext = isHit ? makeSpendContext({
       floatingMomentum,
-      qualities: {
-        intense:   !!wq.intense,
-        area:      false,
-        spread:    spreadActive,
-        piercing:  !!wq.piercing,
-        versatile: Number(wq.versatilex ?? wq.versatile ?? 0) || 0,
-      },
+      qualities: _shipDamageSpendQualities(weapon, {
+        area: false,
+        spread: spreadActive,
+      }),
       scope: "ship",
       attackerIsNpc: CombatHUD.isNpcShip(actor),
       attackerActorId: actor?.id ?? null,
@@ -4156,14 +4225,14 @@ export class CombatHUD {
     ChatMessage.create({
       flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name, ...(spendContext ? { spendContext } : {}) } },
       content: hud
-        ? hud._weaponChatCard(token.name, weapon, actor, targetNames, isHit, targetData, scanBonus, scanPiercing || weaponPiercing)
+        ? hud._weaponChatCard(token.name, weapon, actor, targetNames, isHit, targetData, scanBonus, scanPiercing)
         : `<p>${token.name} attacked ${targetNames} — ${isHit ? "HIT" : "MISS"}</p>`,
       speaker: ChatMessage.getSpeaker({ token }),
     });
 
     if (!isHit) {
       setTimeout(async () => {
-        await fireWeapon(config, false, token, targets, { spreadDeclared, salvoMode });
+        await fireWeapon(config, false, token, targets, { spreadDeclared, salvoMode, weapon });
       }, 500);
     }
   }
@@ -8703,6 +8772,8 @@ export class CombatHUD {
       if (weapon.system?.severity) dmgParts.push(`Sev ${weapon.system.severity}`);
       const weaponCtx = {
         name:      weapon.name,
+        weaponId:  weapon.id ?? null,
+        shipActorId: actor.id ?? null,
         isTorpedo,
         isArray:   modeInfo.isArray,
         isSalvo:   modeInfo.isSalvo,
@@ -10204,6 +10275,9 @@ export class CombatHUD {
 
       // Encode target data for the Apply Damage button
       const highYield      = weapon?.system?.qualities?.highyield ?? false;
+      const dampening      = weapon?.system?.qualities?.dampening ?? false;
+      const depleting      = weapon?.system?.qualities?.depleting ?? false;
+      const persistent     = weapon?.system?.qualities?.persistent ?? false;
       const areaAvailable  = t.areaAvailable ?? (t.area ?? false);
       const spreadAvailable = t.spreadAvailable ?? false;
       const selectedMode   = t.salvoMode ?? (t.spread ? "spread" : t.area ? "area" : null);
@@ -10262,6 +10336,12 @@ export class CombatHUD {
         actorId:            t.actorId,
         finalDamage:        t.finalDamage,
         highYield,
+        dampening,
+        depleting,
+        persistent,
+        persistentRounds:   0,
+        persistentDamage:   t.persistentDamage ?? 0,
+        persistentWeaponName: weapon?.name ?? null,
         spread,
         spreadAvailable,
         area:               t.area ?? false,
@@ -10280,6 +10360,18 @@ export class CombatHUD {
         attackerSuccesses:  t.attackerSuccesses ?? null,
         trackerMessageId:   t.trackerMessageId ?? null,
       }));
+      const resistanceIgnored = !!t.resistanceIgnored;
+      const ignoredResistance = t.ignoredResistance ?? t.resistance ?? 0;
+      const resistanceLabel = resistanceIgnored ? "Resist" : "−Resist";
+      const resistanceValueHtml = resistanceIgnored
+        ? `<span style="text-decoration:line-through">${ignoredResistance}</span>`
+        : (() => {
+            const base = t.resistance - (t.glancingBonus ?? 0) - (t.modulationBonus ?? 0);
+            const parts = [];
+            if (t.glancingBonus > 0)  parts.push(`<span style="color:${LC.green};font-size:10px;" title="Glancing Impact">+${t.glancingBonus}</span>`);
+            if (t.modulationBonus > 0) parts.push(`<span style="color:${LC.primary};font-size:10px;" title="Modulated Shields">+${t.modulationBonus}</span>`);
+            return base + (parts.length ? parts.join("") : "");
+          })();
 
       return `
         <div style="border:1px solid ${LC.border};border-left:3px solid ${LC.secondary};
@@ -10293,17 +10385,9 @@ export class CombatHUD {
               <div style="font-size:15px;font-weight:700;color:${LC.tertiary};">${t.rawDamage - (scanBonus ?? 0) - (t.rapidFireBonus ?? 0) - (t.calibrateWeaponsBonus ?? 0)}${scanBonus ? `<span style="color:${LC.primary};font-size:10px;">+${scanBonus}</span>` : ""}${t.rapidFireBonus ? `<span style="color:${LC.green};font-size:10px;" title="Rapid-Fire Torpedo Launcher">+${t.rapidFireBonus}</span>` : ""}${t.calibrateWeaponsBonus ? `<span style="color:${LC.primary};font-size:10px;" title="Calibrate Weapons">+${t.calibrateWeaponsBonus}</span>` : ""}</div>
             </div>
             <div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
-              <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">${scanPiercing ? "Resist" : "−Resist"}</div>
-              <div style="font-size:15px;font-weight:700;color:${scanPiercing ? LC.textDim : LC.orange};">
-                ${scanPiercing
-                  ? `<span style="text-decoration:line-through">${t.resistance}</span>`
-                  : (() => {
-                      const base = t.resistance - (t.glancingBonus ?? 0) - (t.modulationBonus ?? 0);
-                      const parts = [];
-                      if (t.glancingBonus > 0)  parts.push(`<span style="color:${LC.green};font-size:10px;" title="Glancing Impact">+${t.glancingBonus}</span>`);
-                      if (t.modulationBonus > 0) parts.push(`<span style="color:${LC.primary};font-size:10px;" title="Modulated Shields">+${t.modulationBonus}</span>`);
-                      return base + (parts.length ? parts.join("") : "");
-                    })()}
+              <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">${resistanceLabel}</div>
+              <div style="font-size:15px;font-weight:700;color:${resistanceIgnored ? LC.textDim : LC.orange};">
+                ${resistanceValueHtml}
               </div>
             </div>
             <div style="background:rgba(204,136,255,0.1);border:1px solid ${LC.secondary};border-radius:2px;padding:3px;">
@@ -10384,6 +10468,7 @@ export class CombatHUD {
         ${isHit ? `
           ${breakdown ? `<div style="font-size:9px;color:${LC.textDim};margin-bottom:6px;font-family:${LC.font};">${breakdown}</div>` : ""}
           ${qualities !== "None" ? `<div style="font-size:10px;color:${LC.tertiary};margin-bottom:6px;font-family:${LC.font};">QUALITIES: ${qualities}</div>` : ""}
+          ${targetData.some(t => t.weaponPiercing) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">PIERCING QUALITY - RESISTANCE IGNORED</div>` : ""}
           ${scanPiercing ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — PIERCING (RESISTANCE IGNORED)</div>` : ""}
           ${scanBonus > 0 ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — +2 DAMAGE</div>` : ""}
           ${targetData.some(t => t.rapidFireBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.green};font-size:10px;color:${LC.green};font-family:${LC.font};">🚀 RAPID-FIRE TORPEDO LAUNCHER — +1 DAMAGE · Ship assist die may be re-rolled</div>` : ""}
@@ -10984,16 +11069,19 @@ export class CombatHUD {
 
     const effectName = CombatHUD._breachEffectName(token);
 
-    // Don't double-stack if already playing
-    if (Sequencer.EffectManager.getEffects({ name: effectName }).length > 0) return;
-
     try {
-      // Corner-alignment offset: the JB2A steam animation's visual source (where steam
-      // originates) is at the bottom-left corner of the animation frame, not the center.
-      // scaleToObject(2) scales the frame to ~2× the token size, so the half-frame is
-      // ~1 token-height in each axis.  Shifting the effect center by (+tokenH, -tokenH)
-      // in grid units moves the bottom-left corner to the token's center position —
-      // making the steam appear to vent outward from the ship's body.
+      const existingEffects = Sequencer.EffectManager.getEffects({ name: effectName });
+      if (existingEffects.length > 0) {
+        const hasStaleOffset = existingEffects.some(effect =>
+          effect?.data?.offset?.source?.local !== true
+        );
+        if (!hasStaleOffset) return;
+        await Sequencer.EffectManager.endEffects({ name: effectName });
+      }
+
+      // Corner-alignment offset: the JB2A steam animation's visual source is at
+      // the bottom-left corner of the frame. The offset is token-local so the
+      // plume origin rotates with the ship heading instead of staying canvas-fixed.
       const tokenH = token.document?.height ?? 1;  // height in grid squares
 
       const _breachAnimPath = (() => {
@@ -11004,7 +11092,12 @@ export class CombatHUD {
       await new Sequence()
         .effect()
           .file(_breachAnimPath)
-          .attachTo(token, { offset: { x: tokenH, y: -tokenH }, gridUnits: true })
+          .attachTo(token, {
+            offset: { x: tokenH, y: -tokenH },
+            gridUnits: true,
+            local: true,
+            bindRotation: true,
+          })
           .belowTokens()
           .persist()
           .name(effectName)
@@ -12278,6 +12371,69 @@ export class CombatHUD {
 
   // ── Damage Application (called from renderChatMessageHTML hook) ────────────
 
+  static async addPersistentShipDamage(token, payload = {}) {
+    const tokenDoc = token?.document ?? token;
+    if (!tokenDoc) return;
+    const rounds = Math.max(0, Math.min(3, Number(payload.persistentRounds ?? 0) || 0));
+    const damage = Math.max(0, Number(payload.persistentDamage ?? 0) || 0);
+    if (rounds <= 0 || damage <= 0) return;
+
+    const existing = Array.isArray(tokenDoc.getFlag(MODULE, "persistentShipDamage"))
+      ? tokenDoc.getFlag(MODULE, "persistentShipDamage")
+      : [];
+    const effect = {
+      id: foundry.utils.randomID(),
+      sourceTokenId: payload.attackerTokenId ?? null,
+      sourceActorId: payload.attackerActorId ?? null,
+      weaponId: payload.weaponId ?? null,
+      weaponName: payload.persistentWeaponName ?? payload.weaponName ?? "Persistent Weapon",
+      weaponImg: payload.weaponImg ?? null,
+      damage,
+      remainingRounds: rounds,
+    };
+    await tokenDoc.setFlag(MODULE, "persistentShipDamage", [...existing, effect]);
+  }
+
+  static async applyPersistentShipDamageForRound() {
+    if (!game.user.isGM) return;
+    const tokens = canvas.tokens?.placeables ?? [];
+    for (const targetToken of tokens) {
+      const tokenDoc = targetToken.document;
+      const effects = Array.isArray(tokenDoc?.getFlag(MODULE, "persistentShipDamage"))
+        ? tokenDoc.getFlag(MODULE, "persistentShipDamage")
+        : [];
+      if (!effects.length) continue;
+
+      const remaining = [];
+      for (const effect of effects) {
+        const damage = Math.max(0, Number(effect.damage ?? 0) || 0);
+        const roundsLeft = Math.max(0, Number(effect.remainingRounds ?? 0) || 0);
+        if (damage <= 0 || roundsLeft <= 0) continue;
+
+        const sourceToken = effect.sourceTokenId ? canvas.tokens?.get(effect.sourceTokenId) : null;
+        await CombatHUD.applyDamage({
+          tokenId: targetToken.id,
+          actorId: targetToken.actor?.id ?? null,
+          finalDamage: damage,
+          highYield: false,
+          noDevastating: true,
+          _isPersistentTick: true,
+          attackerTokenId: sourceToken?.id ?? effect.sourceTokenId ?? null,
+          attackerActorId: sourceToken?.actor?.id ?? effect.sourceActorId ?? null,
+          weaponId: effect.weaponId ?? null,
+          weaponName: effect.weaponName ?? "Persistent Weapon",
+          weaponImg: effect.weaponImg ?? null,
+        });
+
+        const nextRounds = roundsLeft - 1;
+        if (nextRounds > 0) remaining.push({ ...effect, remainingRounds: nextRounds });
+      }
+
+      if (remaining.length) await tokenDoc.setFlag(MODULE, "persistentShipDamage", remaining);
+      else await tokenDoc.unsetFlag(MODULE, "persistentShipDamage").catch(() => {});
+    }
+  }
+
   static async applyDamage(payload) {
     const { tokenId, actorId, finalDamage, highYield, _isDevastating, targetingSystem, noDevastating } = payload;
 
@@ -12290,6 +12446,9 @@ export class CombatHUD {
     let shipAttackAnimationPlayed = false;
 
     const isNpc         = CombatHUD.isNpcShip(actor);
+    const hasDampening  = !!payload.dampening;
+    const hasDepleting  = !!payload.depleting;
+    const dampenedReservePower = hasDampening && CombatHUD.hasReservePower(actor);
     const currentShields = actor.system?.shields?.value ?? 0;
     const maxShields     = actor.system?.shields?.max   ?? 0;
     const wasShaken      = actor.system?.shaken         ?? false;
@@ -12323,6 +12482,8 @@ export class CombatHUD {
           // Already shaken before this hit — punch through at 50%
           breachCount++;
           shakenNotes.push("💥 BREACH — punched through at 50% (already Shaken)");
+        } else if (hasDepleting) {
+          shakenNotes.push("DEPLETING - cannot cause Shaken");
         } else {
           shakenThisAttack = true;
           triggerShaken    = true;
@@ -12332,7 +12493,7 @@ export class CombatHUD {
 
       // ── 25% threshold (checked independently of 50%) ──────────────────────
       if (pctBefore >= 0.25 && pctAfter < 0.25) {
-        const alreadyShaken = wasShaken || shakenThisAttack;
+        const alreadyShaken = wasShaken || (!hasDepleting && shakenThisAttack);
         if (alreadyShaken) {
           breachCount++;
           if (shakenThisAttack) {
@@ -12341,6 +12502,8 @@ export class CombatHUD {
           } else {
             shakenNotes.push("💥 BREACH — punched through at 25% (already Shaken)");
           }
+        } else if (hasDepleting) {
+          shakenNotes.push("DEPLETING - cannot cause Shaken");
         } else {
           triggerShaken = true;
           shakenNotes.push("⚠️ SHAKEN — shields crossed 25%");
@@ -12364,6 +12527,10 @@ export class CombatHUD {
     // wasShaken is NEVER cleared by damage — the ship remains shaken until the
     // GM resolves it (via the HUD toggle or Minor Damage roll result).
     await actor.update(updates);
+    if (dampenedReservePower) await CombatHUD.clearReservePower(actor);
+    if (payload.persistent && Number(payload.persistentRounds ?? 0) > 0 && Number(payload.persistentDamage ?? 0) > 0) {
+      await CombatHUD.addPersistentShipDamage(token, payload);
+    }
 
     // ── Apply breaches ────────────────────────────────────────────────────────
     // Each threshold that triggered a breach gets its own system roll.
@@ -12390,7 +12557,10 @@ export class CombatHUD {
       const willDestroyTarget = finalTotalBreaches > (actor.system?.scale ?? 1)
         && CombatHUD.getShipStatus(actor) === "disabled";
       if (willDestroyTarget) {
-        await CombatHUD._playShipAttackAnimation(payload);
+        await CombatHUD._playShipAttackAnimation({
+          ...payload,
+          hitLocationSystem: breachSystems[0] ?? targetingSystem ?? null,
+        });
         shipAttackAnimationPlayed = true;
       }
       await CombatHUD._resolveAttackOutcome(actor, token, finalTotalBreaches);
@@ -12477,6 +12647,24 @@ export class CombatHUD {
     // ── Opposed task result panel ────────────────────────────────────────────
     // Shows attacker vs defender successes, momentum/threat delta,
     // and the Defensive Fire counterattack button when the defender won.
+    const dampeningHtml = dampenedReservePower ? `
+      <div style="margin-top:5px;padding:3px 6px;border-left:3px solid ${LC.secondary};
+        font-size:10px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};">
+        DAMPENING - Reserve Power drained
+      </div>` : "";
+
+    const persistentHtml = payload.persistent && Number(payload.persistentRounds ?? 0) > 0 ? `
+      <div style="margin-top:5px;padding:3px 6px;border-left:3px solid ${LC.primary};
+        font-size:10px;color:${LC.primary};letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};">
+        PERSISTENT - ${payload.persistentRounds} round${payload.persistentRounds !== 1 ? "s" : ""}, ${payload.persistentDamage} damage per round
+      </div>` : "";
+
+    const persistentTickHtml = payload._isPersistentTick ? `
+      <div style="margin-top:5px;padding:3px 6px;border-left:3px solid ${LC.primary};
+        font-size:10px;color:${LC.primary};letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};">
+        PERSISTENT DAMAGE - ${payload.weaponName ?? "Weapon"}
+      </div>` : "";
+
     let opposedResultHtml = "";
     const oppDefType    = payload.opposedDefenseType ?? null;
     const defSuccesses  = payload.defenderSuccesses  ?? null;
@@ -12613,6 +12801,9 @@ export class CombatHUD {
         ${breachHtml}
         ${shakenTableHtml}
         ${npcShakenHtml}
+        ${dampeningHtml}
+        ${persistentHtml}
+        ${persistentTickHtml}
         ${opposedResultHtml}
         ${devastatingBtn}
         ${areaBtn}
@@ -12621,7 +12812,10 @@ export class CombatHUD {
     });
 
     if (!shipAttackAnimationPlayed) {
-      await CombatHUD._playShipAttackAnimation(payload);
+      await CombatHUD._playShipAttackAnimation({
+        ...payload,
+        hitLocationSystem: breachSystems[0] ?? targetingSystem ?? null,
+      });
     }
     await CombatHUD._applyAreaSecondaryTargets(payload);
   }
@@ -13924,6 +14118,7 @@ export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer
     stationId:            "tactical",
     officer,
     weaponContext:        weaponCtx,
+    difficulty:           _shipAttackDifficulty(weapon, getWeaponConfig(weapon)),
     hasTargetingSolution: hasTS,
     hasRapidFireTorpedo:  hasRFT,
     hasAttackPattern:     hasAP,
@@ -16513,6 +16708,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         const weaponCtx = {
           name:      weapon.name,
+          weaponId:  weapon.id ?? null,
+          shipActorId: shipActor.id ?? null,
           isTorpedo,
           isArray:   modeInfo.isArray,
           isSalvo:   modeInfo.isSalvo,
@@ -18330,6 +18527,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       btn.addEventListener("click", async () => {
         try {
           const payload  = JSON.parse(decodeURIComponent(btn.dataset.payload));
+          if (btn.dataset.spendResult) {
+            try {
+              const spendResult = JSON.parse(decodeURIComponent(btn.dataset.spendResult));
+              const rounds = Math.max(0, Math.min(3, Number(spendResult.persistentRounds ?? 0) || 0));
+              payload.persistentRounds = rounds;
+              payload.persistent = !!payload.persistent && rounds > 0;
+            } catch {}
+          }
           btn.disabled      = true;
           btn.textContent   = "✓ Applied";
           btn.style.opacity = "0.5";

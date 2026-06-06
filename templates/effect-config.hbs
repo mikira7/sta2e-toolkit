@@ -32,6 +32,11 @@
   .ec-delay-input:focus { outline:none; border-color:#0099cc; }
   .ec-delay-unit { font-size:9px; color:#6080a0; font-weight:700; letter-spacing:.04em; }
   .ec-timing-row td { border-top:1px solid #2a3050; background:#131727 !important; }
+  .ec-native-section { margin-top:12px; border-top:1px solid #2a3050; padding-top:8px; }
+  .ec-native-header { margin-bottom:4px; font-size:10px; font-weight:700; color:#7090b0; letter-spacing:.08em; text-transform:uppercase; }
+  .ec-native-hint { font-size:9px; color:#4060a0; margin:0 0 4px; line-height:1.4; }
+  .ec-native-select { width:100%; min-width:150px; background:#0e1118; border:1px solid #2a3050; color:#c0c8e0; padding:3px 5px; font-size:10px; border-radius:2px; box-sizing:border-box; }
+  .ec-native-select:focus { outline:none; border-color:#0099cc; }
   .ec-custom-section { margin-top:12px; border-top:1px solid #2a3050; padding-top:8px; }
   .ec-custom-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; font-size:10px; font-weight:700; color:#7090b0; letter-spacing:.08em; text-transform:uppercase; }
   .ec-add-btn { padding:3px 10px; background:#004466; border:1px solid #0099cc; color:#0099cc; cursor:pointer; border-radius:2px; font-size:10px; font-weight:700; transition:background .1s; }
@@ -125,6 +130,40 @@
         {{/each}}
       </tbody>
     </table>
+    {{/if}}
+
+    {{!-- Native weapon animation mode selectors --}}
+    {{#if nativeModeRows.length}}
+    <div class="ec-native-section">
+      <div class="ec-native-header">Experimental Native Weapon VFX</div>
+      <p class="ec-native-hint">
+        Choose which ship weapons use the Foundry canvas renderer instead of the current Sequencer/JB2A animation.
+        If native VFX cannot run, the current animation is used automatically.
+      </p>
+      <table class="ec-table">
+        <thead>
+          <tr>
+            <th>Weapon</th>
+            <th>Animation Mode</th>
+            <th>Experimental Preview</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each nativeModeRows}}
+          <tr>
+            <td class="ec-label">{{label}}</td>
+            <td class="ec-input-cell">
+              <select class="ec-native-select" data-weapon-mode-key="{{key}}">
+                <option value="current" {{#if currentSelected}}selected{{/if}}>Current Sequencer/JB2A</option>
+                <option value="experimental" {{#if experimentalSelected}}selected{{/if}}>Experimental Native Foundry</option>
+              </select>
+            </td>
+            <td class="ec-slot">{{hint}}</td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    </div>
     {{/if}}
 
     {{!-- Custom weapon entries (only tabs with customKey) --}}

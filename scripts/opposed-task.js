@@ -103,9 +103,10 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const guardPenalty = Number(options.guardPenalty ?? 0);
   const pronePenalty = Number(options.pronePenalty ?? 0);
   const overridePenalty = Number(options.overridePenalty ?? 0);
+  const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
   const traitDelta = _traitModifierDelta(options);
-  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + traitDelta);
-  return { base, guardPenalty, pronePenalty, overridePenalty, traitDelta, total };
+  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + cumbersomePenalty + traitDelta);
+  return { base, guardPenalty, pronePenalty, overridePenalty, cumbersomePenalty, traitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -883,6 +884,7 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
     options: {
       defenseType,
       overridePenalty: opts.overridePenalty ? 1 : Number(opts.overridePenalty ?? 0),
+      cumbersomePenalty: Number(opts.cumbersomePenalty ?? 0),
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
       attackerComplicationRange: opts.attackerComplicationRange ?? 1,
       ...traitModifier,

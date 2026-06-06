@@ -264,6 +264,15 @@ export class ToolkitWidget {
         () => game.sta2eToolkit?.openTransporter(),
       ));
 
+      // VFX Test button — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-wand-magic-sparkles",
+        game.i18n.localize("STA2E.Widget.Button.VfxTest.Label"),
+        game.i18n.localize("STA2E.Widget.Button.VfxTest.Hint"),
+        LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openVfxTestPanel?.(),
+      ));
+
       // Zone Editor button — GM only
       btnContainer.appendChild(mkBtn(
         "fas fa-vector-square",

@@ -11,6 +11,10 @@ const WIDGET_ID = "sta2e-pool-tracker";
 const POS_KEY = "sta2e-toolkit.poolTrackerPos";
 const COLLAPSE_KEY = "sta2e-toolkit.poolTrackerCollapsed";
 
+function logTrackerError(stage, err) {
+  console.error(`STA2e Toolkit | Pool tracker ${stage} failed:`, err);
+}
+
 function trackerMode() {
   try { return game.settings.get(MODULE, "poolTrackerMode") ?? "sta"; }
   catch { return "sta"; }
@@ -35,37 +39,54 @@ export class ToolkitPoolTracker {
   }
 
   init() {
-    if (!this._hooksRegistered) {
-      this._hooksRegistered = true;
-      Hooks.on("updateSetting", (setting) => {
-        if (
-          setting.key === "sta.momentum"
-          || setting.key === "sta.threat"
-          || setting.key === `${MODULE}.poolTrackerMode`
-          || setting.key === `${MODULE}.poolTrackerLayout`
-        ) {
-          this.applyMode();
-          this.refresh();
-        }
-      });
+    try {
+      if (!this._hooksRegistered) {
+        this._hooksRegistered = true;
+        Hooks.on("updateSetting", (setting) => {
+          if (
+            setting.key === "sta.momentum"
+            || setting.key === "sta.threat"
+            || setting.key === `${MODULE}.poolTrackerMode`
+            || setting.key === `${MODULE}.poolTrackerLayout`
+          ) {
+            try {
+              this.applyMode();
+              this.refresh();
+            } catch (err) {
+              logTrackerError("settings refresh", err);
+            }
+          }
+        });
+      }
+      window.addEventListener("resize", this._onResize);
+      this._startObserver();
+      this.applyMode();
+    } catch (err) {
+      logTrackerError("init", err);
     }
-    window.addEventListener("resize", this._onResize);
-    this._startObserver();
-    this.applyMode();
   }
 
   applyMode() {
-    const useToolkit = trackerMode() === "toolkit";
-    if (useToolkit) this.show();
-    else this.hide();
-    this._syncStaTrackerVisibility();
+    try {
+      const useToolkit = trackerMode() === "toolkit";
+      if (useToolkit) this.show();
+      else this.hide();
+      this._syncStaTrackerVisibility();
+    } catch (err) {
+      logTrackerError("mode apply", err);
+    }
   }
 
   show() {
-    if (!this._el) this._build();
-    this._el.hidden = false;
-    this._applyLayout();
-    this.refresh();
+    try {
+      if (!this._el) this._build();
+      this._ensureAttached();
+      this._el.hidden = false;
+      this._applyLayout();
+      this.refresh();
+    } catch (err) {
+      logTrackerError("show", err);
+    }
   }
 
   hide() {
@@ -88,67 +109,75 @@ export class ToolkitPoolTracker {
   }
 
   _build() {
-    document.getElementById(WIDGET_ID)?.remove();
-    const LC = getLcTokens();
+    try {
+      const existing = document.getElementById(WIDGET_ID);
+      if (existing && existing !== this._el) existing.remove();
+      const LC = getLcTokens();
 
-    const el = document.createElement("div");
-    el.id = WIDGET_ID;
-    el.className = "sta2e-pool-tracker sta2e-pool-tracker--auto-hide";
-    el.style.setProperty("--sta2e-pool-bg", LC.bg ?? "#05080d");
-    el.style.setProperty("--sta2e-pool-panel", LC.panel ?? "#101010");
-    el.style.setProperty("--sta2e-pool-primary", LC.primary ?? "#ff9900");
-    el.style.setProperty("--sta2e-pool-secondary", LC.secondary ?? "#89cff0");
-    el.style.setProperty("--sta2e-pool-threat", LC.red ?? "#ff3344");
-    el.style.setProperty("--sta2e-pool-text", LC.text ?? "#ffcc88");
-    el.style.setProperty("--sta2e-pool-dim", LC.textDim ?? "#9a7a4a");
-    el.style.setProperty("--sta2e-pool-font", LC.font ?? "var(--font-primary)");
+      const el = document.createElement("div");
+      el.id = WIDGET_ID;
+      el.className = "sta2e-pool-tracker sta2e-pool-tracker--auto-hide";
+      el.style.setProperty("--sta2e-pool-bg", LC.bg ?? "#05080d");
+      el.style.setProperty("--sta2e-pool-panel", LC.panel ?? "#101010");
+      el.style.setProperty("--sta2e-pool-primary", LC.primary ?? "#ff9900");
+      el.style.setProperty("--sta2e-pool-secondary", LC.secondary ?? "#89cff0");
+      el.style.setProperty("--sta2e-pool-threat", LC.red ?? "#ff3344");
+      el.style.setProperty("--sta2e-pool-text", LC.text ?? "#ffcc88");
+      el.style.setProperty("--sta2e-pool-dim", LC.textDim ?? "#9a7a4a");
+      el.style.setProperty("--sta2e-pool-font", LC.font ?? "var(--font-primary)");
 
-    const header = document.createElement("div");
-    header.className = "sta2e-pool-tracker__header";
+      const header = document.createElement("div");
+      header.className = "sta2e-pool-tracker__header";
 
-    const title = document.createElement("div");
-    title.className = "sta2e-pool-tracker__title";
-    title.textContent = "Momentum / Threat";
+      const title = document.createElement("div");
+      title.className = "sta2e-pool-tracker__title";
+      title.textContent = "Momentum / Threat";
 
-    const layoutToggle = document.createElement("button");
-    layoutToggle.type = "button";
-    layoutToggle.className = "sta2e-pool-tracker__layout-toggle";
-    layoutToggle.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const next = trackerLayout() === "floating" ? "docked" : "floating";
-      await game.settings.set(MODULE, "poolTrackerLayout", next);
+      const layoutToggle = document.createElement("button");
+      layoutToggle.type = "button";
+      layoutToggle.className = "sta2e-pool-tracker__layout-toggle";
+      layoutToggle.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const next = trackerLayout() === "floating" ? "docked" : "floating";
+        await game.settings.set(MODULE, "poolTrackerLayout", next);
+        this._applyLayout();
+      });
+
+      const collapse = document.createElement("button");
+      collapse.type = "button";
+      collapse.className = "sta2e-pool-tracker__collapse";
+      collapse.title = "Collapse tracker";
+      collapse.innerHTML = '<i class="fas fa-minus"></i>';
+      collapse.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this._collapsed = !this._collapsed;
+        localStorage.setItem(COLLAPSE_KEY, this._collapsed ? "1" : "0");
+        this._applyCollapsed();
+      });
+
+      header.appendChild(title);
+      header.appendChild(layoutToggle);
+      header.appendChild(collapse);
+
+      const body = document.createElement("div");
+      body.className = "sta2e-pool-tracker__body";
+      body.appendChild(this._buildPool("momentum", "Momentum"));
+      body.appendChild(this._buildPool("threat", "Threat"));
+
+      el.appendChild(header);
+      el.appendChild(body);
+
+      this._el = el;
+      this._ensureAttached();
       this._applyLayout();
-    });
-
-    const collapse = document.createElement("button");
-    collapse.type = "button";
-    collapse.className = "sta2e-pool-tracker__collapse";
-    collapse.title = "Collapse tracker";
-    collapse.innerHTML = '<i class="fas fa-minus"></i>';
-    collapse.addEventListener("click", (event) => {
-      event.stopPropagation();
-      this._collapsed = !this._collapsed;
-      localStorage.setItem(COLLAPSE_KEY, this._collapsed ? "1" : "0");
+      this._makeDraggable(header, el);
       this._applyCollapsed();
-    });
-
-    header.appendChild(title);
-    header.appendChild(layoutToggle);
-    header.appendChild(collapse);
-
-    const body = document.createElement("div");
-    body.className = "sta2e-pool-tracker__body";
-    body.appendChild(this._buildPool("momentum", "Momentum"));
-    body.appendChild(this._buildPool("threat", "Threat"));
-
-    el.appendChild(header);
-    el.appendChild(body);
-
-    this._el = el;
-    this._applyLayout();
-    this._makeDraggable(header, el);
-    this._applyCollapsed();
-    this.refresh();
+      this.refresh();
+    } catch (err) {
+      this._el = null;
+      logTrackerError("build", err);
+      throw err;
+    }
   }
 
   _buildPool(pool, label) {
@@ -321,10 +350,7 @@ export class ToolkitPoolTracker {
   _applyLayout() {
     if (!this._el) return;
     const layout = trackerLayout() === "floating" ? "floating" : "docked";
-    const target = layout === "docked"
-      ? (document.getElementById("interface") ?? document.body)
-      : document.body;
-    if (this._el.parentElement !== target) target.appendChild(this._el);
+    this._ensureAttached();
 
     this._el.classList.toggle("sta2e-pool-tracker--docked", layout === "docked");
     this._el.classList.toggle("sta2e-pool-tracker--floating", layout === "floating");
@@ -355,10 +381,24 @@ export class ToolkitPoolTracker {
   _startObserver() {
     if (this._observer) return;
     this._observer = new MutationObserver(() => {
-      this._syncStaTrackerVisibility();
-      if (trackerLayout() !== "floating") this._applyDockPosition();
+      try {
+        if (trackerMode() === "toolkit" && this._el) this._ensureAttached();
+        this._syncStaTrackerVisibility();
+        if (trackerLayout() !== "floating") this._applyDockPosition();
+      } catch (err) {
+        logTrackerError("DOM observer refresh", err);
+      }
     });
     this._observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  _ensureAttached() {
+    if (!this._el) return;
+    const layout = trackerLayout() === "floating" ? "floating" : "docked";
+    const target = layout === "docked"
+      ? (document.getElementById("interface") ?? document.body)
+      : document.body;
+    if (this._el.parentElement !== target) target.appendChild(this._el);
   }
 
   _applyDockPosition() {

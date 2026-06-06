@@ -3386,7 +3386,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     difficulty: (() => {
       const base = startDifficulty !== null ? startDifficulty
         : opposedDifficulty !== null ? opposedDifficulty
-          : (weaponContext?.isTorpedo ? 3 : 2);
+          : (weaponContext?.isTorpedo ? 3 : 2) + (weaponContext?.cumbersome ? 1 : 0);
       const smallCraftMod = opposedDifficulty !== null
         ? 0
         : _smallCraftDifficultyMod({
@@ -5768,7 +5768,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
             if (state.opposedDefenseType && state.opposedDifficulty !== null) {
               diffInput.value = state.opposedDifficulty;
             } else {
-              state._combatTaskDifficultyBase = (_isTorpedo ? 3 : 2) + (_isOverride ? 1 : 0);
+              state._combatTaskDifficultyBase = (_isTorpedo ? 3 : 2) + (_isOverride ? 1 : 0) + (state.weaponContext?.cumbersome ? 1 : 0);
               _syncCombatDifficultyInput();
             }
           }

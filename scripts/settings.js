@@ -3,6 +3,11 @@
  */
 
 import { EffectConfigMenu } from "./effect-config.js";
+import {
+  TRACTOR_BEAM_CLIENT_SETTING,
+  TRACTOR_BEAM_WORLD_SETTING,
+} from "./tractor-beam-vfx.js";
+import { NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
 import { CharacterCreatorConfig, CHARACTER_CREATOR_DEFAULT_DATA } from "./character-creator.js";
 
@@ -611,6 +616,22 @@ export function registerSettings() {
   // ── Animation overrides & custom weapon effects ───────────────────────────
   // Managed via the "Sounds & Animations" config menu (EffectConfigMenu).
 
+  game.settings.register("sta2e-toolkit", TRACTOR_BEAM_WORLD_SETTING, {
+    name: "Tractor Beam VFX World Defaults",
+    scope: "world",
+    config: false,
+    type: Object,
+    default: {},
+  });
+
+  game.settings.register("sta2e-toolkit", TRACTOR_BEAM_CLIENT_SETTING, {
+    name: "Tractor Beam VFX Client Overrides",
+    scope: "client",
+    config: false,
+    type: Object,
+    default: {},
+  });
+
   game.settings.register("sta2e-toolkit", "animationOverrides", {
     name:    "Animation Overrides",
     scope:   "world",
@@ -625,5 +646,13 @@ export function registerSettings() {
     config:  false,
     type:    Object,
     default: { groundWeapons: [], shipWeapons: [] },
+  });
+
+  game.settings.register("sta2e-toolkit", "weaponAnimationModes", {
+    name:    "Weapon Animation Modes",
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: { ...NATIVE_WEAPON_VFX_DEFAULT_MODES },
   });
 }

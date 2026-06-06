@@ -14,9 +14,10 @@
 }
 
 #sta2e-pool-tracker.sta2e-pool-tracker--docked {
-  top: auto;
+  top: 50vh;
   right: var(--sta2e-pool-dock-right, 312px);
-  bottom: clamp(180px, 30vh, 360px);
+  bottom: auto;
+  transform: translateY(-50%);
   max-width: calc(100vw - 16px);
 }
 

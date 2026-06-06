@@ -3,6 +3,11 @@
  * Sounds & Animations configuration menu — ApplicationV2, Foundry v13 native.
  */
 
+import {
+  NATIVE_WEAPON_VFX_MODE_ROWS,
+  normalizeWeaponAnimationModes,
+} from "./native-weapon-vfx.js";
+
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const MODULE = "sta2e-toolkit";
 
@@ -48,6 +53,7 @@ function buildTabDefs() {
       id:    "shipWeapons",
       label: "Ship Weapons",
       customKey: "shipWeapons",
+      nativeModeRows: NATIVE_WEAPON_VFX_MODE_ROWS,
       rows: [
         // ── Phaser / Phase-Pulse ───────────────────────────────────────────
         { label: "Phaser / Phase-Pulse", slot: "Beam (Hit)",    sndKey: "sndShipPhaserHit",   animKey: "shipWeapons.phaser.animHit",
@@ -273,6 +279,10 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       try { return game.settings.get(MODULE, "customWeaponEffects") ?? {}; }
       catch { return {}; }
     })();
+    const weaponModes = normalizeWeaponAnimationModes((() => {
+      try { return game.settings.get(MODULE, "weaponAnimationModes") ?? {}; }
+      catch { return {}; }
+    })());
 
     const tabs = buildTabDefs().map(tab => ({
       ...tab,
@@ -287,6 +297,14 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
           : null,
         defaultHint: row.defaultHint ?? null,
       })),
+      nativeModeRows: tab.nativeModeRows
+        ? tab.nativeModeRows.map(row => ({
+          ...row,
+          modeValue: weaponModes[row.key] ?? "current",
+          currentSelected: (weaponModes[row.key] ?? "current") !== "experimental",
+          experimentalSelected: weaponModes[row.key] === "experimental",
+        }))
+        : null,
       customRows: tab.customKey
         ? (custom[tab.customKey] ?? []).map((c, i) => ({ ...c, index: i }))
         : null,
@@ -340,6 +358,9 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     const custom = foundry.utils.deepClone(
       (() => { try { return game.settings.get(MODULE, "customWeaponEffects") ?? {}; } catch { return {}; } })()
     );
+    const weaponModes = normalizeWeaponAnimationModes(
+      (() => { try { return game.settings.get(MODULE, "weaponAnimationModes") ?? {}; } catch { return {}; } })()
+    );
 
     // Timing delays
     for (const input of el.querySelectorAll("[data-delay-key]")) {
@@ -366,6 +387,15 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     }
     try { await game.settings.set(MODULE, "animationOverrides", animOv); }
     catch(e) { console.warn("STA2e Toolkit | Could not save animationOverrides:", e); }
+
+    // Per-weapon animation modes
+    for (const select of el.querySelectorAll("[data-weapon-mode-key]")) {
+      const key = select.dataset.weaponModeKey;
+      if (!key) continue;
+      weaponModes[key] = select.value === "experimental" ? "experimental" : "current";
+    }
+    try { await game.settings.set(MODULE, "weaponAnimationModes", normalizeWeaponAnimationModes(weaponModes)); }
+    catch(e) { console.warn("STA2e Toolkit | Could not save weaponAnimationModes:", e); }
 
     // Custom weapon rows per tab
     for (const panel of el.querySelectorAll(".ec-tab-panel[data-custom-key]")) {
