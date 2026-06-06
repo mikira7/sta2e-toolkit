@@ -1752,6 +1752,7 @@ export async function checkOpposedTaskForTokens(weaponName, attackerToken, targe
 }
 
 export class CombatHUD {
+  static _shipAttackAnimationQueue = Promise.resolve();
 
   constructor() {
     this._el                  = null;
@@ -3779,7 +3780,21 @@ export class CombatHUD {
     return null;
   }
 
+  static _enqueueShipAttackAnimation(task) {
+    const run = async () => {
+      try { await task(); }
+      catch (err) { console.warn("STA2e Toolkit | Queued ship animation failed:", err); }
+    };
+    const queued = CombatHUD._shipAttackAnimationQueue.then(run, run);
+    CombatHUD._shipAttackAnimationQueue = queued.catch(() => {});
+    return queued;
+  }
+
   static async _playShipAttackAnimation(payload, targetOverride = null) {
+    return CombatHUD._enqueueShipAttackAnimation(() => CombatHUD._playShipAttackAnimationNow(payload, targetOverride));
+  }
+
+  static async _playShipAttackAnimationNow(payload, targetOverride = null) {
     const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
     const targetToken = targetOverride ?? canvas.tokens?.get(payload.tokenId ?? payload.primaryTokenId);
     if (!attackerToken || !targetToken || !payload.weaponImg) return;
@@ -3797,6 +3812,8 @@ export class CombatHUD {
         repeatCount,
         weapon,
         targetSystem: payload.hitLocationSystem ?? payload.targetingSystem ?? null,
+        shieldImpact: payload.shieldImpact ?? null,
+        hullImpact: payload.hullImpact ?? null,
       });
     } catch(e) {
       console.warn("STA2e Toolkit | Ship weapon animation failed:", e);
@@ -4232,7 +4249,7 @@ export class CombatHUD {
 
     if (!isHit) {
       setTimeout(async () => {
-        await fireWeapon(config, false, token, targets, { spreadDeclared, salvoMode, weapon });
+        await CombatHUD._enqueueShipAttackAnimation(() => fireWeapon(config, false, token, targets, { spreadDeclared, salvoMode, weapon }));
       }, 500);
     }
   }
@@ -9472,6 +9489,11 @@ export class CombatHUD {
   }
 
   static async fireDestructionEffect(token) {
+    try {
+      const path = game.settings.get("sta2e-toolkit", "sndShipDestroyed");
+      if (path) AudioHelper.play({ src: path, volume: 1, autoplay: true, loop: false }, true);
+    } catch {}
+
     if (!window.Sequence) return;
     const patron = (() => {
       try { return game.settings.get("sta2e-toolkit", "jb2aTier") === "patron"; }
@@ -12454,6 +12476,17 @@ export class CombatHUD {
     const wasShaken      = actor.system?.shaken         ?? false;
     const newShields     = Math.max(0, currentShields - finalDamage);
     const pctAfter       = maxShields > 0 ? newShields / maxShields : 0;
+    const shieldImpact = currentShields > 0 ? {
+      preShields: currentShields,
+      postShields: newShields,
+      maxShields,
+      finalDamage,
+      shieldBroke: newShields === 0,
+    } : null;
+    const hullImpact = currentShields <= 0 ? {
+      shieldsDown: true,
+      finalDamage,
+    } : null;
 
     // ── Determine shaken / breach outcome ────────────────────────────────────
     // All three shield thresholds (50%, 25%, 0) are checked independently —
@@ -12560,6 +12593,8 @@ export class CombatHUD {
         await CombatHUD._playShipAttackAnimation({
           ...payload,
           hitLocationSystem: breachSystems[0] ?? targetingSystem ?? null,
+          shieldImpact,
+          hullImpact,
         });
         shipAttackAnimationPlayed = true;
       }
@@ -12815,6 +12850,8 @@ export class CombatHUD {
       await CombatHUD._playShipAttackAnimation({
         ...payload,
         hitLocationSystem: breachSystems[0] ?? targetingSystem ?? null,
+        shieldImpact,
+        hullImpact,
       });
     }
     await CombatHUD._applyAreaSecondaryTargets(payload);

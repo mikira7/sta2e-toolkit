@@ -361,6 +361,21 @@ export function registerSettings() {
   game.settings.register("sta2e-toolkit", "sndShipCannonDisruptorMiss",snd("Ship Sound — Disruptor Cannon (Miss)","Sound when a disruptor cannon misses."));
   game.settings.register("sta2e-toolkit", "sndShipCannonPolaronHit",   snd("Ship Sound — Polaron Cannon (Hit)",   "Sound when a polaron cannon hits."));
   game.settings.register("sta2e-toolkit", "sndShipCannonPolaronMiss",  snd("Ship Sound — Polaron Cannon (Miss)",  "Sound when a polaron cannon misses."));
+  for (const era of [
+    { key: "Ent", label: "ENT" },
+    { key: "Tos", label: "TOS" },
+    { key: "Tmp", label: "TMP" },
+    { key: "Tng", label: "TNG/DS9/VOY" },
+  ]) {
+    for (const type of ["Bank", "Array", "Cannon"]) {
+      for (const result of ["Hit", "Miss"]) {
+        game.settings.register("sta2e-toolkit", `sndShipPhaser${type}${era.key}${result}`, snd(
+          `Ship Sound - Phaser ${type} ${era.label} (${result})`,
+          `Sound when a ${era.label} phaser ${type.toLowerCase()} ${result.toLowerCase()} animation plays. Blank falls back to the legacy phaser sound.`
+        ));
+      }
+    }
+  }
   // Torpedo sounds — per type, with optional separate salvo sound
   game.settings.register("sta2e-toolkit", "sndShipTorpedo",            snd("Ship Sound — Torpedo (legacy fallback)", "Legacy fallback if per-type torpedo sounds are not set."));
   game.settings.register("sta2e-toolkit", "sndShipTorpedoPhoton",      snd("Ship Sound — Photon Torpedo",       "Sound when a single photon torpedo is fired."));
@@ -438,6 +453,29 @@ export function registerSettings() {
   });
 
   // ── Token Magic FX — breach damage visuals ──────────────────────────────
+  game.settings.register("sta2e-toolkit", "shieldImpactFX", {
+    name:    "STA2E.Settings.ShieldImpactFX.Name",
+    hint:    "STA2E.Settings.ShieldImpactFX.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "shieldImpactPreset", {
+    name:    "STA2E.Settings.ShieldImpactPreset.Name",
+    hint:    "STA2E.Settings.ShieldImpactPreset.Hint",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      subtle:    "STA2E.Settings.ShieldImpactPreset.Subtle",
+      cinematic: "STA2E.Settings.ShieldImpactPreset.Cinematic",
+      intense:   "STA2E.Settings.ShieldImpactPreset.Intense",
+    },
+    default: "cinematic",
+  });
+
   game.settings.register("sta2e-toolkit", "breachTokenFX", {
     name:    "STA2E.Settings.BreachTokenFX.Name",
     hint:    "STA2E.Settings.BreachTokenFX.Hint",

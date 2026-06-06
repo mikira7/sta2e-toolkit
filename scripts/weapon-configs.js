@@ -2,6 +2,7 @@ import {
   getClosestShipArrayCurvePoint,
   getClosestShipWeaponEmitterPoint,
   getShipHitLocationPointForShot,
+  getShipWeaponVfxSettings,
   getShipWeaponEmitterAnchors,
   isShipArrayWeapon,
   shipWeaponAnchorToCanvasPoint,
@@ -12,6 +13,11 @@ import {
   previewShipWeaponVFX,
   shouldUseNativeWeaponVFX,
 } from "./native-weapon-vfx.js";
+import {
+  playShieldImpactVFX,
+} from "./shield-impact-vfx.js";
+
+const SHIP_HULL_IMPACT_EFFECT = "jb2a.explosion_side.01.orange.2";
 
 /**
  * sta2e-toolkit | weapon-configs.js
@@ -115,6 +121,91 @@ function cannonEffect(color) {
   const weaponKey = color === "green" ? "disruptorCannon" : color === "purple" ? "polaronCannon" : "phaserCannon";
   return animOverride("shipWeapons", weaponKey, "animHit")
     ?? `${WA}/LaserShot_01_Regular_${{ orange: "Orange", green: "Green", purple: "Blue", blue: "Blue" }[color] ?? "Orange"}_30ft_1600x400.webm`;
+}
+
+const PHASER_ERAS = Object.freeze(["ent", "tos", "tmp", "tng"]);
+const PHASER_ERA_EFFECTS = Object.freeze({
+  ent: {
+    bank: "modules/JB2A_DnD5e/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_90ft_4000x400.webm",
+    array: "modules/JB2A_DnD5e/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_90ft_4000x400.webm",
+    cannon: "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/LaserShot_01_Regular_Orange_90ft_4000x400.webm",
+  },
+  tos: {
+    bank: "modules/jb2a_patreon/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Blue_90ft_4000x400.webm",
+    array: "modules/jb2a_patreon/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Blue_90ft_4000x400.webm",
+    cannon: "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/LaserShot_01_Regular_Blue_90ft_4000x400.webm",
+  },
+  tmp: {
+    bank: "modules/jb2a_patreon/Library/Generic/Weapon_Attacks/Ranged/Snipe_01_Regular_Red_90ft_4000x400.webm",
+    array: "modules/jb2a_patreon/Library/Generic/Weapon_Attacks/Ranged/Snipe_01_Regular_Red_90ft_4000x400.webm",
+    cannon: "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/LaserShot_01_Regular_Red_90ft_4000x400.webm",
+  },
+  tng: {
+    bank: "modules/JB2A_DnD5e/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_90ft_4000x400.webm",
+    array: "modules/JB2A_DnD5e/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_90ft_4000x400.webm",
+    cannon: "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/LaserShot_01_Regular_Orange_90ft_4000x400.webm",
+  },
+});
+const PHASER_ERA_SOUND_PARTS = Object.freeze({
+  ent: "Ent",
+  tos: "Tos",
+  tmp: "Tmp",
+  tng: "Tng",
+});
+const PHASER_KIND_SOUND_PARTS = Object.freeze({
+  bank: "Bank",
+  array: "Array",
+  cannon: "Cannon",
+});
+
+function normalizePhaserEra(era) {
+  const value = String(era ?? "").toLowerCase();
+  return PHASER_ERAS.includes(value) ? value : "";
+}
+
+function phaserWeaponKind(weapon, config) {
+  const name = String(weapon?.name ?? config?.name ?? "").toLowerCase();
+  const img = String(weapon?.img ?? "").split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "").toLowerCase();
+  const isPhaser = /\bphasers?\b/.test(name) || /\bphase[-\s]?pulse\b/.test(name) || img.includes("phaser");
+  if (!isPhaser && config?.color !== "orange") return null;
+  if (img.includes("phaser-cannon") || /\bcannons?\b/.test(name)) return "cannon";
+  if (img.includes("phaser-array") || config?.isArray || /\barrays?\b/.test(name)) return "array";
+  if (img.includes("phaser-bank") || /\bbanks?\b/.test(name)) return "bank";
+  return null;
+}
+
+function phaserEraSound(kind, era, isHit, baseConfig) {
+  const kindPart = PHASER_KIND_SOUND_PARTS[kind];
+  const eraPart = PHASER_ERA_SOUND_PARTS[era];
+  const resultPart = isHit ? "Hit" : "Miss";
+  const eraSound = kindPart && eraPart ? snd(`sndShipPhaser${kindPart}${eraPart}${resultPart}`) : null;
+  if (eraSound) return eraSound;
+  if (isHit) return baseConfig.sound;
+  return baseConfig.missSound ?? baseConfig.sound;
+}
+
+function phaserEraEffect(kind, era, baseConfig) {
+  const weaponKey = kind === "cannon" ? "phaserCannon" : "phaser";
+  return animOverride("shipWeapons", weaponKey, "animHit")
+    ?? PHASER_ERA_EFFECTS[era]?.[kind]
+    ?? baseConfig.effect;
+}
+
+function withPhaserEraConfig(config, sourceToken, weapon, settingsOverride = null) {
+  if (!config || !weapon) return config;
+  const kind = phaserWeaponKind(weapon, config);
+  if (!kind) return config;
+  const era = normalizePhaserEra(settingsOverride?.phaserEra ?? getShipWeaponVfxSettings(sourceToken, weapon)?.phaserEra);
+  if (!era) return config;
+  const baseConfig = config;
+  return {
+    ...baseConfig,
+    phaserEra: era,
+    phaserEraKind: kind,
+    get effect() { return phaserEraEffect(kind, era, baseConfig); },
+    get sound() { return phaserEraSound(kind, era, true, baseConfig); },
+    get missSound() { return phaserEraSound(kind, era, false, baseConfig); },
+  };
 }
 
 function impactEffect(color) {
@@ -783,6 +874,28 @@ function shipImpactEffect(effect, targetToken, scale = 1.5, maxTokenRatio = 0.85
   return effect.scale(shipImpactScaleForToken(targetToken, scale, maxTokenRatio));
 }
 
+function shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
+  if (!shieldImpact?.preShields) return null;
+  const count = Math.max(1, Number(shotCount) || 1);
+  return {
+    ...shieldImpact,
+    shieldBroke: !!shieldImpact.shieldBroke && shotIndex >= count - 1,
+  };
+}
+
+function addShieldImpactStep(sequence, sourceToken, targetToken, impactPoint, shieldImpact, shotIndex = 0, shotCount = 1) {
+  const impact = shieldImpactForShot(shieldImpact, shotIndex, shotCount);
+  if (!impact || !impactPoint || typeof sequence?.thenDo !== "function") return sequence;
+  return sequence.thenDo(() => {
+    playShieldImpactVFX(sourceToken, targetToken, impactPoint, impact);
+  });
+}
+
+function shipImpactFile(config, slot, hullImpact = null) {
+  if (hullImpact?.shieldsDown) return SHIP_HULL_IMPACT_EFFECT;
+  return config?.[slot] ?? null;
+}
+
 function _hexColorForWeaponConfig(config, fallback = 0xff9a33) {
   const color = String(config?.color ?? "").toLowerCase();
   if (color === "green") return 0x66ff99;
@@ -808,7 +921,7 @@ async function playSequencerArrayCurveCharge(config, sourceToken, weapon, target
 
 export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoint, options = {}) {
   if (!sourceToken || !weapon || !targetPoint) return false;
-  const config = getWeaponConfig(weapon);
+  const config = withPhaserEraConfig(getWeaponConfig(weapon), sourceToken, weapon, options.vfxSettings);
   if (!config) return false;
 
   if (config.nativeVfxKey && shouldUseNativeWeaponVFX(config.nativeVfxKey)) {
@@ -845,7 +958,7 @@ export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoin
   return true;
 }
 
-async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null) {
+async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
@@ -862,7 +975,8 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
             locations.target
           )
             .wait(getTimingBeamTravel());
-          shipImpactEffect(atSequenceLocation(shot.effect().file(config.impact), locations.impact), target, 1.5);
+          addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats);
+          shipImpactEffect(atSequenceLocation(shot.effect().file(shipImpactFile(config, "impact", hullImpact)), locations.impact), target, 1.5);
           await playSequenceAndWaitForArrayBeam(shot);
           if (i < repeats - 1) await _delay(250);
         }
@@ -877,7 +991,8 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
           locations.target
         )
           .wait(getTimingBeamTravel());
-        shipImpactEffect(atSequenceLocation(s.effect().file(config.impact), locations.impact), target, 1.5);
+        addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
+        shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), locations.impact), target, 1.5);
         if (i < repeats - 1) s.wait(250);
       }
     } else {
@@ -893,7 +1008,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
   }
 }
 
-async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null) {
+async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
@@ -918,8 +1033,9 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
             locations.target
           )
             .wait(getTimingBeamTravel());
+          addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats);
           if (i === repeats - 1) {
-            shipImpactEffect(atSequenceLocation(shot.effect().file(config.impact), impactLocation), target, 1.5);
+            shipImpactEffect(atSequenceLocation(shot.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
           }
           await playSequenceAndWaitForArrayBeam(shot);
           if (i < repeats - 1) await _delay(250);
@@ -943,7 +1059,8 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
           locations.target
         ).waitUntilFinished(-200);
       }
-      shipImpactEffect(atSequenceLocation(s.effect().file(config.impact), impactLocation), target, 1.5);
+      addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, repeats - 1, repeats);
+      shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
     } else {
       s = withSound(s, soundPath).wait(50);
       const missTarget = shipWeaponMissTargetLocation(target);
@@ -957,9 +1074,10 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
   }
 }
 
-async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null) {
+async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
   const shots = isHit ? cannonShotCount(repeatCount) : 1;
   for (const target of targets) {
+    const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = seq();
     if (isHit) {
       let impactLocation = sequenceLocation(target, null);
@@ -972,15 +1090,16 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
           targetSystem,
         });
         impactLocation = locations.impact;
-        s = withSound(s, config.sound).wait(50);
+        s = withSound(s, soundPath).wait(50);
         s = stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
           locations.target
         ).wait(50);
       }
-      shipImpactEffect(atSequenceLocation(s.effect().file(config.impact), impactLocation), target, 1.5);
+      addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, shots - 1, shots);
+      shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
     } else {
-      s = withSound(s, config.sound).wait(50);
+      s = withSound(s, soundPath).wait(50);
       stretchToSequenceLocation(
         atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
         shipWeaponMissTargetLocation(target)
@@ -990,7 +1109,7 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
   }
 }
 
-async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null) {
+async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = config.sound;
@@ -1005,7 +1124,8 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
           locations.target
         );
         s.wait(getTimingTorpedoImpact());
-        shipImpactEffect(atSequenceLocation(s.effect().file(config.explosion), locations.impact), target, 1.5);
+        addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
+        shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
         if (i < repeats - 1) s.wait(250);
       }
     } else {
@@ -1020,7 +1140,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
   }
 }
 
-async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null) {
+async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
 
   if (salvoMode === "spread") {
@@ -1038,7 +1158,8 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
             locations.target
           );
           s.wait(getTimingTorpedoImpact());
-          shipImpactEffect(atSequenceLocation(s.effect().file(config.explosion), locations.impact), target, 1.5);
+          addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, r, repeats);
+          shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
           if (r < repeats - 1) s.wait(250);
         }
       } else {
@@ -1078,7 +1199,8 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         }
         // Explosion after the last torpedo arrives
         s.wait(getTimingTorpedoImpact());
-        shipImpactEffect(atSequenceLocation(s.effect().file(config.explosion), explosionLocation), target, 2.0, 0.9);
+        addShieldImpactStep(s, token, target, explosionLocation?.location, shieldImpact, repeats - 1, repeats);
+        shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), explosionLocation), target, 2.0, 0.9);
       } else {
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
@@ -1248,8 +1370,9 @@ export async function fireTargetingSolution(attackerToken, targetToken) {
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
-export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null } = {}) {
+export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null } = {}) {
   if (!config) return;
+  config = withPhaserEraConfig(config, token, weapon);
   const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
 
   if (await fireNativeWeaponVFX(config, isHit, token, targets, {
@@ -1258,6 +1381,8 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
     repeatCount: shipRepeatCount,
     weapon,
     targetSystem,
+    shieldImpact,
+    hullImpact,
   })) return;
 
   if (!combatAnimationsAvailable()) return;
@@ -1265,15 +1390,15 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
   switch (config.type) {
     // Ship-scale weapons
     case "beam":
-      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem);
-      else await fireBeamSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem);
+      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
+      else await fireBeamSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
       break;
     case "cannon":
-      await fireCannons(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem);
+      await fireCannons(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
       break;
     case "torpedo":
-      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem);
-      else              await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem);
+      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
+      else              await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
       break;
 
     // Ground-scale weapons

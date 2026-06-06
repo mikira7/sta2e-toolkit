@@ -11,6 +11,23 @@ const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
 const SHIP_VFX_ANCHORS_VERSION = 6;
+const PHASER_ERA_OPTIONS = Object.freeze([
+  { value: "", label: "Current Default" },
+  { value: "ent", label: "ENT" },
+  { value: "tos", label: "TOS" },
+  { value: "tmp", label: "TMP" },
+  { value: "tng", label: "TNG/DS9/VOY" },
+]);
+const SHIELD_COLOR_OPTIONS = Object.freeze([
+  { value: "", label: "Auto by Traits/Name" },
+  { value: "blueWhite", label: "Blue-White" },
+  { value: "teal", label: "Teal" },
+  { value: "green", label: "Green" },
+  { value: "red", label: "Red" },
+  { value: "purple", label: "Purple" },
+  { value: "orange", label: "Orange" },
+  { value: "custom", label: "Custom Hex" },
+]);
 const SHIP_SYSTEMS = Object.freeze([
   { key: "communications", label: "Communications", color: "#66ccff" },
   { key: "computers",      label: "Computers",      color: "#99dd66" },
@@ -146,6 +163,23 @@ function _normalizeSourceOffset(offset) {
   };
 }
 
+function _normalizePhaserEra(era) {
+  const value = String(era ?? "").toLowerCase();
+  return PHASER_ERA_OPTIONS.some(option => option.value === value) ? value : "";
+}
+
+function _normalizeShieldColorPreset(preset) {
+  const value = String(preset ?? "");
+  return SHIELD_COLOR_OPTIONS.some(option => option.value === value) ? value : "";
+}
+
+export function normalizeShipShieldImpactSettings(settings = {}) {
+  return {
+    colorPreset: _normalizeShieldColorPreset(settings?.colorPreset),
+    customColor: _normalizeHexColor(settings?.customColor),
+  };
+}
+
 export function normalizeShipArrayChargeSettings(settings = {}) {
   const defaults = DEFAULT_ARRAY_CHARGE_SETTINGS;
   return {
@@ -188,6 +222,7 @@ export function normalizeShipWeaponVfxSetting(setting = {}, weapon = null) {
     weaponId: String(setting?.weaponId || (weapon ? _weaponId(weapon) : "")),
     weaponName: String(setting?.weaponName || (weapon ? _weaponName(weapon) : "")),
     weaponImg: String(setting?.weaponImg || (weapon ? _weaponImg(weapon) : "")),
+    phaserEra: _normalizePhaserEra(setting?.phaserEra),
     sourceOffset: _normalizeSourceOffset(setting?.sourceOffset),
     charge: normalizeShipArrayChargeSettings(setting?.charge),
   };
@@ -296,6 +331,16 @@ function _isArrayWeapon(weapon) {
   return /\barrays?\b/i.test(_weaponName(weapon));
 }
 
+function _isEraPhaserWeapon(weapon) {
+  const name = _weaponName(weapon).toLowerCase();
+  const img = _weaponImg(weapon).split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "").toLowerCase();
+  const isPhaser = /\bphasers?\b/.test(name) || /\bphase[-\s]?pulse\b/.test(name) || img.includes("phaser");
+  const isSupportedType = img.includes("phaser-bank") || img.includes("phaser-array") || img.includes("phaser-cannon")
+    || /\b(phaser|phase[-\s]?pulse).*\b(banks?|arrays?|cannons?)\b/.test(name)
+    || /\b(banks?|arrays?|cannons?)\b.*\b(phaser|phase[-\s]?pulse)\b/.test(name);
+  return isPhaser && isSupportedType;
+}
+
 function _tabIdForWeapon(weapon) {
   return `weapon:${_weaponId(weapon)}`;
 }
@@ -335,6 +380,7 @@ export function normalizeShipVfxAnchors(data = {}) {
     },
     settings: {
       weaponVfx,
+      shieldImpact: normalizeShipShieldImpactSettings(data?.settings?.shieldImpact),
     },
   };
 }
@@ -359,6 +405,10 @@ export function getShipWeaponVfxSettingsFromData(data, weapon, override = null) 
 
 export function getShipWeaponVfxSettings(actorOrToken, weapon, override = null) {
   return getShipWeaponVfxSettingsFromData(getShipVfxAnchors(actorOrToken), weapon, override);
+}
+
+export function getShipShieldImpactSettings(actorOrToken) {
+  return normalizeShipShieldImpactSettings(getShipVfxAnchors(actorOrToken)?.settings?.shieldImpact);
 }
 
 export function shipLocalOffsetToCanvasDelta(token, sourceOffset) {
@@ -1226,6 +1276,21 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     });
   }
 
+  _activeShieldImpactSettings() {
+    return normalizeShipShieldImpactSettings(this._anchors.settings?.shieldImpact);
+  }
+
+  _setShieldImpactSettings(settings) {
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      settings: {
+        ...(this._anchors.settings ?? {}),
+        shieldImpact: normalizeShipShieldImpactSettings(settings),
+      },
+    });
+  }
+
   _chargeRows(settings) {
     if (!settings) return [];
     const c = settings.charge;
@@ -1290,6 +1355,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const weapon = this._weaponForTab();
     if (!weapon || !this.element) return null;
     const current = this._activeWeaponSettings() ?? getDefaultShipWeaponVfxSettings(weapon);
+    const currentShieldImpact = this._activeShieldImpactSettings();
+    this._setShieldImpactSettings({
+      colorPreset: this.element.querySelector('[data-shield-impact-setting="colorPreset"]')?.value ?? currentShieldImpact.colorPreset,
+      customColor: this.element.querySelector('[data-shield-impact-setting="customColor"]')?.value ?? currentShieldImpact.customColor,
+    });
     const sourceOffset = {
       x: _number(this.element.querySelector('[data-vfx-setting="sourceOffset.x"]')?.value, current.sourceOffset.x),
       y: _number(this.element.querySelector('[data-vfx-setting="sourceOffset.y"]')?.value, current.sourceOffset.y),
@@ -1297,6 +1367,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       adaptiveSide: _number(this.element.querySelector('[data-vfx-setting="sourceOffset.adaptiveSide"]')?.value, current.sourceOffset.adaptiveSide),
       space: "shipLocal",
     };
+    const phaserEra = _normalizePhaserEra(
+      this.element.querySelector('[data-vfx-setting="phaserEra"]')?.value ?? current.phaserEra
+    );
     const charge = { ...current.charge };
     this.element.querySelectorAll("[data-charge-setting]").forEach(input => {
       const key = input.dataset.chargeSetting;
@@ -1306,6 +1379,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     });
     const settings = normalizeShipWeaponVfxSetting({
       ...current,
+      phaserEra,
       sourceOffset,
       charge,
     }, weapon);
@@ -1543,6 +1617,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const activeTabLabel = this._activeTabLabel();
     const isHitLocationsTab = this._resolveActiveTab() === "hitLocations";
     const isArrayWeaponTab = this._isActiveArrayWeaponTab();
+    const activeWeapon = this._weaponForTab();
     const curveModeActive = isArrayWeaponTab && this._activePlacementMode === "curve";
     const pointModeActive = !curveModeActive;
     const activeWeaponSettings = this._activeWeaponSettings();
@@ -1572,6 +1647,16 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       isArrayWeaponTab,
       isWeaponTab: !!this._weaponForTab(),
       activeWeaponSettings,
+      activeShieldImpactSettings: this._activeShieldImpactSettings(),
+      shieldColorOptions: SHIELD_COLOR_OPTIONS.map(option => ({
+        ...option,
+        selected: option.value === this._activeShieldImpactSettings().colorPreset,
+      })),
+      showPhaserEraSelector: _isEraPhaserWeapon(activeWeapon),
+      phaserEraOptions: PHASER_ERA_OPTIONS.map(option => ({
+        ...option,
+        selected: option.value === (activeWeaponSettings?.phaserEra ?? ""),
+      })),
       activeChargeRows: isArrayWeaponTab ? this._chargeRows(activeWeaponSettings) : [],
       chargeEasingOptions: CHARGE_EASING_OPTIONS.map(value => ({
         value,
@@ -1777,7 +1862,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       });
     });
 
-    el.querySelectorAll("[data-vfx-setting], [data-charge-setting]").forEach(input => {
+    el.querySelectorAll("[data-vfx-setting], [data-charge-setting], [data-shield-impact-setting]").forEach(input => {
       input.addEventListener("input", () => {
         this._readWeaponSettingsFromForm();
         this._scheduleAutoPreview();

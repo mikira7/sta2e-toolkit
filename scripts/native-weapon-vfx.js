@@ -15,6 +15,10 @@ import {
   tokenAnchorToCanvasPoint,
   tokenTextureSource,
 } from "./ship-vfx-anchors.js";
+import {
+  scheduleHullImpactVFX,
+  scheduleShieldImpactVFX,
+} from "./shield-impact-vfx.js";
 
 const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 920_000;
@@ -328,6 +332,15 @@ function _normalizeRepeatCount(repeatCount) {
   return Math.min(3, Math.max(1, count));
 }
 
+function _shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
+  if (!shieldImpact?.preShields) return null;
+  const count = Math.max(1, Number(shotCount) || 1);
+  return {
+    ...shieldImpact,
+    shieldBroke: !!shieldImpact.shieldBroke && shotIndex >= count - 1,
+  };
+}
+
 function _getTimingTorpedoImpact() {
   try { return game.settings.get(MODULE, "timingTorpedoImpact") || 1000; }
   catch { return 1000; }
@@ -352,6 +365,15 @@ async function _firePhaserBank(isHit, sourceToken, targets, opts) {
         color: PHASER_PRIMARY,
         coreColor: PHASER_CORE,
       });
+      if (isHit) {
+        if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: 300 });
+        else {
+          scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
+            ..._shieldImpactForShot(opts.shieldImpact, i, 3),
+            delayMs: 300,
+          });
+        }
+      }
     }
     await _delay(520);
   }
@@ -386,6 +408,15 @@ async function _firePhaserArray(isHit, sourceToken, targets, opts) {
         color: colors.color,
         coreColor: colors.coreColor,
       });
+      if (isHit) {
+        if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: Math.max(180, beamDuration - 80) });
+        else {
+          scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
+            ..._shieldImpactForShot(opts.shieldImpact, i, repeats),
+            delayMs: Math.max(180, beamDuration - 80),
+          });
+        }
+      }
       await _delay(beamDuration + 160);
     }
   }
@@ -493,6 +524,18 @@ async function _firePhotonTorpedo(isHit, sourceToken, targets, opts) {
         color: PHOTON_PRIMARY,
         coreColor: PHOTON_CORE,
       });
+      if (isHit) {
+        if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, {
+          ...opts.hullImpact,
+          delayMs: Math.max(420, Math.min(1300, _getTimingTorpedoImpact())),
+        });
+        else {
+          scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
+            ..._shieldImpactForShot(opts.shieldImpact, i, shots),
+            delayMs: Math.max(420, Math.min(1300, _getTimingTorpedoImpact())),
+          });
+        }
+      }
       await _delay(opts.salvo ? 230 : 280);
     }
     await _delay(Math.max(500, Math.min(1200, _getTimingTorpedoImpact())));

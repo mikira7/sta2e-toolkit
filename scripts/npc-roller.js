@@ -3269,6 +3269,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     : { hasTalent: false, source: null };
 
   // Mutable roller state — lives outside the dialog so button callbacks can mutate it
+  const _autoShipAssist = !!(
+    !groundMode
+    && !isAssistRoll
+    && !rallyContext
+    && !noShipAssist
+    && (overrideShipSysKey || weaponContext)
+  );
+  const _initialShipAssist = initialShipAssist !== null ? initialShipAssist : _autoShipAssist;
+
   const state = {
     actorName: actor.name,
     actorId: actor.id,
@@ -3288,6 +3297,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     groundIsNpc,          // true = ground NPC → generates Threat (not Momentum)
     usesPlayerPayment: overrideUsesPlayerPayment ?? _usesPlayerPayment({ playerMode, groundMode, groundIsNpc, sheetMode }, actor),
     noPoolButton,         // true = suppress pool button on this roll (defender defense rolls)
+    noShipAssist,         // true = this task cannot use the ship assist pool
     // Crew assist die: pre-checked when NPC crew (ship itself) declared a pending assist.
     // Named character-actor assists are handled separately via assistOfficers/namedAssistDice
     // and must NOT also trigger crewAssist (that would double-count their dice).
@@ -3296,7 +3306,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     hasActorAtStation: _hasActorAtStation,  // used to hide generic crew-assist checkbox
     // Ship — always 1 die; Advanced Sensor Suites forces 2 when Sensors is selected
     shipNumDice: advancedSensorsActive ? 2 : 1,
-    shipAssist: initialShipAssist !== null ? initialShipAssist : false,
+    shipAssist: _initialShipAssist,
     hasAdvancedSensors,
     sensorsBreaches,
     advancedSensorsActive,
@@ -5174,6 +5184,75 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         state.difficulty = finalDifficulty;
       };
 
+      const _setCombatShipAssist = ({ enabled, shipActorId = null, shipSystemKey = null, shipDeptKey = null } = {}) => {
+        const shipSelectorEl = el.querySelector("#sheet-ship-select");
+        const shipAssistEl = el.querySelector("#ship-assist");
+
+        if (!enabled) {
+          state.shipAssist = false;
+          state.selectedShipIdx = -1;
+          state.shipDice = [];
+          if (shipSelectorEl) {
+            if (shipSelectorEl.value !== "-1") {
+              shipSelectorEl.value = "-1";
+              shipSelectorEl.dispatchEvent(new Event("change"));
+            } else {
+              if (shipAssistEl) shipAssistEl.checked = false;
+              const selBody = el.querySelector("#ship-select-body");
+              if (selBody) selBody.style.display = "none";
+            }
+          } else {
+            if (shipAssistEl) shipAssistEl.checked = false;
+            const poolBody = el.querySelector("#ship-pool-body");
+            if (poolBody) {
+              poolBody.style.opacity = "0.4";
+              poolBody.style.pointerEvents = "none";
+            }
+          }
+          return;
+        }
+
+        state.shipAssist = true;
+        if (shipSelectorEl) {
+          const matchOpt = Array.from(shipSelectorEl.options)
+            .find(o => o.dataset.actorId === shipActorId);
+          if (matchOpt) {
+            if (shipAssistEl) shipAssistEl.checked = true;
+            if (shipSelectorEl.value !== matchOpt.value) {
+              shipSelectorEl.value = matchOpt.value;
+            }
+            shipSelectorEl.dispatchEvent(new Event("change"));
+          } else if (shipAssistEl && !shipAssistEl.checked) {
+            shipAssistEl.checked = true;
+            shipAssistEl.dispatchEvent(new Event("change"));
+          }
+        } else if (shipAssistEl) {
+          if (!shipAssistEl.checked) {
+            shipAssistEl.checked = true;
+            shipAssistEl.dispatchEvent(new Event("change"));
+          } else {
+            const poolBody = el.querySelector("#ship-pool-body");
+            if (poolBody) {
+              poolBody.style.opacity = "1";
+              poolBody.style.pointerEvents = "auto";
+            }
+          }
+        }
+
+        if (shipSystemKey && sysSelect) {
+          state.shipSystemKey = shipSystemKey;
+          sysSelect.value = shipSystemKey;
+          sysSelect.dispatchEvent(new Event("change"));
+        }
+        if (shipDeptKey && deptSelect) {
+          state.shipDeptKey = shipDeptKey;
+          deptSelect.value = shipDeptKey;
+          deptSelect.dispatchEvent(new Event("change"));
+        }
+        state.shipSystems = _shipDataRef.systems[state.shipSystemKey]?.value ?? state.shipSystems;
+        state.shipDept = _shipDataRef.depts[state.shipDeptKey]?.value ?? state.shipDept;
+      };
+
       el.querySelectorAll(".sta2e-task-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
           // Highlight selected button; clear weapon fire button highlights
@@ -5301,36 +5380,15 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           //    Ship selection must happen FIRST because applyShipSelection repopulates
           //    the sys/dept <select> elements — any value set before it fires is overwritten.
           const tp = state.combatTaskContext.taskParams?.[taskKey];
-          const hasShipPool = tp && !tp.noShipAssist && (tp.shipSystemKey || tp.shipDeptKey);
-          const shipSelector = el.querySelector("#sheet-ship-select");
-          const shipAssistCb = el.querySelector("#ship-assist");
+          const hasShipPool = !!(tp && !tp.noShipAssist && tp.shipSystemKey);
           const combatActorId = state.combatTaskContext.combatShip?.actorId ?? null;
-
-          if (hasShipPool && combatActorId) {
-            if (shipSelector) {
-              // Sheet mode: find the option whose data-actor-id matches the combat ship
-              const matchOpt = Array.from(shipSelector.options)
-                .find(o => o.dataset.actorId === combatActorId);
-              if (matchOpt && shipSelector.value !== matchOpt.value) {
-                shipSelector.value = matchOpt.value;
-                shipSelector.dispatchEvent(new Event("change")); // repopulates sys/dept selects
-              }
-            } else if (shipAssistCb && !shipAssistCb.checked) {
-              // NPC roller mode: just tick the assist checkbox
-              shipAssistCb.checked = true;
-              shipAssistCb.dispatchEvent(new Event("change"));
-            }
-          }
-
-          // Now set the system and dept (after ship selection has repopulated the selects)
-          if (tp?.shipSystemKey && sysSelect) {
-            sysSelect.value = tp.shipSystemKey;
-            sysSelect.dispatchEvent(new Event("change"));
-          }
-          if (tp?.shipDeptKey && deptSelect) {
-            deptSelect.value = tp.shipDeptKey;
-            deptSelect.dispatchEvent(new Event("change"));
-          }
+          state.noShipAssist = !!tp?.noShipAssist || !hasShipPool;
+          _setCombatShipAssist({
+            enabled: hasShipPool && !!combatActorId,
+            shipActorId: combatActorId,
+            shipSystemKey: hasShipPool ? tp.shipSystemKey : null,
+            shipDeptKey: hasShipPool ? tp.shipDeptKey : null,
+          });
 
           // 4. Show/hide target ship picker
           const needsTarget = btn.dataset.needsTarget === "1";
@@ -5773,24 +5831,14 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
             }
           }
 
-          // Enable ship assist and select the combat ship (repopulates sys/dept selects)
-          const shipSelector = el.querySelector("#sheet-ship-select");
-          const shipAssistCb = el.querySelector("#ship-assist");
-          if (shipSelector) {
-            const matchOpt = Array.from(shipSelector.options)
-              .find(o => o.dataset.actorId === shipActorId);
-            if (matchOpt && shipSelector.value !== matchOpt.value) {
-              shipSelector.value = matchOpt.value;
-              shipSelector.dispatchEvent(new Event("change"));
-            }
-          } else if (shipAssistCb && !shipAssistCb.checked) {
-            shipAssistCb.checked = true;
-            shipAssistCb.dispatchEvent(new Event("change"));
-          }
-
-          // Set ship system = weapons, dept = security (after ship repopulates selects)
-          if (sysSelect) { sysSelect.value = "weapons"; sysSelect.dispatchEvent(new Event("change")); }
-          if (deptSelect) { deptSelect.value = "security"; deptSelect.dispatchEvent(new Event("change")); }
+          // Select the combat ship and set ship system = weapons, dept = security.
+          state.noShipAssist = false;
+          _setCombatShipAssist({
+            enabled: true,
+            shipActorId,
+            shipSystemKey: "weapons",
+            shipDeptKey: "security",
+          });
 
           // Always show the target dropdown for weapon attacks
           const targetBox = el.querySelector("#sta2e-ctp-target");

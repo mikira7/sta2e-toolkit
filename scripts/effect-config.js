@@ -47,6 +47,24 @@ const _CRACK = `${_FREE}/Impact/Impact013/Impact013_001_OrangeYellow_400x400.web
  *   animKey → dot-path into animationOverrides (e.g. "shipWeapons.phaser.animHit")
  *             null if no animation override for this slot
  */
+function buildPhaserEraSoundRows() {
+  const eras = [
+    { key: "Ent", label: "ENT" },
+    { key: "Tos", label: "TOS" },
+    { key: "Tmp", label: "TMP" },
+    { key: "Tng", label: "TNG/DS9/VOY" },
+  ];
+  const types = ["Bank", "Array", "Cannon"];
+  const results = ["Hit", "Miss"];
+  return eras.flatMap(era => types.flatMap(type => results.map(result => ({
+    label: `Phaser ${type} - ${era.label}`,
+    slot: result,
+    sndKey: `sndShipPhaser${type}${era.key}${result}`,
+    animKey: null,
+    defaultHint: "Blank uses the legacy phaser sound for this weapon type.",
+  }))));
+}
+
 function buildTabDefs() {
   return [
     {
@@ -83,6 +101,7 @@ function buildTabDefs() {
           defaultHint: jb2aHint("jb2a.impact.011.blue", _IMP) },
         { label: "Phaser Cannon",        slot: "Shot (Miss)",   sndKey: "sndShipCannonPhaserMiss",  animKey: "shipWeapons.phaserCannon.animMiss",
           defaultHint: jb2aHint("jb2a.lasershot.orange", `${_WA}/LaserShot_01_Regular_Orange_30ft_1600x400.webm`) },
+        ...buildPhaserEraSoundRows(),
         // ── Disruptor Cannon ───────────────────────────────────────────────
         { label: "Disruptor Cannon",     slot: "Shot (Hit)",    sndKey: "sndShipCannonDisruptorHit",   animKey: "shipWeapons.disruptorCannon.animHit",
           defaultHint: jb2aHint("jb2a.lasershot.green", `${_WA}/LaserShot_01_Regular_Green_30ft_1600x400.webm`) },

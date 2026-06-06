@@ -638,6 +638,16 @@
     </div>
     <div class="sta2e-anchor-value">Ship offset is fixed to the token art. Adaptive offset follows the shot direction.</div>
     <div class="sta2e-vfx-settings-grid">
+      {{#if showPhaserEraSelector}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-vfx-phaser-era">Era</label>
+        <select id="sta2e-vfx-phaser-era" data-vfx-setting="phaserEra">
+          {{#each phaserEraOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      {{/if}}
       <div class="sta2e-vfx-settings-row">
         <label for="sta2e-vfx-offset-x">Ship X</label>
         <input id="sta2e-vfx-offset-x" type="number" min="-500" max="500" step="1" value="{{activeWeaponSettings.sourceOffset.x}}" data-vfx-setting="sourceOffset.x" />
