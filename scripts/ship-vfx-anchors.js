@@ -950,11 +950,93 @@ export function tokenTextureSource(tokenOrActor) {
     ?? null;
 }
 
+// Animated tokens use video textures (webm/mp4/…). Foundry plays them fine, but
+// an <img> and `new Image()` can't decode them, so the preview and alpha sampling
+// must branch on the source type.
+export function _isVideoTextureSrc(src) {
+  if (!src) return false;
+  const clean = String(src).split("?")[0].split("#")[0];
+  const ext = clean.split(".").pop()?.toLowerCase();
+  if (!ext) return false;
+  const vidConst = globalThis.CONST?.VIDEO_FILE_EXTENSIONS;
+  if (vidConst && typeof vidConst === "object") {
+    if (ext in vidConst) return true;
+    if (Object.values(vidConst).includes(ext)) return true;
+  }
+  return /^(webm|mp4|m4v|ogv|ogg|mov)$/.test(ext);
+}
+
 export async function getTokenAlphaMask(src) {
   if (!src) return null;
   if (TOKEN_ALPHA_MASK_CACHE.has(src)) return TOKEN_ALPHA_MASK_CACHE.get(src);
 
+  const sampleAlpha = (source, naturalWidth, naturalHeight, resolve) => {
+    try {
+      if (!naturalWidth || !naturalHeight) {
+        resolve(null);
+        return;
+      }
+
+      const scale = Math.min(1, TOKEN_ALPHA_MASK_MAX_SIZE / Math.max(naturalWidth, naturalHeight));
+      const width = Math.max(1, Math.round(naturalWidth * scale));
+      const height = Math.max(1, Math.round(naturalHeight * scale));
+      const canvasEl = document.createElement("canvas");
+      canvasEl.width = width;
+      canvasEl.height = height;
+      const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+
+      ctx.drawImage(source, 0, 0, width, height);
+      const data = ctx.getImageData(0, 0, width, height).data;
+      const opaque = [];
+      const opaqueSet = new Set();
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (data[((y * width + x) * 4) + 3] >= TOKEN_ALPHA_THRESHOLD) {
+            opaque.push({ x, y });
+            opaqueSet.add(y * width + x);
+          }
+        }
+      }
+      resolve(opaque.length ? { width, height, opaque, opaqueSet } : null);
+    } catch (err) {
+      console.warn("STA2e Toolkit | Could not sample token alpha for ship VFX anchors:", err);
+      resolve(null);
+    }
+  };
+
   const maskPromise = new Promise(resolve => {
+    if (_isVideoTextureSrc(src)) {
+      let video;
+      try {
+        video = document.createElement("video");
+      } catch {
+        resolve(null);
+        return;
+      }
+
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        sampleAlpha(video, video.videoWidth, video.videoHeight, resolve);
+      };
+
+      video.crossOrigin = "anonymous";
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.onloadeddata = finish;
+      video.onseeked = finish;
+      video.onerror = () => { if (!settled) { settled = true; resolve(null); } };
+      video.src = src;
+      try { video.currentTime = 0; } catch { /* seek unsupported, loadeddata covers it */ }
+      return;
+    }
+
     let img;
     try {
       img = new Image();
@@ -964,45 +1046,7 @@ export async function getTokenAlphaMask(src) {
     }
 
     img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const naturalWidth = img.naturalWidth || img.width;
-        const naturalHeight = img.naturalHeight || img.height;
-        if (!naturalWidth || !naturalHeight) {
-          resolve(null);
-          return;
-        }
-
-        const scale = Math.min(1, TOKEN_ALPHA_MASK_MAX_SIZE / Math.max(naturalWidth, naturalHeight));
-        const width = Math.max(1, Math.round(naturalWidth * scale));
-        const height = Math.max(1, Math.round(naturalHeight * scale));
-        const canvasEl = document.createElement("canvas");
-        canvasEl.width = width;
-        canvasEl.height = height;
-        const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
-        if (!ctx) {
-          resolve(null);
-          return;
-        }
-
-        ctx.drawImage(img, 0, 0, width, height);
-        const data = ctx.getImageData(0, 0, width, height).data;
-        const opaque = [];
-        const opaqueSet = new Set();
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            if (data[((y * width + x) * 4) + 3] >= TOKEN_ALPHA_THRESHOLD) {
-              opaque.push({ x, y });
-              opaqueSet.add(y * width + x);
-            }
-          }
-        }
-        resolve(opaque.length ? { width, height, opaque, opaqueSet } : null);
-      } catch (err) {
-        console.warn("STA2e Toolkit | Could not sample token alpha for ship VFX anchors:", err);
-        resolve(null);
-      }
-    };
+    img.onload = () => sampleAlpha(img, img.naturalWidth || img.width, img.naturalHeight || img.height, resolve);
     img.onerror = () => resolve(null);
     img.src = src;
   });
@@ -1514,6 +1558,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       actorName: this.actor?.name ?? "Unknown ship",
       textureSrc: this.textureSrc,
       hasTexture: !!this.textureSrc,
+      isVideoTexture: _isVideoTextureSrc(this.textureSrc),
       tabs: this._tabContext(),
       activeTab: this._resolveActiveTab(),
       activeTabLabel,
