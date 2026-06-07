@@ -1779,7 +1779,8 @@ const _zoneMoveOrigins = new Map();
 // when the move was initiated by a remote client (e.g. player on The Forge).
 const _lastKnownTokenPositions = new Map();
 
-Hooks.on("preUpdateToken", (tokenDoc, changes) => {
+Hooks.on("preUpdateToken", (tokenDoc, changes, options) => {
+  if (options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logging
   if (!("x" in changes || "y" in changes)) return;
   // Store the pre-move canvas center for zone distance calculation
   const gs = canvas.grid?.size ?? 100;
@@ -1807,6 +1808,7 @@ Hooks.on("canvasReady", () => {
 });
 
 Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
+  if (_options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logic
   if (!("x" in changes || "y" in changes)) return;
 
   game.sta2eToolkit?.zoneMonitor?._debouncedRefresh();

@@ -154,6 +154,15 @@ export async function createTracker(ownerActor, { totalGenerated = 0, bonus = 0,
 }
 
 export async function _gmCreateTracker(trackerData, speakerToken = null) {
+  // A new task roll starts a fresh overflow window. End any prior active
+  // tracker for this actor+pool first, so its leftover float/bonus can't be
+  // pulled alongside the new one (otherwise a spend would see both overflows).
+  try {
+    await endPriorTrackers(trackerData.ownerActorId, trackerData.pool);
+  } catch (err) {
+    console.warn("STA2e Toolkit | endPriorTrackers failed:", err);
+  }
+
   const content = buildTrackerCardHtml({
     float: trackerData.float,
     bonus: trackerData.bonus,
@@ -169,6 +178,33 @@ export async function _gmCreateTracker(trackerData, speakerToken = null) {
     speaker: ChatMessage.getSpeaker({ token: speakerToken ?? null, alias: "STA2e Toolkit" }),
   });
   return msg;
+}
+
+/**
+ * GM-only: delete every existing tracker for an actor (optionally scoped to a
+ * single pool). Called when a new task roll opens a fresh overflow window so
+ * stale trackers don't linger and double-count toward later spends. Leftover
+ * float already lives in the pool; only the non-bankable bonus is forfeited.
+ *
+ * @param {string} ownerActorId
+ * @param {"momentum"|"threat"|null} [pool] - If set, only ends matching-pool trackers.
+ */
+export async function endPriorTrackers(ownerActorId, pool = null) {
+  if (!ownerActorId || !game.user.isGM) return;
+  const msgs = game.messages?.contents ?? [];
+  const stale = [];
+  for (const m of msgs) {
+    const t = m.getFlag(MODULE, "overflowTracker");
+    if (!t || t.ownerActorId !== ownerActorId) continue;
+    if (pool && t.pool !== pool) continue;
+    stale.push(m.id);
+  }
+  for (const id of stale) {
+    const m = game.messages.get(id);
+    if (!m) continue;
+    try { await m.delete(); }
+    catch (err) { console.warn("STA2e Toolkit | endPriorTrackers delete failed:", err); }
+  }
 }
 
 /**

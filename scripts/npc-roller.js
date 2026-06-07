@@ -4139,6 +4139,119 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
   }
   if (!targetToken) return; // nowhere to send the card
 
+  const _tokenId  = token?.id ?? token?.document?.id ?? actor?.id ?? "unknown";
+  const _actorId  = actor?.id ?? state.actorId ?? "unknown";
+  const attackerToken = canvas.tokens?.get(_tokenId) ?? canvas.tokens?.placeables.find(t => t.actor?.id === _actorId) ?? null;
+
+  if (state.groundMode && defMode === "cover") {
+    const starter = game.sta2eToolkit?.startGroundCombatOpposedTask;
+    if (!starter || !attackerToken?.actor || !targetToken?.actor) return;
+
+    const weaponContext = { ...(state.weaponContext ?? {}) };
+    const weapon = weaponContext.weaponId
+      ? actor?.items?.get?.(weaponContext.weaponId)
+      : actor?.items?.find?.(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
+    const hasStun = weapon?.system?.qualities?.stun ?? false;
+    const hasDeadly = weapon?.system?.qualities?.deadly ?? false;
+    const attackerIsNpc = !!state.groundIsNpc;
+    let useStun;
+
+    if (hasStun && hasDeadly) {
+      const modeChoice = await foundry.applications.api.DialogV2.wait({
+        window: { title: `${weapon?.name ?? weaponContext.name ?? "Weapon"} - Injury Type` },
+        content: `
+          <div style="font-family:${LC.font};padding:4px 0;">
+            <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+              <strong style="color:${LC.primary};">${weapon?.name ?? weaponContext.name ?? "Weapon"}</strong>
+              can inflict either a <strong style="color:${LC.secondary};">Stun</strong>
+              or a <strong style="color:${LC.red};">Deadly</strong> injury.
+            </div>
+            <div style="font-size:10px;color:${LC.textDim};padding:4px 8px;
+              border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;line-height:1.6;">
+              Stun - target becomes Incapacitated<br>
+              Deadly - target suffers a Deadly injury
+              ${!attackerIsNpc ? `<br><span style="color:${LC.yellow};">Choosing Deadly gives the GM <strong>+1 Threat</strong>.</span>` : ""}
+            </div>
+          </div>`,
+        buttons: [
+          { action: "stun", label: "Stun", icon: "fas fa-bolt", default: true },
+          { action: "deadly", label: "Deadly", icon: "fas fa-skull" },
+          { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+        ],
+      });
+      if (!modeChoice || modeChoice === "cancel") return;
+      useStun = modeChoice === "stun";
+    } else {
+      useStun = hasStun && !hasDeadly;
+    }
+
+    if (!useStun && hasDeadly && !attackerIsNpc) {
+      const confirmed = await foundry.applications.api.DialogV2.confirm({
+        window: { title: "Deadly Attack - Confirm" },
+        content: `
+          <div style="font-family:${LC.font};padding:4px 0;line-height:1.6;">
+            <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+              <strong style="color:${LC.red};">${weapon?.name ?? weaponContext.name ?? "Weapon"}</strong> will be used
+              as a <strong>Deadly</strong> weapon.
+            </div>
+            <div style="font-size:10px;padding:6px 8px;
+              background:rgba(255,50,50,0.06);border-left:3px solid ${LC.red};
+              border-radius:0 2px 2px 0;color:${LC.text};">
+              The GM receives <strong style="color:${LC.yellow};">+1 Threat</strong>
+              immediately, regardless of hit or miss.
+            </div>
+          </div>`,
+        yes: { label: "Confirm Deadly (+1 Threat)", icon: "fas fa-skull" },
+        no: { label: "Cancel", icon: "fas fa-times" },
+      });
+      if (!confirmed) return;
+      await game.sta2eToolkit?.CombatHUD?._applyToPool?.("threat", 1, attackerToken);
+    }
+
+    const targetIsProne = targetToken.actor?.statuses?.has("prone") ?? false;
+    const targetIsProneInCover = targetIsProne && !!targetToken.document?.getFlag(MODULE, "coverActive");
+    let pronePenalty = 0;
+    if (targetIsProne) {
+      const isDistant = await foundry.applications.api.DialogV2.confirm({
+        window: { title: "Prone Target - Range Check" },
+        content: `
+          <div style="font-family:${LC.font};padding:4px 0;font-size:10px;
+            color:${LC.text};line-height:1.6;">
+            <strong style="color:${LC.secondary};">${targetToken.name ?? "Target"}</strong>
+            is <strong>Prone</strong>.<br>
+            Are they at <strong>Medium range or further</strong>?
+          </div>`,
+        yes: { label: "Yes - Medium or further (+1 Difficulty)", icon: "fas fa-arrows-alt-h" },
+        no:  { label: "No - Close range (no modifier)",          icon: "fas fa-map-marker-alt" },
+      });
+      if (isDistant) pronePenalty = 1;
+    }
+
+    weaponContext.useStun = useStun;
+    weaponContext.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
+    weaponContext.targetTokenIds = [targetToken.id];
+
+    await starter({
+      taskName: state.taskLabel ?? `Ranged Attack - ${weaponContext.name ?? "Weapon"}`,
+      flavor: `${actor.name} fires on ${targetToken.name}, who is in cover.`,
+      defenseType: "cover",
+      attackerActorId: attackerToken.actor.id,
+      attackerTokenId: attackerToken.id,
+      defenderActorId: targetToken.actor.id,
+      defenderTokenId: targetToken.id,
+      weaponContext,
+      guardPenalty: targetToken.document?.getFlag(MODULE, "guardActive") ? 1 : 0,
+      pronePenalty,
+      targetIsProne,
+      targetIsProneInCover,
+      defenderSuggestedAttr: "control",
+      defenderSuggestedDisc: "security",
+      attackerSuggestedAttr: "control",
+      attackerSuggestedDisc: "security",
+    });
+    return;
+  }
+
   // Re-use the standalone function exposed on the toolkit API to post the card.
   // It returns { proceed: "pending", defMode } when the card is posted.
   // token may be a TokenDocument or null; checkOpposedTaskForTokens only uses
@@ -4151,12 +4264,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
   const defLabel = defMode === "evasive-action" ? "Evasive Action"
     : defMode === "defensive-fire" ? "Defensive Fire" : "Cover";
 
-  // token may be a TokenDocument, a canvas Token, or null (actor not on scene).
-  // Normalise to an id string for the pending task; fall back to actor id.
-  const _tokenId  = token?.id ?? token?.document?.id ?? actor?.id ?? "unknown";
-  const _actorId  = actor?.id ?? state.actorId ?? "unknown";
   const starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
-  const attackerToken = canvas.tokens?.get(_tokenId) ?? canvas.tokens?.placeables.find(t => t.actor?.id === _actorId) ?? null;
   if (starter && attackerToken?.actor && targetToken?.actor) {
     await starter({
       taskName: state.taskLabel ?? `Attack - ${state.weaponContext?.name ?? "Weapon"}`,
@@ -5951,6 +6059,9 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
               if (!defMode && defTargetToken.document?.getFlag(MODULE, "coverActive")) {
                 defMode = "cover";
               }
+            }
+            if (state.groundMode && !state.weaponContext) {
+              defMode = null;
             }
 
             // Store on state so other handlers can check it cheaply.

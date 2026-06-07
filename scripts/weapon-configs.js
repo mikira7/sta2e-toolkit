@@ -839,15 +839,40 @@ function _delay(ms) {
   return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
-function getTimingArrayBeamAnimation() {
-  return Math.max(250, Number(getTimingBeamTravel()) || 0) + ARRAY_WEAPON_ANIMATION_SETTLE_MS;
+// Mirrors the registered default for "timingBeamTravel". While the setting sits
+// at this value we treat beam timing as adaptive: the impact flash and shield
+// flash are timed to each JB2A clip's real length instead of a fixed delay, so
+// beam animations of different speeds all stay in sync. If the user overrides
+// the setting, we fall back to the old fixed-delay behavior as a manual escape
+// hatch.
+const BEAM_TRAVEL_DEFAULT_MS = 3800;
+// The impact lands this many ms before the beam clip finishes. Matches the
+// value already used by the spread and melee paths.
+const BEAM_IMPACT_LEAD_MS = -200;
+
+function beamTravelIsAdaptive() {
+  try {
+    const v = Number(game.settings.get("sta2e-toolkit", "timingBeamTravel"));
+    return !Number.isFinite(v) || v === BEAM_TRAVEL_DEFAULT_MS;
+  } catch { return true; }
+}
+
+// Times whatever sections follow the beam (impact flash, shield step) to the
+// beam's actual duration on defaults, or to the manual travel time when the
+// setting is overridden. Pass the stretched beam effect; returns the parent
+// sequence for chaining.
+function waitForBeamImpact(beamEffect) {
+  return beamTravelIsAdaptive()
+    ? beamEffect.waitUntilFinished(BEAM_IMPACT_LEAD_MS)
+    : beamEffect.wait(getTimingBeamTravel());
 }
 
 async function playSequenceAndWaitForArrayBeam(sequence) {
-  await Promise.all([
-    sequence.play(),
-    _delay(getTimingArrayBeamAnimation()),
-  ]);
+  // play() resolves after the beam's real duration (waitUntilFinished) or the
+  // manual travel time, so multi-shot pacing tracks the actual animation rather
+  // than a fixed 3800ms floor. A short settle separates consecutive shots.
+  await sequence.play();
+  await _delay(ARRAY_WEAPON_ANIMATION_SETTLE_MS);
 }
 
 function shipTravelEffect(effect, config) {
@@ -970,11 +995,10 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
           await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true);
           let shot = seq();
           shot = withSound(shot, soundPath).wait(50);
-          stretchToSequenceLocation(
+          waitForBeamImpact(stretchToSequenceLocation(
             atSequenceLocation(shipTravelEffect(shot.effect().file(config.effect), config), locations.source),
             locations.target
-          )
-            .wait(getTimingBeamTravel());
+          ));
           addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats);
           shipImpactEffect(atSequenceLocation(shot.effect().file(shipImpactFile(config, "impact", hullImpact)), locations.impact), target, 1.5);
           await playSequenceAndWaitForArrayBeam(shot);
@@ -986,11 +1010,10 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
       for (let i = 0; i < repeats; i++) {
         const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem });
         s = withSound(s, soundPath).wait(50);
-        stretchToSequenceLocation(
+        waitForBeamImpact(stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
           locations.target
-        )
-          .wait(getTimingBeamTravel());
+        ));
         addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), locations.impact), target, 1.5);
         if (i < repeats - 1) s.wait(250);
@@ -1028,11 +1051,10 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
           await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true);
           let shot = seq();
           shot = withSound(shot, soundPath).wait(50);
-          stretchToSequenceLocation(
+          waitForBeamImpact(stretchToSequenceLocation(
             atSequenceLocation(shipTravelEffect(shot.effect().file(config.effect), config), locations.source),
             locations.target
-          )
-            .wait(getTimingBeamTravel());
+          ));
           addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats);
           if (i === repeats - 1) {
             shipImpactEffect(atSequenceLocation(shot.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
@@ -1054,10 +1076,10 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
         });
         impactLocation = locations.impact;
         s = withSound(s, soundPath).wait(50);
-        s = stretchToSequenceLocation(
+        s = waitForBeamImpact(stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
           locations.target
-        ).waitUntilFinished(-200);
+        ));
       }
       addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, repeats - 1, repeats);
       shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);

@@ -2531,6 +2531,129 @@ export class CombatHUD {
               return;
             }
 
+            if (targetHasCover) {
+              const coveredTarget = targets.find(t => t.document?.getFlag(MODULE, "coverActive"));
+              if (!coveredTarget) {
+                ui.notifications.warn("STA2e Toolkit | No target in cover found.");
+                return;
+              }
+
+              const attackerProfile = CombatHUD.getGroundCombatProfile(actor, this._token?.document ?? null);
+              const attackerIsNpc   = !attackerProfile.isPlayerOwned;
+              let useStun;
+
+              if (isDual) {
+                const modeChoice = await foundry.applications.api.DialogV2.wait({
+                  window: { title: `${weapon.name} - Injury Type` },
+                  content: `
+                    <div style="font-family:${LC.font};padding:4px 0;">
+                      <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                        <strong style="color:${LC.primary};">${weapon.name}</strong>
+                        can inflict either a <strong style="color:${LC.secondary};">Stun</strong>
+                        or a <strong style="color:${LC.red};">Deadly</strong> injury.
+                      </div>
+                      <div style="font-size:10px;color:${LC.textDim};padding:4px 8px;
+                        border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;line-height:1.6;">
+                        Stun - target becomes Incapacitated<br>
+                        Deadly - target suffers a Deadly injury
+                        ${!attackerIsNpc ? `<br><span style="color:${LC.yellow};">Choosing Deadly gives the GM <strong>+1 Threat</strong>.</span>` : ""}
+                      </div>
+                    </div>`,
+                  buttons: [
+                    { action: "stun", label: "Stun", icon: "fas fa-bolt", default: true },
+                    { action: "deadly", label: "Deadly", icon: "fas fa-skull" },
+                    { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+                  ],
+                });
+                if (!modeChoice || modeChoice === "cancel") return;
+                useStun = modeChoice === "stun";
+              } else {
+                useStun = hasStun && !hasDeadly;
+              }
+
+              if (!useStun && hasDeadly && !attackerIsNpc) {
+                const confirmed = await foundry.applications.api.DialogV2.confirm({
+                  window: { title: "Deadly Attack - Confirm" },
+                  content: `
+                    <div style="font-family:${LC.font};padding:4px 0;line-height:1.6;">
+                      <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                        <strong style="color:${LC.red};">${weapon.name}</strong> will be used
+                        as a <strong>Deadly</strong> weapon.
+                      </div>
+                      <div style="font-size:10px;padding:6px 8px;
+                        background:rgba(255,50,50,0.06);border-left:3px solid ${LC.red};
+                        border-radius:0 2px 2px 0;color:${LC.text};">
+                        The GM receives <strong style="color:${LC.yellow};">+1 Threat</strong>
+                        immediately, regardless of hit or miss.
+                      </div>
+                    </div>`,
+                  yes: { label: "Confirm Deadly (+1 Threat)", icon: "fas fa-skull" },
+                  no: { label: "Cancel", icon: "fas fa-times" },
+                });
+                if (!confirmed) return;
+                await CombatHUD._applyToPool("threat", 1, this._token);
+              }
+
+              let pronePenalty = 0;
+              if (targetIsProne) {
+                const isDistant = await foundry.applications.api.DialogV2.confirm({
+                  window: { title: "Prone Target - Range Check" },
+                  content: `
+                    <div style="font-family:${LC.font};padding:4px 0;font-size:10px;
+                      color:${LC.text};line-height:1.6;">
+                      <strong style="color:${LC.secondary};">${coveredTarget.name ?? "Target"}</strong>
+                      is <strong>Prone</strong>.<br>
+                      Are they at <strong>Medium range or further</strong>?
+                      <div style="margin-top:6px;padding:4px 8px;
+                        background:rgba(255,153,0,0.06);border-left:3px solid ${LC.primary};
+                        border-radius:0 2px 2px 0;color:${LC.textDim};">
+                        Yes -> <strong style="color:${LC.text};">+1 Difficulty</strong> on this attack<br>
+                        No (Close range) -> no ranged Difficulty modifier
+                      </div>
+                    </div>`,
+                  yes: { label: "Yes - Medium or further (+1 Difficulty)", icon: "fas fa-arrows-alt-h" },
+                  no:  { label: "No - Close range (no modifier)",          icon: "fas fa-map-marker-alt" },
+                });
+                if (isDistant) pronePenalty = 1;
+              }
+
+              const _hasAccurate = weapon.system?.qualities?.accurate === true;
+              const _aimRerolls  = this._groundAimRerolls > 0 ? (_hasAccurate ? 2 : 1) : 0;
+              this[`_groundToggle_ground-aim`] = false;
+              this._groundAimRerolls = 0;
+
+              weaponCtx.useStun = useStun;
+              weaponCtx.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
+              weaponCtx.targetTokenIds = [coveredTarget.id];
+
+              const coverStarter = game.sta2eToolkit?.startGroundCombatOpposedTask;
+              if (!coverStarter) {
+                ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
+                return;
+              }
+              await coverStarter({
+                taskName: `Ranged Attack - ${weapon.name}`,
+                flavor: `${actor.name} fires on ${coveredTarget.name}, who is in cover.`,
+                defenseType: "cover",
+                attackerActorId: actor.id,
+                attackerTokenId: this._token.id,
+                defenderActorId: coveredTarget.actor?.id,
+                defenderTokenId: coveredTarget.id,
+                weaponContext: weaponCtx,
+                aimRerolls: _aimRerolls,
+                guardPenalty,
+                pronePenalty,
+                targetIsProne,
+                targetIsProneInCover,
+                defenderSuggestedAttr: "control",
+                defenderSuggestedDisc: "security",
+                attackerSuggestedAttr: "control",
+                attackerSuggestedDisc: "security",
+              });
+              this._refresh();
+              return;
+            }
+
             const choice = await foundry.applications.api.DialogV2.wait({
               window:  { title: `${weapon.name} — Attack Method` },
               content: `
@@ -2726,31 +2849,14 @@ export class CombatHUD {
                 return; // bail — attacker roller opens automatically when defender confirms
               }
 
-              // Ranged cover: opposed task — post the defender roll card, store attacker context,
-              // and bail. The attacker's roller opens automatically when the defender confirms.
+              // Ranged cover: opposed task — create the unified opposed-task card
+              // (defender rolls Control + Security first; attacker's roller opens
+              // when they click Attacker Roll). Mirrors the melee path above.
               if (!isMelee && targetHasCover) {
                 const coveredTarget = targets.find(t => t.document?.getFlag(MODULE, "coverActive"));
-                if (coveredTarget) {
-                  ChatMessage.create({
-                    content: lcarsCard("🪨 COVER DEFENSE", LC.secondary, `
-                      <div style="font-size:11px;font-weight:700;color:${LC.tertiary};
-                        margin-bottom:4px;font-family:${LC.font};">${coveredTarget.name}</div>
-                      <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
-                        <strong>${actor.name}</strong> is making a ranged attack — roll your cover defense.<br>
-                        <span style="color:${LC.textDim};">Control + Security · your successes set the attacker's Difficulty.</span>
-                      </div>
-                      <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
-                        <button class="sta2e-cover-defense-roll"
-                          data-token-id="${coveredTarget.id}"
-                          style="width:100%;padding:4px 8px;font-family:${LC.font};font-size:10px;
-                            font-weight:700;letter-spacing:0.06em;text-transform:uppercase;
-                            cursor:pointer;background:rgba(0,200,100,0.10);
-                            border:1px solid ${LC.secondary};border-radius:2px;color:${LC.secondary};">
-                          🎲 Roll Cover Defense
-                        </button>
-                      </div>`),
-                    speaker: ChatMessage.getSpeaker({ token: this._token }),
-                  });
+                if (!coveredTarget) {
+                  ui.notifications.warn("STA2e Toolkit | No target in cover found.");
+                  return;
                 }
 
                 const _hasAccurate = weapon.system?.qualities?.accurate === true;
@@ -2758,32 +2864,34 @@ export class CombatHUD {
                 this[`_groundToggle_ground-aim`] = false;
                 this._groundAimRerolls = 0;
 
-                await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
-                  taskId:          `${this._token.id}-${Date.now()}`,
-                  attackerUserId:  getActorRollUserId(actor),
-                  attackerTokenId: this._token.id,
+                weaponCtx.targetTokenIds = [coveredTarget.id];
+
+                const coverStarter = game.sta2eToolkit?.startGroundCombatOpposedTask;
+                if (!coverStarter) {
+                  ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
+                  return;
+                }
+                await coverStarter({
+                  taskName: `Ranged Attack — ${weapon.name}`,
+                  flavor: `${actor.name} fires on ${coveredTarget.name}, who is in cover.`,
+                  defenseType: "cover",
                   attackerActorId: actor.id,
-                  isNpcAttacker:   false,  // ground NPCs also use openPlayerRoller
-                  defenseType:     "cover",
+                  attackerTokenId: this._token.id,
+                  defenderActorId: coveredTarget.actor?.id,
+                  defenderTokenId: coveredTarget.id,
+                  weaponContext: weaponCtx,
+                  aimRerolls: _aimRerolls,
                   guardPenalty,
                   pronePenalty,
                   targetIsProne,
                   targetIsProneInCover,
-                  rollerOpts: {
-                    groundMode:    true,
-                    groundIsNpc:   CombatHUD.isGroundNpcActor(actor),
-                    stationId:     "tactical",
-                    officer:       readOfficerStats(actor),
-                    weaponContext: weaponCtx,
-                    defaultAttr:   "control",
-                    defaultDisc:   "security",
-                    taskLabel:     `Attack — ${weapon.name}`,
-                    aimRerolls:    _aimRerolls,
-                    // opposedDifficulty / defenderSuccesses / opposedDefenseType / taskContext
-                    // are injected by resolveDefenderRoll when the defender confirms
-                  },
+                  defenderSuggestedAttr: "control",
+                  defenderSuggestedDisc: "security",
+                  attackerSuggestedAttr: "control",
+                  attackerSuggestedDisc: "security",
                 });
-                return; // bail — attacker roller opens automatically when defender confirms
+                this._refresh();
+                return; // bail — opposed-task card drives the rest of the flow
               }
 
               // Non-opposed ranged attack (no cover, no melee) — open roller directly
@@ -11165,9 +11273,8 @@ export class CombatHUD {
     const explodes  = roll > engRating;
 
     if (explodes) {
-      // ── BREACH — ship explodes ──────────────────────────────────────────
+      // ── BREACH — reactor detonation → death-throes destruction sequence ──
       await CombatHUD.setWarpBreachState(actor, false);
-      await CombatHUD.setShipStatus(actor, "destroyed");
 
       ChatMessage.create({
         content: lcarsCard("💥 WARP CORE BREACH", LC.red, `
@@ -11190,10 +11297,13 @@ export class CombatHUD {
         speaker: { alias: "STA2e Toolkit" },
       });
 
-      if (token) {
-        CombatHUD._stopBreachTrailFX(token);
-        await CombatHUD.fireDestructionEffect(token);
-      }
+      if (token) CombatHUD._stopBreachTrailFX(token);
+      // Engines are gone in a reactor breach — vaporize before the final blast.
+      await CombatHUD._postDestructionControlCard(actor, token, {
+        vaporize:   true,
+        reason:     `Warp core breach — reactor detonation. ${actor.name} is destroyed.`,
+        autoThroes: true,
+      });
 
     } else {
       // ── SAFE this round ─────────────────────────────────────────────────
@@ -12200,24 +12310,20 @@ export class CombatHUD {
     if (!isNowCritical) return; // still within scale — no critical outcome
 
     if (currentStatus === "active") {
-      // Ship just crossed into critical damage this attack
+      // Ship just crossed into critical damage this attack — All Hands, Abandon Ship!
       await CombatHUD.setShipStatus(actor, "disabled");
-      ChatMessage.create({
-        content: lcarsCard("⚠️ CRITICAL DAMAGE", LC.orange, `
-          <div style="font-size:12px;font-weight:700;color:${LC.orange};
-            margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
-          <div style="font-size:10px;color:${LC.text};font-family:${LC.font};">
-            Total breaches (${totalBreaches}) exceed Scale ${scale}.<br>
-            Ship can no longer function — no further actions may be taken.
-            ${isNpc ? `<br><span style="color:${LC.textDim};">At GM discretion, this NPC vessel may be destroyed.</span>` : ""}
-          </div>`),
-        speaker: { alias: "STA2e Toolkit" }
-      });
+      await CombatHUD._postAbandonShipCard(actor, token);
 
     } else if (currentStatus === "disabled") {
-      // Ship was already critical — this attack destroys it
-      await CombatHUD._destroyShip(actor, token,
-        `Additional breach suffered while at critical damage. ${actor.name} is destroyed.`);
+      // Ship was already critical — this attack would destroy it. Hand off to the
+      // GM-gated death-throes sequence rather than killing it instantly.
+      const vaporize = CombatHUD._isEnginesDestroyed(actor)
+        || CombatHUD.getWarpBreachState(actor);
+      await CombatHUD._postDestructionControlCard(actor, token, {
+        vaporize,
+        reason:     `Additional breach suffered while at critical damage. ${actor.name} is destroyed.`,
+        autoThroes: false,
+      });
     }
   }
 
@@ -12236,6 +12342,330 @@ export class CombatHUD {
     const destroyToken = token
       ?? canvas.tokens?.placeables.find(t => t.actor === actor || t.document?.actorId === actor.id);
     if (destroyToken) await CombatHUD.fireDestructionEffect(destroyToken);
+  }
+
+  // ── Death-throes destruction sequence ───────────────────────────────────────
+  // A ship "about to be destroyed" no longer dies instantly. Instead the GM is
+  // shown a private control card. On confirmation the ship enters death throes —
+  // a powerless tumble (random spin + bounded drift) punctuated by secondary
+  // hull-impact explosions — until the GM detonates it from the same card.
+
+  /** True when the Engines system has taken enough breaches to be destroyed. */
+  static _isEnginesDestroyed(actor) {
+    const scale     = actor.system?.scale ?? 1;
+    const threshold = Math.ceil(scale / 2);
+    const breaches  = actor.system?.systems?.engines?.breaches ?? 0;
+    return breaches >= threshold;
+  }
+
+  /** Build the inner HTML for the GM destruction-control card at a given stage. */
+  static _destructionCardHtml(stage, data) {
+    const name = data.shipName ?? "Unknown Vessel";
+    const enc  = encodeURIComponent(JSON.stringify(data));
+    const btn  = (action, color, label) =>
+      `<button class="sta2e-destroy-btn" data-action="${action}" data-payload="${enc}" style="
+        width:100%;margin-top:6px;padding:5px 8px;background:rgba(0,0,0,0.35);
+        border:1px solid ${color};border-radius:2px;color:${color};font-size:11px;
+        font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
+        font-family:${LC.font};">${label}</button>`;
+
+    if (stage === "confirm") {
+      return lcarsCard("⚠ DESTRUCTION IMMINENT", LC.orange, `
+        <div style="font-size:12px;font-weight:700;color:${LC.orange};
+          font-family:${LC.font};margin-bottom:4px;">${name}</div>
+        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};margin-bottom:2px;">
+          ${data.reason ?? ""}<br>Begin the ship destruction sequence?
+        </div>
+        ${btn("begin", LC.red, "▶ Begin Destruction Sequence")}
+      `);
+    }
+    if (stage === "throes") {
+      return lcarsCard("BREAKING APART", LC.red, `
+        <div style="font-size:12px;font-weight:700;color:${LC.red};
+          font-family:${LC.font};margin-bottom:4px;">${name}</div>
+        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};margin-bottom:2px;">
+          Hull integrity failing — the vessel is adrift and wracked by secondary
+          explosions. Detonate when ready.
+        </div>
+        ${btn("destroy", LC.red, "💥 Destroy Ship Now")}
+      `);
+    }
+    // done
+    return lcarsCard("SHIP DESTROYED", LC.red, `
+      <div style="font-size:12px;font-weight:700;color:${LC.red};
+        font-family:${LC.font};margin-bottom:4px;">${name}</div>
+      <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};">
+        ${data.reason ?? "The vessel has been destroyed."}
+      </div>
+    `);
+  }
+
+  /**
+   * Post the GM-only destruction-control card.
+   * @param {Actor}  actor
+   * @param {Token}  token
+   * @param {object} opts
+   * @param {boolean} opts.vaporize   Apply the vaporize TMFX before the final explosion.
+   * @param {string}  opts.reason     Shown on the card / final destruction message.
+   * @param {boolean} opts.autoThroes Skip the confirm step and go straight to death throes.
+   */
+  static async _postDestructionControlCard(actor, token, { vaporize = false, reason = "", autoThroes = false } = {}) {
+    const tokenId = token?.id ?? CombatHUD._tokenDocFor(actor)?.id ?? null;
+    const data = {
+      actorId:  actor.id,
+      tokenId,
+      vaporize: !!vaporize,
+      reason,
+      shipName: actor.name,
+    };
+    const stage = autoThroes ? "throes" : "confirm";
+    const gmIds = game.users.filter(u => u.isGM).map(u => u.id);
+
+    await ChatMessage.create({
+      content: CombatHUD._destructionCardHtml(stage, data),
+      speaker: { alias: "STA2e Toolkit" },
+      whisper: gmIds,
+      flags: {
+        "sta2e-toolkit": {
+          shipDestructionCard: true,
+          destructStage:       stage,
+          destructData:        encodeURIComponent(JSON.stringify(data)),
+        },
+      },
+    });
+  }
+
+  static _deathThroesMap() {
+    if (!CombatHUD._deathThroes) CombatHUD._deathThroes = new Map();
+    return CombatHUD._deathThroes;
+  }
+
+  /** Start the death-throes loop for a token if one is not already running. */
+  static _ensureDeathThroes(tokenId) {
+    if (!tokenId) return;
+    const map = CombatHUD._deathThroesMap();
+    if (map.has(tokenId)) return;
+    const token = canvas.tokens?.get(tokenId);
+    if (!token) return;
+    CombatHUD._startDeathThroes(token);
+  }
+
+  static async _startDeathThroes(token) {
+    const tokenId = token.id;
+    const map     = CombatHUD._deathThroesMap();
+    if (map.has(tokenId)) return;
+
+    const grid = canvas.grid?.size ?? 100;
+    const state = {
+      intervalId: null,
+      origin: { x: token.document.x, y: token.document.y },
+      angle:  token.document.rotation ?? 0,
+      dir:    Math.random() < 0.5 ? 1 : -1,        // clockwise / counter-clockwise
+      drift:  Math.random() * Math.PI * 2,         // initial drift heading
+      tick:   0,
+    };
+    map.set(tokenId, state);
+
+    // Ships often lock rotation — unlock so the tumble is visible.
+    try {
+      await token.document.update({ lockRotation: false }, { animate: false, sta2eDeathThroes: true });
+    } catch { /* non-fatal */ }
+
+    const STEP_MS       = 800;
+    const SPIN_DEG      = 6;
+    const DRIFT_PX      = grid * 0.05;
+    const WANDER_RADIUS = grid * 0.8;   // bounded local wander
+    const EXPLODE_EVERY = 3;            // secondary explosion every ~2.4s
+
+    state.intervalId = setInterval(async () => {
+      const st = map.get(tokenId);
+      if (!st) return;
+      const tk = canvas.tokens?.get(tokenId);
+      if (!tk) { CombatHUD._stopDeathThroes(tokenId); return; }
+      st.tick++;
+
+      // Spin a fixed step in the chosen direction.
+      st.angle = (st.angle + st.dir * SPIN_DEG + 360) % 360;
+
+      // Drift with a gently meandering heading, steering back if it strays too far.
+      st.drift += (Math.random() - 0.5) * 0.7;
+      let nx = tk.document.x + Math.cos(st.drift) * DRIFT_PX;
+      let ny = tk.document.y + Math.sin(st.drift) * DRIFT_PX;
+      if (Math.hypot(nx - st.origin.x, ny - st.origin.y) > WANDER_RADIUS) {
+        st.drift = Math.atan2(st.origin.y - ny, st.origin.x - nx);
+        nx = tk.document.x + Math.cos(st.drift) * DRIFT_PX;
+        ny = tk.document.y + Math.sin(st.drift) * DRIFT_PX;
+      }
+
+      try {
+        await tk.document.update(
+          { rotation: st.angle, x: nx, y: ny },
+          { animate: true, animation: { duration: STEP_MS, easing: "linear" }, sta2eDeathThroes: true }
+        );
+      } catch { /* token may have been removed mid-step */ }
+
+      if (st.tick % EXPLODE_EVERY === 0) CombatHUD._playSecondaryExplosion(tk);
+    }, STEP_MS);
+  }
+
+  static _stopDeathThroes(tokenId) {
+    const map = CombatHUD._deathThroesMap();
+    const st  = map.get(tokenId);
+    if (st?.intervalId) clearInterval(st.intervalId);
+    map.delete(tokenId);
+  }
+
+  /** Single secondary hull-impact explosion at a random spot inside the token. */
+  static _playSecondaryExplosion(token) {
+    if (!window.Sequence) return;
+    const patron = (() => {
+      try { return game.settings.get("sta2e-toolkit", "jb2aTier") === "patron"; }
+      catch { return false; }
+    })();
+    // Mirrors the hull-impact effect used by shield-impact-vfx.js.
+    const file = patron
+      ? "jb2a.explosion_side.01.orange.2"
+      : "modules/JB2A_DnD5e/Library/Generic/Explosion/Explosion_01_Orange_400x400.webm";
+    const grid = canvas.grid?.size ?? 100;
+    const tw   = token.w ?? ((token.document.width  ?? 1) * grid);
+    const th   = token.h ?? ((token.document.height ?? 1) * grid);
+    const offX = (Math.random() - 0.5) * tw * 0.55;
+    const offY = (Math.random() - 0.5) * th * 0.55;
+    try {
+      new window.Sequence()
+        .effect()
+          .file(file)
+          .atLocation(token, { offset: { x: offX, y: offY }, gridUnits: false })
+          .scaleToObject(0.45 + Math.random() * 0.35)
+          .randomRotation()
+          .zIndex(6)
+          .fadeIn(40)
+          .fadeOut(420)
+        .play();
+    } catch (e) {
+      console.warn("STA2e Toolkit | Secondary explosion FX failed:", e);
+    }
+  }
+
+  /**
+   * Apply the ground-combat vaporize TokenMagic effect (devouring white fire +
+   * faction glow) and hold it briefly. Used before the final ship explosion when
+   * the engines are gone or the reactor breached. Does NOT delete the token —
+   * the caller's explosion handles removal.
+   */
+  static async _applyVaporizeFX(token, weaponColor = "orange", holdMs = 1100) {
+    if (!token || !window.TokenMagic) return;
+    const glowColor = weaponColor === "green" ? 0x00AA44 : 0xAA6500;
+    const params = [
+      {
+        filterType:   "fire",
+        filterId:     "sta2e-vaporize-fire",
+        intensity:    3,
+        color:        0xFFFFFF,
+        amplitude:    2,
+        time:         0,
+        blend:        10,
+        fireBlend:    1,
+        alphaDiscard: true,
+        zOrder:       50,
+        animated: { time: { active: true, speed: -0.0024, animType: "move" } },
+      },
+      {
+        filterType:    "glow",
+        filterId:      "sta2e-vaporize-glow",
+        outerStrength: 4,
+        innerStrength: 2,
+        color:         glowColor,
+        quality:       0.5,
+        padding:       10,
+        zOrder:        100,
+      },
+    ];
+    try {
+      await TokenMagic.addUpdateFilters(token, params);
+      await new Promise(r => setTimeout(r, holdMs));
+    } catch (e) {
+      console.warn("STA2e Toolkit | Vaporize FX failed:", e);
+    }
+  }
+
+  /**
+   * Stop the death throes and run the final destruction: optional vaporize FX,
+   * the explosion sequence, status update and token removal.
+   */
+  static async _finalizeShipDestruction(data) {
+    const { tokenId, actorId, vaporize, reason } = data;
+    CombatHUD._stopDeathThroes(tokenId);
+
+    const token = tokenId ? canvas.tokens?.get(tokenId) : null;
+    const actor = token?.actor ?? game.actors.get(actorId) ?? null;
+
+    if (actor) {
+      await CombatHUD.setShipStatus(actor, "destroyed");
+      CombatHUD._clearBreachTokenFX(actor);
+      try { await CombatHUD.setWarpBreachState(actor, false); } catch { /* ignore */ }
+    }
+
+    ChatMessage.create({
+      content: lcarsCard("💀 SHIP DESTROYED", LC.red, `
+        <div style="font-size:12px;font-weight:700;color:${LC.red};
+          margin-bottom:4px;font-family:${LC.font};">${actor?.name ?? data.shipName ?? ""}</div>
+        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};">
+          ${reason ?? "The vessel has been destroyed."}
+        </div>`),
+      speaker: { alias: "STA2e Toolkit" },
+    });
+
+    if (token) {
+      if (vaporize) await CombatHUD._applyVaporizeFX(token, "orange", 1000);
+      await CombatHUD.fireDestructionEffect(token);
+    }
+  }
+
+  /**
+   * Post the "All Hands — Abandon Ship!" critical-damage card.
+   * PC ships: public (all players). NPC ships: GM-only, with Destroy / Leave buttons.
+   */
+  static async _postAbandonShipCard(actor, token) {
+    const isNpc   = CombatHUD.isNpcShip(actor);
+    const tokenId = token?.id ?? CombatHUD._tokenDocFor(actor)?.id ?? null;
+    const data    = { actorId: actor.id, tokenId, shipName: actor.name };
+    const gmIds   = game.users.filter(u => u.isGM).map(u => u.id);
+
+    let buttons = "";
+    if (isNpc) {
+      const enc = encodeURIComponent(JSON.stringify(data));
+      const mk  = (action, color, label) =>
+        `<button class="sta2e-abandon-btn" data-action="${action}" data-payload="${enc}" style="
+          flex:1;padding:5px 8px;background:rgba(0,0,0,0.35);border:1px solid ${color};
+          border-radius:2px;color:${color};font-size:10px;font-weight:700;
+          letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;font-family:${LC.font};">${label}</button>`;
+      buttons = `<div style="display:flex;gap:6px;margin-top:8px;">
+        ${mk("npc-destroy", LC.red, "💥 Destroy Ship")}
+        ${mk("npc-leave", LC.textDim, "Leave Disabled")}
+      </div>`;
+    }
+
+    await ChatMessage.create({
+      content: lcarsCard("🚨 ALL HANDS — ABANDON SHIP!", LC.red, `
+        <div style="font-size:12px;font-weight:700;color:${LC.red};
+          font-family:${LC.font};margin-bottom:4px;">${actor.name}</div>
+        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};">
+          This vessel can no longer function. No further actions may be taken
+          unless a warp core breach occurs.
+        </div>
+        ${buttons}
+      `),
+      speaker: { alias: "STA2e Toolkit" },
+      whisper: isNpc ? gmIds : [],
+      flags: {
+        "sta2e-toolkit": {
+          abandonShipCard: true,
+          abandonIsNpc:    isNpc,
+          destructData:    encodeURIComponent(JSON.stringify(data)),
+        },
+      },
+    });
   }
 
   static async applyBreach(actor, systemKey, token = null) {
@@ -12900,6 +13330,45 @@ export class CombatHUD {
     }
   }
 
+  static async _spendCounterattackCost({ actor = null, token = null, isNpc = false, cost = 2 } = {}) {
+    const pool = isNpc ? "threat" : "momentum";
+    const label = isNpc ? "Threat" : "Momentum";
+    const actorId = actor?.id ?? token?.actor?.id ?? null;
+    const { readTrackerState } = await import("./momentum-spend.js");
+    const tracker = readTrackerState(null, actorId);
+
+    let remaining = Math.max(0, Number(cost) || 0);
+    const floatUsed = Math.min(tracker.float, remaining);
+    remaining -= floatUsed;
+    const bonusUsed = Math.min(tracker.bonus, remaining);
+    remaining -= bonusUsed;
+
+    const poolCurrent = readPool(pool);
+    if (poolCurrent < remaining) {
+      const available = tracker.float + tracker.bonus + poolCurrent;
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${label} to counterattack (need ${cost}, available ${available}).`);
+      return false;
+    }
+
+    if (tracker.messageId && (floatUsed > 0 || bonusUsed > 0)) {
+      try {
+        const mod = await import("./momentum-tracker.js");
+        await mod.decrementTracker(tracker.messageId, {
+          float: floatUsed,
+          bonus: bonusUsed,
+        });
+      } catch (err) {
+        console.error("STA2e Toolkit | counterattack tracker spend failed:", err);
+        return false;
+      }
+    }
+
+    if (remaining > 0) {
+      await writePool(pool, poolCurrent - remaining);
+    }
+    return true;
+  }
+
   // ── Devastating Attack (2 Momentum, or 1 with Spread) ─────────────────────
 
   static async applyDevastatingAttack(payload) {
@@ -13193,9 +13662,6 @@ export class CombatHUD {
         const defIcon  = oDT === "melee" ? "⚔️" : "🪨";
         const costLabel = defenderIsNpc ? "2 Threat" : "2 Momentum";
         const winMargin = (aSucc !== null) ? dSucc - aSucc : null;
-        const defPoolBtn = (winMargin !== null && winMargin > 0)
-          ? poolButtonHtml(defenderIsNpc ? "threat" : "momentum", winMargin, defenderTokenId ?? "")
-          : "";
         const cfPayload = encodeURIComponent(JSON.stringify({
           attackerTokenId, defenderTokenId, defenderActorId, defenderIsNpc,
         }));
@@ -13215,7 +13681,6 @@ export class CombatHUD {
             <div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:3px;">
               ✗ Defender wins — +${winMargin ?? dSucc} ${defenderIsNpc ? "Threat" : "Momentum"}
             </div>
-            ${defPoolBtn}
             <div style="margin-top:5px;">
               <button class="sta2e-ground-counterattack"
                 data-payload="${cfPayload}"
@@ -14016,47 +14481,10 @@ export class CombatHUD {
       await CombatHUD._fadeAndDeleteToken(token);
       return;
     }
-
-    // Color the glow to match the weapon:
-    //  phaser = orange, disruptor = green, grenade/Jem'Hadar = orange
-    const glowColor = weaponColor === "green" ? 0x00AA44 : 0xAA6500;
-
-    const params = [
-      {
-        filterType:   "fire",
-        filterId:     "sta2e-vaporize-fire",
-        intensity:    3,
-        color:        0xFFFFFF,
-        amplitude:    2,
-        time:         0,
-        blend:        10,
-        fireBlend:    1,
-        alphaDiscard: true,
-        zOrder:       50,
-        animated: {
-          time: { active: true, speed: -0.0024, animType: "move" }
-        }
-      },
-      {
-        filterType:    "glow",
-        filterId:      "sta2e-vaporize-glow",
-        outerStrength: 4,
-        innerStrength: 2,
-        color:         glowColor,
-        quality:       0.5,
-        padding:       10,
-        zOrder:        100,
-      }
-    ];
-
     try {
-      // Apply devouring fire effect
-      await TokenMagic.addUpdateFilters(token, params);
-
-      // Hold for dramatic effect, then fade and delete
-      await new Promise(r => setTimeout(r, 1200));
+      // Devouring fire + faction glow, then fade and delete.
+      await CombatHUD._applyVaporizeFX(token, weaponColor, 1200);
       await CombatHUD._fadeAndDeleteToken(token, 800);
-
     } catch(e) {
       console.warn("STA2e Toolkit | Vaporize effect failed:", e);
       await CombatHUD._fadeAndDeleteToken(token);
@@ -16625,6 +17053,86 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     });
   }
 
+  // ── Starship — GM destruction-control card (confirm → throes → detonate) ──
+  if (toolkitFlags.shipDestructionCard) {
+    const isPrimaryGM = game.user.isGM && game.users.activeGM === game.user;
+
+    // Only the primary GM drives the sequence; everyone else just sees the card.
+    if (!isPrimaryGM) {
+      html.querySelectorAll(".sta2e-destroy-btn").forEach(b => (b.style.display = "none"));
+      return;
+    }
+
+    let data = {};
+    try { data = JSON.parse(decodeURIComponent(toolkitFlags.destructData ?? "{}")); } catch { /* ignore */ }
+    const stage = toolkitFlags.destructStage ?? "confirm";
+
+    // Run the spin/drift + secondary-explosion loop while in the throes stage;
+    // ensure it is stopped once we leave that stage (e.g. card re-rendered as done).
+    if (data.tokenId) {
+      if (stage === "throes") CombatHUD._ensureDeathThroes(data.tokenId);
+      else                    CombatHUD._stopDeathThroes(data.tokenId);
+    }
+
+    html.querySelectorAll(".sta2e-destroy-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const action = btn.dataset.action;
+        let payload = data;
+        try { payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}")); } catch { /* ignore */ }
+        html.querySelectorAll(".sta2e-destroy-btn").forEach(b => { b.disabled = true; b.style.opacity = "0.4"; });
+
+        if (action === "begin") {
+          // Advance to death throes — the re-render starts the loop on this client.
+          await message.update({
+            content: CombatHUD._destructionCardHtml("throes", payload),
+            "flags.sta2e-toolkit.destructStage": "throes",
+          }).catch(err => console.error("STA2e Toolkit | destruction begin failed:", err));
+        } else if (action === "destroy") {
+          await CombatHUD._finalizeShipDestruction(payload);
+          await message.update({
+            content: CombatHUD._destructionCardHtml("done", payload),
+            "flags.sta2e-toolkit.destructStage": "done",
+          }).catch(err => console.error("STA2e Toolkit | destruction finalize failed:", err));
+        }
+      });
+    });
+    return;
+  }
+
+  // ── Starship — All Hands Abandon Ship! card (NPC destroy / leave choice) ──
+  if (toolkitFlags.abandonShipCard) {
+    const isPrimaryGM = game.user.isGM && game.users.activeGM === game.user;
+    if (!isPrimaryGM || toolkitFlags.abandonResolved) {
+      html.querySelectorAll(".sta2e-abandon-btn").forEach(b => (b.style.display = "none"));
+      return;
+    }
+
+    html.querySelectorAll(".sta2e-abandon-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const action = btn.dataset.action;
+        let payload = {};
+        try { payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}")); } catch { /* ignore */ }
+        html.querySelectorAll(".sta2e-abandon-btn").forEach(b => { b.disabled = true; b.style.opacity = "0.4"; });
+
+        if (action === "npc-destroy") {
+          const token = payload.tokenId ? canvas.tokens?.get(payload.tokenId) : null;
+          const actor = token?.actor ?? game.actors.get(payload.actorId) ?? null;
+          if (actor) {
+            const vaporize = CombatHUD._isEnginesDestroyed(actor) || CombatHUD.getWarpBreachState(actor);
+            await CombatHUD._postDestructionControlCard(actor, token, {
+              vaporize,
+              reason:     `${actor.name} destroyed at GM discretion.`,
+              autoThroes: true,
+            });
+          }
+        }
+        await message.update({ "flags.sta2e-toolkit.abandonResolved": true })
+          .catch(err => console.error("STA2e Toolkit | abandon-ship resolve failed:", err));
+      });
+    });
+    return;
+  }
+
   const getCardActorAccess = (payload = {}) => {
     const actor = canvas?.tokens?.get(payload.tokenId)?.actor
       ?? game.actors.get(payload.actorId)
@@ -17875,6 +18383,15 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 trackerMessageId: _trackerMessageId,
               }) : null;
 
+              // For an opposed ground attack resolved by a player, the resolved
+              // opposed-result card is posted asynchronously by the GM (via the
+              // socket emit above). Wait briefly so that card lands before this
+              // damage/injury card. GM-as-attacker already awaits the resolution
+              // before reaching here, so no delay is needed in that path.
+              if (opposedTaskRef && opposedDefenseType && !game.user.isGM) {
+                await new Promise(r => setTimeout(r, 600));
+              }
+
               await ChatMessage.create({
                 flags: { "sta2e-toolkit": { groundDamageCard: true, ...(_spendCtx ? { spendContext: _spendCtx } : {}) } },
                 content: CombatHUD._groundChatCard(charActor.name, weapon, targetData, passed, useStun, deadlyCostsThreat, groundOpposedInfo),
@@ -18388,14 +18905,74 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         if (!chosenWeapon) return;
 
-        // Spend 2 Momentum (player) or 2 Threat (NPC) for the counterattack
-        const caGndPool    = defenderIsNpc ? "threat" : "momentum";
-        const caGndCurrent = readPool(caGndPool);
-        if (caGndCurrent < 2) {
-          ui.notifications.warn(`STA2e Toolkit: Not enough ${defenderIsNpc ? "Threat" : "Momentum"} to counterattack (need 2, have ${caGndCurrent}).`);
+        const hasStun   = chosenWeapon.system?.qualities?.stun   ?? false;
+        const hasDeadly = chosenWeapon.system?.qualities?.deadly ?? false;
+        const isDual    = hasStun && hasDeadly;
+        const counterProfile = CombatHUD.getGroundCombatProfile(defenderActor, defenderToken?.document ?? null);
+        const counterattackerIsNpc = defenderIsNpc ?? !counterProfile.isPlayerOwned;
+        let useStun;
+
+        if (isDual) {
+          const modeChoice = await foundry.applications.api.DialogV2.wait({
+            window: { title: `${chosenWeapon.name} - Counterattack Injury Type` },
+            content: `
+              <div style="font-family:${LC.font};padding:4px 0;">
+                <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                  <strong style="color:${LC.primary};">${chosenWeapon.name}</strong>
+                  can inflict either a <strong style="color:${LC.secondary};">Stun</strong>
+                  or a <strong style="color:${LC.red};">Deadly</strong> injury.
+                </div>
+                <div style="font-size:10px;color:${LC.textDim};padding:4px 8px;
+                  border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;line-height:1.6;">
+                  Stun - target becomes Incapacitated<br>
+                  Deadly - target suffers a Deadly injury
+                  ${!counterattackerIsNpc ? `<br><span style="color:${LC.yellow};">Choosing Deadly gives the GM <strong>+1 Threat</strong>.</span>` : ""}
+                </div>
+              </div>`,
+            buttons: [
+              { action: "stun", label: "Stun", icon: "fas fa-bolt", default: true },
+              { action: "deadly", label: "Deadly", icon: "fas fa-skull" },
+              { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+            ],
+          });
+          if (!modeChoice || modeChoice === "cancel") return;
+          useStun = modeChoice === "stun";
+        } else {
+          useStun = hasStun && !hasDeadly;
+        }
+
+        if (!useStun && hasDeadly && !counterattackerIsNpc) {
+          const confirmed = await foundry.applications.api.DialogV2.confirm({
+            window: { title: "Deadly Counterattack - Confirm" },
+            content: `
+              <div style="font-family:${LC.font};padding:4px 0;line-height:1.6;">
+                <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                  <strong style="color:${LC.red};">${chosenWeapon.name}</strong> will be used
+                  as a <strong>Deadly</strong> weapon.
+                </div>
+                <div style="font-size:10px;padding:6px 8px;
+                  background:rgba(255,50,50,0.06);border-left:3px solid ${LC.red};
+                  border-radius:0 2px 2px 0;color:${LC.text};">
+                  The GM receives <strong style="color:${LC.yellow};">+1 Threat</strong>
+                  immediately, regardless of hit or miss.
+                </div>
+              </div>`,
+            yes: { label: "Confirm Deadly (+1 Threat)", icon: "fas fa-skull" },
+            no: { label: "Cancel", icon: "fas fa-times" },
+          });
+          if (!confirmed) return;
+          await CombatHUD._applyToPool("threat", 1, defenderToken ?? null);
+        }
+
+        const paidCounterattack = await CombatHUD._spendCounterattackCost({
+          actor: defenderActor,
+          token: defenderToken ?? null,
+          isNpc: !!defenderIsNpc,
+          cost: 2,
+        });
+        if (!paidCounterattack) {
           return;
         }
-        await writePool(caGndPool, caGndCurrent - 2);
 
         btn.disabled      = true;
         btn.style.opacity = "0.5";
@@ -18413,10 +18990,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return;
         }
         const config    = getWeaponConfig(chosenWeapon);
-        const hasStun   = chosenWeapon.system?.qualities?.stun   ?? false;
-        const hasDeadly = chosenWeapon.system?.qualities?.deadly ?? false;
         const severity  = chosenWeapon.system?.severity ?? 0;
-        const useStun   = hasStun && !hasDeadly;
 
         const profile    = CombatHUD.getGroundCombatProfile(attackerActor, attackerToken?.document);
         const protection = CombatHUD._getTargetProtection(attackerActor);
@@ -18885,12 +19459,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
           // Determine pool type — NPC ships spend Threat, player ships spend Momentum
           const isNpcDefender = CombatHUD.isNpcShip(defenderActor);
-          const caPool        = isNpcDefender ? "threat" : "momentum";
-          const caPoolCurrent = readPool(caPool);
-          if (caPoolCurrent < 2) {
-            ui.notifications.warn(`STA2e Toolkit: Not enough ${isNpcDefender ? "Threat" : "Momentum"} to counterattack (need 2, have ${caPoolCurrent}).`);
-            return;
-          }
 
           // For Defensive Fire: only energy weapons (no torpedoes per rules)
           // For Evasive Action / Cover: any ship weapon
@@ -19022,8 +19590,18 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           btn.textContent   = "✓ Counterattack Fired";
           btn.style.opacity = "0.5";
 
-          // Spend 2 Momentum (player) or 2 Threat (NPC) for the counterattack
-          await writePool(caPool, readPool(caPool) - 2);
+          const paidCounterattack = await CombatHUD._spendCounterattackCost({
+            actor: defenderActor,
+            token: defenderToken ?? null,
+            isNpc: isNpcDefender,
+            cost: 2,
+          });
+          if (!paidCounterattack) {
+            btn.disabled = false;
+            btn.textContent = "Counterattack";
+            btn.style.opacity = "1";
+            return;
+          }
 
           // Auto-hit — pass the attacker token directly so no target selection needed
           await CombatHUD.resolveShipAttack(defenderToken, defWeapon, true, {

@@ -772,9 +772,10 @@ export async function startGroundCombatOpposedTask(opts = {}) {
   const guardPenalty = Number(opts.guardPenalty ?? 0);
   const pronePenalty = Number(opts.pronePenalty ?? 0);
   const targetIsProne = !!opts.targetIsProne;
-  const traitModifier = opts.traitModifierMode || opts.options?.traitModifierMode
-    ? _normalizeTraitModifier(opts.options ?? opts)
-    : await _promptTraitModifier({ title: "Ground Opposed Task - Trait in Play", defaultValue: opts.options ?? opts });
+  // Trait modifier is no longer prompted via a blocking dialog at start (which
+  // only the initiating GM would see). Default to whatever was passed in; any GM
+  // can adjust it afterward via the 🎚 Trait button on the opposed-task card.
+  const traitModifier = _normalizeTraitModifier(opts.options ?? opts);
   const taskData = {
     taskId,
     mode: "groundCombat",
@@ -1197,6 +1198,21 @@ function _renderCardHtml(d) {
         title="GM only — cancel this opposed task">✕</button>`
     : "";
 
+  // GM-only trait modifier button (ground/starship combat, before resolution).
+  // Hidden for non-GM users in wireOpposedTaskCard. Lets any GM apply or adjust
+  // the manual trait difficulty modifier — replaces the old blocking popup.
+  const traitBtnLabel = difficultyInfo.traitDelta
+    ? `🎚 ${traitLabel}`
+    : "🎚 Trait";
+  const gmTrait = (isGroundCombat || isStarshipCombat) && !resolved
+    ? `<button type="button" class="sta2e-op-trait" data-task-id="${d.taskId}"
+        style="padding:8px 10px;background:transparent;border:1px solid ${secondary};
+          border-radius:2px;color:${secondary};font-family:${font};font-size:10px;
+          font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
+          white-space:nowrap;"
+        title="GM only — apply or adjust the trait difficulty modifier">${traitBtnLabel}</button>`
+    : "";
+
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
         Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}.
@@ -1248,9 +1264,10 @@ function _renderCardHtml(d) {
   ${resolutionBlock}
 
   ${!resolved ? `
-    <div class="sta2e-op-v2-actions" style="padding:8px 10px;display:flex;gap:6px;align-items:center;">
+    <div class="sta2e-op-v2-actions" style="padding:8px 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
       ${defBtn}
       ${atkBtn}
+      ${gmTrait}
       ${gmCancel}
     </div>
     ${blindNote ? `<div style="padding:0 12px 6px;">${blindNote}</div>` : ""}
@@ -1275,9 +1292,10 @@ export function wireOpposedTaskCard(message, html) {
   const taskData = flags.taskData;
   if (!taskData) return;
 
-  // Hide the GM cancel button for non-GM users
+  // Hide GM-only buttons for non-GM users
   if (!game.user.isGM) {
     html.querySelectorAll(".sta2e-op-cancel").forEach(b => b.remove());
+    html.querySelectorAll(".sta2e-op-trait").forEach(b => b.remove());
   }
 
   html.querySelectorAll(".sta2e-op-roll").forEach(btn => {
@@ -1296,6 +1314,38 @@ export function wireOpposedTaskCard(message, html) {
     const taskId = e.currentTarget.dataset.taskId;
     await _cancelOpposedTask(message, taskId);
   });
+
+  html.querySelector(".sta2e-op-trait")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!game.user.isGM) return;
+    const taskId = e.currentTarget.dataset.taskId;
+    await _handleTraitModifierClick(message, taskId);
+  });
+}
+
+async function _handleTraitModifierClick(message, taskId) {
+  if (!game.user.isGM) return;
+  const flags = message?.flags?.[MODULE] ?? {};
+  if (flags.type !== "opposedTask") return;
+  const taskData = flags.taskData;
+  if (!taskData || taskData.taskId !== taskId) return;
+  if (taskData.defender?.rolled && taskData.attacker?.rolled) {
+    ui.notifications.info("STA2e Toolkit: This opposed task is already resolved.");
+    return;
+  }
+
+  const mod = await _promptTraitModifier({
+    title: "Opposed Task — Trait in Play",
+    defaultValue: taskData.options ?? {},
+  });
+  taskData.options = { ...taskData.options, ...mod };
+  taskData.opposedDifficulty = _calculateOpposedDifficulty(taskData).total;
+
+  await message.update({
+    content: _renderCardHtml(taskData),
+    [`flags.${MODULE}.taskData`]: taskData,
+  }).catch(e => console.error("STA2e Toolkit | apply trait modifier failed:", e));
 }
 
 async function _cancelOpposedTask(message, taskId) {
@@ -1666,6 +1716,56 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
           };
         } catch (err) {
           console.error("STA2e Toolkit | opposed task auto-bank error:", err);
+        }
+      }
+    }
+  }
+
+  // Ground combat: the attacker's WIN excess is already banked by the roller
+  // (createTracker runs there since noPoolButton is false for the ground
+  // attacker). The defender-win case (attacker fails) is never banked, so do it
+  // here — the defender's excess successes become Momentum (PC) / Threat (NPC).
+  if (side === "attacker" && taskData.mode === "groundCombat") {
+    const target = _calculateOpposedDifficulty(taskData).total;
+    const atkSuc = taskData.attacker.successes ?? 0;
+    const passed = atkSuc >= target;
+    const reward = passed ? (atkSuc - target) : (target - atkSuc);
+    const winnerSide = passed ? "attacker" : "defender";
+    const winnerData = passed ? taskData.attacker : taskData.defender;
+    const reportedTracker = taskData.attacker?.tracker ?? {};
+    const attackerAlreadyReported = !!reportedTracker.messageId
+      || Number(reportedTracker.float ?? 0) > 0
+      || Number(reportedTracker.banked ?? 0) > 0
+      || Number(trackerFloat ?? 0) > 0
+      || Number(trackerBanked ?? 0) > 0
+      || !!trackerMessageId;
+
+    if (reward > 0 && (!passed || !attackerAlreadyReported)) {
+      const winnerActor = winnerData?.actorId ? game.actors.get(winnerData.actorId) : null;
+      if (reward > 0 && winnerActor) {
+        const pool = _getOpposedActorProfile(winnerActor)?.isPlayerOwned ? "momentum" : "threat";
+        const speakerToken = winnerSide === "attacker" && taskData.combat?.attackerTokenId
+          ? (canvas.tokens?.get(taskData.combat.attackerTokenId) ?? null)
+          : winnerSide === "defender" && taskData.combat?.defenderTokenId
+            ? (canvas.tokens?.get(taskData.combat.defenderTokenId) ?? null)
+            : null;
+        try {
+          const trackerRes = await createTracker(winnerActor, {
+            totalGenerated: reward,
+            pool,
+            taskRollId: taskData.taskId,
+            speakerToken,
+          });
+          taskData.autoBank = {
+            pool,
+            amount: reward,
+            banked: trackerRes?.banked ?? reward,
+            float: trackerRes?.float ?? 0,
+            winnerSide,
+            winnerName: winnerData.actorName ?? (passed ? "Attacker" : "Defender"),
+          };
+        } catch (err) {
+          console.error("STA2e Toolkit | ground opposed auto-bank error:", err);
         }
       }
     }
