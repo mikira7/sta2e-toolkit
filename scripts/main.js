@@ -12,6 +12,7 @@ import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
 import { NativeTractorBeamVFX } from "./tractor-beam-vfx.js";
 import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
+import { triggerEngineTrailForMovement } from "./engine-trail-vfx.js";
 import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
@@ -1844,6 +1845,48 @@ Hooks.on("canvasReady", () => {
       y: token.document.y + th / 2,
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Engine trail VFX — stream impulse / warp particles behind a moving ship.
+// Runs on every client (token animation plays everywhere), so no socket is
+// needed. We track each token's last center locally and fire on position
+// changes; the VFX module decides impulse vs warp by distance and no-ops for
+// tokens without engine emitters.
+// ---------------------------------------------------------------------------
+const _engineTrailLastCenter = new Map();
+
+Hooks.on("canvasReady", () => {
+  _engineTrailLastCenter.clear();
+  const gs = canvas.grid?.size ?? 100;
+  for (const token of canvas.tokens?.placeables ?? []) {
+    const tw = (token.document.width  ?? 1) * gs;
+    const th = (token.document.height ?? 1) * gs;
+    _engineTrailLastCenter.set(token.id, {
+      x: token.document.x + tw / 2,
+      y: token.document.y + th / 2,
+    });
+  }
+});
+
+Hooks.on("updateToken", (tokenDoc, changes, options) => {
+  if (options?.sta2eDeathThroes) return;        // ship death-throes drift — no trail
+  if (options?.sta2eWeaponReposition) return;    // cinematic firing nudge — no trail
+  if (!("x" in changes || "y" in changes)) return;
+
+  const gs = canvas.grid?.size ?? 100;
+  const tw = (tokenDoc.width  ?? 1) * gs;
+  const th = (tokenDoc.height ?? 1) * gs;
+  const from = _engineTrailLastCenter.get(tokenDoc.id);
+  const to = {
+    x: (changes.x ?? tokenDoc.x) + tw / 2,
+    y: (changes.y ?? tokenDoc.y) + th / 2,
+  };
+  _engineTrailLastCenter.set(tokenDoc.id, to);
+  if (!from) return;
+
+  try { triggerEngineTrailForMovement(tokenDoc, from, to); }
+  catch (err) { console.warn("STA2e Toolkit | Engine trail failed:", err); }
 });
 
 Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {

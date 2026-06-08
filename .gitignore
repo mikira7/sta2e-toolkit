@@ -8,3 +8,7 @@ Thumbs.db
 foundry-vfx.skill
 ui-mockup.html
 packs/sta2e-macros/lost/
+node_modules/
+audit-report.html
+*.bck
+scripts/_sync_probe.txt

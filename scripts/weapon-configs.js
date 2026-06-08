@@ -98,6 +98,14 @@ const SHIP_SCORCHING_RAY_TEMPLATE = Object.freeze({ gridSize: 100, startPoint: 2
 const SHIP_IMPACT_EFFECT_BASE_SIZE = 400;
 const SHIP_PHOTON_TORPEDO_EFFECT = "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/Bullet_01_Regular_Orange_90ft_4000x400.webm";
 const SHIP_PHOTON_TORPEDO_TINT = 0xff3333;
+// Bundled custom photon torpedo. Unlike the JB2A "bullet" strip (a long
+// horizontal sprite drawn along its travel axis, stretched between source and
+// target), this is a square sprite that spins in place. It therefore must be
+// FLOWN from emitter to target with a move-tween instead of stretchTo — see
+// isMovingTorpedoSprite()/applyTorpedoTravel().
+const SHIP_PHOTON_TORPEDO_SPRITE = "modules/sta2e-toolkit/assets/vfx/Photon-Torpedo.webm";
+// On-canvas size of the moving sprite, as a fraction of one grid square.
+const SHIP_TORPEDO_SPRITE_GRID_FRACTION = 0.66;
 const SHIP_WEAPON_FACING_DURATION_SCALE = 3.5;
 const SHIP_WEAPON_FACING_SETTLE_MS = 900;
 // Cinematic reposition glide: time per grid square, and a floor. Higher = slower.
@@ -107,10 +115,33 @@ const SHIP_WEAPON_REPOSITION_MIN_MS = 700;
 const SHIP_WEAPON_REPOSITION_STEP_MS = 16;
 // How hard the ship banks into the curve: extra heading swing, in degrees,
 // blended in at mid-glide then unwound so it still ends on the firing facing.
-const SHIP_WEAPON_REPOSITION_BANK_DEG = 18;
+const SHIP_WEAPON_REPOSITION_BANK_DEG = 6;
 // Clear gap the ship keeps from a same-zone target, as a fraction of its own
 // token length (edge to edge).
 const SHIP_WEAPON_REPOSITION_TARGET_GAP = 0.3;
+// Scale-based speed: each point of ship Scale above this baseline slows the
+// glide and turn by SHIP_SCALE_SPEED_PER_POINT, clamped to the min/max factor.
+// A bigger, more massive hull moves more ponderously than a runabout.
+const SHIP_SCALE_SPEED_BASELINE = 1;
+const SHIP_SCALE_SPEED_PER_POINT = 0.18;
+const SHIP_SCALE_SPEED_MIN = 0.6;
+const SHIP_SCALE_SPEED_MAX = 2.5;
+
+/**
+ * Duration multiplier from a ship's Scale stat (actor.system.scale). Higher
+ * scale -> larger number -> longer animation -> slower movement and turning.
+ * Returns 1 when the feature is off, the actor has no scale, or scale matches
+ * the baseline. Clamped so extremes stay sane.
+ */
+function shipScaleSpeedFactor(token) {
+  try {
+    if (game.settings.get("sta2e-toolkit", "shipWeaponScaleSpeed") === false) return 1;
+  } catch { /* feature on by default */ }
+  const scale = Number(token?.actor?.system?.scale);
+  if (!Number.isFinite(scale) || scale <= 0) return 1;
+  const factor = 1 + (scale - SHIP_SCALE_SPEED_BASELINE) * SHIP_SCALE_SPEED_PER_POINT;
+  return Math.max(SHIP_SCALE_SPEED_MIN, Math.min(SHIP_SCALE_SPEED_MAX, factor));
+}
 
 function beamEffect(color) {
   const weaponKey = color === "green" ? "disruptor" : color === "purple" ? "polaron" : "phaser";
@@ -123,12 +154,25 @@ function beamEffect(color) {
 
 const WA = "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged";
 
+function photonTorpedoSpriteEnabled() {
+  try { return game.settings.get("sta2e-toolkit", "photonTorpedoCustomSprite") === true; }
+  catch { return false; }
+}
+
+function isMovingTorpedoSprite(effectPath) {
+  return String(effectPath ?? "") === SHIP_PHOTON_TORPEDO_SPRITE;
+}
+
 function torpedoEffect(color, torpedoType) {
   const weaponKey = torpedoType === "quantum" ? "quantumTorpedo"
                   : torpedoType === "plasma"  ? "plasmaTorpedo"
                   : "photonTorpedo";
-  return animOverride("shipWeapons", weaponKey, "anim")
-    ?? (isPatron()
+  // An explicit per-weapon file override always wins. Otherwise, when the
+  // custom-sprite toggle is on, photon torpedoes use the bundled spinning webm.
+  const override = animOverride("shipWeapons", weaponKey, "anim");
+  if (override) return override;
+  if (weaponKey === "photonTorpedo" && photonTorpedoSpriteEnabled()) return SHIP_PHOTON_TORPEDO_SPRITE;
+  return (isPatron()
       ? `modules/jb2a_patreon/Library/Generic/Weapon_Attacks/Ranged/Bullet_03_Regular_${{ red: "Red", blue: "Blue", green: "Green" }[color] ?? "Red"}_90ft_4000x400.webm`
       : color === "blue"  ? `${WA}/Bullet_03_Regular_Blue_90ft_4000x400.webm`
       : color === "green" ? `${WA}/Missile01_01_Regular_Blue_90ft_4000x400.webm`
@@ -863,6 +907,36 @@ function applySequenceSourceLayer(effect, layer) {
   return effect;
 }
 
+// Builds the projectile-travel portion of a torpedo shot. JB2A bullet strips are
+// drawn along their length, so they stretchTo() between source and target. The
+// bundled custom sprite spins in place, so it is placed at the source and flown
+// to the target with moveTowards() at a fixed on-canvas size. Pass missed:true
+// to fan the shot off-target.
+function applyTorpedoTravel(s, config, source, target, { missed = false } = {}) {
+  const base = s.effect().file(config.effect);
+
+  if (isMovingTorpedoSprite(config.effect)) {
+    const targetLoc = target?.location ?? target;
+    const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+    const px = Math.max(8, Math.round(gridSize * SHIP_TORPEDO_SPRITE_GRID_FRACTION));
+    const travelMs = Math.max(300, Number(getTimingTorpedoImpact()) || 1000);
+    let effect = atSequenceLocation(base, source)
+      .size(px)
+      .rotateTowards(targetLoc)
+      .moveTowards(targetLoc, { ease: "linear" })
+      .duration(travelMs);
+    if (missed && typeof effect.missed === "function") effect = effect.missed();
+    return effect;
+  }
+
+  let effect = stretchToSequenceLocation(
+    atSequenceLocation(shipTravelEffect(base, config), source),
+    target
+  );
+  if (missed && typeof effect.missed === "function") effect = effect.missed();
+  return effect;
+}
+
 export function getStarshipDamageAnimationRepeatCount(finalDamage) {
   const damage = Math.max(0, Number(finalDamage) || 0);
   if (damage >= 8) return 3;
@@ -1039,14 +1113,15 @@ async function maneuverShipForFiring(token, selection, primaryTarget = null) {
 
   // Quadratic-Bézier control point offset perpendicular to the move, so the hull
   // banks into the turn. Zero offset when there's no turn (straight glide).
-  const arc = Math.min(moveDist * 0.35, gridSize * 1.25) * sgn;
+  const arc = Math.min(moveDist * 1.25, gridSize * 2.5) * sgn;
   const mid = { x: center0.x + moveVec.x * 0.5, y: center0.y + moveVec.y * 0.5 };
   const ctrl = {
     x: mid.x - (moveVec.y / moveDist) * arc,
     y: mid.y + (moveVec.x / moveDist) * arc,
   };
 
-  const DURATION_MS = Math.max(SHIP_WEAPON_REPOSITION_MIN_MS, maxSquares * SHIP_WEAPON_REPOSITION_MS_PER_SQUARE);
+  const speedFactor = shipScaleSpeedFactor(token);
+  const DURATION_MS = Math.max(SHIP_WEAPON_REPOSITION_MIN_MS, maxSquares * SHIP_WEAPON_REPOSITION_MS_PER_SQUARE) * speedFactor;
   const STEPS = Math.max(24, Math.min(90, Math.round(DURATION_MS / SHIP_WEAPON_REPOSITION_STEP_MS)));
   const stepDelay = DURATION_MS / STEPS;
   const smooth = t => t * t * (3 - 2 * t); // smoothstep ease-in-out
@@ -1063,7 +1138,7 @@ async function maneuverShipForFiring(token, selection, primaryTarget = null) {
 
       await doc.update(
         { x: bx - width / 2, y: by - height / 2, rotation: heading },
-        { sta2eWeaponReposition: true },
+        { animate: false, sta2eWeaponReposition: true },
       );
       await _delay(stepDelay);
     }
@@ -1072,7 +1147,7 @@ async function maneuverShipForFiring(token, selection, primaryTarget = null) {
     // even if a frame above threw.
     await doc.update(
       { x: dest.x - width / 2, y: dest.y - height / 2, rotation: Hf },
-      { sta2eWeaponReposition: true },
+      { animate: false, sta2eWeaponReposition: true },
     );
   }
   return true;
@@ -1086,7 +1161,8 @@ async function rotateTokenToEmitterFacing(token, desiredRotation) {
   if (Math.abs(delta) < 1) return;
   const targetRotation = current + delta;
   const duration = Math.round(
-    Math.max(250, Math.min(900, Math.abs(delta) * 2)) * SHIP_WEAPON_FACING_DURATION_SCALE,
+    Math.max(250, Math.min(900, Math.abs(delta) * 2))
+      * SHIP_WEAPON_FACING_DURATION_SCALE * shipScaleSpeedFactor(token),
   );
   await doc.update(
     { rotation: targetRotation },
@@ -1247,10 +1323,7 @@ export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoin
     await playSequencerArrayCurveCharge(config, sourceToken, weapon, targetPoint, true);
   }
 
-  stretchToSequenceLocation(
-    atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), source),
-    target
-  );
+  applyTorpedoTravel(s, config, source, target);
 
   if (config.impact) {
     s.wait(Math.min(650, Math.max(180, Number(options.beamDuration) || 420)));
@@ -1422,10 +1495,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
         const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(150);
-        stretchToSequenceLocation(
-          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
-          locations.target
-        );
+        applyTorpedoTravel(s, config, locations.source, locations.target);
         s.wait(getTimingTorpedoImpact());
         addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
@@ -1434,10 +1504,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
     } else {
       if (soundPath) s.sound().file(soundPath).volume(1);
       s.wait(150);
-      stretchToSequenceLocation(
-        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
-        shipWeaponMissTargetLocation(target)
-      ).missed();
+      applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true });
     }
     await s.play();
   }
@@ -1456,10 +1523,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
           const locations = await shipShotLocations(token, target, { weapon, shotIndex: r, targetSystem, selectedEmitter });
           if (soundPath) s.sound().file(soundPath).volume(1);
           s.wait(100);
-          stretchToSequenceLocation(
-            atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
-            locations.target
-          );
+          applyTorpedoTravel(s, config, locations.source, locations.target);
           s.wait(getTimingTorpedoImpact());
           addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, r, repeats);
           shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
@@ -1468,10 +1532,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
       } else {
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(100);
-        stretchToSequenceLocation(
-          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
-          shipWeaponMissTargetLocation(target)
-        ).missed();
+        applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true });
       }
       await s.play();
     }
@@ -1496,10 +1557,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
           explosionLocation = locations.impact;
           if (i > 0) s.wait(220);
           if (soundPath) s.sound().file(soundPath).volume(i === 0 ? 1 : 0.7);
-          stretchToSequenceLocation(
-            atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
-            locations.target
-          );
+          applyTorpedoTravel(s, config, locations.source, locations.target);
         }
         // Explosion after the last torpedo arrives
         s.wait(getTimingTorpedoImpact());
@@ -1508,10 +1566,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
       } else {
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
-        stretchToSequenceLocation(
-          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
-          shipWeaponMissTargetLocation(target)
-        ).missed();
+        applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true });
       }
 
       await s.play();

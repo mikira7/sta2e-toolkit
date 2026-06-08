@@ -348,7 +348,7 @@ export function registerSettings() {
 
   game.settings.register("sta2e-toolkit", "shipWeaponReposition", {
     name:    "Ship Weapons — Cinematic Reposition",
-    hint:    "When a ship fires, let it curve forward into firing position — the hull noses through a banking turn onto its weapon arc and glides a square or two, bow-first. The move stays inside the ship's current zone, so it never changes range bands. Turn off for static firing.",
+    hint:    "When a ship fires, let it curve forward into firing position — the hull noses through a banking turn onto its weapon arc and glides a square or two, bow-first. The move stays inside the ship's current zone, so it never changes range bands. Turn off to keep the ship in place: it still turns to bring its weapon arc onto the target, just without the forward glide.",
     scope:   "world",
     config:  true,
     type:    Boolean,
@@ -362,7 +362,25 @@ export function registerSettings() {
     config:  true,
     type:    Number,
     range:   { min: 0, max: 4, step: 0.5 },
-    default: 2,
+    default: 1,
+  });
+
+  game.settings.register("sta2e-toolkit", "shipWeaponScaleSpeed", {
+    name:    "Ship Weapons — Scale-Based Speed",
+    hint:    "Tie the cinematic reposition speed to the ship's Scale. Higher-Scale hulls glide and turn more slowly; small craft stay nimble. Turn off for a uniform speed regardless of ship size.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "photonTorpedoCustomSprite", {
+    name:    "Photon Torpedo — Custom Moving Sprite",
+    hint:    "Use the toolkit's bundled photon torpedo webm (a spinning projectile) instead of the JB2A bullet. The sprite spins in place, so it is flown from the firing emitter to the target with a move-tween rather than being stretched along the path. Applies to single shots and salvos, hits and misses. Quantum and plasma torpedoes are unaffected.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
   });
 
   // ── Combat Sound Effects ─────────────────────────────────────────────────

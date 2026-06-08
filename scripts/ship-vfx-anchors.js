@@ -10,12 +10,51 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 7;
+const SHIP_VFX_ANCHORS_VERSION = 8;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
 const WEAPON_EMITTER_MAX_ARC_WIDTH_DEG = 180;
 const WEAPON_EMITTER_LAYERS = Object.freeze(["above", "below"]);
+
+// ── Engine trail emitters (impulse + warp nacelles) ─────────────────────────
+// Per-ship placed emitter points that stream a PIXI particle trail behind the
+// token while it moves. Facing is ship-local (0 fore, 90 starboard, 180 aft,
+// 270 port) and biases the exhaust cone; layer puts the trail above or below
+// the token sprite.
+export const ENGINE_EMITTER_KINDS = Object.freeze(["impulse", "warp"]);
+const ENGINE_BLEND_OPTIONS = Object.freeze(["add", "normal"]);
+const ENGINE_COLOR_MODES = Object.freeze(["auto", "custom"]);
+// Default facing for an engine emitter is aft (180) — exhaust points astern.
+const DEFAULT_ENGINE_EMITTER_FACING_DEG = 180;
+export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
+  impulse: Object.freeze({
+    colorMode: "auto",
+    customColor: "",
+    lengthPx: 160,
+    width: 16,
+    rate: 80,
+    alpha: 0.8,
+    fade: 600,
+    blendMode: "add",
+  }),
+  warp: Object.freeze({
+    colorMode: "auto",
+    customColor: "",
+    lengthPx: 480,
+    width: 9,
+    rate: 150,
+    alpha: 0.85,
+    fade: 420,
+    blendMode: "add",
+  }),
+});
+// warpThreshold is measured in grid squares: a move of at least this many
+// squares fires the warp trail, anything shorter fires impulse.
+const DEFAULT_ENGINE_TRAIL_SHARED = Object.freeze({
+  enabled: true,
+  warpThreshold: 4,
+});
 const PHASER_ERA_OPTIONS = Object.freeze([
   { value: "", label: "Current Default" },
   { value: "ent", label: "ENT" },
@@ -203,6 +242,50 @@ function _normalizeWeaponEmitter(anchor) {
     facingDeg: _normalizeDegrees(anchor?.facingDeg, _defaultEmitterFacingDeg(normalized)),
     arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg),
     layer: _normalizeEmitterLayer(anchor?.layer),
+  };
+}
+
+function _normalizeEngineKind(value) {
+  const kind = String(value ?? "").toLowerCase();
+  return ENGINE_EMITTER_KINDS.includes(kind) ? kind : "impulse";
+}
+
+function _normalizeEngineEmitter(anchor) {
+  const normalized = _normalizeAnchor(anchor, "Engine emitter");
+  if (!normalized) return null;
+  return {
+    ...normalized,
+    kind: _normalizeEngineKind(anchor?.kind),
+    facingDeg: _normalizeDegrees(anchor?.facingDeg, DEFAULT_ENGINE_EMITTER_FACING_DEG),
+    layer: _normalizeEmitterLayer(anchor?.layer),
+  };
+}
+
+function _normalizeEngineColorMode(value) {
+  const mode = String(value ?? "").toLowerCase();
+  return ENGINE_COLOR_MODES.includes(mode) ? mode : "auto";
+}
+
+function _normalizeEngineModeSettings(settings = {}, kind = "impulse") {
+  const defaults = DEFAULT_ENGINE_MODE_SETTINGS[_normalizeEngineKind(kind)] ?? DEFAULT_ENGINE_MODE_SETTINGS.impulse;
+  return {
+    colorMode: _normalizeEngineColorMode(settings?.colorMode),
+    customColor: _normalizeHexColor(settings?.customColor),
+    lengthPx: Math.round(_clampNumber(settings?.lengthPx, defaults.lengthPx, 20, 2000)),
+    width: Math.round(_clampNumber(settings?.width, defaults.width, 1, 200)),
+    rate: Math.round(_clampNumber(settings?.rate, defaults.rate, 4, 600)),
+    alpha: Math.round(_clampNumber(settings?.alpha, defaults.alpha, 0, 1) * 100) / 100,
+    fade: Math.round(_clampNumber(settings?.fade, defaults.fade, 60, 4000)),
+    blendMode: ENGINE_BLEND_OPTIONS.includes(settings?.blendMode) ? settings.blendMode : defaults.blendMode,
+  };
+}
+
+export function normalizeShipEngineTrailSettings(settings = {}) {
+  return {
+    enabled: settings?.enabled !== false,
+    warpThreshold: Math.round(_clampNumber(settings?.warpThreshold, DEFAULT_ENGINE_TRAIL_SHARED.warpThreshold, 1, 50) * 10) / 10,
+    impulse: _normalizeEngineModeSettings(settings?.impulse, "impulse"),
+    warp: _normalizeEngineModeSettings(settings?.warp, "warp"),
   };
 }
 
@@ -409,6 +492,10 @@ export function normalizeShipVfxAnchors(data = {}) {
     ? data.anchors.weaponEmitters.map(anchor => _normalizeWeaponEmitter(anchor)).filter(Boolean)
     : [];
 
+  const engineEmitters = Array.isArray(data?.anchors?.engineEmitters)
+    ? data.anchors.engineEmitters.map(anchor => _normalizeEngineEmitter(anchor)).filter(Boolean)
+    : [];
+
   const hitLocations = Array.isArray(data?.anchors?.hitLocations)
     ? data.anchors.hitLocations.map(anchor => _normalizeHitLocation(anchor)).filter(Boolean)
     : [];
@@ -428,12 +515,14 @@ export function normalizeShipVfxAnchors(data = {}) {
     anchors: {
       tractorEmitters,
       weaponEmitters,
+      engineEmitters,
       hitLocations,
       arrayCurves,
     },
     settings: {
       weaponVfx,
       shieldImpact: normalizeShipShieldImpactSettings(data?.settings?.shieldImpact),
+      engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
     },
   };
 }
@@ -462,6 +551,67 @@ export function getShipWeaponVfxSettings(actorOrToken, weapon, override = null) 
 
 export function getShipShieldImpactSettings(actorOrToken) {
   return normalizeShipShieldImpactSettings(getShipVfxAnchors(actorOrToken)?.settings?.shieldImpact);
+}
+
+export function getShipEngineEmitters(actorOrToken, kind = null) {
+  const all = getShipVfxAnchors(actorOrToken).anchors.engineEmitters ?? [];
+  if (!kind) return all;
+  const wanted = _normalizeEngineKind(kind);
+  return all.filter(anchor => anchor.kind === wanted);
+}
+
+export function getShipEngineTrailSettings(actorOrToken) {
+  return normalizeShipEngineTrailSettings(getShipVfxAnchors(actorOrToken)?.settings?.engineTrail);
+}
+
+// Map a placed engine emitter (normalized image anchor) to a live canvas point,
+// honoring token rotation / flip / fit — reuses the weapon anchor math.
+export function shipEngineEmitterToCanvasPoint(token, anchor) {
+  return tokenAnchorToCanvasPoint(token, anchor);
+}
+
+// Convert ship-local facing degrees (0 fore) into a canvas-space angle for the
+// given token, accounting for its current rotation.
+export function shipEngineFacingToCanvasDeg(token, facingDeg) {
+  // Ship-local 0 = fore = "up" on the unrotated sprite. Canvas 0deg = +x (east),
+  // and "up" is -90deg. Token rotation adds clockwise.
+  const local = _normalizeDegrees(facingDeg, DEFAULT_ENGINE_EMITTER_FACING_DEG);
+  return _normalizeDegrees(local - 90 + _tokenRotationDeg(token));
+}
+
+// Faction / era aware exhaust color. Custom hex wins; otherwise a warm impulse
+// glow and cool warp streak, tinted by the ship's faction guessed from its name.
+export function resolveEngineTrailColorHex(actorOrToken, kind, modeSettings = null) {
+  const k = _normalizeEngineKind(kind);
+  const settings = modeSettings
+    ? _normalizeEngineModeSettings(modeSettings, k)
+    : (getShipEngineTrailSettings(actorOrToken)?.[k]);
+  if (settings?.colorMode === "custom" && _normalizeHexColor(settings.customColor)) {
+    return settings.customColor.toLowerCase();
+  }
+  const actor = _resolveActor(actorOrToken);
+  const haystack = [
+    actor?.name,
+    actor?.system?.traits,
+    Array.isArray(actor?.system?.traits) ? actor.system.traits.join(" ") : "",
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  const FACTIONS = [
+    { test: /klingon/, impulse: "#ff3b2e", warp: "#ff6a4a" },
+    { test: /romulan/, impulse: "#2ad17a", warp: "#8affc0" },
+    { test: /cardassian/, impulse: "#ffae42", warp: "#ffd089" },
+    { test: /\bborg\b/, impulse: "#6aff4a", warp: "#b6ff9a" },
+    { test: /dominion|jem'?hadar|founder/, impulse: "#7a5cff", warp: "#b9a9ff" },
+    { test: /ferengi/, impulse: "#ff9a2a", warp: "#ffc46a" },
+  ];
+  for (const faction of FACTIONS) {
+    if (faction.test.test(haystack)) return k === "warp" ? faction.warp : faction.impulse;
+  }
+  // Federation / default. TOS-era ships read warmer.
+  if (/\b(tos|constitution|enterprise nx|nx-0|tos[- ]?era)\b/.test(haystack)) {
+    return k === "warp" ? "#ffe7a0" : "#ffd24a";
+  }
+  return k === "warp" ? "#aad4ff" : "#ff7a2a";
 }
 
 export function shipLocalOffsetToCanvasDelta(token, sourceOffset) {
@@ -1365,14 +1515,28 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _resolveActiveTab() {
     if (this._activeTab === "tractor") return "tractor";
     if (this._activeTab === "hitLocations") return "hitLocations";
+    if (this._activeTab === "engineImpulse" || this._activeTab === "engineWarp") return this._activeTab;
     if (this._weaponForTab(this._activeTab)) return this._activeTab;
     this._activeTab = "tractor";
     return this._activeTab;
   }
 
+  _isEngineTab() {
+    const tab = this._resolveActiveTab();
+    return tab === "engineImpulse" || tab === "engineWarp";
+  }
+
+  _activeEngineKind() {
+    if (this._resolveActiveTab() === "engineWarp") return "warp";
+    if (this._resolveActiveTab() === "engineImpulse") return "impulse";
+    return null;
+  }
+
   _activeTabLabel() {
     if (this._resolveActiveTab() === "tractor") return "Tractor";
     if (this._resolveActiveTab() === "hitLocations") return `${_systemLabel(this._activeHitSystem)} Hit Location`;
+    if (this._resolveActiveTab() === "engineImpulse") return "Impulse Trail";
+    if (this._resolveActiveTab() === "engineWarp") return "Warp Trail";
     return this._weaponForTab()?.name ?? "Weapon";
   }
 
@@ -1516,7 +1680,37 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _scheduleAutoPreview() {
     if (!this._autoPreview) return;
     window.clearTimeout(this._previewTimer);
-    this._previewTimer = window.setTimeout(() => this._previewActiveWeapon({ silent: true }), 450);
+    this._previewTimer = window.setTimeout(() => this._previewActive({ silent: true }), 450);
+  }
+
+  async _previewActive({ silent = false } = {}) {
+    if (this._isEngineTab()) return this._previewActiveEngine({ silent });
+    return this._previewActiveWeapon({ silent });
+  }
+
+  async _previewActiveEngine({ silent = false } = {}) {
+    const kind = this._activeEngineKind();
+    if (!kind) return;
+    const sourceToken = this._previewSourceToken();
+    if (!sourceToken) {
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Select or place a token for this ship to preview the engine trail.");
+      return;
+    }
+    this._readEngineSettingsFromForm();
+    this._readEmitterArcFromForm();
+    const emitters = this._activeEmitters();
+    if (!emitters.length) {
+      if (!silent) ui.notifications.warn(`STA2e Toolkit: Place at least one ${kind} emitter point to preview.`);
+      return;
+    }
+    const settings = this._activeEngineTrailSettings();
+    try {
+      const { previewEngineTrail } = await import("./engine-trail-vfx.js");
+      await previewEngineTrail(sourceToken, kind, settings, emitters);
+    } catch (err) {
+      console.warn("STA2e Toolkit | Engine trail preview failed:", err);
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Engine trail preview failed. See console for details.");
+    }
   }
 
   async _previewActiveWeapon({ silent = false } = {}) {
@@ -1589,6 +1783,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       return (this._anchors.anchors.hitLocations ?? [])
         .filter(anchor => anchor.systemKey === this._activeHitSystem);
     }
+    if (this._isEngineTab()) {
+      const kind = this._activeEngineKind();
+      return (this._anchors.anchors.engineEmitters ?? []).filter(anchor => anchor.kind === kind);
+    }
     const weapon = this._weaponForTab();
     return (this._anchors.anchors.weaponEmitters ?? []).filter(anchor => _weaponMatchesEmitter(anchor, weapon));
   }
@@ -1632,6 +1830,28 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       return;
     }
 
+    if (this._isEngineTab()) {
+      const kind = this._activeEngineKind();
+      const otherEngineEmitters = (this._anchors.anchors.engineEmitters ?? [])
+        .filter(anchor => anchor.kind !== kind);
+      this._anchors = normalizeShipVfxAnchors({
+        ...this._anchors,
+        textureSrc: this.textureSrc,
+        anchors: {
+          ...this._anchors.anchors,
+          engineEmitters: [
+            ...otherEngineEmitters,
+            ...emitters.map((anchor, index) => ({
+              ...anchor,
+              kind,
+              label: anchor.label || `${kind === "warp" ? "Warp" : "Impulse"} emitter ${index + 1}`,
+            })),
+          ],
+        },
+      });
+      return;
+    }
+
     const weapon = this._weaponForTab();
     if (!weapon) return;
     const otherWeaponEmitters = (this._anchors.anchors.weaponEmitters ?? [])
@@ -1656,7 +1876,13 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _markerContext(emitters) {
-    const showFacingArrow = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
+    const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
+    const isEngineTab = this._isEngineTab();
+    const showFacingArrow = isWeaponEmitterTab || isEngineTab;
+    const engineColor = isEngineTab
+      ? resolveEngineTrailColorHex(this.actor, this._activeEngineKind(), this._activeEngineModeSettings())
+      : null;
+    const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : 0;
     return emitters.map((anchor, index) => ({
       ...anchor,
       index,
@@ -1665,10 +1891,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       top: `${anchor.y * 100}%`,
       coords: `${anchor.x.toFixed(3)}, ${anchor.y.toFixed(3)}`,
       systemLabel: anchor.systemKey ? _systemLabel(anchor.systemKey) : null,
-      markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : "#33aaff",
+      markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : (engineColor ?? "#33aaff"),
       selected: showFacingArrow && index === this._selectedEmitterIndex,
       showFacingArrow,
-      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor))),
+      showArcWidth: isWeaponEmitterTab,
+      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, isEngineTab ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
       arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg),
       layerLabel: _normalizeEmitterLayer(anchor.layer) === "below" ? "Below" : "Above",
     }));
@@ -1683,15 +1910,20 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _activeEmitterArcControls() {
-    if (!this._weaponForTab() || this._isActiveArrayWeaponTab()) return null;
+    const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
+    const isEngineTab = this._isEngineTab();
+    if (!isWeaponEmitterTab && !isEngineTab) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
+    const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor);
     return {
       index: selected.index,
       displayIndex: selected.index + 1,
-      facingDeg: Math.round(_normalizeDegrees(selected.anchor.facingDeg, _defaultEmitterFacingDeg(selected.anchor))),
+      facingDeg: Math.round(_normalizeDegrees(selected.anchor.facingDeg, defaultFacing)),
       arcWidthDeg: _normalizeEmitterArcWidth(selected.anchor.arcWidthDeg),
+      showArcWidth: isWeaponEmitterTab,
+      isEngine: isEngineTab,
       layer,
       layerAboveSelected: layer === "above",
       layerBelowSelected: layer === "below",
@@ -1699,23 +1931,73 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _readEmitterArcFromForm() {
-    if (!this._weaponForTab() || this._isActiveArrayWeaponTab() || !this.element) return null;
+    const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
+    const isEngineTab = this._isEngineTab();
+    if ((!isWeaponEmitterTab && !isEngineTab) || !this.element) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
     const emitters = [...this._activeEmitters()];
     const current = emitters[selected.index];
     if (!current) return null;
     const facingDeg = this.element.querySelector('[data-emitter-setting="facingDeg"]')?.value ?? current.facingDeg;
-    const arcWidthDeg = this.element.querySelector('[data-emitter-setting="arcWidthDeg"]')?.value ?? current.arcWidthDeg;
     const layer = this.element.querySelector('[data-emitter-setting="layer"]')?.value ?? current.layer;
-    emitters[selected.index] = _normalizeWeaponEmitter({
-      ...current,
-      facingDeg,
-      arcWidthDeg,
-      layer,
-    });
+    if (isEngineTab) {
+      emitters[selected.index] = _normalizeEngineEmitter({ ...current, facingDeg, layer });
+    } else {
+      const arcWidthDeg = this.element.querySelector('[data-emitter-setting="arcWidthDeg"]')?.value ?? current.arcWidthDeg;
+      emitters[selected.index] = _normalizeWeaponEmitter({ ...current, facingDeg, arcWidthDeg, layer });
+    }
     this._setActiveEmitters(emitters);
     return emitters[selected.index];
+  }
+
+  // ── Engine trail settings ─────────────────────────────────────────────────
+  _activeEngineTrailSettings() {
+    return normalizeShipEngineTrailSettings(this._anchors.settings?.engineTrail);
+  }
+
+  _activeEngineModeSettings() {
+    const kind = this._activeEngineKind();
+    if (!kind) return null;
+    return this._activeEngineTrailSettings()[kind];
+  }
+
+  _setEngineTrailSettings(settings) {
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      settings: {
+        ...(this._anchors.settings ?? {}),
+        engineTrail: normalizeShipEngineTrailSettings(settings),
+      },
+    });
+  }
+
+  _readEngineSettingsFromForm() {
+    if (!this._isEngineTab() || !this.element) return null;
+    const kind = this._activeEngineKind();
+    const current = this._activeEngineTrailSettings();
+    const mode = current[kind];
+    const read = (key, fallback) => this.element.querySelector(`[data-engine-setting="${key}"]`)?.value ?? fallback;
+    const enabledEl = this.element.querySelector('[data-engine-setting="enabled"]');
+    const updatedMode = {
+      colorMode: read("colorMode", mode.colorMode),
+      customColor: read("customColor", mode.customColor),
+      lengthPx: _number(read("lengthPx", mode.lengthPx), mode.lengthPx),
+      width: _number(read("width", mode.width), mode.width),
+      rate: _number(read("rate", mode.rate), mode.rate),
+      alpha: _number(read("alpha", mode.alpha), mode.alpha),
+      fade: _number(read("fade", mode.fade), mode.fade),
+      blendMode: read("blendMode", mode.blendMode),
+    };
+    const next = {
+      ...current,
+      enabled: enabledEl ? enabledEl.checked === true : current.enabled,
+      warpThreshold: _number(read("warpThreshold", current.warpThreshold), current.warpThreshold),
+      [kind]: updatedMode,
+    };
+    this._setEngineTrailSettings(next);
+    return this._activeEngineModeSettings();
   }
 
   _curveContext(curves) {
@@ -1772,6 +2054,22 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         count: (this._anchors.anchors.hitLocations ?? []).length,
         active: this._resolveActiveTab() === "hitLocations",
       },
+      {
+        id: "engineImpulse",
+        label: "Impulse",
+        title: "Impulse engine trail emitters",
+        icon: "fas fa-rocket",
+        count: (this._anchors.anchors.engineEmitters ?? []).filter(a => a.kind === "impulse").length,
+        active: this._resolveActiveTab() === "engineImpulse",
+      },
+      {
+        id: "engineWarp",
+        label: "Warp",
+        title: "Warp nacelle trail emitters",
+        icon: "fas fa-forward",
+        count: (this._anchors.anchors.engineEmitters ?? []).filter(a => a.kind === "warp").length,
+        active: this._resolveActiveTab() === "engineWarp",
+      },
     ];
     for (const weapon of this._shipWeapons()) {
       const id = _tabIdForWeapon(weapon);
@@ -1809,6 +2107,13 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const nextCurvePointLabel = this._pendingCurvePoints.length < 2
       ? `curve point ${this._pendingCurvePoints.length + 1}`
       : `curve point ${this._pendingCurvePoints.length + 1} or finish`;
+    const isEngineTab = this._isEngineTab();
+    const engineKind = this._activeEngineKind();
+    const activeEngineTrailSettings = isEngineTab ? this._activeEngineTrailSettings() : null;
+    const activeEngineModeSettings = isEngineTab ? this._activeEngineModeSettings() : null;
+    const resolvedEngineColor = isEngineTab
+      ? resolveEngineTrailColorHex(this.actor, engineKind, activeEngineModeSettings)
+      : null;
     const activePointKind = isHitLocationsTab ? "hit location" : "emitter";
 
     return {
@@ -1831,6 +2136,22 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       activeWeaponSettings,
       activeEmitterArcControls,
       showEmitterArcSettings: !!activeEmitterArcControls,
+      isEngineTab,
+      engineKind,
+      engineKindLabel: engineKind === "warp" ? "Warp" : "Impulse",
+      activeEngineTrailSettings,
+      activeEngineModeSettings,
+      resolvedEngineColor,
+      engineColorModeOptions: isEngineTab ? ENGINE_COLOR_MODES.map(value => ({
+        value,
+        label: value === "custom" ? "Custom Hex" : "Auto by Faction",
+        selected: value === (activeEngineModeSettings?.colorMode ?? "auto"),
+      })) : [],
+      engineBlendOptions: isEngineTab ? ENGINE_BLEND_OPTIONS.map(value => ({
+        value,
+        label: value,
+        selected: value === (activeEngineModeSettings?.blendMode ?? "add"),
+      })) : [],
       activeShieldImpactSettings: this._activeShieldImpactSettings(),
       shieldColorOptions: SHIELD_COLOR_OPTIONS.map(option => ({
         ...option,
@@ -2058,6 +2379,32 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       });
     });
 
+    el.querySelectorAll("[data-engine-setting]").forEach(input => {
+      input.addEventListener("input", () => {
+        this._readEngineSettingsFromForm();
+        this._scheduleAutoPreview();
+      });
+      input.addEventListener("change", () => {
+        this._readEngineSettingsFromForm();
+        this._scheduleAutoPreview();
+        // colorMode / enabled toggles change which controls show — re-render.
+        const key = input.dataset.engineSetting;
+        if (key === "colorMode" || key === "enabled") this.render({ force: true });
+      });
+    });
+
+    el.querySelector("[data-reset-engine]")?.addEventListener("click", event => {
+      event.preventDefault();
+      const kind = this._activeEngineKind();
+      if (!kind) return;
+      const current = this._activeEngineTrailSettings();
+      this._setEngineTrailSettings({
+        ...current,
+        [kind]: DEFAULT_ENGINE_MODE_SETTINGS[kind],
+      });
+      this.render({ force: true });
+    });
+
     const refreshEmitterArcControls = () => {
       const active = this._activeEmitterArcControls();
       if (!active) return;
@@ -2213,7 +2560,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       const activeLabel = this._activeTabLabel();
       const pointKind = this._resolveActiveTab() === "hitLocations" ? "hit location" : "emitter";
       const anchor = { x, y, label: `${activeLabel} ${pointKind} ${activeEmitters.length + 1}` };
-      if (this._weaponForTab() && !this._isActiveArrayWeaponTab()) {
+      if (this._isEngineTab()) {
+        anchor.kind = this._activeEngineKind();
+        anchor.facingDeg = DEFAULT_ENGINE_EMITTER_FACING_DEG;
+        anchor.layer = "above";
+      } else if (this._weaponForTab() && !this._isActiveArrayWeaponTab()) {
         anchor.facingDeg = _defaultEmitterFacingDeg(anchor);
         anchor.arcWidthDeg = DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG;
         anchor.layer = "above";
@@ -2386,6 +2737,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   static async _onSave(_event, _target) {
     if (!game.user?.isGM || !this.actor) return;
     this._readWeaponSettingsFromForm();
+    this._readEngineSettingsFromForm();
     this._anchors = await _saveShipVfxAnchors(this.actor, {
       ...this._anchors,
       textureSrc: this.textureSrc,
@@ -2410,7 +2762,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   static async _onPreview(_event, _target) {
-    await this._previewActiveWeapon({ silent: false });
+    await this._previewActive({ silent: false });
   }
 
   static _onClose(_event, _target) {

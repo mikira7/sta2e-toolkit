@@ -616,7 +616,7 @@
   <div class="sta2e-anchor-tabs">
     {{#each tabs}}
     <button type="button" class="sta2e-anchor-tab {{#if active}}is-active{{/if}}" data-anchor-tab="{{id}}" title="{{title}}">
-      {{#if img}}<img src="{{img}}" alt="" />{{else}}<i class="fas fa-crosshairs"></i>{{/if}}
+      {{#if img}}<img src="{{img}}" alt="" />{{else}}<i class="{{#if icon}}{{icon}}{{else}}fas fa-crosshairs{{/if}}"></i>{{/if}}
       <span class="sta2e-anchor-tab-label">{{label}}</span>
       <span class="sta2e-anchor-tab-count">{{count}}</span>
     </button>
@@ -777,6 +777,102 @@
   </div>
   {{/if}}
 
+  {{#if isEngineTab}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading">
+      <span>{{engineKindLabel}} Trail Settings</span>
+      <button type="button" data-reset-engine title="Reset {{engineKindLabel}} trail settings"><i class="fas fa-undo"></i> Reset</button>
+    </div>
+    <div class="sta2e-anchor-value">
+      Place emitter points on the nacelles below. Facing biases the exhaust direction (0 fore, 180 aft). The trail streams behind the ship as it moves; long moves auto-fire the warp trail.
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-enabled">Enabled</label>
+        <input id="sta2e-engine-enabled" type="checkbox" data-engine-setting="enabled" {{#if activeEngineTrailSettings.enabled}}checked{{/if}} />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-threshold" title="Move distance (grid squares) at/above which the warp trail fires instead of impulse">Warp at (sq)</label>
+        <input id="sta2e-engine-threshold" type="number" min="1" max="50" step="0.5" value="{{activeEngineTrailSettings.warpThreshold}}" data-engine-setting="warpThreshold" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-colormode">Color</label>
+        <select id="sta2e-engine-colormode" data-engine-setting="colorMode">
+          {{#each engineColorModeOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-customcolor">Custom Hex</label>
+        <input id="sta2e-engine-customcolor" type="text" value="{{activeEngineModeSettings.customColor}}" placeholder="#ff7a2a" data-engine-setting="customColor" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Resolved</label>
+        <span class="sta2e-anchor-value"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid rgba(255,255,255,0.4);background:{{resolvedEngineColor}};"></span> {{resolvedEngineColor}}</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-length" title="Visual length of the trail in pixels">Length</label>
+        <input id="sta2e-engine-length" type="number" min="20" max="2000" step="10" value="{{activeEngineModeSettings.lengthPx}}" data-engine-setting="lengthPx" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-width" title="Stream width in pixels">Width</label>
+        <input id="sta2e-engine-width" type="number" min="1" max="200" step="1" value="{{activeEngineModeSettings.width}}" data-engine-setting="width" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-rate" title="Particles emitted per second while moving">Rate</label>
+        <input id="sta2e-engine-rate" type="number" min="4" max="600" step="2" value="{{activeEngineModeSettings.rate}}" data-engine-setting="rate" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-alpha" title="Peak particle opacity">Alpha</label>
+        <input id="sta2e-engine-alpha" type="number" min="0" max="1" step="0.05" value="{{activeEngineModeSettings.alpha}}" data-engine-setting="alpha" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-fade" title="Particle lifetime / fade time in ms">Fade (ms)</label>
+        <input id="sta2e-engine-fade" type="number" min="60" max="4000" step="20" value="{{activeEngineModeSettings.fade}}" data-engine-setting="fade" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-blend">Blend</label>
+        <select id="sta2e-engine-blend" data-engine-setting="blendMode">
+          {{#each engineBlendOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+    </div>
+
+    {{#if showEmitterArcSettings}}
+    <div class="sta2e-vfx-settings-heading">
+      <span>Emitter {{activeEmitterArcControls.displayIndex}} Direction</span>
+    </div>
+    <div class="sta2e-anchor-value">Facing is ship-local: 0 fore, 90 starboard, 180 aft, 270 port.</div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-facing">Facing</label>
+        <input id="sta2e-engine-facing" type="range" min="0" max="359" step="1" value="{{activeEmitterArcControls.facingDeg}}" data-emitter-setting="facingDeg" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Facing Value</label>
+        <span class="sta2e-anchor-value" data-emitter-facing-value>{{activeEmitterArcControls.facingDeg}} deg</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-layer">Layer</label>
+        <select id="sta2e-engine-layer" data-emitter-setting="layer">
+          <option value="above" {{#if activeEmitterArcControls.layerAboveSelected}}selected{{/if}}>Above Token</option>
+          <option value="below" {{#if activeEmitterArcControls.layerBelowSelected}}selected{{/if}}>Below Token</option>
+        </select>
+      </div>
+    </div>
+    {{/if}}
+
+    <div class="sta2e-vfx-preview-bar">
+      <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Source: {{previewSourceName}}</div>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
+      <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
+    </div>
+  </div>
+  {{/if}}
+
   <div class="sta2e-anchor-stage-wrap">
     {{#if hasTexture}}
     <div class="sta2e-anchor-stage" data-anchor-stage>
@@ -845,7 +941,7 @@
       {{#each activeMarkers}}
         <div class="sta2e-anchor-list-row {{#if selected}}is-selected{{/if}}" data-select-emitter="{{index}}">
         <div class="sta2e-anchor-pill" style="background: {{markerColor}};">{{displayIndex}}</div>
-        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} / {{facingDeg}} deg / {{arcWidthDeg}} deg / {{layerLabel}}{{/if}}</div>
+        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} / {{facingDeg}} deg{{#if showArcWidth}} / {{arcWidthDeg}} deg{{/if}} / {{layerLabel}}{{/if}}</div>
         <button type="button" class="sta2e-anchor-remove" data-remove-emitter="{{index}}" title="Remove point {{displayIndex}}">
           <i class="fas fa-trash"></i>
         </button>
@@ -862,3 +958,4 @@
     <button type="button" class="sta2e-anchor-save" data-action="save"><i class="fas fa-save"></i> Save</button>
   </div>
 </div>
+{{! sta2e-toolkit ship vfx anchor editor }}
