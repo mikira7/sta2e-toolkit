@@ -12,6 +12,8 @@ const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 const MODULE = "sta2e-toolkit";
 const UUID_DOC_CACHE = new Map();
+const CHARACTER_CREATOR_ACTOR_CREATE_TIMEOUT_MS = 30000;
+const CHARACTER_CREATOR_PENDING_ACTOR_CREATES = new Map();
 
 export const CHARACTER_CREATOR_DEFAULT_DATA = {
   config: {
@@ -1935,17 +1937,134 @@ function supportingStressMax(attributes = {}, disciplines = {}, items = [], isSu
   return Math.max(0, max);
 }
 
-function playerActorOwnership() {
+function actorOwnershipForUser(userId) {
   return {
     default: CONST?.DOCUMENT_OWNERSHIP_LEVELS?.NONE ?? 0,
-    [game.user.id]: CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3,
+    [userId]: CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3,
   };
+}
+
+function playerActorOwnership() {
+  return actorOwnershipForUser(game.user.id);
 }
 
 function sharedActorOwnership() {
   return {
     default: CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3,
   };
+}
+
+function sanitizeCreatorActorDataForCreation(actorData, { requesterUserId, ownershipMode } = {}) {
+  const data = foundry.utils.deepClone(actorData ?? {});
+
+  const folder = typeof data.folder === "string" ? game.folders.get(data.folder) : null;
+  data.folder = folder?.type === "Actor" ? folder.id : null;
+
+  data.ownership = ownershipMode === "shared"
+    ? sharedActorOwnership()
+    : actorOwnershipForUser(requesterUserId);
+
+  return data;
+}
+
+function hasActiveGm() {
+  const users = game.users?.contents
+    ?? (typeof game.users?.filter === "function" ? game.users.filter(() => true) : []);
+  return users.some(user => user?.active && user.isGM);
+}
+
+function randomRequestId() {
+  return foundry.utils.randomID?.()
+    ?? globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForActorById(actorId, timeoutMs = 5000) {
+  if (!actorId) return null;
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const actor = game.actors.get(actorId);
+    if (actor) return actor;
+    await wait(100);
+  }
+  return game.actors.get(actorId) ?? null;
+}
+
+async function requestGmCharacterCreatorActorCreation(actorData, { characterKind, ownershipMode } = {}) {
+  if (!hasActiveGm()) {
+    throw new Error("No active GM is connected to create the character.");
+  }
+
+  const requestId = randomRequestId();
+  const response = await new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      CHARACTER_CREATOR_PENDING_ACTOR_CREATES.delete(requestId);
+      reject(new Error("The GM client did not respond to the character creation request."));
+    }, CHARACTER_CREATOR_ACTOR_CREATE_TIMEOUT_MS);
+
+    CHARACTER_CREATOR_PENDING_ACTOR_CREATES.set(requestId, { resolve, reject, timeoutId });
+
+    game.socket.emit(`module.${MODULE}`, {
+      action: "createCharacterCreatorActor",
+      requestId,
+      requesterUserId: game.user.id,
+      actorData,
+      characterKind,
+      ownershipMode,
+    });
+  });
+
+  return waitForActorById(response.actorId);
+}
+
+async function createCharacterCreatorActor(actorData, { characterKind, ownershipMode } = {}) {
+  if (game.user.isGM) {
+    const result = await createCharacterCreatorActorAsGM({
+      actorData,
+      requesterUserId: game.user.id,
+      characterKind,
+      ownershipMode,
+    });
+    return result.actor;
+  }
+
+  return requestGmCharacterCreatorActorCreation(actorData, { characterKind, ownershipMode });
+}
+
+export function resolveCharacterCreatorActorCreationResponse(msg = {}) {
+  if (msg.targetUserId !== game.user.id) return false;
+
+  const pending = CHARACTER_CREATOR_PENDING_ACTOR_CREATES.get(msg.requestId);
+  if (!pending) return false;
+
+  clearTimeout(pending.timeoutId);
+  CHARACTER_CREATOR_PENDING_ACTOR_CREATES.delete(msg.requestId);
+
+  if (msg.ok) pending.resolve(msg);
+  else pending.reject(new Error(msg.error || "The GM client could not create the character."));
+  return true;
+}
+
+export async function createCharacterCreatorActorAsGM({ actorData, requesterUserId, characterKind, ownershipMode } = {}) {
+  const requester = game.users.get(requesterUserId);
+  if (!requester) throw new Error("The requesting user could not be found.");
+  if (characterKind === "npc" && !requester.isGM) {
+    throw new Error("Only GMs can create NPCs.");
+  }
+
+  const effectiveOwnershipMode = characterKind === "supporting" || characterKind === "npc" ? "shared" : "player";
+  const data = sanitizeCreatorActorDataForCreation(actorData, {
+    requesterUserId,
+    ownershipMode: effectiveOwnershipMode,
+  });
+  const items = Array.isArray(data.items) ? foundry.utils.deepClone(data.items) : [];
+  const actor = await Actor.create(data, { renderSheet: false });
+  await reconcileCreatorActorItems(actor, items);
+  return { actor, actorId: actor.id, actorName: actor.name };
 }
 
 function bindDescriptionToggles(element) {
@@ -8353,14 +8472,18 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
 
     try {
       const items = await this._buildFinalActorItems(context);
-      const actor = await Actor.create(this._buildFinalActorData(context, items), { renderSheet: false });
-      await reconcileCreatorActorItems(actor, items);
-      actor.sheet?.render(true);
-      ui.notifications.info(`STA2e Toolkit: Created character ${actor.name}.`);
+      const characterKind = context.isNpcCharacter ? "npc" : context.isSupportingCharacter ? "supporting" : "player";
+      const ownershipMode = context.isSupportingCharacter || context.isNpcCharacter ? "shared" : "player";
+      const actor = await createCharacterCreatorActor(this._buildFinalActorData(context, items), {
+        characterKind,
+        ownershipMode,
+      });
+      actor?.sheet?.render(true);
+      ui.notifications.info(`STA2e Toolkit: Created character ${actor?.name ?? context.characterName ?? "Unnamed Character"}.`);
       this.close();
     } catch (err) {
       console.error("STA2e Toolkit | Character Creator finalize failed:", err);
-      ui.notifications.error("STA2e Toolkit: Could not create the character. See console for details.");
+      ui.notifications.error(`STA2e Toolkit: Could not create the character. ${err.message ?? "See console for details."}`);
     }
   }
 

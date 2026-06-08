@@ -8,6 +8,7 @@ import {
   getClosestShipArrayCurveMatch,
   getShipWeaponVfxSettings,
   getShipHitLocationPointForShot,
+  getShipWeaponEmitterArcSelection,
   getShipWeaponEmitterAnchors,
   getTokenAlphaMask,
   isShipArrayWeapon,
@@ -126,7 +127,7 @@ export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, opt
       color: colors.color,
       coreColor: colors.coreColor,
     });
-    const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings);
+    const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings, options.selectedEmitter);
     _arrayBeam(sourcePoint, targetPoint, {
       hit: true,
       duration: Math.max(180, Number(options.beamDuration) || 520),
@@ -136,7 +137,7 @@ export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, opt
     return true;
   }
 
-  const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings);
+  const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings, options.selectedEmitter);
   _beamShot(sourcePoint, targetPoint, {
     hit: true,
     duration: Math.max(180, Number(options.beamDuration) || 420),
@@ -144,6 +145,7 @@ export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, opt
     glowWidth: 12,
     color: colors.color,
     coreColor: colors.coreColor,
+    layer: sourcePoint.layer,
   });
   return true;
 }
@@ -257,14 +259,23 @@ function _tokenEdgePoint(token, towardPoint, mode = "source") {
   };
 }
 
-function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vfxSettings = null) {
+function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vfxSettings = null, selectedEmitter = null) {
   if (isShipArrayWeapon(weapon)) {
     const curvePoint = getClosestShipArrayCurveMatch(sourceToken, weapon, targetPoint, undefined, vfxSettings)?.point;
     if (curvePoint) return curvePoint;
   }
 
+  if (selectedEmitter?.anchor && !isShipArrayWeapon(weapon)) {
+    const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, selectedEmitter.anchor, vfxSettings, targetPoint);
+    if (point) return { ...point, layer: selectedEmitter.layer ?? selectedEmitter.anchor.layer ?? "above" };
+  }
+
   const anchors = weapon ? getShipWeaponEmitterAnchors(sourceToken, weapon) : [];
   if (anchors.length && targetPoint) {
+    if (!shotIndex) {
+      const selection = getShipWeaponEmitterArcSelection(sourceToken, weapon, targetPoint, vfxSettings);
+      if (selection?.point) return { ...selection.point, layer: selection.layer ?? selection.anchor?.layer ?? "above" };
+    }
     const points = anchors
       .map(anchor => shipWeaponAnchorToCanvasPoint(sourceToken, weapon, anchor, vfxSettings, targetPoint))
       .filter(Boolean)
@@ -355,7 +366,7 @@ async function _firePhaserBank(isHit, sourceToken, targets, opts) {
         targetSystem: opts.targetSystem,
         shotIndex: i,
       });
-      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i);
+      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, null, opts.selectedEmitter);
       await _delay(i === 0 ? 0 : 95);
       _beamShot(sourcePoint, targetPoint, {
         hit: isHit,
@@ -364,6 +375,7 @@ async function _firePhaserBank(isHit, sourceToken, targets, opts) {
         glowWidth: 14,
         color: PHASER_PRIMARY,
         coreColor: PHASER_CORE,
+        layer: sourcePoint.layer,
       });
       if (isHit) {
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: 300 });
@@ -400,7 +412,7 @@ async function _firePhaserArray(isHit, sourceToken, targets, opts) {
         color: colors.color,
         coreColor: colors.coreColor,
       });
-      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, settings);
+      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, settings, opts.selectedEmitter);
       const beamDuration = isHit ? 760 : 420;
       _arrayBeam(sourcePoint, targetPoint, {
         hit: isHit,
@@ -515,14 +527,15 @@ async function _firePhotonTorpedo(isHit, sourceToken, targets, opts) {
         targetSystem: opts.targetSystem,
         shotIndex: i,
       });
-      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i);
+      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, null, opts.selectedEmitter);
       _playSound(opts.soundPath, i === 0 ? 1 : 0.7);
-      _launchFlash(sourcePoint, PHOTON_PRIMARY);
+      _launchFlash(sourcePoint, PHOTON_PRIMARY, sourcePoint.layer);
       _photonProjectile(sourcePoint, targetPoint, {
         hit: isHit,
         duration: Math.max(450, Math.min(1400, _getTimingTorpedoImpact())),
         color: PHOTON_PRIMARY,
         coreColor: PHOTON_CORE,
+        layer: sourcePoint.layer,
       });
       if (isHit) {
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, {
@@ -546,7 +559,7 @@ function _beamShot(sourcePoint, targetPoint, opts = {}) {
   const layer = _effectLayer();
   if (!layer) return;
 
-  const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y));
+  const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
   layer.addChild(container);
 
   const glow = new PIXI.Graphics();
@@ -559,12 +572,20 @@ function _beamShot(sourcePoint, targetPoint, opts = {}) {
   _drawLine(beam, sourcePoint, targetPoint, opts.width ?? 3, opts.coreColor, 0.94);
   _fillCircle(flare, sourcePoint.x, sourcePoint.y, 7, opts.coreColor, 0.88);
   _strokeCircle(flare, sourcePoint.x, sourcePoint.y, 12, 2, opts.color, 0.55);
+  container.addChild(glow, beam, flare);
   if (opts.hit) {
     _fillCircle(spark, targetPoint.x, targetPoint.y, 9, opts.coreColor, 0.9);
     _strokeCircle(spark, targetPoint.x, targetPoint.y, 20, 2, opts.color, 0.7);
+    if (opts.layer === "below") {
+      const impactContainer = _sceneContainer(targetPoint.y);
+      impactContainer.addChild(spark);
+      layer.addChild(impactContainer);
+      _fadeContainer(impactContainer, opts.duration ?? 420);
+    } else {
+      container.addChild(spark);
+    }
   }
 
-  container.addChild(glow, beam, flare, spark);
   _fadeContainer(container, opts.duration ?? 420);
 }
 
@@ -604,10 +625,10 @@ function _arrayBeam(sourcePoint, targetPoint, opts = {}) {
   _fadeContainer(container, opts.duration ?? 760);
 }
 
-function _launchFlash(point, color) {
+function _launchFlash(point, color, sourceLayer = "above") {
   const layer = _effectLayer();
   if (!layer) return;
-  const container = _sceneContainer(point.y);
+  const container = _sceneContainer(point.y, sourceLayer);
   const flash = new PIXI.Graphics();
   flash.blendMode = _addBlend();
   _fillCircle(flash, point.x, point.y, 8, PHOTON_CORE, 0.9);
@@ -621,7 +642,7 @@ function _photonProjectile(sourcePoint, targetPoint, opts = {}) {
   const layer = _effectLayer();
   if (!layer) return;
 
-  const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y));
+  const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
   const projectile = new PIXI.Container();
   const body = new PIXI.Graphics();
   const tail = new PIXI.Graphics();
@@ -790,9 +811,11 @@ function _redrawCurveTrail(g, curve, tFrom, tTo, color, coreColor) {
   }
 }
 
-function _sceneContainer(y = 0) {
+function _sceneContainer(y = 0, sourceLayer = "above") {
   const container = new PIXI.Container();
-  container.zIndex = VFX_Z_BASE + Math.round(y);
+  container.zIndex = sourceLayer === "below"
+    ? -VFX_Z_BASE + Math.round(y)
+    : VFX_Z_BASE + Math.round(y);
   container.alpha = 1;
   return container;
 }

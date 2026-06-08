@@ -1,6 +1,7 @@
 import {
   getClosestShipArrayCurvePoint,
   getClosestShipWeaponEmitterPoint,
+  getShipWeaponEmitterArcSelection,
   getShipHitLocationPointForShot,
   getShipWeaponVfxSettings,
   getShipWeaponEmitterAnchors,
@@ -16,6 +17,10 @@ import {
 import {
   playShieldImpactVFX,
 } from "./shield-impact-vfx.js";
+import {
+  getSceneZones,
+  getZoneAtPoint,
+} from "./zone-data.js";
 
 const SHIP_HULL_IMPACT_EFFECT = "jb2a.explosion_side.01.orange.2";
 
@@ -83,8 +88,8 @@ function resolveCustomEffect(weaponName, isShip, isHit) {
 // FireballBeam - long ship-scale energy beam.
 // Use the raw path with manual template data so the beam keeps the smaller
 // raw-file sizing while still anchoring stretchTo at the visible beam start.
-const SHIP_PHASER_BEAM = "modules/JB2A_DnD5e/Library/3rd_Level/Fireball/FireballBeam_01_Orange_90ft_4000x400.webm";
-const SHIP_PHASER_BEAM_TEMPLATE = Object.freeze({ gridSize: 100, startPoint: 200, endPoint: 200 });
+const SHIP_PHASER_BEAM = "modules/JB2A_DnD5e/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_90ft_4000x400.webm";
+const SHIP_PHASER_BEAM_TEMPLATE = Object.freeze({ gridSize: 100, startPoint: 260, endPoint: 200 });
 const SHIP_RANGED_TRAVEL_TEMPLATE = Object.freeze({ gridSize: 100, startPoint: 200, endPoint: 200 });
 // Lead-in padding for a raw Scorching Ray .webm. Tune `startPoint` until the
 // ray origin sits on the emitter; read JB2A's own value with
@@ -93,6 +98,19 @@ const SHIP_SCORCHING_RAY_TEMPLATE = Object.freeze({ gridSize: 100, startPoint: 2
 const SHIP_IMPACT_EFFECT_BASE_SIZE = 400;
 const SHIP_PHOTON_TORPEDO_EFFECT = "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/Bullet_01_Regular_Orange_90ft_4000x400.webm";
 const SHIP_PHOTON_TORPEDO_TINT = 0xff3333;
+const SHIP_WEAPON_FACING_DURATION_SCALE = 3.5;
+const SHIP_WEAPON_FACING_SETTLE_MS = 900;
+// Cinematic reposition glide: time per grid square, and a floor. Higher = slower.
+const SHIP_WEAPON_REPOSITION_MS_PER_SQUARE = 900;
+const SHIP_WEAPON_REPOSITION_MIN_MS = 700;
+// Per-frame step for the bow-first turning glide (~60fps).
+const SHIP_WEAPON_REPOSITION_STEP_MS = 16;
+// How hard the ship banks into the curve: extra heading swing, in degrees,
+// blended in at mid-glide then unwound so it still ends on the firing facing.
+const SHIP_WEAPON_REPOSITION_BANK_DEG = 18;
+// Clear gap the ship keeps from a same-zone target, as a fraction of its own
+// token length (edge to edge).
+const SHIP_WEAPON_REPOSITION_TARGET_GAP = 0.3;
 
 function beamEffect(color) {
   const weaponKey = color === "green" ? "disruptor" : color === "purple" ? "polaron" : "phaser";
@@ -677,6 +695,13 @@ function tokenCenter(token) {
   };
 }
 
+function normalizeTargetList(targets) {
+  if (!targets) return [];
+  if (Array.isArray(targets)) return targets.filter(Boolean);
+  if (typeof targets[Symbol.iterator] === "function") return Array.from(targets).filter(Boolean);
+  return [targets].filter(Boolean);
+}
+
 function tokenDimensions(token) {
   const doc = token?.document ?? token;
   const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
@@ -725,17 +750,24 @@ function offsetForTokenPoint(token, point) {
   return { x: point.x - center.x, y: point.y - center.y };
 }
 
-function sequenceLocation(token, point, fallbackOptions = undefined) {
+function sequenceLocation(token, point, fallbackOptions = undefined, layer = null) {
   const offset = offsetForTokenPoint(token, point);
-  if (offset) return { location: token, options: { offset } };
-  return { location: token, options: fallbackOptions };
+  if (offset) return { location: token, options: { offset }, layer };
+  return { location: token, options: fallbackOptions, layer };
 }
 
 function pointSequenceLocation(point) {
   return point ? { location: point } : null;
 }
 
-function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotIndex = 0) {
+// Stable value key for an emitter anchor (no id field on the normalized data).
+function emitterAnchorKey(anchor) {
+  if (!anchor) return "";
+  const r = n => Math.round(Number(n) * 1000) / 1000;
+  return `${r(anchor.x)}:${r(anchor.y)}:${r(anchor.facingDeg)}`;
+}
+
+function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, selectedEmitter = null) {
   if (!weapon || !targetPoint) return null;
 
   if (isShipArrayWeapon(weapon)) {
@@ -744,30 +776,52 @@ function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotInd
   }
 
   const anchors = getShipWeaponEmitterAnchors(sourceToken, weapon);
-  if (!anchors.length) return null;
-  if (anchors.length === 1 || !shotIndex) return getClosestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint);
 
-  const points = anchors
-    .map(anchor => shipWeaponAnchorToCanvasPoint(sourceToken, weapon, anchor, null, targetPoint))
+  // No enumerable emitters: honour the pre-selected arc emitter if there is one.
+  if (!anchors.length) {
+    if (selectedEmitter?.anchor) {
+      const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, selectedEmitter.anchor, null, targetPoint);
+      if (point) return { ...point, layer: selectedEmitter.layer ?? selectedEmitter.anchor.layer ?? "above" };
+    }
+    return null;
+  }
+
+  // Build an ordered list of emitter points so consecutive shots fire from
+  // different emitters (e.g. a Bird-of-Prey alternating its two forward
+  // disruptor cannons). The pre-selected arc emitter goes first so shot 0 still
+  // comes from where the ship turned to fire; the rest follow by proximity to
+  // the target.
+  const selKey = selectedEmitter?.anchor ? emitterAnchorKey(selectedEmitter.anchor) : null;
+  const ordered = anchors
+    .map(anchor => {
+      const p = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, anchor, null, targetPoint);
+      return p ? { x: p.x, y: p.y, layer: anchor.layer ?? p.layer ?? "above", key: emitterAnchorKey(anchor) } : null;
+    })
     .filter(Boolean)
-    .sort((a, b) => (
-      Math.hypot(a.x - targetPoint.x, a.y - targetPoint.y)
-      - Math.hypot(b.x - targetPoint.x, b.y - targetPoint.y)
-    ));
-  return points.length ? points[Math.abs(shotIndex) % points.length] : null;
+    .sort((a, b) => {
+      const aSel = selKey && a.key === selKey ? 0 : 1;
+      const bSel = selKey && b.key === selKey ? 0 : 1;
+      if (aSel !== bSel) return aSel - bSel; // selected emitter first
+      return Math.hypot(a.x - targetPoint.x, a.y - targetPoint.y)
+           - Math.hypot(b.x - targetPoint.x, b.y - targetPoint.y);
+    });
+
+  if (!ordered.length) return null;
+  const chosen = ordered[Math.abs(shotIndex) % ordered.length];
+  return { x: chosen.x, y: chosen.y, layer: chosen.layer };
 }
 
-async function shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, fallbackOptions = undefined, shotIndex = 0) {
+async function shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, fallbackOptions = undefined, shotIndex = 0, selectedEmitter = null) {
   const aimingPoint = targetPoint ?? tokenCenter(targetToken);
-  const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex);
-  if (emitterPoint) return sequenceLocation(sourceToken, emitterPoint);
+  const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex, selectedEmitter);
+  if (emitterPoint) return sequenceLocation(sourceToken, emitterPoint, undefined, emitterPoint.layer ?? null);
   return sequenceLocation(sourceToken, await randomOpaqueTokenPoint(sourceToken), fallbackOptions);
 }
 
-function shipWeaponMissSourceLocation(sourceToken, targetToken, weapon, shotIndex = 0) {
+function shipWeaponMissSourceLocation(sourceToken, targetToken, weapon, shotIndex = 0, selectedEmitter = null) {
   const aimingPoint = tokenCenter(targetToken);
-  const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex);
-  if (emitterPoint) return sequenceLocation(sourceToken, emitterPoint);
+  const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex, selectedEmitter);
+  if (emitterPoint) return sequenceLocation(sourceToken, emitterPoint, undefined, emitterPoint.layer ?? null);
   return sequenceLocation(sourceToken, null);
 }
 
@@ -775,29 +829,38 @@ function shipWeaponMissTargetLocation(targetToken) {
   return { location: tokenCenter(targetToken) };
 }
 
-async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined, weapon = null, shotIndex = 0, targetSystem = null } = {}) {
+async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined, weapon = null, shotIndex = 0, targetSystem = null, selectedEmitter = null } = {}) {
   const sourceReference = tokenCenter(sourceToken);
   const hitLocationPoint = targetSystem
     ? getShipHitLocationPointForShot(targetToken, targetSystem, sourceReference, shotIndex)
     : null;
   const targetPoint = hitLocationPoint ?? await randomOpaqueTokenPoint(targetToken);
   return {
-    source: await shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, sourceOptions, shotIndex),
+    source: await shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, sourceOptions, shotIndex, selectedEmitter),
     target: pointSequenceLocation(targetPoint ?? tokenCenter(targetToken)),
     impact: sequenceLocation(targetToken, targetPoint, targetOptions),
   };
 }
 
 function atSequenceLocation(effect, location) {
+  effect = applySequenceSourceLayer(effect, location?.layer);
   return location?.options
     ? effect.atLocation(location.location, location.options)
     : effect.atLocation(location.location);
 }
 
 function stretchToSequenceLocation(effect, location) {
+  effect = applySequenceSourceLayer(effect, location?.layer);
   return location?.options
     ? effect.stretchTo(location.location, location.options)
     : effect.stretchTo(location.location);
+}
+
+function applySequenceSourceLayer(effect, layer) {
+  if (!effect || !layer) return effect;
+  if (layer === "below" && typeof effect.belowTokens === "function") return effect.belowTokens();
+  if (layer === "above" && typeof effect.aboveTokens === "function") return effect.aboveTokens();
+  return effect;
 }
 
 export function getStarshipDamageAnimationRepeatCount(finalDamage) {
@@ -814,6 +877,221 @@ function normalizeRepeatCount(repeatCount) {
 
 function cannonShotCount(repeatCount) {
   return normalizeRepeatCount(repeatCount) * 2;
+}
+
+function isShipWeaponConfig(config) {
+  return ["beam", "cannon", "torpedo"].includes(config?.type);
+}
+
+async function prepareShipEmitterFacing(config, token, targets, weapon) {
+  if (!isShipWeaponConfig(config) || !token || !weapon || isShipArrayWeapon(weapon)) return null;
+  const primaryTarget = normalizeTargetList(targets)[0] ?? null;
+  if (!primaryTarget) return null;
+  const selection = getShipWeaponEmitterArcSelection(token, weapon, tokenCenter(primaryTarget));
+  if (!selection?.anchor || !Number.isFinite(selection.desiredRotation)) return null;
+  // Try the cinematic bow-first turning glide; it also brings the ship onto the
+  // firing facing. If it declines (disabled, no zones, blocked), fall back to a
+  // plain in-place rotation so the weapon still lines up.
+  const maneuvered = await maneuverShipForFiring(token, selection, primaryTarget);
+  if (!maneuvered) await rotateTokenToEmitterFacing(token, selection.desiredRotation);
+  await _delay(SHIP_WEAPON_FACING_SETTLE_MS);
+  return selection;
+}
+
+function shipRepositionSettings() {
+  let enabled = true;
+  let maxSquares = 2;
+  try { enabled = game.settings.get("sta2e-toolkit", "shipWeaponReposition") !== false; } catch { /* default */ }
+  try {
+    const raw = Number(game.settings.get("sta2e-toolkit", "shipWeaponRepositionSquares"));
+    if (Number.isFinite(raw)) maxSquares = Math.max(0, Math.min(4, raw));
+  } catch { /* default */ }
+  return { enabled, maxSquares };
+}
+
+/**
+ * Cinematic bow-first turning glide. The ship noses through a banking curve
+ * while its heading eases from its current rotation to the firing facing,
+ * finishing aimed. The resting spot is chosen first, then the curve is drawn to
+ * it, so transient sideways bulges in the arc never cut the move short. The
+ * destination is the furthest point (up to the configured distance) forward
+ * along the firing facing that still satisfies two hard rules:
+ *   1. it stays inside the zone the ship started in (range bands never change);
+ *   2. it never lands on top of the target token, when the target shares that
+ *      zone (the ship stops just short instead).
+ *
+ * Returns true when it handled the facing (caller should not also rotate), or
+ * false when it declined (disabled, no zone system, ship not in a zone, or
+ * there's no room to advance) so the caller can fall back to a plain rotation.
+ *
+ * @param {Token} token         the firing ship token
+ * @param {object} selection    arc selection from getShipWeaponEmitterArcSelection
+ * @param {Token} primaryTarget the token being fired at (may be null)
+ * @returns {Promise<boolean>}
+ */
+async function maneuverShipForFiring(token, selection, primaryTarget = null) {
+  const { enabled, maxSquares } = shipRepositionSettings();
+  if (!enabled || maxSquares <= 0) return false;
+
+  const doc = token?.document;
+  if (!doc?.update) return false;
+
+  const zones = getSceneZones();
+  if (!zones?.length) return false; // feature is opt-in via the zone system
+
+  const center0 = tokenCenter(token);
+  const startZone = getZoneAtPoint(center0.x, center0.y, zones);
+  if (!startZone) return false; // ship isn't in a zone — leave it alone
+
+  const H0 = Number(doc.rotation ?? token?.rotation ?? 0) || 0;
+  // Firing facing computed at the START position — used only to choose the
+  // forward direction for the glide. The actual end facing is re-aimed from the
+  // destination further below, since moving changes the bearing to the target.
+  const Hf0 = Number(selection?.desiredRotation);
+  if (!Number.isFinite(Hf0)) return false;
+
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  const sceneRect = canvas?.dimensions?.sceneRect ?? null;
+  const { width, height } = tokenDimensions(token);
+
+  // Foundry tokens are front-facing at local 180°, so a heading's bow points
+  // along canvas bearing (heading + 90)° in the atan2(dy,dx) convention.
+  const bowDir = (headingDeg) => {
+    const r = (headingDeg + 90) * (Math.PI / 180);
+    return { x: Math.cos(r), y: Math.sin(r) };
+  };
+  const inZone = (x, y) => {
+    if (sceneRect && !sceneRect.contains(x, y)) return false;
+    const z = getZoneAtPoint(x, y, zones);
+    return !!z && z.id === startZone.id;
+  };
+
+  // Keep-clear ring around the target — only enforced when the target is in the
+  // same zone. The ship keeps a small slice of empty space between the two hulls:
+  // centre-to-centre separation = both bounding radii plus a fraction of a ship
+  // length of gap.
+  let targetCenter = null;
+  let minSeparation = 0;
+  if (primaryTarget) {
+    const tc = tokenCenter(primaryTarget);
+    const tz = getZoneAtPoint(tc.x, tc.y, zones);
+    if (tz && tz.id === startZone.id) {
+      const tDim = tokenDimensions(primaryTarget);
+      const shipLen = Math.max(width, height);
+      const shipR = shipLen / 2;
+      const tgtR = Math.max(tDim.width, tDim.height) / 2;
+      targetCenter = tc;
+      minSeparation = shipR + tgtR + shipLen * SHIP_WEAPON_REPOSITION_TARGET_GAP;
+    }
+  }
+
+  // Pick the furthest forward resting centre that obeys both rules. Start from
+  // the configured distance, then cap it at the near edge of the target's
+  // keep-clear ring so the ship stops short instead of flying through the
+  // target to land on the far side.
+  const bowHf = bowDir(Hf0);
+  let maxDist = maxSquares * gridSize;
+  if (targetCenter) {
+    const lx = targetCenter.x - center0.x;
+    const ly = targetCenter.y - center0.y;
+    const tca = lx * bowHf.x + ly * bowHf.y; // projection of target onto the bow ray
+    if (tca > 0) { // target lies ahead, not behind
+      const perp2 = (lx * lx + ly * ly) - tca * tca; // squared off-axis distance
+      const r2 = minSeparation * minSeparation;
+      if (perp2 < r2) { // the forward ray actually enters the keep-clear ring
+        const tNear = tca - Math.sqrt(r2 - perp2);
+        maxDist = Math.min(maxDist, Math.max(0, tNear));
+      }
+    }
+  }
+
+  // Walk inward from there for the zone boundary (zones may be non-convex), so
+  // the ship moves as much as it's allowed to while staying in its start zone.
+  let bestD = 0;
+  for (let d = maxDist; d >= 0; d -= gridSize * 0.1) {
+    const ex = center0.x + bowHf.x * d;
+    const ey = center0.y + bowHf.y * d;
+    if (!inZone(ex, ey)) continue;
+    bestD = d;
+    break;
+  }
+
+  const dest = { x: center0.x + bowHf.x * bestD, y: center0.y + bowHf.y * bestD };
+
+  // Re-aim from the destination so the weapon arc still bears on the target once
+  // the ship has moved. Same convention as ship-vfx-anchors.js:
+  // rotation = bearing(dest -> target) - emitterFacingDeg + 90.
+  let Hf = Hf0;
+  const aimPoint = primaryTarget ? tokenCenter(primaryTarget) : null;
+  if (aimPoint && Number.isFinite(selection?.facingDeg)) {
+    const cb = ((Math.atan2(aimPoint.y - dest.y, aimPoint.x - dest.x) * 180 / Math.PI) % 360 + 360) % 360;
+    const fd = ((Number(selection.facingDeg) % 360) + 360) % 360;
+    Hf = cb - fd + 90;
+  }
+  const turn = ((Hf - H0 + 540) % 360) - 180; // shortest signed turn, degrees
+  const sgn = turn > 0 ? 1 : (turn < 0 ? -1 : 0);
+
+  // Nothing worthwhile to do: no room to advance and no turn to show.
+  if (bestD < gridSize * 0.2 && Math.abs(turn) < 1) return false;
+
+  const moveVec = { x: dest.x - center0.x, y: dest.y - center0.y };
+  const moveDist = Math.hypot(moveVec.x, moveVec.y) || 1;
+
+  // Quadratic-Bézier control point offset perpendicular to the move, so the hull
+  // banks into the turn. Zero offset when there's no turn (straight glide).
+  const arc = Math.min(moveDist * 0.35, gridSize * 1.25) * sgn;
+  const mid = { x: center0.x + moveVec.x * 0.5, y: center0.y + moveVec.y * 0.5 };
+  const ctrl = {
+    x: mid.x - (moveVec.y / moveDist) * arc,
+    y: mid.y + (moveVec.x / moveDist) * arc,
+  };
+
+  const DURATION_MS = Math.max(SHIP_WEAPON_REPOSITION_MIN_MS, maxSquares * SHIP_WEAPON_REPOSITION_MS_PER_SQUARE);
+  const STEPS = Math.max(24, Math.min(90, Math.round(DURATION_MS / SHIP_WEAPON_REPOSITION_STEP_MS)));
+  const stepDelay = DURATION_MS / STEPS;
+  const smooth = t => t * t * (3 - 2 * t); // smoothstep ease-in-out
+
+  try {
+    for (let i = 1; i <= STEPS; i++) {
+      const raw = i / STEPS;
+      const te = smooth(raw);
+      const mt = 1 - te;
+      const bx = mt * mt * center0.x + 2 * mt * te * ctrl.x + te * te * dest.x;
+      const by = mt * mt * center0.y + 2 * mt * te * ctrl.y + te * te * dest.y;
+      // Heading eases H0 -> Hf, plus a transient bank that is zero at both ends.
+      const heading = H0 + turn * te + SHIP_WEAPON_REPOSITION_BANK_DEG * sgn * Math.sin(Math.PI * raw);
+
+      await doc.update(
+        { x: bx - width / 2, y: by - height / 2, rotation: heading },
+        { sta2eWeaponReposition: true },
+      );
+      await _delay(stepDelay);
+    }
+  } finally {
+    // Snap to the exact destination and firing facing (unwinds residual bank),
+    // even if a frame above threw.
+    await doc.update(
+      { x: dest.x - width / 2, y: dest.y - height / 2, rotation: Hf },
+      { sta2eWeaponReposition: true },
+    );
+  }
+  return true;
+}
+
+async function rotateTokenToEmitterFacing(token, desiredRotation) {
+  const doc = token?.document;
+  if (!doc?.update) return;
+  const current = Number(doc.rotation ?? token?.rotation ?? 0) || 0;
+  const delta = ((desiredRotation - current + 540) % 360) - 180;
+  if (Math.abs(delta) < 1) return;
+  const targetRotation = current + delta;
+  const duration = Math.round(
+    Math.max(250, Math.min(900, Math.abs(delta) * 2)) * SHIP_WEAPON_FACING_DURATION_SCALE,
+  );
+  await doc.update(
+    { rotation: targetRotation },
+    { animate: true, animation: { duration, easing: "easeInOutSine" }, sta2eWeaponFacing: true },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -983,7 +1261,7 @@ export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoin
   return true;
 }
 
-async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
+async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
@@ -991,7 +1269,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
     if (isHit) {
       if (isShipArrayWeapon(weapon)) {
         for (let i = 0; i < repeats; i++) {
-          const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem });
+          const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
           await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true);
           let shot = seq();
           shot = withSound(shot, soundPath).wait(50);
@@ -1008,7 +1286,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
       }
 
       for (let i = 0; i < repeats; i++) {
-        const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem });
+        const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
         s = withSound(s, soundPath).wait(50);
         waitForBeamImpact(stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
@@ -1023,7 +1301,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
       const missTarget = shipWeaponMissTargetLocation(target);
       await playSequencerArrayCurveCharge(config, token, weapon, missTarget.location, false);
       stretchToSequenceLocation(
-        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
+        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
         missTarget
       ).missed();
     }
@@ -1031,7 +1309,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
   }
 }
 
-async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
+async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
@@ -1046,6 +1324,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
             weapon,
             shotIndex: i,
             targetSystem,
+            selectedEmitter,
           });
           impactLocation = locations.impact;
           await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true);
@@ -1073,6 +1352,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
           weapon,
           shotIndex: i,
           targetSystem,
+          selectedEmitter,
         });
         impactLocation = locations.impact;
         s = withSound(s, soundPath).wait(50);
@@ -1088,7 +1368,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
       const missTarget = shipWeaponMissTargetLocation(target);
       await playSequencerArrayCurveCharge(config, token, weapon, missTarget.location, false);
       stretchToSequenceLocation(
-        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
+        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
         missTarget
       ).missed();
     }
@@ -1096,7 +1376,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
   }
 }
 
-async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
+async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
   const shots = isHit ? cannonShotCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
@@ -1110,6 +1390,7 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
           weapon,
           shotIndex: i,
           targetSystem,
+          selectedEmitter,
         });
         impactLocation = locations.impact;
         s = withSound(s, soundPath).wait(50);
@@ -1123,7 +1404,7 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
     } else {
       s = withSound(s, soundPath).wait(50);
       stretchToSequenceLocation(
-        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
+        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
         shipWeaponMissTargetLocation(target)
       ).missed();
     }
@@ -1131,14 +1412,14 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
   }
 }
 
-async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
+async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
   for (const target of targets) {
     const soundPath = config.sound;
     const s = seq();
     if (isHit) {
       for (let i = 0; i < repeats; i++) {
-        const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem });
+        const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(150);
         stretchToSequenceLocation(
@@ -1154,7 +1435,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
       if (soundPath) s.sound().file(soundPath).volume(1);
       s.wait(150);
       stretchToSequenceLocation(
-        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
+        atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
         shipWeaponMissTargetLocation(target)
       ).missed();
     }
@@ -1162,7 +1443,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
   }
 }
 
-async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null) {
+async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
   const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
 
   if (salvoMode === "spread") {
@@ -1172,7 +1453,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
       const s = seq();
       if (isHit) {
         for (let r = 0; r < repeats; r++) {
-          const locations = await shipShotLocations(token, target, { weapon, shotIndex: r, targetSystem });
+          const locations = await shipShotLocations(token, target, { weapon, shotIndex: r, targetSystem, selectedEmitter });
           if (soundPath) s.sound().file(soundPath).volume(1);
           s.wait(100);
           stretchToSequenceLocation(
@@ -1188,7 +1469,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(100);
         stretchToSequenceLocation(
-          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
+          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
           shipWeaponMissTargetLocation(target)
         ).missed();
       }
@@ -1210,6 +1491,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
             weapon,
             shotIndex: i,
             targetSystem,
+            selectedEmitter,
           });
           explosionLocation = locations.impact;
           if (i > 0) s.wait(220);
@@ -1227,7 +1509,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
         stretchToSequenceLocation(
-          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon)),
+          atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
           shipWeaponMissTargetLocation(target)
         ).missed();
       }
@@ -1396,6 +1678,7 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
   if (!config) return;
   config = withPhaserEraConfig(config, token, weapon);
   const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
+  const selectedEmitter = await prepareShipEmitterFacing(config, token, targets, weapon);
 
   if (await fireNativeWeaponVFX(config, isHit, token, targets, {
     spreadDeclared,
@@ -1405,6 +1688,7 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
     targetSystem,
     shieldImpact,
     hullImpact,
+    selectedEmitter,
   })) return;
 
   if (!combatAnimationsAvailable()) return;
@@ -1412,15 +1696,15 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
   switch (config.type) {
     // Ship-scale weapons
     case "beam":
-      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
-      else await fireBeamSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
+      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      else await fireBeamSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "cannon":
-      await fireCannons(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
+      await fireCannons(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "torpedo":
-      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
-      else              await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact);
+      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      else              await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
 
     // Ground-scale weapons

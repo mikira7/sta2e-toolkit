@@ -34,7 +34,11 @@ import { ZoneMovementLog } from "./zone-movement-log.js";
 import { ZoneHazard } from "./zone-hazard.js";
 import { ZoneVisibility, registerZoneVisibilityWrap } from "./zone-visibility.js";
 import { ZoneMonitor } from "./zone-monitor.js";
-import { openCharacterCreator } from "./character-creator.js";
+import {
+  createCharacterCreatorActorAsGM,
+  openCharacterCreator,
+  resolveCharacterCreatorActorCreationResponse,
+} from "./character-creator.js";
 import { cleanHardWrappedParagraphs, openTextFormatter } from "./text-formatter.js";
 import {
   openOpposedTaskSetup,
@@ -969,6 +973,40 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.alertHud?._onConditionChanged(prev, msg.condition);
     }
 
+    else if (msg.action === "characterCreatorActorCreated") {
+      resolveCharacterCreatorActorCreationResponse(msg);
+    }
+
+    else if (msg.action === "createCharacterCreatorActor" && _isResponsibleGM()) {
+      const response = {
+        action: "characterCreatorActorCreated",
+        requestId: msg.requestId,
+        targetUserId: msg.requesterUserId,
+      };
+
+      try {
+        const result = await createCharacterCreatorActorAsGM({
+          actorData: msg.actorData,
+          requesterUserId: msg.requesterUserId,
+          characterKind: msg.characterKind,
+          ownershipMode: msg.ownershipMode,
+        });
+        game.socket.emit("module.sta2e-toolkit", {
+          ...response,
+          ok: true,
+          actorId: result.actorId,
+          actorName: result.actorName,
+        });
+      } catch (err) {
+        console.error("STA2e Toolkit | createCharacterCreatorActor error:", err);
+        game.socket.emit("module.sta2e-toolkit", {
+          ...response,
+          ok: false,
+          error: err.message ?? "Could not create the character.",
+        });
+      }
+    }
+
     else if (msg.action === "createOverflowTracker" && _isResponsibleGM()) {
       // Player-side createTracker routes the chat-message creation through here.
       try {
@@ -1781,6 +1819,7 @@ const _lastKnownTokenPositions = new Map();
 
 Hooks.on("preUpdateToken", (tokenDoc, changes, options) => {
   if (options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logging
+  if (options?.sta2eWeaponReposition) return;   // cinematic firing nudge (in-zone) — skip zone logging
   if (!("x" in changes || "y" in changes)) return;
   // Store the pre-move canvas center for zone distance calculation
   const gs = canvas.grid?.size ?? 100;
@@ -1809,6 +1848,7 @@ Hooks.on("canvasReady", () => {
 
 Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
   if (_options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logic
+  if (_options?.sta2eWeaponReposition) return;   // cinematic firing nudge (in-zone) — skip zone logic
   if (!("x" in changes || "y" in changes)) return;
 
   game.sta2eToolkit?.zoneMonitor?._debouncedRefresh();

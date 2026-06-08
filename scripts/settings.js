@@ -340,6 +340,31 @@ export function registerSettings() {
     default: "free"
   });
 
+  // ── Cinematic ship repositioning ─────────────────────────────────────────
+  // When a ship fires, after it rotates to bring the weapon arc to bear it can
+  // also nudge a square or two forward along that facing — purely for flavour.
+  // The move is clamped to the firing ship's current zone, so range bands and
+  // zone-based distances never change.
+
+  game.settings.register("sta2e-toolkit", "shipWeaponReposition", {
+    name:    "Ship Weapons — Cinematic Reposition",
+    hint:    "When a ship fires, let it curve forward into firing position — the hull noses through a banking turn onto its weapon arc and glides a square or two, bow-first. The move stays inside the ship's current zone, so it never changes range bands. Turn off for static firing.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "shipWeaponRepositionSquares", {
+    name:    "Ship Weapons — Reposition Distance (squares)",
+    hint:    "Maximum number of grid squares a firing ship may slide forward along its arc. The actual distance is clamped so the ship stays in the same zone. 0 disables the nudge.",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 0, max: 4, step: 0.5 },
+    default: 2,
+  });
+
   // ── Combat Sound Effects ─────────────────────────────────────────────────
   // All optional — empty string = no sound played for that slot.
 

@@ -10,7 +10,12 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 6;
+const SHIP_VFX_ANCHORS_VERSION = 7;
+const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
+const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
+const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
+const WEAPON_EMITTER_MAX_ARC_WIDTH_DEG = 180;
+const WEAPON_EMITTER_LAYERS = Object.freeze(["above", "below"]);
 const PHASER_ERA_OPTIONS = Object.freeze([
   { value: "", label: "Current Default" },
   { value: "ent", label: "ENT" },
@@ -95,6 +100,51 @@ function _clampNumber(value, fallback, min, max) {
   return _clamp(_number(value, fallback), min, max);
 }
 
+function _normalizeDegrees(value, fallback = 0) {
+  const numeric = Number(value);
+  const deg = Number.isFinite(numeric) ? numeric : fallback;
+  return ((deg % 360) + 360) % 360;
+}
+
+function _shortestAngleDelta(fromDeg, toDeg) {
+  return ((_normalizeDegrees(toDeg) - _normalizeDegrees(fromDeg) + 540) % 360) - 180;
+}
+
+function _angleDistanceDeg(a, b) {
+  return Math.abs(_shortestAngleDelta(a, b));
+}
+
+function _canvasDirectionDeg(fromPoint, toPoint) {
+  if (!fromPoint || !toPoint) return 0;
+  return _normalizeDegrees(Math.atan2(toPoint.y - fromPoint.y, toPoint.x - fromPoint.x) * (180 / Math.PI));
+}
+
+function _tokenRotationDeg(token) {
+  const doc = token?.document ?? token;
+  return _normalizeDegrees(doc?.rotation ?? token?.rotation ?? 0);
+}
+
+function _normalizeEmitterArcWidth(value) {
+  return Math.round(_clampNumber(
+    value,
+    DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG,
+    WEAPON_EMITTER_MIN_ARC_WIDTH_DEG,
+    WEAPON_EMITTER_MAX_ARC_WIDTH_DEG,
+  ));
+}
+
+function _normalizeEmitterLayer(value) {
+  const layer = String(value ?? "").toLowerCase();
+  return WEAPON_EMITTER_LAYERS.includes(layer) ? layer : "above";
+}
+
+function _defaultEmitterFacingDeg(anchor) {
+  const dx = Number(anchor?.x ?? 0.5) - 0.5;
+  const dy = Number(anchor?.y ?? 0.5) - 0.5;
+  if (Math.hypot(dx, dy) < 0.0001) return DEFAULT_WEAPON_EMITTER_FACING_DEG;
+  return _normalizeDegrees(Math.atan2(dx, -dy) * (180 / Math.PI));
+}
+
 function _normalizeHexColor(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
@@ -150,6 +200,9 @@ function _normalizeWeaponEmitter(anchor) {
     weaponId: String(anchor?.weaponId || ""),
     weaponName: String(anchor?.weaponName || ""),
     weaponImg: String(anchor?.weaponImg || ""),
+    facingDeg: _normalizeDegrees(anchor?.facingDeg, _defaultEmitterFacingDeg(normalized)),
+    arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg),
+    layer: _normalizeEmitterLayer(anchor?.layer),
   };
 }
 
@@ -500,6 +553,78 @@ export function getShipWeaponEmitterAnchors(actorOrToken, weapon) {
   if (!weapon) return [];
   return (getShipVfxAnchors(actorOrToken).anchors.weaponEmitters ?? [])
     .filter(anchor => _weaponMatchesEmitter(anchor, weapon));
+}
+
+export function shipTargetBearingToLocalDeg(token, targetPoint) {
+  const center = _tokenCenter(token);
+  const canvasBearing = _canvasDirectionDeg(center, targetPoint);
+  return _normalizeDegrees(canvasBearing - _tokenRotationDeg(token) + 90);
+}
+
+export function shipFacingDegToRotationForTarget(token, targetPoint, facingDeg) {
+  const center = _tokenCenter(token);
+  const canvasBearing = _canvasDirectionDeg(center, targetPoint);
+  const currentRotation = _tokenRotationDeg(token);
+  const targetRotation = canvasBearing - _normalizeDegrees(facingDeg) + 90;
+  return currentRotation + _shortestAngleDelta(currentRotation, targetRotation);
+}
+
+export function getShipWeaponEmitterArcSelection(token, weapon, targetPoint, settingsOverride = null) {
+  if (!token || !weapon || !targetPoint || _isArrayWeapon(weapon)) return null;
+  const anchors = getShipWeaponEmitterAnchors(token, weapon);
+  if (!anchors.length) return null;
+
+  const targetBearing = shipTargetBearingToLocalDeg(token, targetPoint);
+  const currentRotation = _tokenRotationDeg(token);
+  let best = null;
+
+  anchors.forEach((anchor, index) => {
+    const point = shipWeaponAnchorToCanvasPoint(token, weapon, anchor, settingsOverride, targetPoint);
+    if (!point) return;
+
+    const facingDeg = _normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor));
+    const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg);
+    const bearingDelta = _angleDistanceDeg(targetBearing, facingDeg);
+    const inArc = bearingDelta <= (arcWidthDeg / 2);
+    const desiredRotation = shipFacingDegToRotationForTarget(token, targetPoint, facingDeg);
+    const turnDelta = _shortestAngleDelta(currentRotation, desiredRotation);
+    const distance = Math.hypot(point.x - targetPoint.x, point.y - targetPoint.y);
+    const score = inArc
+      ? [0, distance, index]
+      : [1, Math.abs(turnDelta), distance, index];
+
+    if (!best || _compareScore(score, best.score) < 0) {
+      best = {
+        anchor,
+        point,
+        index,
+        layer: _normalizeEmitterLayer(anchor.layer),
+        facingDeg,
+        arcWidthDeg,
+        inArc,
+        targetBearing,
+        desiredRotation,
+        turnDelta,
+        distance,
+        score,
+      };
+    }
+  });
+
+  if (!best) return null;
+  const { score, ...selection } = best;
+  return selection;
+}
+
+function _compareScore(a, b) {
+  const length = Math.max(a?.length ?? 0, b?.length ?? 0);
+  for (let i = 0; i < length; i++) {
+    const av = a?.[i] ?? 0;
+    const bv = b?.[i] ?? 0;
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+  }
+  return 0;
 }
 
 export function getClosestShipWeaponEmitterPoint(token, weapon, targetPoint, settingsOverride = null) {
@@ -1218,6 +1343,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._activeTab = "tractor";
     this._activeHitSystem = "structure";
     this._activePlacementMode = "points";
+    this._selectedEmitterIndex = 0;
     this._pendingCurvePoints = [];
     this._autoPreview = false;
     this._previewTimer = null;
@@ -1468,6 +1594,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _setActiveEmitters(emitters) {
+    this._selectedEmitterIndex = Math.max(0, Math.min(
+      Number.isInteger(this._selectedEmitterIndex) ? this._selectedEmitterIndex : 0,
+      Math.max(0, emitters.length - 1),
+    ));
+
     if (this._resolveActiveTab() === "tractor") {
       this._anchors = normalizeShipVfxAnchors({
         ...this._anchors,
@@ -1525,6 +1656,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _markerContext(emitters) {
+    const showFacingArrow = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     return emitters.map((anchor, index) => ({
       ...anchor,
       index,
@@ -1534,7 +1666,56 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       coords: `${anchor.x.toFixed(3)}, ${anchor.y.toFixed(3)}`,
       systemLabel: anchor.systemKey ? _systemLabel(anchor.systemKey) : null,
       markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : "#33aaff",
+      selected: showFacingArrow && index === this._selectedEmitterIndex,
+      showFacingArrow,
+      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor))),
+      arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg),
+      layerLabel: _normalizeEmitterLayer(anchor.layer) === "below" ? "Below" : "Above",
     }));
+  }
+
+  _selectedEmitter() {
+    const emitters = this._activeEmitters();
+    if (!emitters.length) return null;
+    const index = Math.max(0, Math.min(this._selectedEmitterIndex, emitters.length - 1));
+    this._selectedEmitterIndex = index;
+    return { index, anchor: emitters[index] };
+  }
+
+  _activeEmitterArcControls() {
+    if (!this._weaponForTab() || this._isActiveArrayWeaponTab()) return null;
+    const selected = this._selectedEmitter();
+    if (!selected?.anchor) return null;
+    const layer = _normalizeEmitterLayer(selected.anchor.layer);
+    return {
+      index: selected.index,
+      displayIndex: selected.index + 1,
+      facingDeg: Math.round(_normalizeDegrees(selected.anchor.facingDeg, _defaultEmitterFacingDeg(selected.anchor))),
+      arcWidthDeg: _normalizeEmitterArcWidth(selected.anchor.arcWidthDeg),
+      layer,
+      layerAboveSelected: layer === "above",
+      layerBelowSelected: layer === "below",
+    };
+  }
+
+  _readEmitterArcFromForm() {
+    if (!this._weaponForTab() || this._isActiveArrayWeaponTab() || !this.element) return null;
+    const selected = this._selectedEmitter();
+    if (!selected?.anchor) return null;
+    const emitters = [...this._activeEmitters()];
+    const current = emitters[selected.index];
+    if (!current) return null;
+    const facingDeg = this.element.querySelector('[data-emitter-setting="facingDeg"]')?.value ?? current.facingDeg;
+    const arcWidthDeg = this.element.querySelector('[data-emitter-setting="arcWidthDeg"]')?.value ?? current.arcWidthDeg;
+    const layer = this.element.querySelector('[data-emitter-setting="layer"]')?.value ?? current.layer;
+    emitters[selected.index] = _normalizeWeaponEmitter({
+      ...current,
+      facingDeg,
+      arcWidthDeg,
+      layer,
+    });
+    this._setActiveEmitters(emitters);
+    return emitters[selected.index];
   }
 
   _curveContext(curves) {
@@ -1621,6 +1802,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const curveModeActive = isArrayWeaponTab && this._activePlacementMode === "curve";
     const pointModeActive = !curveModeActive;
     const activeWeaponSettings = this._activeWeaponSettings();
+    const activeEmitterArcControls = this._activeEmitterArcControls();
     const previewSource = this._previewSourceToken();
     const previewTarget = previewSource ? this._previewTargetPoint(previewSource) : null;
     const pendingCurveMarkers = curveModeActive ? this._pendingCurveContext() : [];
@@ -1647,6 +1829,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       isArrayWeaponTab,
       isWeaponTab: !!this._weaponForTab(),
       activeWeaponSettings,
+      activeEmitterArcControls,
+      showEmitterArcSettings: !!activeEmitterArcControls,
       activeShieldImpactSettings: this._activeShieldImpactSettings(),
       shieldColorOptions: SHIELD_COLOR_OPTIONS.map(option => ({
         ...option,
@@ -1846,6 +2030,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         this._activeTab = event.currentTarget.dataset.anchorTab || "tractor";
         this._opaqueState = null;
         this._pendingCurvePoints = [];
+        this._selectedEmitterIndex = 0;
         if (!this._isActiveArrayWeaponTab()) this._activePlacementMode = "points";
         this.render({ force: true });
       });
@@ -1870,6 +2055,28 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       input.addEventListener("change", () => {
         this._readWeaponSettingsFromForm();
         this._scheduleAutoPreview();
+      });
+    });
+
+    const refreshEmitterArcControls = () => {
+      const active = this._activeEmitterArcControls();
+      if (!active) return;
+      el.querySelector("[data-emitter-facing-value]")?.replaceChildren(document.createTextNode(`${active.facingDeg} deg`));
+      el.querySelector("[data-emitter-arc-value]")?.replaceChildren(document.createTextNode(`${active.arcWidthDeg} deg`));
+      const marker = el.querySelector(`[data-move-emitter="${active.index}"] .sta2e-anchor-facing-arrow`);
+      if (marker) marker.style.transform = `rotate(${active.facingDeg}deg)`;
+    };
+
+    el.querySelectorAll("[data-emitter-setting]").forEach(input => {
+      input.addEventListener("input", () => {
+        this._readEmitterArcFromForm();
+        refreshEmitterArcControls();
+        this._scheduleAutoPreview();
+      });
+      input.addEventListener("change", () => {
+        this._readEmitterArcFromForm();
+        this._scheduleAutoPreview();
+        this.render({ force: true });
       });
     });
 
@@ -2006,6 +2213,12 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       const activeLabel = this._activeTabLabel();
       const pointKind = this._resolveActiveTab() === "hitLocations" ? "hit location" : "emitter";
       const anchor = { x, y, label: `${activeLabel} ${pointKind} ${activeEmitters.length + 1}` };
+      if (this._weaponForTab() && !this._isActiveArrayWeaponTab()) {
+        anchor.facingDeg = _defaultEmitterFacingDeg(anchor);
+        anchor.arcWidthDeg = DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG;
+        anchor.layer = "above";
+      }
+      this._selectedEmitterIndex = activeEmitters.length;
       this._setActiveEmitters([...activeEmitters, anchor]);
       if (coords) coords.textContent = `${this._activeEmitters().length} ${pointKind} point(s) for ${this._activeTabLabel()}`;
       if (opacityStatus) opacityStatus.textContent = "Checking alpha...";
@@ -2032,6 +2245,18 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       });
     });
 
+    el.querySelectorAll("[data-select-emitter]").forEach(row => {
+      row.addEventListener("click", event => {
+        if (event.target.closest("button")) return;
+        event.preventDefault();
+        const index = Number(event.currentTarget.dataset.selectEmitter);
+        if (!Number.isInteger(index)) return;
+        this._selectedEmitterIndex = index;
+        this._opaqueState = null;
+        this.render({ force: true });
+      });
+    });
+
     el.querySelectorAll("[data-remove-curve]").forEach(button => {
       button.addEventListener("click", event => {
         event.preventDefault();
@@ -2050,10 +2275,16 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       marker.addEventListener("click", event => {
         event.preventDefault();
         event.stopPropagation();
+        const index = Number(event.currentTarget.dataset.moveEmitter);
+        if (Number.isInteger(index) && this._weaponForTab() && !this._isActiveArrayWeaponTab()) {
+          this._selectedEmitterIndex = index;
+          this.render({ force: true });
+        }
       });
       marker.addEventListener("pointerdown", event => {
         const index = Number(event.currentTarget.dataset.moveEmitter);
         if (!Number.isInteger(index)) return;
+        this._selectedEmitterIndex = index;
         beginDrag(event, (point, target) => {
           const emitters = [...this._activeEmitters()];
           if (index < 0 || index >= emitters.length) return;

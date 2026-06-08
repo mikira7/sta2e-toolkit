@@ -422,6 +422,38 @@
       background: rgba(255, 255, 255, 0.75);
       transform: rotate(45deg);
     }
+    .sta2e-anchor-marker.is-selected {
+      border-color: #fff2c0;
+      box-shadow: 0 0 0 3px rgba(255, 242, 192, 0.42), 0 0 18px rgba(255, 242, 192, 0.9) !important;
+    }
+    .sta2e-anchor-marker.has-facing-arrow::after {
+      display: none;
+    }
+    .sta2e-anchor-facing-arrow {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 2px;
+      height: 30px;
+      margin-left: -1px;
+      margin-top: -30px;
+      transform-origin: 50% 100%;
+      background: #fff2c0;
+      box-shadow: 0 0 8px rgba(255, 242, 192, 0.9);
+      pointer-events: none;
+    }
+    .sta2e-anchor-facing-arrow::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -5px;
+      width: 0;
+      height: 0;
+      margin-left: -5px;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-bottom: 8px solid #fff2c0;
+    }
     .sta2e-array-curve-svg {
       position: absolute;
       inset: 0;
@@ -499,6 +531,13 @@
       gap: 8px;
       min-height: 28px;
       color: #d8e8ff;
+    }
+    .sta2e-anchor-list-row[data-select-emitter] {
+      cursor: pointer;
+    }
+    .sta2e-anchor-list-row.is-selected {
+      background: rgba(255, 242, 192, 0.08);
+      outline: 1px solid rgba(255, 242, 192, 0.32);
     }
     .sta2e-anchor-list-heading {
       padding: 4px 0 2px;
@@ -697,6 +736,38 @@
     </div>
     {{/if}}
 
+    {{#if showEmitterArcSettings}}
+    <div class="sta2e-vfx-settings-heading">
+      <span>Emitter {{activeEmitterArcControls.displayIndex}} Arc</span>
+    </div>
+    <div class="sta2e-anchor-value">Facing is ship-local: 0 fore, 90 starboard, 180 aft, 270 port.</div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-emitter-facing">Facing</label>
+        <input id="sta2e-emitter-facing" type="range" min="0" max="359" step="1" value="{{activeEmitterArcControls.facingDeg}}" data-emitter-setting="facingDeg" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Facing Value</label>
+        <span class="sta2e-anchor-value" data-emitter-facing-value>{{activeEmitterArcControls.facingDeg}} deg</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-emitter-arc">Arc Width</label>
+        <input id="sta2e-emitter-arc" type="range" min="60" max="180" step="1" value="{{activeEmitterArcControls.arcWidthDeg}}" data-emitter-setting="arcWidthDeg" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Arc Value</label>
+        <span class="sta2e-anchor-value" data-emitter-arc-value>{{activeEmitterArcControls.arcWidthDeg}} deg</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-emitter-layer">Layer</label>
+        <select id="sta2e-emitter-layer" data-emitter-setting="layer">
+          <option value="above" {{#if activeEmitterArcControls.layerAboveSelected}}selected{{/if}}>Above Token</option>
+          <option value="below" {{#if activeEmitterArcControls.layerBelowSelected}}selected{{/if}}>Below Token</option>
+        </select>
+      </div>
+    </div>
+    {{/if}}
+
     <div class="sta2e-vfx-preview-bar">
       <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Source: {{previewSourceName}}</div>
       <div class="sta2e-vfx-preview-status" title="{{previewTargetName}}">Target: {{previewTargetName}}</div>
@@ -740,7 +811,10 @@
         {{/each}}
         {{/if}}
         {{#each activeMarkers}}
-        <div class="sta2e-anchor-marker" data-anchor-marker data-move-emitter="{{index}}" title="{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}" style="left: {{left}}; top: {{top}}; background: {{markerColor}}; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28), 0 0 14px {{markerColor}};">{{displayIndex}}</div>
+        <div class="sta2e-anchor-marker {{#if selected}}is-selected{{/if}} {{#if showFacingArrow}}has-facing-arrow{{/if}}" data-anchor-marker data-move-emitter="{{index}}" title="{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} - Facing {{facingDeg}} deg / Arc {{arcWidthDeg}} deg / {{layerLabel}}{{/if}}" style="left: {{left}}; top: {{top}}; background: {{markerColor}}; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28), 0 0 14px {{markerColor}};">
+          {{#if showFacingArrow}}<span class="sta2e-anchor-facing-arrow" style="transform: rotate({{facingDeg}}deg);"></span>{{/if}}
+          {{displayIndex}}
+        </div>
         {{/each}}
       </div>
     </div>
@@ -769,9 +843,9 @@
     {{/if}}
     {{#if hasActiveEmitters}}
       {{#each activeMarkers}}
-      <div class="sta2e-anchor-list-row">
+        <div class="sta2e-anchor-list-row {{#if selected}}is-selected{{/if}}" data-select-emitter="{{index}}">
         <div class="sta2e-anchor-pill" style="background: {{markerColor}};">{{displayIndex}}</div>
-        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}</div>
+        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} / {{facingDeg}} deg / {{arcWidthDeg}} deg / {{layerLabel}}{{/if}}</div>
         <button type="button" class="sta2e-anchor-remove" data-remove-emitter="{{index}}" title="Remove point {{displayIndex}}">
           <i class="fas fa-trash"></i>
         </button>
