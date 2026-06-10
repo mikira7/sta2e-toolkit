@@ -383,6 +383,15 @@ export function registerSettings() {
     default: false,
   });
 
+  // Per-type torpedo fire counts (standard/salvo base + max). Managed by the
+  // Torpedoes tab in the Sounds & Animations menu; not shown in the flat list.
+  game.settings.register("sta2e-toolkit", "torpedoCountConfig", {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: {},
+  });
+
   // ── Combat Sound Effects ─────────────────────────────────────────────────
   // All optional — empty string = no sound played for that slot.
 

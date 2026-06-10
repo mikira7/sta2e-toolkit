@@ -17,7 +17,7 @@ import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
 import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination } from "./combat-hud.js";
-import { buildWeaponContext } from "./weapon-configs.js";
+import { buildWeaponContext, refreshTorpedoSpriteCache } from "./weapon-configs.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
@@ -611,6 +611,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
 Hooks.once("ready", async () => {
   console.log("STA 2e Toolkit | Ready");
+
+  // Scan for bundled per-type torpedo sprites ("<Type>-Torpedo.webm") so each
+  // torpedo type uses its own animation when present, else the photon sprite.
+  refreshTorpedoSpriteCache();
 
   const campaignStore   = new CampaignStore();
   const hud             = new StardateHUD();

@@ -7,6 +7,10 @@ import {
   NATIVE_WEAPON_VFX_MODE_ROWS,
   normalizeWeaponAnimationModes,
 } from "./native-weapon-vfx.js";
+import {
+  TORPEDO_TYPES,
+  getTorpedoCountConfig,
+} from "./weapon-configs.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const MODULE = "sta2e-toolkit";
@@ -190,6 +194,13 @@ function buildTabDefs() {
       ],
     },
     {
+      id:    "torpedoCounts",
+      label: "Torpedoes",
+      customKey: null,
+      torpedoCounts: true,
+      rows: [],
+    },
+    {
       id:    "shipTasks",
       label: "Ship Tasks",
       customKey: null,
@@ -246,6 +257,15 @@ function buildTabDefs() {
       ],
     },
   ];
+}
+
+// Per-type torpedo count rows for the Torpedoes tab.
+function buildTorpedoRows() {
+  const cfg = getTorpedoCountConfig();
+  return TORPEDO_TYPES.map(({ type, label }) => {
+    const c = cfg[type] ?? {};
+    return { type, label, standard: c.standard ?? 1, salvo: c.salvo ?? 1, max: c.max ?? 1 };
+  });
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────
@@ -327,6 +347,7 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       customRows: tab.customKey
         ? (custom[tab.customKey] ?? []).map((c, i) => ({ ...c, index: i }))
         : null,
+      torpedoRows: tab.torpedoCounts ? buildTorpedoRows() : null,
     }));
 
     return { tabs, activeTab: tabs[0]?.id ?? "" };
@@ -363,6 +384,12 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
           callback: path => { input.value = path; },
         }).render(true);
       });
+    });
+
+    // ── Torpedo count sliders — live value readout ────────────────────────────
+    el.querySelectorAll(".ec-slider input[type='range']").forEach(range => {
+      const valEl = range.parentElement?.querySelector(".ec-slider-val");
+      range.addEventListener("input", () => { if (valEl) valEl.textContent = range.value; });
     });
   }
 
@@ -434,6 +461,21 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     }
     try { await game.settings.set(MODULE, "customWeaponEffects", custom); }
     catch(e) { console.warn("STA2e Toolkit | Could not save customWeaponEffects:", e); }
+
+    // Per-type torpedo counts (Torpedoes tab)
+    const torpedoCounts = foundry.utils.deepClone(
+      (() => { try { return game.settings.get(MODULE, "torpedoCountConfig") ?? {}; } catch { return {}; } })()
+    );
+    for (const input of el.querySelectorAll("[data-torp-type]")) {
+      const type  = input.dataset.torpType;
+      const field = input.dataset.torpField;
+      if (!type || !field) continue;
+      const val = Math.max(1, Math.min(20, parseInt(input.value) || 1));
+      if (!torpedoCounts[type] || typeof torpedoCounts[type] !== "object") torpedoCounts[type] = {};
+      torpedoCounts[type][field] = val;
+    }
+    try { await game.settings.set(MODULE, "torpedoCountConfig", torpedoCounts); }
+    catch(e) { console.warn("STA2e Toolkit | Could not save torpedoCountConfig:", e); }
 
     ui.notifications.info("STA2e Toolkit | Sounds & Animations saved.");
     this.close();

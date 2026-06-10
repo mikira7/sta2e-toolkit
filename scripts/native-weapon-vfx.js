@@ -25,21 +25,15 @@ const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 920_000;
 const PHASER_PRIMARY = 0xff9a33;
 const PHASER_CORE = 0xfff2c0;
-const PHOTON_PRIMARY = 0xff3333;
-const PHOTON_CORE = 0xffcc88;
 
 export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
   "weapon-phaser-bank": "current",
   "weapon-phaser-array": "current",
-  "weapon-photon-torpedo": "current",
-  "weapon-photon-torpedo-salvo": "current",
 });
 
 export const NATIVE_WEAPON_VFX_MODE_ROWS = Object.freeze([
   { key: "weapon-phaser-bank", label: "Phaser Banks", hint: "Experimental: three TNG/VOY-style amber beam bursts." },
   { key: "weapon-phaser-array", label: "Phaser Arrays", hint: "Experimental: clean continuous TNG/VOY-style array beam." },
-  { key: "weapon-photon-torpedo", label: "Photon Torpedo", hint: "Experimental: red photon projectile with compact impact flash." },
-  { key: "weapon-photon-torpedo-salvo", label: "Photon Torpedo Salvo", hint: "Experimental: staggered red photon projectile salvo." },
 ]);
 
 const SUPPORTED_NATIVE_WEAPONS = new Set(Object.keys(NATIVE_WEAPON_VFX_DEFAULT_MODES));
@@ -88,13 +82,6 @@ export async function fireNativeWeaponVFX(config, isHit, sourceToken, targets, o
       return true;
     }
 
-    if (weaponKey === "weapon-photon-torpedo" || weaponKey === "weapon-photon-torpedo-salvo") {
-      await _firePhotonTorpedo(isHit, sourceToken, targetList, {
-        ...opts,
-        salvo: weaponKey === "weapon-photon-torpedo-salvo",
-      });
-      return true;
-    }
   } catch (err) {
     console.warn("STA2e Toolkit | Native weapon VFX failed; falling back to current animation:", err);
     return false;
@@ -352,11 +339,6 @@ function _shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
   };
 }
 
-function _getTimingTorpedoImpact() {
-  try { return game.settings.get(MODULE, "timingTorpedoImpact") || 1000; }
-  catch { return 1000; }
-}
-
 async function _firePhaserBank(isHit, sourceToken, targets, opts) {
   for (const target of targets) {
     _playSound(opts.soundPath);
@@ -518,43 +500,6 @@ function _arrayCurveMeetingFlash(point, color, coreColor, opts = {}) {
   _fadeContainer(container, opts.flashFadeDuration ?? 220, opts.cleanupDelay ?? 120);
 }
 
-async function _firePhotonTorpedo(isHit, sourceToken, targets, opts) {
-  const shots = opts.salvo ? Math.max(3, opts.repeatCount) : opts.repeatCount;
-  for (const target of targets) {
-    for (let i = 0; i < shots; i++) {
-      const targetPoint = await _targetPointForShot(sourceToken, target, {
-        isHit,
-        targetSystem: opts.targetSystem,
-        shotIndex: i,
-      });
-      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, null, opts.selectedEmitter);
-      _playSound(opts.soundPath, i === 0 ? 1 : 0.7);
-      _launchFlash(sourcePoint, PHOTON_PRIMARY, sourcePoint.layer);
-      _photonProjectile(sourcePoint, targetPoint, {
-        hit: isHit,
-        duration: Math.max(450, Math.min(1400, _getTimingTorpedoImpact())),
-        color: PHOTON_PRIMARY,
-        coreColor: PHOTON_CORE,
-        layer: sourcePoint.layer,
-      });
-      if (isHit) {
-        if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, {
-          ...opts.hullImpact,
-          delayMs: Math.max(420, Math.min(1300, _getTimingTorpedoImpact())),
-        });
-        else {
-          scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
-            ..._shieldImpactForShot(opts.shieldImpact, i, shots),
-            delayMs: Math.max(420, Math.min(1300, _getTimingTorpedoImpact())),
-          });
-        }
-      }
-      await _delay(opts.salvo ? 230 : 280);
-    }
-    await _delay(Math.max(500, Math.min(1200, _getTimingTorpedoImpact())));
-  }
-}
-
 function _beamShot(sourcePoint, targetPoint, opts = {}) {
   const layer = _effectLayer();
   if (!layer) return;
@@ -623,88 +568,6 @@ function _arrayBeam(sourcePoint, targetPoint, opts = {}) {
 
   container.addChild(glow, beam, sweep);
   _fadeContainer(container, opts.duration ?? 760);
-}
-
-function _launchFlash(point, color, sourceLayer = "above") {
-  const layer = _effectLayer();
-  if (!layer) return;
-  const container = _sceneContainer(point.y, sourceLayer);
-  const flash = new PIXI.Graphics();
-  flash.blendMode = _addBlend();
-  _fillCircle(flash, point.x, point.y, 8, PHOTON_CORE, 0.9);
-  _strokeCircle(flash, point.x, point.y, 18, 2, color, 0.75);
-  container.addChild(flash);
-  layer.addChild(container);
-  _fadeContainer(container, 260);
-}
-
-function _photonProjectile(sourcePoint, targetPoint, opts = {}) {
-  const layer = _effectLayer();
-  if (!layer) return;
-
-  const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
-  const projectile = new PIXI.Container();
-  const body = new PIXI.Graphics();
-  const tail = new PIXI.Graphics();
-  body.blendMode = _addBlend();
-  tail.blendMode = _addBlend();
-
-  _fillCircle(body, 0, 0, 6, opts.coreColor, 0.95);
-  _strokeCircle(body, 0, 0, 12, 2, opts.color, 0.82);
-  _drawLine(tail, { x: -28, y: 0 }, { x: -4, y: 0 }, 9, opts.color, 0.34);
-  _drawLine(tail, { x: -16, y: 0 }, { x: -2, y: 0 }, 3, opts.coreColor, 0.72);
-  projectile.addChild(tail, body);
-
-  const angle = Math.atan2(targetPoint.y - sourcePoint.y, targetPoint.x - sourcePoint.x);
-  projectile.rotation = angle;
-  projectile.x = sourcePoint.x;
-  projectile.y = sourcePoint.y;
-  container.addChild(projectile);
-  layer.addChild(container);
-
-  const duration = opts.duration ?? 900;
-  const start = performance.now();
-  const ticker = canvas.app?.ticker;
-  let finished = false;
-
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    try { ticker?.remove?.(tick); } catch { /* no-op */ }
-    try { container.destroy({ children: true }); } catch { /* no-op */ }
-    if (opts.hit) _photonImpact(targetPoint, opts.color, opts.coreColor);
-  };
-
-  const tick = () => {
-    const progress = Math.min(1, (performance.now() - start) / duration);
-    const eased = 1 - Math.pow(1 - progress, 2);
-    projectile.x = sourcePoint.x + (targetPoint.x - sourcePoint.x) * eased;
-    projectile.y = sourcePoint.y + (targetPoint.y - sourcePoint.y) * eased;
-    projectile.alpha = progress > 0.86 ? Math.max(0, 1 - ((progress - 0.86) / 0.14)) : 1;
-    if (progress >= 1) finish();
-  };
-
-  if (ticker?.add) ticker.add(tick);
-  else _tween(projectile, { x: targetPoint.x, y: targetPoint.y, alpha: 0, duration, ease: "outQuad", onComplete: finish });
-  setTimeout(finish, duration + 120);
-}
-
-function _photonImpact(point, color, coreColor) {
-  const layer = _effectLayer();
-  if (!layer) return;
-
-  const container = _sceneContainer(point.y);
-  const flash = new PIXI.Graphics();
-  const ring = new PIXI.Graphics();
-  flash.blendMode = _addBlend();
-  ring.blendMode = _addBlend();
-
-  _fillCircle(flash, point.x, point.y, 16, coreColor, 0.92);
-  _strokeCircle(ring, point.x, point.y, 32, 3, color, 0.78);
-  _strokeCircle(ring, point.x, point.y, 52, 2, color, 0.42);
-  container.addChild(flash, ring);
-  layer.addChild(container);
-  _fadeContainer(container, 520);
 }
 
 function _sampledCurvePoint(samples, t) {

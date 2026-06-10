@@ -6,6 +6,8 @@ import {
   getShipWeaponVfxSettings,
   getShipWeaponEmitterAnchors,
   isShipArrayWeapon,
+  shipEngineFacingToCanvasDeg,
+  shipTargetBearingToLocalDeg,
   shipWeaponAnchorToCanvasPoint,
 } from "./ship-vfx-anchors.js";
 import {
@@ -98,12 +100,18 @@ const SHIP_SCORCHING_RAY_TEMPLATE = Object.freeze({ gridSize: 100, startPoint: 2
 const SHIP_IMPACT_EFFECT_BASE_SIZE = 400;
 const SHIP_PHOTON_TORPEDO_EFFECT = "modules/JB2A_DnD5e/Library/Generic/Weapon_Attacks/Ranged/Bullet_01_Regular_Orange_90ft_4000x400.webm";
 const SHIP_PHOTON_TORPEDO_TINT = 0xff3333;
-// Bundled custom photon torpedo. Unlike the JB2A "bullet" strip (a long
-// horizontal sprite drawn along its travel axis, stretched between source and
-// target), this is a square sprite that spins in place. It therefore must be
-// FLOWN from emitter to target with a move-tween instead of stretchTo — see
-// isMovingTorpedoSprite()/applyTorpedoTravel().
-const SHIP_PHOTON_TORPEDO_SPRITE = "modules/sta2e-toolkit/assets/vfx/Photon-Torpedo.webm";
+// Bundled custom torpedo sprites live here, named "<Type>-Torpedo.webm"
+// (Photon-Torpedo.webm, Quantum-Torpedo.webm, …). Unlike the JB2A "bullet"
+// strip (a long horizontal sprite drawn along its travel axis, stretched
+// between source and target), these are square sprites that spin in place, so
+// they must be FLOWN from emitter to target with a move-tween instead of
+// stretchTo — see isMovingTorpedoSprite()/applyTorpedoTravel().
+const SHIP_TORPEDO_SPRITE_DIR = "modules/sta2e-toolkit/assets/vfx";
+const SHIP_PHOTON_TORPEDO_SPRITE = `${SHIP_TORPEDO_SPRITE_DIR}/Photon-Torpedo.webm`;
+// Lowercased basenames of "<Type>-Torpedo.webm" files present in the sprite
+// dir, populated at ready by refreshTorpedoSpriteCache(). A type without its
+// own file falls back to the photon sprite.
+const TORPEDO_SPRITE_FILES = new Set();
 // On-canvas size of the moving sprite, as a fraction of one grid square.
 const SHIP_TORPEDO_SPRITE_GRID_FRACTION = 0.66;
 const SHIP_WEAPON_FACING_DURATION_SCALE = 3.5;
@@ -159,19 +167,81 @@ function photonTorpedoSpriteEnabled() {
   catch { return false; }
 }
 
+// True for any bundled toolkit torpedo sprite ("<Type>-Torpedo.webm" in the
+// sprite dir). These spin in place and are flown along a path; JB2A strips and
+// other overrides are not, so they keep the stretchTo treatment.
 function isMovingTorpedoSprite(effectPath) {
-  return String(effectPath ?? "") === SHIP_PHOTON_TORPEDO_SPRITE;
+  const p = String(effectPath ?? "");
+  return p.startsWith(`${SHIP_TORPEDO_SPRITE_DIR}/`) && /-Torpedo\.webm$/i.test(p);
 }
 
-function torpedoEffect(color, torpedoType) {
-  const weaponKey = torpedoType === "quantum" ? "quantumTorpedo"
-                  : torpedoType === "plasma"  ? "plasmaTorpedo"
-                  : "photonTorpedo";
-  // An explicit per-weapon file override always wins. Otherwise, when the
-  // custom-sprite toggle is on, photon torpedoes use the bundled spinning webm.
+// File name a torpedo type would use for its bundled sprite
+// (e.g. "quantum" -> "Quantum-Torpedo.webm").
+function torpedoSpriteFileName(torpedoType) {
+  const t = torpedoType || "photon";
+  return `${t.charAt(0).toUpperCase()}${t.slice(1)}-Torpedo.webm`;
+}
+
+// Era variant sprites: "<Era>-<Type>-Torpedo.webm" (e.g. the TOS-era photon
+// torpedo, "Blue-Photon-Torpedo.webm"). Keyed by `${era}:${torpedoType}`.
+const TORPEDO_ERA_SPRITE_FILES = Object.freeze({
+  "tos:photon": "Blue-Photon-Torpedo.webm",
+});
+
+// Resolves a torpedo type to its bundled sprite. An era-specific variant wins
+// when its file exists; otherwise uses the per-type file when it exists in the
+// sprite dir; otherwise falls back to the photon sprite until the per-type
+// animation is added.
+function torpedoSpritePath(torpedoType, era = "") {
+  const eraFile = TORPEDO_ERA_SPRITE_FILES[`${era}:${torpedoType || "photon"}`];
+  if (eraFile && TORPEDO_SPRITE_FILES.has(eraFile.toLowerCase())) {
+    return `${SHIP_TORPEDO_SPRITE_DIR}/${eraFile}`;
+  }
+  const file = torpedoSpriteFileName(torpedoType);
+  if (TORPEDO_SPRITE_FILES.has(file.toLowerCase())) return `${SHIP_TORPEDO_SPRITE_DIR}/${file}`;
+  return SHIP_PHOTON_TORPEDO_SPRITE;
+}
+
+// Scans the sprite dir for "<Type>-Torpedo.webm" files so each torpedo type
+// auto-picks up its own sprite once dropped in. Called at ready; safe to re-run
+// (e.g. after adding new assets and reloading).
+export async function refreshTorpedoSpriteCache() {
+  try {
+    const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
+    const response = await FP.browse("data", SHIP_TORPEDO_SPRITE_DIR);
+    TORPEDO_SPRITE_FILES.clear();
+    for (const f of (response?.files ?? [])) {
+      const name = f.split("/").pop();
+      if (/-Torpedo\.webm$/i.test(name)) TORPEDO_SPRITE_FILES.add(name.toLowerCase());
+    }
+  } catch (err) {
+    console.warn("STA2e Toolkit | torpedo sprite scan failed:", err);
+  }
+}
+
+// Maps a torpedo type to its animation-override weapon key (e.g. "quantum" ->
+// "quantumTorpedo"), so every torpedo type carries its own override slot.
+function torpedoWeaponKey(torpedoType) {
+  return `${torpedoType || "photon"}Torpedo`;
+}
+
+// Capitalized sound-setting base for a torpedo type (e.g. "quantum" ->
+// "sndShipTorpedoQuantum"). Types without a dedicated sound setting fall back
+// through the lookup chain in shipTorpedo() to the generic torpedo sound.
+function torpedoSoundBase(torpedoType) {
+  const t = torpedoType || "photon";
+  return `sndShipTorpedo${t.charAt(0).toUpperCase()}${t.slice(1)}`;
+}
+
+function torpedoEffect(color, torpedoType, era = "") {
+  const weaponKey = torpedoWeaponKey(torpedoType);
+  // An explicit per-weapon file override always wins.
   const override = animOverride("shipWeapons", weaponKey, "anim");
   if (override) return override;
-  if (weaponKey === "photonTorpedo" && photonTorpedoSpriteEnabled()) return SHIP_PHOTON_TORPEDO_SPRITE;
+  // With the toolkit's custom torpedo sprite enabled, each type uses its own
+  // bundled sprite ("<Type>-Torpedo.webm") when present, falling back to the
+  // photon sprite until that file is added.
+  if (photonTorpedoSpriteEnabled()) return torpedoSpritePath(torpedoType, era);
   return (isPatron()
       ? `modules/jb2a_patreon/Library/Generic/Weapon_Attacks/Ranged/Bullet_03_Regular_${{ red: "Red", blue: "Blue", green: "Green" }[color] ?? "Red"}_90ft_4000x400.webm`
       : color === "blue"  ? `${WA}/Bullet_03_Regular_Blue_90ft_4000x400.webm`
@@ -256,10 +326,21 @@ function phaserEraEffect(kind, era, baseConfig) {
 function withPhaserEraConfig(config, sourceToken, weapon, settingsOverride = null) {
   if (!config || !weapon) return config;
   const kind = phaserWeaponKind(weapon, config);
-  if (!kind) return config;
+  const isTorpedo = config.type === "torpedo";
+  if (!kind && !isTorpedo) return config;
   const era = normalizePhaserEra(settingsOverride?.phaserEra ?? getShipWeaponVfxSettings(sourceToken, weapon)?.phaserEra);
   if (!era) return config;
   const baseConfig = config;
+  if (isTorpedo) {
+    // Torpedoes keep their own sound/explosion chain; the era only swaps the
+    // travel sprite (e.g. the TOS-era blue photon torpedo) when that era
+    // variant file exists in the sprite dir.
+    return {
+      ...baseConfig,
+      phaserEra: era,
+      get effect() { return torpedoEffect(baseConfig.color, baseConfig.torpedoType, era); },
+    };
+  }
   return {
     ...baseConfig,
     phaserEra: era,
@@ -394,21 +475,16 @@ function shipTorpedo(name, color, salvo, torpedoes, torpedoType) {
     name, color, salvo, torpedoes, type: "torpedo", torpedoType,
     get effect()    { return torpedoEffect(color, torpedoType); },
     get explosion() {
-      const wk = torpedoType === "quantum" ? "quantumTorpedo" : torpedoType === "plasma" ? "plasmaTorpedo" : "photonTorpedo";
-      return animOverride("shipWeapons", wk, "animExplosion") ?? explosionEffect(color);
+      return animOverride("shipWeapons", torpedoWeaponKey(torpedoType), "animExplosion") ?? explosionEffect(color);
     },
     get sound() {
-      const base = torpedoType === "quantum" ? "sndShipTorpedoQuantum"
-                 : torpedoType === "plasma"  ? "sndShipTorpedoPlasma"
-                 : "sndShipTorpedoPhoton";   // photon is the default/fallback
+      const base = torpedoSoundBase(torpedoType);
       const key = salvo ? base + "Salvo" : base;
       // fall back: salvo key → base key → legacy "sndShipTorpedo"
       return snd(key) || snd(base) || snd("sndShipTorpedo");
     },
     get missSound() {
-      const base = torpedoType === "quantum" ? "sndShipTorpedoQuantum"
-                 : torpedoType === "plasma"  ? "sndShipTorpedoPlasma"
-                 : "sndShipTorpedoPhoton";
+      const base = torpedoSoundBase(torpedoType);
       const key = salvo ? base + "Salvo" : base;
       return snd(key) || snd(base) || snd("sndShipTorpedo");
     },
@@ -440,12 +516,39 @@ export const STARSHIP_WEAPON_CONFIGS = {
   "weapon-polaron-cannon":       shipCannon("Polaron Cannon",     "purple", 4),
   "weapon-polaron-array-spread": shipBeam("Polaron Spinal Lance", "purple", 1),
 
-  "weapon-photon-torpedo":        withNativeVfx(shipTorpedo("Photon Torpedo",        "red",   false, 1, "photon"), "weapon-photon-torpedo"),
-  "weapon-photon-torpedo-salvo":  withNativeVfx(shipTorpedo("Photon Torpedo Salvo",  "red",   true,  3, "photon"), "weapon-photon-torpedo-salvo"),
+  "weapon-photon-torpedo":        shipTorpedo("Photon Torpedo",        "red",   false, 1, "photon"),
+  "weapon-photon-torpedo-salvo":  shipTorpedo("Photon Torpedo Salvo",  "red",   true,  3, "photon"),
   "weapon-quantum-torpedo":       shipTorpedo("Quantum Torpedo",       "blue",  false, 1, "quantum"),
   "weapon-quantum-torpedo-salvo": shipTorpedo("Quantum Torpedo Salvo", "blue",  true,  3, "quantum"),
   "weapon-plasma-torpedo":        shipTorpedo("Plasma Torpedo",        "green", false, 1, "plasma"),
   "weapon-plasma-torpedo-salvo":  shipTorpedo("Plasma Torpedo Salvo",  "green", true,  3, "plasma"),
+
+  // Additional torpedo types. For now they all use the toolkit's bundled custom
+  // sprite (the same moving animation as the photon torpedo). Each carries its
+  // own override key (e.g. "chronitonTorpedo"), so a per-type animation can be
+  // dropped in later via the shipWeapons override settings without code changes.
+  "weapon-chroniton-torpedo":         shipTorpedo("Chroniton Torpedo",         "blue",   false, 1, "chroniton"),
+  "weapon-chroniton-torpedo-salvo":   shipTorpedo("Chroniton Torpedo Salvo",   "blue",   true,  3, "chroniton"),
+  "weapon-gravimetric-torpedo":       shipTorpedo("Gravimetric Torpedo",       "purple", false, 1, "gravimetric"),
+  "weapon-gravimetric-torpedo-salvo": shipTorpedo("Gravimetric Torpedo Salvo", "purple", true,  3, "gravimetric"),
+  "weapon-neutronic-torpedo":         shipTorpedo("Neutronic Torpedo",         "green",  false, 1, "neutronic"),
+  "weapon-neutronic-torpedo-salvo":   shipTorpedo("Neutronic Torpedo Salvo",   "green",  true,  3, "neutronic"),
+  "weapon-nuclear-torpedo":           shipTorpedo("Nuclear Torpedo",           "red",    false, 1, "nuclear"),
+  "weapon-nuclear-torpedo-salvo":     shipTorpedo("Nuclear Torpedo Salvo",     "red",    true,  3, "nuclear"),
+  "weapon-photonic-torpedo":          shipTorpedo("Photonic Torpedo",          "red",    false, 1, "photonic"),
+  "weapon-photonic-torpedo-salvo":    shipTorpedo("Photonic Torpedo Salvo",    "red",    true,  3, "photonic"),
+  "weapon-polaron-torpedo":           shipTorpedo("Polaron Torpedo",           "purple", false, 1, "polaron"),
+  "weapon-polaron-torpedo-salvo":     shipTorpedo("Polaron Torpedo Salvo",     "purple", true,  3, "polaron"),
+  "weapon-positron-torpedo":          shipTorpedo("Positron Torpedo",          "blue",   false, 1, "positron"),
+  "weapon-positron-torpedo-salvo":    shipTorpedo("Positron Torpedo Salvo",    "blue",   true,  3, "positron"),
+  "weapon-spatial-torpedo":           shipTorpedo("Spatial Torpedo",           "blue",   false, 1, "spatial"),
+  "weapon-spatial-torpedo-salvo":     shipTorpedo("Spatial Torpedo Salvo",     "blue",   true,  3, "spatial"),
+  "weapon-tetryonic-torpedo":         shipTorpedo("Tetryonic Torpedo",         "green",  false, 1, "tetryonic"),
+  "weapon-tetryonic-torpedo-salvo":   shipTorpedo("Tetryonic Torpedo Salvo",   "green",  true,  3, "tetryonic"),
+  "weapon-transphasic-torpedo":       shipTorpedo("Transphasic Torpedo",       "blue",   false, 1, "transphasic"),
+  "weapon-transphasic-torpedo-salvo": shipTorpedo("Transphasic Torpedo Salvo", "blue",   true,  3, "transphasic"),
+  "weapon-tricobalt-torpedo":         shipTorpedo("Tricobalt Torpedo",         "red",    false, 1, "tricobalt"),
+  "weapon-tricobalt-torpedo-salvo":   shipTorpedo("Tricobalt Torpedo Salvo",   "red",    true,  3, "tricobalt"),
 };
 
 // ---------------------------------------------------------------------------
@@ -581,10 +684,36 @@ export function getImgSlug(imgUrl) {
 // Get animation config from a weapon item
 // ---------------------------------------------------------------------------
 
+// Torpedo type keys known to STARSHIP_WEAPON_CONFIGS ("weapon-<type>-torpedo").
+// "photonic" is listed before "photon" defensively, though the word-boundary
+// match already keeps "photon" from matching inside "photonic".
+const TORPEDO_CONFIG_TYPES = Object.freeze([
+  "photonic", "photon", "quantum", "plasma", "chroniton", "gravimetric",
+  "neutronic", "nuclear", "polaron", "positron", "spatial", "tetryonic",
+  "transphasic", "tricobalt",
+]);
+
+// Ship sheets often reuse one torpedo icon across several launcher items, but
+// configs are keyed by the icon slug — so a "Gravimetric Torpedo" carrying the
+// plasma-torpedo icon would inherit the plasma animation AND rules (torpedo
+// counts, launch-size scaling). When the weapon's NAME names a specific
+// torpedo type, trust the name over the icon. Salvo-ness follows the icon
+// slug, with "salvo" in the name as a fallback signal.
+function torpedoConfigFromName(item, slug, imgConfig) {
+  if (imgConfig && imgConfig.type !== "torpedo") return null;
+  const name = String(item?.name ?? "").toLowerCase();
+  if (!/\btorpedo/.test(name)) return null;
+  const type = TORPEDO_CONFIG_TYPES.find(t => new RegExp(`\\b${t}\\b`).test(name));
+  if (!type) return null;
+  const salvo = String(slug ?? "").endsWith("-salvo") || /\bsalvo\b/.test(name);
+  return STARSHIP_WEAPON_CONFIGS[`weapon-${type}-torpedo${salvo ? "-salvo" : ""}`] ?? null;
+}
+
 export function getWeaponConfig(item) {
   if (item.type === "starshipweapon2e") {
     const slug = getImgSlug(item.img);
-    return STARSHIP_WEAPON_CONFIGS[slug] ?? null;
+    const imgConfig = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
+    return torpedoConfigFromName(item, slug, imgConfig) ?? imgConfig;
   }
   if (item.type === "characterweapon2e") {
     return resolveGroundWeaponConfig(item);
@@ -811,7 +940,7 @@ function emitterAnchorKey(anchor) {
   return `${r(anchor.x)}:${r(anchor.y)}:${r(anchor.facingDeg)}`;
 }
 
-function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, selectedEmitter = null) {
+function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, selectedEmitter = null, arcRestrict = false) {
   if (!weapon || !targetPoint) return null;
 
   if (isShipArrayWeapon(weapon)) {
@@ -825,7 +954,7 @@ function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotInd
   if (!anchors.length) {
     if (selectedEmitter?.anchor) {
       const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, selectedEmitter.anchor, null, targetPoint);
-      if (point) return { ...point, layer: selectedEmitter.layer ?? selectedEmitter.anchor.layer ?? "above" };
+      if (point) return { ...point, layer: selectedEmitter.layer ?? selectedEmitter.anchor.layer ?? "above", facingDeg: selectedEmitter.anchor.facingDeg };
     }
     return null;
   }
@@ -834,12 +963,24 @@ function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotInd
   // different emitters (e.g. a Bird-of-Prey alternating its two forward
   // disruptor cannons). The pre-selected arc emitter goes first so shot 0 still
   // comes from where the ship turned to fire; the rest follow by proximity to
-  // the target.
+  // the target. With arcRestrict (torpedoes), cycling is limited to emitters
+  // whose facing arc covers the target at the ship's current (post-turn)
+  // heading — otherwise a multi-torpedo shot would happily pull in an aft
+  // launcher against a target dead ahead. If nothing covers (e.g. residual
+  // heading from the curved torpedo's relaxed turn), fall back to the
+  // arc-selected emitter, then all. Beams/cannons keep the unrestricted
+  // alternation: paired forward cannons should trade off every shot.
   const selKey = selectedEmitter?.anchor ? emitterAnchorKey(selectedEmitter.anchor) : null;
+  const targetBearing = shipTargetBearingToLocalDeg(sourceToken, targetPoint);
   const ordered = anchors
     .map(anchor => {
       const p = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, anchor, null, targetPoint);
-      return p ? { x: p.x, y: p.y, layer: anchor.layer ?? p.layer ?? "above", key: emitterAnchorKey(anchor) } : null;
+      if (!p) return null;
+      const facing = Number(anchor.facingDeg);
+      const halfArc = (Number(anchor.arcWidthDeg) || 90) / 2;
+      const covers = !Number.isFinite(facing)
+        || Math.abs(((targetBearing - facing + 540) % 360) - 180) <= halfArc;
+      return { x: p.x, y: p.y, layer: anchor.layer ?? p.layer ?? "above", key: emitterAnchorKey(anchor), covers, facingDeg: anchor.facingDeg };
     })
     .filter(Boolean)
     .sort((a, b) => {
@@ -851,21 +992,39 @@ function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotInd
     });
 
   if (!ordered.length) return null;
-  const chosen = ordered[Math.abs(shotIndex) % ordered.length];
-  return { x: chosen.x, y: chosen.y, layer: chosen.layer };
+  let pool = ordered;
+  if (arcRestrict) {
+    pool = ordered.filter(o => o.covers);
+    if (!pool.length && selKey) pool = ordered.filter(o => o.key === selKey);
+    if (!pool.length) pool = ordered;
+  }
+  const chosen = pool[Math.abs(shotIndex) % pool.length];
+  return { x: chosen.x, y: chosen.y, layer: chosen.layer, facingDeg: chosen.facingDeg };
 }
 
-async function shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, fallbackOptions = undefined, shotIndex = 0, selectedEmitter = null) {
+// Wraps sequenceLocation and, when the emitter has a facing, attaches the
+// launch heading in canvas degrees so the torpedo path can leave the tube
+// straight along it before curving onto the target.
+function emitterSequenceLocation(sourceToken, emitterPoint) {
+  const loc = sequenceLocation(sourceToken, emitterPoint, undefined, emitterPoint.layer ?? null);
+  const facing = Number(emitterPoint.facingDeg);
+  if (Number.isFinite(facing)) {
+    try { loc.launchDeg = shipEngineFacingToCanvasDeg(sourceToken, facing); } catch { /* no launch heading */ }
+  }
+  return loc;
+}
+
+async function shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, fallbackOptions = undefined, shotIndex = 0, selectedEmitter = null, arcRestrict = false) {
   const aimingPoint = targetPoint ?? tokenCenter(targetToken);
-  const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex, selectedEmitter);
-  if (emitterPoint) return sequenceLocation(sourceToken, emitterPoint, undefined, emitterPoint.layer ?? null);
+  const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex, selectedEmitter, arcRestrict);
+  if (emitterPoint) return emitterSequenceLocation(sourceToken, emitterPoint);
   return sequenceLocation(sourceToken, await randomOpaqueTokenPoint(sourceToken), fallbackOptions);
 }
 
 function shipWeaponMissSourceLocation(sourceToken, targetToken, weapon, shotIndex = 0, selectedEmitter = null) {
   const aimingPoint = tokenCenter(targetToken);
   const emitterPoint = shipWeaponEmitterPointForShot(sourceToken, weapon, aimingPoint, shotIndex, selectedEmitter);
-  if (emitterPoint) return sequenceLocation(sourceToken, emitterPoint, undefined, emitterPoint.layer ?? null);
+  if (emitterPoint) return emitterSequenceLocation(sourceToken, emitterPoint);
   return sequenceLocation(sourceToken, null);
 }
 
@@ -873,14 +1032,14 @@ function shipWeaponMissTargetLocation(targetToken) {
   return { location: tokenCenter(targetToken) };
 }
 
-async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined, weapon = null, shotIndex = 0, targetSystem = null, selectedEmitter = null } = {}) {
+async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined, weapon = null, shotIndex = 0, targetSystem = null, selectedEmitter = null, arcRestrict = false } = {}) {
   const sourceReference = tokenCenter(sourceToken);
   const hitLocationPoint = targetSystem
     ? getShipHitLocationPointForShot(targetToken, targetSystem, sourceReference, shotIndex)
     : null;
   const targetPoint = hitLocationPoint ?? await randomOpaqueTokenPoint(targetToken);
   return {
-    source: await shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, sourceOptions, shotIndex, selectedEmitter),
+    source: await shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, sourceOptions, shotIndex, selectedEmitter, arcRestrict),
     target: pointSequenceLocation(targetPoint ?? tokenCenter(targetToken)),
     impact: sequenceLocation(targetToken, targetPoint, targetOptions),
   };
@@ -910,22 +1069,86 @@ function applySequenceSourceLayer(effect, layer) {
 // Builds the projectile-travel portion of a torpedo shot. JB2A bullet strips are
 // drawn along their length, so they stretchTo() between source and target. The
 // bundled custom sprite spins in place, so it is placed at the source and flown
-// to the target with moveTowards() at a fixed on-canvas size. Pass missed:true
+// along hand-built canvas waypoints at a fixed on-canvas size. Pass missed:true
 // to fan the shot off-target.
-function applyTorpedoTravel(s, config, source, target, { missed = false } = {}) {
+// Plasma torpedoes cruise slower than other types for a heavier, rolling look.
+// Applied only to the flown toolkit sprite — JB2A strips keep standard timing.
+const SHIP_PLASMA_TORPEDO_SPEED_FACTOR = 1.5;
+
+// Travel time for one torpedo shot. Also used by the fire sequences as the
+// wait before the impact explosion, so the two always stay in sync.
+function torpedoTravelMs(config) {
+  const base = Math.max(300, Number(getTimingTorpedoImpact()) || 1000);
+  const slow = config?.torpedoType === "plasma" && isMovingTorpedoSprite(config?.effect);
+  return slow ? Math.round(base * SHIP_PLASMA_TORPEDO_SPEED_FACTOR) : base;
+}
+
+function applyTorpedoTravel(s, config, source, target, { missed = false, finalDamage = 0 } = {}) {
   const base = s.effect().file(config.effect);
 
   if (isMovingTorpedoSprite(config.effect)) {
-    const targetLoc = target?.location ?? target;
     const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
     const px = Math.max(8, Math.round(gridSize * SHIP_TORPEDO_SPRITE_GRID_FRACTION));
-    const travelMs = Math.max(300, Number(getTimingTorpedoImpact()) || 1000);
-    let effect = atSequenceLocation(base, source)
+    const travelMs = torpedoTravelMs(config);
+    // The flight path is driven entirely by hand: the effect is parked at the
+    // emitter and the spriteContainer is animated along sampled canvas-space
+    // waypoints (straight line + lateral bow). moveTowards/rotateTowards are
+    // deliberately NOT used — moveTowards fights the waypoint animation over
+    // position every frame, and rotateTowards re-anchors the sprite away from
+    // the effect's position, which made the torpedo appear to land beside the
+    // target. The bundled torpedo sprites spin in place, so they don't need
+    // to face the travel direction. The waypoint list ends exactly on the
+    // impact point (or a fanned-off point for misses), so the landing spot is
+    // correct by construction.
+    // The launch point is resolved to an ABSOLUTE canvas point rather than
+    // handing Sequencer a token + offset: Sequencer's own offset processing
+    // doesn't place the effect on the emitter, which made torpedoes appear to
+    // launch from the wrong emitter position.
+    const launchPoint = resolveTravelPoint(source);
+    const launchLoc = launchPoint
+      ? { location: launchPoint, layer: source?.layer ?? null }
+      : source;
+    let effect = atSequenceLocation(base, launchLoc)
       .size(px)
-      .rotateTowards(targetLoc)
-      .moveTowards(targetLoc, { ease: "linear" })
       .duration(travelMs);
-    if (missed && typeof effect.missed === "function") effect = effect.missed();
+    const arc = buildTorpedoArcOffsets(source, target, { gridSize, missed });
+    if (arc) {
+      // One animateProperty per path segment, staggered by delay. loopProperty
+      // CANNOT be used here: Sequencer's animation engine treats its
+      // `duration` as the time for ONE step between consecutive values and
+      // then force-ends the animation after `duration` ms total — a
+      // multi-waypoint path only ever plays its first segment (the torpedo
+      // popped out of the hull and stalled). Chained absolute animateProperty
+      // segments are interpolated correctly.
+      const segs = arc.x.length - 1;
+      const segMs = travelMs / segs;
+      for (let i = 0; i < segs; i++) {
+        effect = effect
+          .animateProperty("spriteContainer", "position.x", { from: arc.x[i], to: arc.x[i + 1], duration: segMs, delay: i * segMs, ease: "linear", absolute: true })
+          .animateProperty("spriteContainer", "position.y", { from: arc.y[i], to: arc.y[i + 1], duration: segMs, delay: i * segMs, ease: "linear", absolute: true });
+      }
+    } else {
+      // Degenerate case (unresolvable points / zero distance): fall back to a
+      // plain straight flight so the torpedo never just sits at the emitter.
+      effect = effect.moveTowards(target?.location ?? target, { ease: "linear" });
+      if (missed && typeof effect.missed === "function") effect = effect.missed();
+    }
+    // Plasma torpedoes launch as a large bolt sized by the damage dealt, then
+    // shrink as they converge on the target. Other torpedo types keep a
+    // constant size.
+    if (config.torpedoType === "plasma") {
+      const dmg = Math.max(0, Number(finalDamage) || 0);
+      // 75% of the original launch-size curve (was min(3.5, 1.2 + dmg * 0.18)).
+      const startScale = Math.min(2.625, 0.9 + dmg * 0.135);
+      const endScale = 0.8;
+      effect = effect
+        .scale(startScale)
+        .animateProperty("spriteContainer", "scale.x", { from: startScale, to: endScale, duration: travelMs, ease: "linear", absolute: true })
+        .animateProperty("spriteContainer", "scale.y", { from: startScale, to: endScale, duration: travelMs, ease: "linear", absolute: true });
+    }
+    // Misses are handled inside the waypoint path (fanned-off endpoint), not
+    // via .missed(), which without stretchTo/rotateTowards would randomize
+    // the LAUNCH location instead of the target.
     return effect;
   }
 
@@ -937,11 +1160,169 @@ function applyTorpedoTravel(s, config, source, target, { missed = false } = {}) 
   return effect;
 }
 
+// Resolves a Sequencer travel location (token+offset, or a plain point) to an
+// absolute canvas point so the arc math can work in screen space.
+function resolveTravelPoint(loc) {
+  if (!loc?.location) return null;
+  const base = loc.location;
+  const offset = loc.options?.offset ?? { x: 0, y: 0 };
+  const isToken = !!(base.center || base.document || base.documentName);
+  const anchor = isToken ? tokenCenter(base) : { x: Number(base.x) || 0, y: Number(base.y) || 0 };
+  return { x: anchor.x + (offset.x ?? 0), y: anchor.y + (offset.y ?? 0) };
+}
+
+// Torpedo arc tuning. The path is a cubic Bézier from launch to impact whose
+// FIRST control point lies straight ahead of the launch tube (the emitter's
+// facing, falling back to the ship's bow), so the torpedo always leaves the
+// hull straight out of the tube before curving onto the target — the classic
+// missile-launch look.
+//   LAUNCH_RUN_SQUARES  — straight-out run length cap, in grid squares.
+//   LAUNCH_RUN_FRACTION — straight-out run as a fraction of the shot distance
+//                         (short shots use this so the run doesn't dominate).
+//   APPROACH_FRACTION   — how far back from the target the curve straightens
+//                         into its final approach heading.
+const TORPEDO_LAUNCH_RUN_SQUARES = 2.5;
+const TORPEDO_LAUNCH_RUN_FRACTION = 0.35;
+const TORPEDO_APPROACH_FRACTION = 0.35;
+
+// Builds the full flight path of the torpedo as canvas-space waypoint offsets
+// from the launch point: a straight source→target line with a lateral bow
+// folded in, signed toward the firing ship's bow. Returned as {x, y} value
+// arrays for Sequencer's loopProperty on spriteContainer position. The effect
+// itself never moves or rotates, so these offsets are guaranteed to be
+// canvas-aligned and the last waypoint IS the landing point. Misses fly the
+// same path to an endpoint fanned past/beside the target.
+function buildTorpedoArcOffsets(source, target, { gridSize = 100, missed = false } = {}) {
+  const sp = resolveTravelPoint(source);
+  let tp = resolveTravelPoint(target);
+  if (!sp || !tp) return null;
+
+  if (missed) {
+    // Overshoot past the target and drift sideways so the bolt visibly sails
+    // wide instead of detonating on the hull.
+    const mAng = Math.atan2(tp.y - sp.y, tp.x - sp.x);
+    const over = gridSize * (1.2 + Math.random() * 0.8);
+    const drift = gridSize * (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1);
+    tp = {
+      x: tp.x + Math.cos(mAng) * over - Math.sin(mAng) * drift,
+      y: tp.y + Math.sin(mAng) * over + Math.cos(mAng) * drift,
+    };
+  }
+
+  const dx = tp.x - sp.x;
+  const dy = tp.y - sp.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return null;
+
+  // Launch heading: the firing emitter's facing (attached by
+  // emitterSequenceLocation), falling back to the ship's bow, then to
+  // straight at the target (which degenerates into a near-straight flight).
+  let launchDeg = Number(source?.launchDeg);
+  if (!Number.isFinite(launchDeg)) {
+    const srcToken = (source?.location?.center || source?.location?.document) ? source.location : null;
+    if (srcToken) {
+      try { launchDeg = shipEngineFacingToCanvasDeg(srcToken, 0); } catch { /* fall back below */ }
+    }
+  }
+  const launchRad = Number.isFinite(launchDeg)
+    ? (launchDeg * Math.PI) / 180
+    : Math.atan2(dy, dx);
+
+  // Cubic Bézier: A = launch (0,0), B = impact (dx,dy). C1 sits straight
+  // ahead of the tube so the torpedo leaves the hull along the launcher's
+  // facing; C2 sits on the final approach line so it straightens out onto
+  // the target.
+  const run = Math.min(dist * TORPEDO_LAUNCH_RUN_FRACTION, gridSize * TORPEDO_LAUNCH_RUN_SQUARES);
+  const c1x = Math.cos(launchRad) * run;
+  const c1y = Math.sin(launchRad) * run;
+  const adx = dx - c1x;
+  const ady = dy - c1y;
+  const aLen = Math.max(1, Math.hypot(adx, ady));
+  const approach = Math.min(dist * TORPEDO_APPROACH_FRACTION, aLen * 0.8);
+  const c2x = dx - (adx / aLen) * approach;
+  const c2y = dy - (ady / aLen) * approach;
+
+  // Each waypoint pair becomes one animateProperty segment (×2 axes), so keep
+  // the count modest — 16 points = 15 segments, plenty smooth for a Bézier.
+  const steps = 16;
+  const x = [];
+  const y = [];
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const u = 1 - t;
+    x.push(3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * dx);
+    y.push(3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * dy);
+  }
+  return { x, y };
+}
+
 export function getStarshipDamageAnimationRepeatCount(finalDamage) {
   const damage = Math.max(0, Number(finalDamage) || 0);
   if (damage >= 8) return 3;
   if (damage >= 4) return 2;
   return 1;
+}
+
+// All torpedo types, with display labels for the config menu.
+export const TORPEDO_TYPES = Object.freeze([
+  { type: "photon",      label: "Photon" },
+  { type: "quantum",     label: "Quantum" },
+  { type: "plasma",      label: "Plasma" },
+  { type: "chroniton",   label: "Chroniton" },
+  { type: "gravimetric", label: "Gravimetric" },
+  { type: "neutronic",   label: "Neutronic" },
+  { type: "nuclear",     label: "Nuclear" },
+  { type: "photonic",    label: "Photonic" },
+  { type: "polaron",     label: "Polaron" },
+  { type: "positron",    label: "Positron" },
+  { type: "spatial",     label: "Spatial" },
+  { type: "tetryonic",   label: "Tetryonic" },
+  { type: "transphasic", label: "Transphasic" },
+  { type: "tricobalt",   label: "Tricobalt" },
+]);
+
+// Per-type torpedo count defaults: how many torpedoes a shot fires, computed as
+// base × damage tier (1/2/3) capped at max. Standard base 1 → 1/2/3 (the old
+// behavior); salvo base 2 → 2/4/6. Plasma defaults to a single bolt.
+const TORPEDO_COUNT_DEFAULTS = Object.freeze(Object.fromEntries(
+  TORPEDO_TYPES.map(({ type }) => [
+    type,
+    type === "plasma" ? { standard: 1, salvo: 1, max: 1 } : { standard: 1, salvo: 2, max: 8 },
+  ])
+));
+
+function clampTorpedoSlider(value, fallback) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(20, n));
+}
+
+// Merged, validated per-type count config (stored setting over defaults).
+export function getTorpedoCountConfig() {
+  let stored = {};
+  try { stored = game.settings.get("sta2e-toolkit", "torpedoCountConfig") ?? {}; }
+  catch { stored = {}; }
+  const merged = {};
+  for (const { type } of TORPEDO_TYPES) {
+    const d = TORPEDO_COUNT_DEFAULTS[type];
+    const s = stored[type] ?? {};
+    merged[type] = {
+      standard: clampTorpedoSlider(s.standard, d.standard),
+      salvo:    clampTorpedoSlider(s.salvo,    d.salvo),
+      max:      clampTorpedoSlider(s.max,      d.max),
+    };
+  }
+  return merged;
+}
+
+// How many torpedoes to fire: base (standard or salvo) × damage tier, capped at
+// the type's max. mode is "standard" or "salvo".
+export function getTorpedoCount(torpedoType, mode, finalDamage) {
+  const cfg = getTorpedoCountConfig();
+  const t = cfg[torpedoType] ?? cfg.photon;
+  const base = mode === "salvo" ? t.salvo : t.standard;
+  const tier = getStarshipDamageAnimationRepeatCount(finalDamage);
+  return Math.max(1, Math.min(t.max, Math.round(base * tier)));
 }
 
 function normalizeRepeatCount(repeatCount) {
@@ -961,8 +1342,11 @@ async function prepareShipEmitterFacing(config, token, targets, weapon) {
   if (!isShipWeaponConfig(config) || !token || !weapon || isShipArrayWeapon(weapon)) return null;
   const primaryTarget = normalizeTargetList(targets)[0] ?? null;
   if (!primaryTarget) return null;
-  const selection = getShipWeaponEmitterArcSelection(token, weapon, tokenCenter(primaryTarget));
+  let selection = getShipWeaponEmitterArcSelection(token, weapon, tokenCenter(primaryTarget));
   if (!selection?.anchor || !Number.isFinite(selection.desiredRotation)) return null;
+  // The curved photon torpedo arcs onto its target, so the ship only needs to
+  // turn partway. Leave up to ~45deg of residual heading for the curve to cover.
+  if (isMovingTorpedoSprite(config.effect)) selection = relaxFacingForCurvedTorpedo(selection);
   // Try the cinematic bow-first turning glide; it also brings the ship onto the
   // firing facing. If it declines (disabled, no zones, blocked), fall back to a
   // plain in-place rotation so the weapon still lines up.
@@ -970,6 +1354,20 @@ async function prepareShipEmitterFacing(config, token, targets, weapon) {
   if (!maneuvered) await rotateTokenToEmitterFacing(token, selection.desiredRotation);
   await _delay(SHIP_WEAPON_FACING_SETTLE_MS);
   return selection;
+}
+
+// Reduces how far the ship turns to fire a curved torpedo. The ship turns only
+// enough to bring the target within ~45deg of its emitter facing; the torpedo's
+// arc bridges the rest. Returns a selection clone with a relaxed desiredRotation.
+function relaxFacingForCurvedTorpedo(selection) {
+  const turnDelta = Number(selection.turnDelta) || 0;
+  const currentRotation = selection.desiredRotation - turnDelta;
+  const residualMax = 45;
+  const magnitude = Math.abs(turnDelta);
+  const executed = magnitude <= residualMax
+    ? 0
+    : Math.sign(turnDelta) * (magnitude - residualMax);
+  return { ...selection, desiredRotation: currentRotation + executed, turnDelta: executed };
 }
 
 function shipRepositionSettings() {
@@ -1485,18 +1883,18 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
   }
 }
 
-async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
-  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
+async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null, finalDamage = 0) {
+  const repeats = isHit ? getTorpedoCount(config.torpedoType, "standard", finalDamage) : 1;
   for (const target of targets) {
     const soundPath = config.sound;
     const s = seq();
     if (isHit) {
       for (let i = 0; i < repeats; i++) {
-        const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
+        const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter, arcRestrict: true });
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(150);
-        applyTorpedoTravel(s, config, locations.source, locations.target);
-        s.wait(getTimingTorpedoImpact());
+        applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
+        s.wait(torpedoTravelMs(config));
         addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
         if (i < repeats - 1) s.wait(250);
@@ -1504,14 +1902,15 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
     } else {
       if (soundPath) s.sound().file(soundPath).volume(1);
       s.wait(150);
-      applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true });
+      applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true, finalDamage });
     }
     await s.play();
   }
 }
 
-async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
-  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
+async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null, finalDamage = 0) {
+  // Number of torpedoes the salvo fires (base × damage tier, capped), per type.
+  const salvoCount = isHit ? getTorpedoCount(config.torpedoType, "salvo", finalDamage) : 1;
 
   if (salvoMode === "spread") {
     // One torpedo per target — same as single but faster succession across targets
@@ -1519,20 +1918,20 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
       const soundPath = config.sound;
       const s = seq();
       if (isHit) {
-        for (let r = 0; r < repeats; r++) {
-          const locations = await shipShotLocations(token, target, { weapon, shotIndex: r, targetSystem, selectedEmitter });
+        for (let r = 0; r < salvoCount; r++) {
+          const locations = await shipShotLocations(token, target, { weapon, shotIndex: r, targetSystem, selectedEmitter, arcRestrict: true });
           if (soundPath) s.sound().file(soundPath).volume(1);
           s.wait(100);
-          applyTorpedoTravel(s, config, locations.source, locations.target);
-          s.wait(getTimingTorpedoImpact());
-          addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, r, repeats);
+          applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
+          s.wait(torpedoTravelMs(config));
+          addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, r, salvoCount);
           shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
-          if (r < repeats - 1) s.wait(250);
+          if (r < salvoCount - 1) s.wait(250);
         }
       } else {
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(100);
-        applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true });
+        applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true, finalDamage });
       }
       await s.play();
     }
@@ -1544,8 +1943,10 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
       const s = seq();
 
       if (isHit) {
+        // Salvo count is base × damage tier, capped, configured per torpedo type.
+        const salvoShots = salvoCount;
         let explosionLocation = sequenceLocation(target, null);
-        for (let i = 0; i < repeats; i++) {
+        for (let i = 0; i < salvoShots; i++) {
           const locations = await shipShotLocations(token, target, {
             sourceOptions: { randomOffset: 0.4 },
             targetOptions: { randomOffset: 0.3 },
@@ -1553,20 +1954,22 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
             shotIndex: i,
             targetSystem,
             selectedEmitter,
+            arcRestrict: true,
           });
           explosionLocation = locations.impact;
-          if (i > 0) s.wait(220);
-          if (soundPath) s.sound().file(soundPath).volume(i === 0 ? 1 : 0.7);
-          applyTorpedoTravel(s, config, locations.source, locations.target);
+          if (i > 0) s.wait(180);
+          // Cap the launch sounds so a large barrage doesn't stack into noise.
+          if (soundPath && i < 4) s.sound().file(soundPath).volume(i === 0 ? 1 : 0.6);
+          applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
         }
         // Explosion after the last torpedo arrives
-        s.wait(getTimingTorpedoImpact());
-        addShieldImpactStep(s, token, target, explosionLocation?.location, shieldImpact, repeats - 1, repeats);
+        s.wait(torpedoTravelMs(config));
+        addShieldImpactStep(s, token, target, explosionLocation?.location, shieldImpact, salvoShots - 1, salvoShots);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), explosionLocation), target, 2.0, 0.9);
       } else {
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
-        applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true });
+        applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true, finalDamage });
       }
 
       await s.play();
@@ -1729,7 +2132,7 @@ export async function fireTargetingSolution(attackerToken, targetToken) {
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
-export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null } = {}) {
+export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0 } = {}) {
   if (!config) return;
   config = withPhaserEraConfig(config, token, weapon);
   const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
@@ -1758,8 +2161,12 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
       await fireCannons(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "torpedo":
-      if (config.salvo) await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
-      else              await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      // Count comes from the per-type sliders (base × damage tier, capped).
+      // Plasma keeps its damage-scaled, shrinking sprite via applyTorpedoTravel.
+      if (config.salvo)
+        await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter, finalDamage);
+      else
+        await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter, finalDamage);
       break;
 
     // Ground-scale weapons

@@ -68,7 +68,7 @@ import {
 } from "./token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonePathWithCosts } from "./zone-data.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "./weapon-range.js";
-import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit } from "./momentum-spend.js";
+import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit, readTrackerState } from "./momentum-spend.js";
 import { createTracker, getActiveTracker } from "./momentum-tracker.js";
 
 const MODULE      = "sta2e-toolkit";
@@ -3907,9 +3907,12 @@ export class CombatHUD {
     const targetToken = targetOverride ?? canvas.tokens?.get(payload.tokenId ?? payload.primaryTokenId);
     if (!attackerToken || !targetToken || !payload.weaponImg) return;
     const slug = payload.weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
-    const rawConfig = STARSHIP_WEAPON_CONFIGS[slug] ?? null;
-    if (!rawConfig) return;
+    // Prefer the resolved weapon item so name-based torpedo type resolution in
+    // getWeaponConfig() applies; fall back to the raw img slug when the item
+    // can't be found on the attacker.
     const weapon = CombatHUD._weaponFromPayload(attackerToken, payload, "starshipweapon2e");
+    const rawConfig = (weapon ? getWeaponConfig(weapon) : null) ?? STARSHIP_WEAPON_CONFIGS[slug] ?? null;
+    if (!rawConfig) return;
     const config = _shipWeaponConfigForRules(weapon, rawConfig);
     try {
       const animSalvoMode = payload.salvoMode ?? (payload.spread ? "spread" : "area");
@@ -3922,6 +3925,7 @@ export class CombatHUD {
         targetSystem: payload.hitLocationSystem ?? payload.targetingSystem ?? null,
         shieldImpact: payload.shieldImpact ?? null,
         hullImpact: payload.hullImpact ?? null,
+        finalDamage: payload.finalDamage ?? 0,
       });
     } catch(e) {
       console.warn("STA2e Toolkit | Ship weapon animation failed:", e);
@@ -13297,13 +13301,35 @@ export class CombatHUD {
 
     const attackerIsNpc = payload.attackerIsNpc ?? false;
     const costPool = attackerIsNpc ? "threat" : "momentum";
-    const currentPool = readPool(costPool);
     const totalCost = selectedIds.length;
-    if (currentPool < totalCost) {
-      ui.notifications.warn(`STA2e Toolkit: Not enough ${attackerIsNpc ? "Threat" : "Momentum"} for Area attack (need ${totalCost}, have ${currentPool}).`);
+
+    // Fund the per-ship Area cost from the same buckets the spend panel uses:
+    // tracker float -> tracker bonus (incl. manually entered "other sources")
+    // -> world pool. The spend panel's own rows are consumed in a capture-phase
+    // click handler before this runs, so the tracker we read here already
+    // reflects those draws and we never double-spend the same momentum.
+    const tracker = readTrackerState(payload.trackerMessageId ?? null, payload.attackerActorId ?? null);
+    const poolAvail = readPool(costPool);
+    let remaining = totalCost;
+    const floatUsed = Math.min(tracker.float, remaining); remaining -= floatUsed;
+    const bonusUsed = Math.min(tracker.bonus, remaining); remaining -= bonusUsed;
+    const poolUsed  = Math.min(poolAvail, remaining);     remaining -= poolUsed;
+
+    if (remaining > 0) {
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${attackerIsNpc ? "Threat" : "Momentum"} for Area attack (need ${totalCost}; have float ${tracker.float} + bonus ${tracker.bonus} + pool ${poolAvail}).`);
       return;
     }
-    await writePool(costPool, currentPool - totalCost);
+
+    // Float and bonus are tracker-only (overflow that never banked into the
+    // pool), so spending them decrements just the tracker; only the pool draw
+    // touches the world pool.
+    if (tracker.messageId && (floatUsed > 0 || bonusUsed > 0)) {
+      try {
+        const mod = await import("./momentum-tracker.js");
+        await mod.decrementTracker(tracker.messageId, { float: floatUsed, bonus: bonusUsed });
+      } catch (err) { console.error("STA2e Toolkit | decrementTracker (area) error:", err); }
+    }
+    if (poolUsed > 0) await writePool(costPool, poolAvail - poolUsed);
 
     for (const tId of selectedIds) {
       const tToken = canvas.tokens?.get(tId);

@@ -43,6 +43,10 @@
   .ec-add-btn:hover { background:#005577; }
   .ec-custom-hint { font-size:9px; color:#4060a0; margin:0 0 4px; line-height:1.4; }
   .ec-custom-table .ec-input-cell input { min-width:90px; }
+  .ec-slider { display:flex; align-items:center; gap:6px; }
+  .ec-slider input[type=range] { flex:1; min-width:90px; accent-color:#0099cc; }
+  .ec-slider-val { min-width:18px; text-align:right; font-weight:700; color:#0099cc; font-size:11px; }
+  .ec-torp-hint { font-size:9px; color:#4060a0; margin:0 0 6px; line-height:1.4; }
   .ec-footer { display:flex; justify-content:flex-end; gap:8px; padding:8px 10px; background:#0e1118; border-top:1px solid #2a3050; }
   .ec-btn-cancel, .ec-btn-save { padding:5px 18px; font-size:11px; font-weight:700; border-radius:2px; cursor:pointer; letter-spacing:.04em; transition:background .12s; }
   .ec-btn-cancel { background:#1a1e2a; border:1px solid #3a4060; color:#7090b0; }
@@ -126,6 +130,44 @@
           {{/if}}
 
           {{/if}}{{!-- /delayValue --}}
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{/if}}
+
+    {{!-- Torpedo fire counts --}}
+    {{#if torpedoCounts}}
+    <p class="ec-torp-hint">
+      Torpedoes fired = base × damage tier (×1 at &lt;4 dmg, ×2 at 4–7, ×3 at 8+), capped by Max count.
+      Standard and Salvo bases are set separately per type. Plasma also keeps its damage-scaled sprite that shrinks toward the target.
+    </p>
+    <table class="ec-table">
+      <thead>
+        <tr><th>Torpedo</th><th>Standard base</th><th>Salvo base</th><th>Max count</th></tr>
+      </thead>
+      <tbody>
+        {{#each torpedoRows}}
+        <tr>
+          <td class="ec-label">{{label}}</td>
+          <td class="ec-input-cell">
+            <div class="ec-slider">
+              <input type="range" min="1" max="10" step="1" data-torp-type="{{type}}" data-torp-field="standard" value="{{standard}}" />
+              <span class="ec-slider-val">{{standard}}</span>
+            </div>
+          </td>
+          <td class="ec-input-cell">
+            <div class="ec-slider">
+              <input type="range" min="1" max="10" step="1" data-torp-type="{{type}}" data-torp-field="salvo" value="{{salvo}}" />
+              <span class="ec-slider-val">{{salvo}}</span>
+            </div>
+          </td>
+          <td class="ec-input-cell">
+            <div class="ec-slider">
+              <input type="range" min="1" max="20" step="1" data-torp-type="{{type}}" data-torp-field="max" value="{{max}}" />
+              <span class="ec-slider-val">{{max}}</span>
+            </div>
+          </td>
         </tr>
         {{/each}}
       </tbody>
