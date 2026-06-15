@@ -2,9 +2,9 @@
  * sta2e-toolkit | zone-token-config.js
  * Injects an "Occupies Multiple Zones" checkbox into the Token Config sheet.
  *
- * Tokens with this flag set test their full footprint rectangle against zone
+ * Tokens with this flag set test their displayed image footprint against zone
  * polygons instead of just their center point, so a Borg cube or station that
- * is physically larger than a single zone is detected in every zone it
+ * is physically larger than a single zone is detected in every zone its art
  * overlaps. Consumed by getZonesForToken() / getZoneDistanceBetweenTokens()
  * in zone-data.js.
  *
@@ -29,7 +29,7 @@ function _buildFormGroup(checked) {
     <div class="form-fields">
       <input type="checkbox" name="${FORM_PATH}" ${checked ? "checked" : ""}>
     </div>
-    <p class="hint">Detect this token in every zone its full footprint overlaps,
+    <p class="hint">Detect this token in every zone its displayed image overlaps,
       instead of only the zone under its center. Enable for very large ships
       and stations (Borg cubes, starbases) that span multiple zones.</p>`;
   return group;

@@ -8,7 +8,7 @@ const FLAG_SCOPE = "sta2e-toolkit";
 const FLAG_KEY   = "zones";
 
 // ── Range band mapping ──────────────────────────────────────────────────────
-// Contact  — tokens are physically adjacent (base-to-base, ≤ 1 grid unit apart)
+// Contact  — token footprints touch or overlap
 // Close    — tokens are in the same zone (but not base-to-base)
 // Medium   — 1 zone away
 // Long     — 2 zones away
@@ -304,6 +304,59 @@ export function clipPolygonToRect(vertices, rx, ry, rw, rh) {
   return poly;
 }
 
+/**
+ * Clip a polygon to a convex polygon using Sutherland-Hodgman.
+ * The clip polygon may be clockwise or counter-clockwise.
+ *
+ * @param {{x:number, y:number}[]} subject
+ * @param {{x:number, y:number}[]} clip
+ * @returns {{x:number, y:number}[]}
+ */
+export function clipPolygonToConvexPolygon(subject, clip) {
+  if (!subject?.length || !clip?.length) return [];
+
+  const clipCenter = clip.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+  clipCenter.x /= clip.length;
+  clipCenter.y /= clip.length;
+  const inside = (p, a, b) => {
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    const centerCross = (b.x - a.x) * (clipCenter.y - a.y) - (b.y - a.y) * (clipCenter.x - a.x);
+    return cross * centerCross >= -1e-8;
+  };
+  const intersect = (s, e, a, b) => {
+    const sx = e.x - s.x;
+    const sy = e.y - s.y;
+    const cx = b.x - a.x;
+    const cy = b.y - a.y;
+    const denom = sx * cy - sy * cx;
+    if (Math.abs(denom) < 1e-8) return e;
+    const t = ((a.x - s.x) * cy - (a.y - s.y) * cx) / denom;
+    return { x: s.x + t * sx, y: s.y + t * sy };
+  };
+
+  let output = subject;
+  for (let i = 0, j = clip.length - 1; i < clip.length; j = i++) {
+    const a = clip[j];
+    const b = clip[i];
+    const input = output;
+    output = [];
+    if (input.length === 0) return [];
+    let s = input[input.length - 1];
+    for (const e of input) {
+      const eIn = inside(e, a, b);
+      const sIn = inside(s, a, b);
+      if (eIn) {
+        if (!sIn) output.push(intersect(s, e, a, b));
+        output.push(e);
+      } else if (sIn) {
+        output.push(intersect(s, e, a, b));
+      }
+      s = e;
+    }
+  }
+  return output;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Token footprint zone detection (multi-zone tokens)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -339,10 +392,61 @@ export function tokenFootprint(token) {
 }
 
 /**
- * Return all zones whose polygon meaningfully overlaps an axis-aligned rect.
+ * Polygon for the displayed token image footprint, including texture anchor,
+ * texture scale, and token rotation. Falls back to the token document footprint
+ * when only a TokenDocument is available.
+ * @param {Token|TokenDocument} token
+ * @returns {{x:number, y:number}[]}
+ */
+export function tokenImageFootprint(token) {
+  const obj = token?.object ?? token;
+  const doc = obj?.document ?? token;
+  const fp = tokenFootprint(token);
+  const center = obj?.center ?? { x: fp.x + fp.w / 2, y: fp.y + fp.h / 2 };
+  const texture = doc?.texture ?? {};
+  const anchorX = Number(texture.anchorX ?? 0.5);
+  const anchorY = Number(texture.anchorY ?? 0.5);
+  const scaleX = Number(texture.scaleX ?? 1) || 1;
+  const scaleY = Number(texture.scaleY ?? 1) || 1;
+  const rotation = Number(doc?.rotation ?? obj?.rotation ?? 0) * (Math.PI / 180);
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+
+  return [
+    { u: 0, v: 0 },
+    { u: 1, v: 0 },
+    { u: 1, v: 1 },
+    { u: 0, v: 1 },
+  ].map(({ u, v }) => {
+    const localX = (u - anchorX) * fp.w * scaleX;
+    const localY = (v - anchorY) * fp.h * scaleY;
+    return {
+      x: center.x + localX * cos - localY * sin,
+      y: center.y + localX * sin + localY * cos,
+    };
+  });
+}
+
+/**
+ * True when two axis-aligned token footprints touch or overlap.
+ * Edge and corner contact count as touching; any positive gap is not Contact.
+ * @param {{x:number, y:number, w:number, h:number}} a
+ * @param {{x:number, y:number, w:number, h:number}} b
+ * @returns {boolean}
+ */
+function _rectsTouchOrOverlap(a, b) {
+  return a.x <= b.x + b.w &&
+         a.x + a.w >= b.x &&
+         a.y <= b.y + b.h &&
+         a.y + a.h >= b.y;
+}
+
+/**
+ * Return all zones whose polygon overlaps an axis-aligned rect.
  * Uses Sutherland-Hodgman clipping; a zone counts as overlapping when the
- * clipped intersection covers more than 1% of the smaller of the two areas,
- * so a polygon that merely shares an edge with the rect is excluded.
+ * clipped intersection has any positive area, so even a small visible sliver
+ * of a multi-zone token inside a zone counts as occupying that zone. A polygon
+ * that merely shares an edge with the rect is excluded.
  * @param {number} x  rect left
  * @param {number} y  rect top
  * @param {number} w  rect width
@@ -361,18 +465,35 @@ export function getZonesForRect(x, y, w, h, zones) {
     if (!zone.vertices || zone.vertices.length < 3) continue;
     const clipped = clipPolygonToRect(zone.vertices, x, y, w, h);
     if (clipped.length < 3) continue;
-    const overlap   = Math.abs(polygonArea(clipped));
-    const zoneArea  = Math.abs(polygonArea(zone.vertices));
-    const threshold = Math.min(rectArea, zoneArea) * 0.01;
-    if (overlap > threshold) results.push(zone);
+    const overlap = Math.abs(polygonArea(clipped));
+    if (overlap > 0) results.push(zone);
+  }
+  return results;
+}
+
+/**
+ * Return all zones whose polygon overlaps a token/image polygon.
+ * @param {{x:number, y:number}[]} polygon
+ * @param {object[]} zones
+ * @returns {object[]}
+ */
+export function getZonesForPolygon(polygon, zones) {
+  if (!polygon?.length || Math.abs(polygonArea(polygon)) <= 0) return [];
+  const results = [];
+  for (const zone of zones) {
+    if (!zone.vertices || zone.vertices.length < 3) continue;
+    const clipped = clipPolygonToConvexPolygon(zone.vertices, polygon);
+    if (clipped.length < 3) continue;
+    const overlap = Math.abs(polygonArea(clipped));
+    if (overlap > 0) results.push(zone);
   }
   return results;
 }
 
 /**
  * Return every zone a token occupies.
- * Tokens flagged with `flags.sta2e-toolkit.multiZone` test their full
- * footprint rect against zone polygons and may occupy several zones.
+ * Tokens flagged with `flags.sta2e-toolkit.multiZone` test their displayed
+ * image footprint against zone polygons and may occupy several zones.
  * All other tokens use their center point and occupy at most one zone.
  * @param {Token|TokenDocument} token
  * @param {object[]} [zones=getSceneZones()]
@@ -382,7 +503,7 @@ export function getZonesForToken(token, zones = getSceneZones()) {
   if (!token || !zones?.length) return [];
   const fp = tokenFootprint(token);
   if (isMultiZoneToken(token)) {
-    const overlapped = getZonesForRect(fp.x, fp.y, fp.w, fp.h, zones);
+    const overlapped = getZonesForPolygon(tokenImageFootprint(token), zones);
     if (overlapped.length > 0) return overlapped;
   }
   const z = getZoneAtPoint(fp.x + fp.w / 2, fp.y + fp.h / 2, zones);
@@ -390,7 +511,7 @@ export function getZonesForToken(token, zones = getSceneZones()) {
 }
 
 /**
- * Find a multi-zone-flagged token whose footprint rect contains a canvas point.
+ * Find a multi-zone-flagged token whose image footprint contains a canvas point.
  * Used by measurement tools so pointing anywhere on a Borg cube measures to
  * the cube's nearest occupied zone instead of the zone under the cursor.
  * @param {number} x
@@ -404,8 +525,7 @@ export function getMultiZoneTokenAtPoint(x, y, { exclude = null } = {}) {
   for (const t of canvas?.tokens?.placeables ?? []) {
     if (excludeId && (t.id === excludeId || t.document?.id === excludeId)) continue;
     if (!isMultiZoneToken(t)) continue;
-    const fp = tokenFootprint(t);
-    if (x >= fp.x && x <= fp.x + fp.w && y >= fp.y && y <= fp.y + fp.h) return t;
+    if (pointInPolygon(x, y, tokenImageFootprint(t))) return t;
   }
   return null;
 }
@@ -606,14 +726,8 @@ export function getZoneDistance(pointA, pointB, zones) {
 
   if (!fromZone || !toZone) return empty;
   if (fromZone.id === toZone.id) {
-    // Contact if tokens are physically adjacent (≤ 1 grid unit apart, base-to-base)
-    const dx = pointB.x - pointA.x;
-    const dy = pointB.y - pointA.y;
-    const pixelDist = Math.sqrt(dx * dx + dy * dy);
-    const gridSize  = canvas?.scene?.grid?.size ?? 100;
-    const rangeBand = pixelDist <= gridSize ? "Contact" : "Close";
     return {
-      zoneCount: 0, rangeBand, momentumCost: 0,
+      zoneCount: 0, rangeBand: "Close", momentumCost: 0,
       fromZone, toZone, path: [fromZone.id],
     };
   }
@@ -722,8 +836,8 @@ export function getZoneDistanceForZoneSets(fromZones, toZones, zones, opts = {})
 /**
  * Token-aware zone distance. Resolves each token's occupied zone set
  * (footprint for multi-zone tokens, center point otherwise) and measures to
- * the nearest occupied zone pair. Contact uses edge-to-edge footprint gap
- * (≤ 1 grid unit) so huge tokens register base-to-base correctly.
+ * the nearest occupied zone pair. Contact requires token footprints to touch
+ * or overlap; same-zone tokens with any visible gap remain Close.
  *
  * @param {Token|TokenDocument} tokenA
  * @param {Token|TokenDocument} tokenB
@@ -734,13 +848,9 @@ export function getZoneDistanceBetweenTokens(tokenA, tokenB, zones = getSceneZon
   const fromZones = getZonesForToken(tokenA, zones);
   const toZones   = getZonesForToken(tokenB, zones);
 
-  // Edge-to-edge gap between the two footprint rects
   const fa = tokenFootprint(tokenA);
   const fb = tokenFootprint(tokenB);
-  const gapX = Math.max(0, Math.max(fa.x, fb.x) - Math.min(fa.x + fa.w, fb.x + fb.w));
-  const gapY = Math.max(0, Math.max(fa.y, fb.y) - Math.min(fa.y + fa.h, fb.y + fb.h));
-  const gridSize = canvas?.scene?.grid?.size ?? 100;
-  const contact  = Math.hypot(gapX, gapY) <= gridSize;
+  const contact = _rectsTouchOrOverlap(fa, fb);
 
   return getZoneDistanceForZoneSets(fromZones, toZones, zones, { contact });
 }
@@ -816,13 +926,10 @@ export function getZoneMeasurement(pointA, pointB, zones, { exclude = null } = {
   const fromZones = tokA ? getZonesForToken(tokA, zones) : pointZones(pointA);
   const toZones   = tokB ? getZonesForToken(tokB, zones) : pointZones(pointB);
 
-  // Contact check: edge-to-edge gap between footprints (points = zero-size rects)
+  // Contact check: footprints must touch or overlap (points = zero-size rects)
   const ra = tokA ? tokenFootprint(tokA) : { x: pointA.x, y: pointA.y, w: 0, h: 0 };
   const rb = tokB ? tokenFootprint(tokB) : { x: pointB.x, y: pointB.y, w: 0, h: 0 };
-  const gapX = Math.max(0, Math.max(ra.x, rb.x) - Math.min(ra.x + ra.w, rb.x + rb.w));
-  const gapY = Math.max(0, Math.max(ra.y, rb.y) - Math.min(ra.y + ra.h, rb.y + rb.h));
-  const gridSize = canvas?.scene?.grid?.size ?? 100;
-  const contact  = Math.hypot(gapX, gapY) <= gridSize;
+  const contact = _rectsTouchOrOverlap(ra, rb);
 
   const base = getZoneDistanceForZoneSets(fromZones, toZones, zones, { contact });
   if (!base.fromZone || !base.toZone || base.zoneCount < 0) return base;
