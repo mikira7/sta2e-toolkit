@@ -21,6 +21,7 @@ function _canWriteWorldSettings() {
 }
 
 function _key(pool) {
+  if (pool === "alliedNpcMomentum") return "alliedNpcMomentum";
   return pool === "threat" ? "threat" : "momentum";
 }
 
@@ -29,6 +30,7 @@ function _source(options = {}) {
 }
 
 function _label(pool) {
+  if (pool === "alliedNpcMomentum") return "Allied NPC Momentum";
   return pool === "threat" ? "Threat" : "Momentum";
 }
 
@@ -91,6 +93,10 @@ function _shouldLogPoolChange(source, options = {}) {
 
 function _poolColor(pool, LC) {
   return pool === "threat" ? (LC.red ?? "#ff4455") : (LC.secondary ?? "#c8942c");
+}
+
+function _isToolkitPool(pool) {
+  return pool === "alliedNpcMomentum";
 }
 
 function _buildPoolChangeCard(entries, source, actorName) {
@@ -264,6 +270,10 @@ function _refreshPoolUis() {
 
 export function readPool(pool) {
   const key = _key(pool);
+  if (_isToolkitPool(key)) {
+    try { return Number(game.settings.get(MODULE, key)) || 0; }
+    catch { return 0; }
+  }
   const Tracker = _tracker();
   if (Tracker?.ValueOf) {
     try { return Number(Tracker.ValueOf(key)) || 0; }
@@ -275,6 +285,7 @@ export function readPool(pool) {
 
 export function poolLimit(pool) {
   const key = _key(pool);
+  if (key === "alliedNpcMomentum") return 6;
   const Tracker = _tracker();
   if (Tracker?.LimitOf) {
     try { return Number(Tracker.LimitOf(key)) || (key === "momentum" ? 6 : 99); }
@@ -290,7 +301,7 @@ export function poolLimit(pool) {
 export function canUserAdjustPool(pool, source = "toolkit", delta = 0) {
   const key = _key(pool);
   if (game.user?.isGM) return true;
-  if (key === "momentum") return true;
+  if (key === "momentum" || key === "alliedNpcMomentum") return true;
   return source === "diceRoller" && Number(delta) > 0;
 }
 
@@ -310,6 +321,37 @@ export async function setPool(pool, value, options = {}) {
   if (!canUserAdjustPool(key, source, delta)) {
     if (options.notify !== false) _notifyBlocked(key, source);
     return false;
+  }
+
+  if (_isToolkitPool(key)) {
+    if (!_canWriteWorldSettings()) {
+      if (!game.user?.isGM) {
+        game.socket?.emit(`module.${MODULE}`, {
+          action: "setToolkitPool",
+          pool: key,
+          value: nextValue,
+          source,
+          requesterUserId: game.user?.id ?? null,
+        });
+        _refreshPoolUis();
+        return true;
+      }
+      if (options.notify !== false) {
+        ui.notifications?.warn(`STA2e Toolkit: Could not update ${_label(key)}.`);
+      }
+      return false;
+    }
+
+    try {
+      await game.settings.set(MODULE, key, nextValue);
+      _refreshPoolUis();
+      await _postPoolChangeLog(key, delta, nextValue, source, options);
+      try { game.socket?.emit(`module.${MODULE}`, { action: "refreshPoolTracker" }); } catch {}
+      return true;
+    } catch (err) {
+      console.warn(`STA2e Toolkit | setting ${key} write failed:`, err);
+      return false;
+    }
   }
 
   const Tracker = _tracker();

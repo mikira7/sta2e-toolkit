@@ -8,6 +8,9 @@
 import {
   getSceneZones, getZoneAtPoint as _getZoneAtPoint,
   getZoneDistance as _getZoneDistance,
+  getZonesForToken as _getZonesForToken,
+  getZoneDistanceBetweenTokens as _getZoneDistanceBetweenTokens,
+  isMultiZoneToken as _isMultiZoneToken,
 } from "./zone-data.js";
 import { TransporterVFX } from "./transporter-vfx.js";
 
@@ -458,27 +461,43 @@ export class ToolkitAPI {
   }
 
   /**
-   * Get the zone a token is currently in (based on its center position).
+   * Get the zone a token is currently in. Center-based; for tokens flagged
+   * as multi-zone, falls back to the first footprint-overlapped zone when
+   * the center sits outside every zone. Use getZonesForToken() for the
+   * full set.
    * @param {Token|TokenDocument} token
    * @returns {object|null}
    */
   getZoneForToken(token) {
     const obj = token?.object ?? token;
     const center = obj?.center ?? { x: obj?.x ?? 0, y: obj?.y ?? 0 };
-    return this.getZoneAtPoint(center.x, center.y);
+    const centerZone = this.getZoneAtPoint(center.x, center.y);
+    if (centerZone) return centerZone;
+    if (_isMultiZoneToken(token)) {
+      return _getZonesForToken(token, getSceneZones())[0] ?? null;
+    }
+    return null;
   }
 
   /**
-   * Calculate zone-based distance between two tokens.
+   * Get every zone a token occupies. Tokens with the "Occupies Multiple
+   * Zones" token-config flag test their full footprint; others return at
+   * most their center zone.
+   * @param {Token|TokenDocument} token
+   * @returns {object[]}
+   */
+  getZonesForToken(token) {
+    return _getZonesForToken(token, getSceneZones());
+  }
+
+  /**
+   * Calculate zone-based distance between two tokens. Multi-zone tokens
+   * measure from their nearest occupied zone.
    * @param {Token|TokenDocument} tokenA
    * @param {Token|TokenDocument} tokenB
    * @returns {{ zoneCount: number, rangeBand: string, momentumCost: number, fromZone: object|null, toZone: object|null, path: string[] }}
    */
   getZoneDistance(tokenA, tokenB) {
-    const a = (tokenA?.object ?? tokenA);
-    const b = (tokenB?.object ?? tokenB);
-    const ptA = a?.center ?? { x: a?.x ?? 0, y: a?.y ?? 0 };
-    const ptB = b?.center ?? { x: b?.x ?? 0, y: b?.y ?? 0 };
-    return _getZoneDistance(ptA, ptB, getSceneZones());
+    return _getZoneDistanceBetweenTokens(tokenA, tokenB, getSceneZones());
   }
 }

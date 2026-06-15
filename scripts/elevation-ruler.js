@@ -14,7 +14,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
-import { getSceneZones, getZoneDistance, rangeBandColor } from "./zone-data.js";
+import { getSceneZones, getZoneDistanceBetweenTokens, rangeBandColor } from "./zone-data.js";
 import { evaluateWeaponRange, getStarshipWeapons } from "./weapon-range.js";
 
 // ---------------------------------------------------------------------------
@@ -396,9 +396,9 @@ function _showLabel(hoveredToken) {
     try {
       const zones = getSceneZones();
       if (zones.length > 0) {
-        const srcCenter  = { x: source.x + source.w / 2,       y: source.y + source.h / 2 };
-        const destCenter = { x: hoveredToken.x + hoveredToken.w / 2, y: hoveredToken.y + hoveredToken.h / 2 };
-        const zInfo = getZoneDistance(srcCenter, destCenter, zones);
+        // Token-aware: multi-zone tokens (flags.sta2e-toolkit.multiZone)
+        // measure from/to their nearest occupied zone, matching weapon range.
+        const zInfo = getZoneDistanceBetweenTokens(source, hoveredToken, zones);
         if (zInfo.zoneCount >= 0) {
           const bandColor = _hex(rangeBandColor(zInfo.rangeBand));
           const mainText  = zInfo.rangeBand;

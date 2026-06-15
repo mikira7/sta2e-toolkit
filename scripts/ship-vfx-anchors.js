@@ -10,10 +10,13 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 8;
+const SHIP_VFX_ANCHORS_VERSION = 9;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
+// Spinal Lance (-array-spread) is a tightly focused forward weapon and may aim
+// down to a 0 deg arc, unlike normal beam emitters which floor at 60 deg.
+const WEAPON_EMITTER_LANCE_MIN_ARC_WIDTH_DEG = 0;
 const WEAPON_EMITTER_MAX_ARC_WIDTH_DEG = 180;
 const WEAPON_EMITTER_LAYERS = Object.freeze(["above", "below"]);
 
@@ -163,13 +166,26 @@ function _tokenRotationDeg(token) {
   return _normalizeDegrees(doc?.rotation ?? token?.rotation ?? 0);
 }
 
-function _normalizeEmitterArcWidth(value) {
+function _normalizeEmitterArcWidth(value, minArc = WEAPON_EMITTER_MIN_ARC_WIDTH_DEG) {
   return Math.round(_clampNumber(
     value,
     DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG,
-    WEAPON_EMITTER_MIN_ARC_WIDTH_DEG,
+    minArc,
     WEAPON_EMITTER_MAX_ARC_WIDTH_DEG,
   ));
+}
+
+// Spinal Lance emitters may aim down to 0 deg; all other weapon emitters floor
+// at the standard minimum arc width.
+function _isLanceWeaponImg(weaponImg) {
+  const img = String(weaponImg || "").split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "");
+  return img.includes("-array-spread");
+}
+
+function _emitterArcMinForWeaponImg(weaponImg) {
+  return _isLanceWeaponImg(weaponImg)
+    ? WEAPON_EMITTER_LANCE_MIN_ARC_WIDTH_DEG
+    : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
 }
 
 function _normalizeEmitterLayer(value) {
@@ -240,7 +256,7 @@ function _normalizeWeaponEmitter(anchor) {
     weaponName: String(anchor?.weaponName || ""),
     weaponImg: String(anchor?.weaponImg || ""),
     facingDeg: _normalizeDegrees(anchor?.facingDeg, _defaultEmitterFacingDeg(normalized)),
-    arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg),
+    arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg, _emitterArcMinForWeaponImg(anchor?.weaponImg)),
     layer: _normalizeEmitterLayer(anchor?.layer),
   };
 }
@@ -439,6 +455,95 @@ function _normalizeHitLocation(anchor) {
   };
 }
 
+// ── Hit zone polygons ────────────────────────────────────────────────────────
+// Per-system polygon zones drawn over the ship image. Shots sample a random
+// point inside the polygon so hits land somewhere new each time, instead of
+// always striking the same fixed emitter point. Legacy hitLocations points
+// remain as a fallback for ships without drawn zones.
+function _normalizeHitPolygon(zone) {
+  const systemKey = _normalizeSystemKey(zone?.systemKey);
+  const points = Array.isArray(zone?.points)
+    ? zone.points.map(point => _normalizeCurvePoint(point)).filter(Boolean)
+    : [];
+  if (points.length < 3) return null;
+  return {
+    systemKey,
+    points,
+    label: String(zone?.label || `${_systemLabel(systemKey)} hit zone`),
+  };
+}
+
+// Shoelace formula; result is in normalized image space so it only matters
+// relative to other zones on the same ship (used for area-weighted picks).
+function _polygonArea(points) {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    area += (a.x * b.y) - (b.x * a.y);
+  }
+  return Math.abs(area) / 2;
+}
+
+function _polygonCentroid(points) {
+  let x = 0;
+  let y = 0;
+  for (const point of points) {
+    x += point.x;
+    y += point.y;
+  }
+  const n = Math.max(1, points.length);
+  return { x: x / n, y: y / n };
+}
+
+// Standard ray-cast point-in-polygon test.
+function _pointInHitPolygon(point, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i];
+    const b = points[j];
+    const intersects = ((a.y > point.y) !== (b.y > point.y))
+      && (point.x < ((b.x - a.x) * (point.y - a.y)) / ((b.y - a.y) || 1e-9) + a.x);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+// Rejection-sample inside the polygon's bounding box. Concave hulls are fine;
+// the fallback centroid covers degenerate slivers that never accept a sample.
+function _randomPointInPolygon(points, maxTries = 80) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  for (let i = 0; i < maxTries; i++) {
+    const candidate = {
+      x: minX + Math.random() * (maxX - minX),
+      y: minY + Math.random() * (maxY - minY),
+    };
+    if (_pointInHitPolygon(candidate, points)) return candidate;
+  }
+  return _polygonCentroid(points);
+}
+
+function _pickHitPolygonWeightedByArea(polygons) {
+  if (polygons.length === 1) return polygons[0];
+  const weights = polygons.map(zone => Math.max(_polygonArea(zone.points), 1e-6));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let roll = Math.random() * total;
+  for (let i = 0; i < polygons.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return polygons[i];
+  }
+  return polygons[polygons.length - 1];
+}
+
 function _weaponId(weapon) {
   return String(weapon?.id ?? weapon?._id ?? "");
 }
@@ -500,6 +605,10 @@ export function normalizeShipVfxAnchors(data = {}) {
     ? data.anchors.hitLocations.map(anchor => _normalizeHitLocation(anchor)).filter(Boolean)
     : [];
 
+  const hitPolygons = Array.isArray(data?.anchors?.hitPolygons)
+    ? data.anchors.hitPolygons.map(zone => _normalizeHitPolygon(zone)).filter(Boolean)
+    : [];
+
   const arrayCurves = Array.isArray(data?.anchors?.arrayCurves)
     ? data.anchors.arrayCurves.map(curve => _normalizeArrayCurve(curve)).filter(Boolean)
     : [];
@@ -517,6 +626,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       weaponEmitters,
       engineEmitters,
       hitLocations,
+      hitPolygons,
       arrayCurves,
     },
     settings: {
@@ -733,7 +843,7 @@ export function getShipWeaponEmitterArcSelection(token, weapon, targetPoint, set
     if (!point) return;
 
     const facingDeg = _normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor));
-    const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg);
+    const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg, _emitterArcMinForWeaponImg(_weaponImg(weapon)));
     const bearingDelta = _angleDistanceDeg(targetBearing, facingDeg);
     const inArc = bearingDelta <= (arcWidthDeg / 2);
     const desiredRotation = shipFacingDegToRotationForTarget(token, targetPoint, facingDeg);
@@ -1249,7 +1359,30 @@ export function getShipHitLocationPoints(token, systemKey) {
     .filter(Boolean);
 }
 
+export function getShipHitPolygons(actorOrToken, systemKey) {
+  const normalizedSystem = _normalizeSystemKey(systemKey);
+  return (getShipVfxAnchors(actorOrToken).anchors.hitPolygons ?? [])
+    .filter(zone => zone.systemKey === normalizedSystem);
+}
+
+// Sample a random canvas-space hit point inside one of the system's polygon
+// zones. Larger zones soak up proportionally more hits. Sampling happens in
+// normalized image space and is then mapped through the same anchor transform
+// as point anchors, so rotation / flip / texture fit all behave identically.
+export function getShipHitPolygonPointForShot(token, systemKey) {
+  const polygons = getShipHitPolygons(token, systemKey);
+  if (!polygons.length) return null;
+  const zone = _pickHitPolygonWeightedByArea(polygons);
+  const sample = _randomPointInPolygon(zone.points);
+  return tokenAnchorToCanvasPoint(token, sample);
+}
+
 export function getShipHitLocationPointForShot(token, systemKey, referencePoint = null, shotIndex = 0) {
+  // Polygon zones win when present: every shot lands somewhere new inside the
+  // drawn area. Legacy point anchors keep working for ships without zones.
+  const polygonPoint = getShipHitPolygonPointForShot(token, systemKey);
+  if (polygonPoint) return polygonPoint;
+
   const points = getShipHitLocationPoints(token, systemKey);
   if (!points.length) return null;
   if (points.length === 1) return points[0];
@@ -1472,6 +1605,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       save: ShipVfxAnchorEditor._onSave,
       clear: ShipVfxAnchorEditor._onClear,
       preview: ShipVfxAnchorEditor._onPreview,
+      export: ShipVfxAnchorEditor._onExport,
+      import: ShipVfxAnchorEditor._onImport,
       close: ShipVfxAnchorEditor._onClose,
     },
   };
@@ -1495,6 +1630,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._activePlacementMode = "points";
     this._selectedEmitterIndex = 0;
     this._pendingCurvePoints = [];
+    this._pendingZonePoints = [];
     this._autoPreview = false;
     this._previewTimer = null;
     this._previewSerial = 0;
@@ -1875,6 +2011,107 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     });
   }
 
+  // ── Hit zone polygons (editor state) ──────────────────────────────────────
+  _activeZones() {
+    if (this._resolveActiveTab() !== "hitLocations") return [];
+    return (this._anchors.anchors.hitPolygons ?? [])
+      .filter(zone => zone.systemKey === this._activeHitSystem);
+  }
+
+  _setActiveZones(zones) {
+    if (this._resolveActiveTab() !== "hitLocations") return;
+    const otherZones = (this._anchors.anchors.hitPolygons ?? [])
+      .filter(zone => zone.systemKey !== this._activeHitSystem);
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      anchors: {
+        ...this._anchors.anchors,
+        hitPolygons: [
+          ...otherZones,
+          ...zones.map((zone, index) => ({
+            ...zone,
+            systemKey: this._activeHitSystem,
+            label: zone.label || `${_systemLabel(this._activeHitSystem)} hit zone ${index + 1}`,
+          })),
+        ],
+      },
+    });
+  }
+
+  _cloneZone(zone) {
+    return {
+      ...zone,
+      points: (zone.points ?? []).map(point => ({ ...point })),
+    };
+  }
+
+  _zoneSvgPathData(points) {
+    if (!Array.isArray(points) || points.length < 2) return "";
+    return `${points.map((point, index) => (
+      `${index === 0 ? "M" : "L"} ${point.x * 100} ${point.y * 100}`
+    )).join(" ")} Z`;
+  }
+
+  _zoneContext(zones) {
+    const color = _systemColor(this._activeHitSystem);
+    return zones.map((zone, index) => ({
+      ...zone,
+      index,
+      displayIndex: index + 1,
+      color,
+      path: this._zoneSvgPathData(zone.points),
+      vertexMarkers: (zone.points ?? []).map((point, pointIndex) => ({
+        zoneIndex: index,
+        pointIndex,
+        label: String(pointIndex + 1),
+        color,
+        left: `${point.x * 100}%`,
+        top: `${point.y * 100}%`,
+        coords: `${point.x.toFixed(3)}, ${point.y.toFixed(3)}`,
+      })),
+      coords: `${(zone.points ?? []).length} vertices`,
+    }));
+  }
+
+  _pendingZoneContext() {
+    const color = _systemColor(this._activeHitSystem);
+    return this._pendingZonePoints.map((point, index) => ({
+      ...point,
+      index,
+      label: String(index + 1),
+      color,
+      left: `${point.x * 100}%`,
+      top: `${point.y * 100}%`,
+      coords: `${point.x.toFixed(3)}, ${point.y.toFixed(3)}`,
+    }));
+  }
+
+  // Insert a vertex into whichever zone edge is closest to `point`.
+  _insertZoneVertexNearest(point) {
+    const zones = this._activeZones().map(zone => this._cloneZone(zone));
+    let best = null;
+    zones.forEach((zone, zoneIndex) => {
+      const points = zone.points ?? [];
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i];
+        const b = points[(i + 1) % points.length];
+        const abx = b.x - a.x;
+        const aby = b.y - a.y;
+        const lengthSq = (abx * abx) + (aby * aby) || 1e-9;
+        const t = _clamp(((point.x - a.x) * abx + (point.y - a.y) * aby) / lengthSq);
+        const px = a.x + abx * t;
+        const py = a.y + aby * t;
+        const distance = Math.hypot(point.x - px, point.y - py);
+        if (!best || distance < best.distance) best = { zoneIndex, edgeIndex: i, distance };
+      }
+    });
+    if (!best) return false;
+    zones[best.zoneIndex].points.splice(best.edgeIndex + 1, 0, { x: point.x, y: point.y });
+    this._setActiveZones(zones);
+    return true;
+  }
+
   _markerContext(emitters) {
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
@@ -1883,6 +2120,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       ? resolveEngineTrailColorHex(this.actor, this._activeEngineKind(), this._activeEngineModeSettings())
       : null;
     const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : 0;
+    const arcMin = isWeaponEmitterTab
+      ? _emitterArcMinForWeaponImg(_weaponImg(this._weaponForTab()))
+      : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
     return emitters.map((anchor, index) => ({
       ...anchor,
       index,
@@ -1896,7 +2136,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       showFacingArrow,
       showArcWidth: isWeaponEmitterTab,
       facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, isEngineTab ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
-      arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg),
+      arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg, arcMin),
       layerLabel: _normalizeEmitterLayer(anchor.layer) === "below" ? "Below" : "Above",
     }));
   }
@@ -1917,11 +2157,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     if (!selected?.anchor) return null;
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
     const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor);
+    const minArcWidthDeg = isWeaponEmitterTab
+      ? _emitterArcMinForWeaponImg(_weaponImg(this._weaponForTab()))
+      : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
     return {
       index: selected.index,
       displayIndex: selected.index + 1,
       facingDeg: Math.round(_normalizeDegrees(selected.anchor.facingDeg, defaultFacing)),
-      arcWidthDeg: _normalizeEmitterArcWidth(selected.anchor.arcWidthDeg),
+      arcWidthDeg: _normalizeEmitterArcWidth(selected.anchor.arcWidthDeg, minArcWidthDeg),
+      minArcWidthDeg,
       showArcWidth: isWeaponEmitterTab,
       isEngine: isEngineTab,
       layer,
@@ -2050,8 +2294,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       {
         id: "hitLocations",
         label: "Hit Zones",
-        title: "System hit location points",
-        count: (this._anchors.anchors.hitLocations ?? []).length,
+        title: "System hit zone polygons",
+        count: (this._anchors.anchors.hitPolygons ?? []).length
+          + (this._anchors.anchors.hitLocations ?? []).length,
         active: this._resolveActiveTab() === "hitLocations",
       },
       {
@@ -2115,6 +2360,12 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       ? resolveEngineTrailColorHex(this.actor, engineKind, activeEngineModeSettings)
       : null;
     const activePointKind = isHitLocationsTab ? "hit location" : "emitter";
+    const activeZones = isHitLocationsTab ? this._activeZones() : [];
+    const activeZoneRows = isHitLocationsTab ? this._zoneContext(activeZones) : [];
+    const pendingZoneMarkers = isHitLocationsTab ? this._pendingZoneContext() : [];
+    const pendingZonePath = this._pendingZonePoints.length >= 2
+      ? this._zoneSvgPathData(this._pendingZonePoints)
+      : "";
 
     return {
       actorName: this.actor?.name ?? "Unknown ship",
@@ -2187,8 +2438,20 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       hitSystemOptions: isHitLocationsTab ? SHIP_SYSTEMS.map(system => ({
         ...system,
         active: system.key === this._activeHitSystem,
-        count: (this._anchors.anchors.hitLocations ?? []).filter(anchor => anchor.systemKey === system.key).length,
+        count: (this._anchors.anchors.hitPolygons ?? []).filter(zone => zone.systemKey === system.key).length
+          + (this._anchors.anchors.hitLocations ?? []).filter(anchor => anchor.systemKey === system.key).length,
       })) : null,
+      activeZones: activeZoneRows,
+      hasActiveZones: activeZoneRows.length > 0,
+      activeZoneCount: activeZoneRows.length,
+      pendingZoneMarkers,
+      hasPendingZoneMarkers: pendingZoneMarkers.length > 0,
+      pendingZoneCount: this._pendingZonePoints.length,
+      pendingZonePath,
+      canFinishZone: this._pendingZonePoints.length >= 3,
+      activeHitSystemColor: _systemColor(this._activeHitSystem),
+      activeHitSystemLabel: _systemLabel(this._activeHitSystem),
+      hasLegacyHitPoints: isHitLocationsTab && activeEmitters.length > 0,
       opaqueState: this._opaqueState,
     };
   }
@@ -2216,18 +2479,25 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     };
 
     const clampPan = () => {
-      if (!frame || !stage) return;
+      if (!frame || !stage) return false;
       const sw = stage.clientWidth;
       const sh = stage.clientHeight;
-      if (sw <= 0 || sh <= 0) return;
+      if (sw <= 0 || sh <= 0) return false;
       const fw0 = frame.offsetWidth;
       const fh0 = frame.offsetHeight;
+      if (fw0 <= 0 || fh0 <= 0) return false;
       const natX = (sw - fw0) / 2; // flex-centred natural offset (layout is unscaled)
       const natY = (sh - fh0) / 2;
       const vw = fw0 * this._zoom;
       const vh = fh0 * this._zoom;
       this._panX = vw >= sw ? _clamp(this._panX, sw - vw - natX, -natX) : (sw - vw) / 2 - natX;
       this._panY = vh >= sh ? _clamp(this._panY, sh - vh - natY, -natY) : (sh - vh) / 2 - natY;
+      return true;
+    };
+
+    const queueApplyZoom = () => {
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(applyZoom);
+      else window.setTimeout(applyZoom, 0);
     };
 
     const zoomTo = (newZoom, clientX, clientY) => {
@@ -2252,8 +2522,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       zoomTo(this._zoom * factor, stageRect.left + stageRect.width / 2, stageRect.top + stageRect.height / 2);
     };
 
-    clampPan();
     applyZoom();
+    queueApplyZoom();
+    img?.addEventListener?.("load", queueApplyZoom, { once: true });
+    img?.addEventListener?.("loadedmetadata", queueApplyZoom, { once: true });
 
     stage?.addEventListener("wheel", event => {
       if (!frame) return;
@@ -2351,6 +2623,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         this._activeTab = event.currentTarget.dataset.anchorTab || "tractor";
         this._opaqueState = null;
         this._pendingCurvePoints = [];
+        this._pendingZonePoints = [];
         this._selectedEmitterIndex = 0;
         if (!this._isActiveArrayWeaponTab()) this._activePlacementMode = "points";
         this.render({ force: true });
@@ -2511,11 +2784,93 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       ui.notifications.info("STA2e Toolkit: Converted array curve(s) to editable handles.");
     });
 
+    el.querySelector("[data-finish-zone]")?.addEventListener("click", event => {
+      event.preventDefault();
+      if (this._resolveActiveTab() !== "hitLocations" || this._pendingZonePoints.length < 3) return;
+      const activeZones = this._activeZones();
+      const zone = {
+        systemKey: this._activeHitSystem,
+        points: this._pendingZonePoints.map(point => ({ ...point })),
+        label: `${_systemLabel(this._activeHitSystem)} hit zone ${activeZones.length + 1}`,
+      };
+      this._setActiveZones([...activeZones, zone]);
+      this._pendingZonePoints = [];
+      this._opaqueState = null;
+      this.render({ force: true });
+    });
+
+    el.querySelector("[data-cancel-zone]")?.addEventListener("click", event => {
+      event.preventDefault();
+      this._pendingZonePoints = [];
+      this._opaqueState = null;
+      this.render({ force: true });
+    });
+
+    el.querySelectorAll("[data-remove-zone]").forEach(button => {
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        const index = Number(event.currentTarget.dataset.removeZone);
+        const activeZones = [...this._activeZones()];
+        if (!Number.isInteger(index) || index < 0 || index >= activeZones.length) return;
+        activeZones.splice(index, 1);
+        this._setActiveZones(activeZones);
+        this._pendingZonePoints = [];
+        this._opaqueState = null;
+        this.render({ force: true });
+      });
+    });
+
+    const refreshZoneSvg = zoneIndex => {
+      const zone = this._activeZones()[zoneIndex];
+      if (!zone) return;
+      el.querySelector(`[data-zone-path="${zoneIndex}"]`)?.setAttribute("d", this._zoneSvgPathData(zone.points));
+    };
+
+    el.querySelectorAll("[data-move-zone]").forEach(marker => {
+      marker.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      marker.addEventListener("contextmenu", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const zoneIndex = Number(event.currentTarget.dataset.moveZone);
+        const pointIndex = Number(event.currentTarget.dataset.moveZonePoint);
+        const zones = this._activeZones().map(zone => this._cloneZone(zone));
+        const zone = zones[zoneIndex];
+        if (!zone || !Number.isInteger(pointIndex)) return;
+        if (zone.points.length <= 3) {
+          ui.notifications.warn("STA2e Toolkit: A hit zone needs at least three vertices.");
+          return;
+        }
+        zone.points.splice(pointIndex, 1);
+        this._setActiveZones(zones);
+        this._opaqueState = null;
+        this.render({ force: true });
+      });
+      marker.addEventListener("pointerdown", event => {
+        const zoneIndex = Number(event.currentTarget.dataset.moveZone);
+        const pointIndex = Number(event.currentTarget.dataset.moveZonePoint);
+        if (!Number.isInteger(zoneIndex) || !Number.isInteger(pointIndex)) return;
+        beginDrag(event, (point, target) => {
+          const zones = this._activeZones().map(zone => this._cloneZone(zone));
+          const zone = zones[zoneIndex];
+          if (!zone || pointIndex < 0 || pointIndex >= zone.points.length) return;
+          zone.points[pointIndex] = { x: point.x, y: point.y };
+          this._setActiveZones(zones);
+          moveMarkerElement(target, point);
+          refreshZoneSvg(zoneIndex);
+          if (coords) coords.textContent = `${zones.length} hit zone(s) for ${this._activeTabLabel()}`;
+        });
+      });
+    });
+
     el.querySelectorAll("[data-hit-system]").forEach(button => {
       button.addEventListener("click", event => {
         event.preventDefault();
         this._activeHitSystem = _normalizeSystemKey(event.currentTarget.dataset.hitSystem);
         this._opaqueState = null;
+        this._pendingZonePoints = [];
         this.render({ force: true });
       });
     });
@@ -2550,6 +2905,26 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         this._pendingCurvePoints = [...this._pendingCurvePoints, { x, y }];
         if (coords) {
           coords.textContent = `${this._pendingCurvePoints.length} curve point(s) placed; click another point or Finish Curve`;
+        }
+        this._opaqueState = null;
+        this.render({ force: true });
+        return;
+      }
+
+      if (this._resolveActiveTab() === "hitLocations") {
+        // Hit zones are drawn as polygons: each click drops a vertex, Finish
+        // Zone closes the shape. Shift-click inserts a vertex into the nearest
+        // edge of an already-saved zone instead.
+        if (event.shiftKey && !this._pendingZonePoints.length && this._activeZones().length) {
+          if (this._insertZoneVertexNearest({ x, y })) {
+            this._opaqueState = null;
+            this.render({ force: true });
+            return;
+          }
+        }
+        this._pendingZonePoints = [...this._pendingZonePoints, { x, y }];
+        if (coords) {
+          coords.textContent = `${this._pendingZonePoints.length} zone vertex(es) placed; click another or Finish Zone`;
         }
         this._opaqueState = null;
         this.render({ force: true });
@@ -2749,20 +3124,143 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   static async _onClear(_event, _target) {
     if (!game.user?.isGM || !this.actor) return;
     const clearedLabel = this._activeTabLabel();
-    if (this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve") this._setActiveCurves([]);
-    else this._setActiveEmitters([]);
+    if (this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve") {
+      this._setActiveCurves([]);
+    } else if (this._resolveActiveTab() === "hitLocations") {
+      this._setActiveZones([]);
+      this._setActiveEmitters([]);
+    } else {
+      this._setActiveEmitters([]);
+    }
     this._anchors = await _saveShipVfxAnchors(this.actor, this._anchors);
     this._opaqueState = null;
     this._pendingCurvePoints = [];
+    this._pendingZonePoints = [];
     const pointKind = this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve"
       ? "array curves"
-      : (this._resolveActiveTab() === "hitLocations" ? "hit location points" : "emitter points");
+      : (this._resolveActiveTab() === "hitLocations" ? "hit zones and legacy points" : "emitter points");
     ui.notifications.info(`STA2e Toolkit: ${clearedLabel} ${pointKind} cleared for ${this.actor.name}.`);
     this.render({ force: true });
   }
 
   static async _onPreview(_event, _target) {
     await this._previewActive({ silent: false });
+  }
+
+  // ── Export / import ────────────────────────────────────────────────────────
+  // The full anchor payload (emitters, hit zones, curves, all settings) as a
+  // JSON download. Coordinates are normalized to the ship image, so a setup
+  // exported from one ship drops cleanly onto any other ship using the same
+  // (or same-proportioned) art — handy for fleets of one class.
+  static _onExport(_event, _target) {
+    this._readWeaponSettingsFromForm();
+    this._readEngineSettingsFromForm();
+    const payload = {
+      module: MODULE,
+      type: SHIP_VFX_ANCHORS_FLAG,
+      version: SHIP_VFX_ANCHORS_VERSION,
+      actorName: this.actor?.name ?? "",
+      exportedAt: new Date().toISOString(),
+      data: normalizeShipVfxAnchors({ ...this._anchors, textureSrc: this.textureSrc }),
+    };
+    const slug = String(this.actor?.name ?? "ship")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "ship";
+    const json = JSON.stringify(payload, null, 2);
+    const save = foundry?.utils?.saveDataToFile ?? globalThis.saveDataToFile;
+    if (typeof save === "function") {
+      save(json, "text/json", `${slug}-vfx-anchors.json`);
+    } else {
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${slug}-vfx-anchors.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    ui.notifications.info(`STA2e Toolkit: VFX setup exported for ${this.actor?.name ?? "ship"}.`);
+  }
+
+  static async _onImport(_event, _target) {
+    if (!game.user?.isGM || !this.actor) {
+      ui.notifications.warn("STA2e Toolkit: Only the GM can import VFX setups.");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      let parsed;
+      try {
+        const read = foundry?.utils?.readTextFromFile ?? globalThis.readTextFromFile;
+        const text = typeof read === "function" ? await read(file) : await file.text();
+        parsed = JSON.parse(text);
+      } catch (err) {
+        console.warn("STA2e Toolkit | Could not read VFX import file:", err);
+        ui.notifications.error("STA2e Toolkit: Could not read that file as JSON.");
+        return;
+      }
+
+      // Accept both the wrapped export format and a raw anchors object.
+      const raw = (parsed?.type === SHIP_VFX_ANCHORS_FLAG && parsed?.data) ? parsed.data : parsed;
+      if (!raw || typeof raw !== "object" || typeof raw.anchors !== "object") {
+        ui.notifications.error("STA2e Toolkit: That file does not look like a ship VFX export.");
+        return;
+      }
+
+      const sourceName = parsed?.actorName ? ` (from ${parsed.actorName})` : "";
+      const confirmed = await foundry.applications.api.DialogV2.confirm({
+        window: { title: "Import Ship VFX Setup" },
+        content: `<p>Replace the entire VFX setup for <strong>${this.actor.name}</strong> with the imported one${sourceName}? This overwrites all emitters, hit zones, curves, and settings.</p>`,
+      });
+      if (!confirmed) return;
+
+      // Weapon ids are per-actor item ids, so entries exported from another
+      // ship would never match this ship's weapons (id mismatch short-circuits
+      // before the name/img fallback). Remap ids onto this actor's weapons by
+      // id, then img, then name; clear ids that match nothing so the name/img
+      // fallback can still catch them later.
+      const weapons = this._shipWeapons();
+      const remapWeaponRef = entry => {
+        if (!entry || typeof entry !== "object") return entry;
+        if (!entry.weaponId && !entry.weaponName && !entry.weaponImg) return entry;
+        const match = weapons.find(weapon => _weaponId(weapon) === entry.weaponId)
+          ?? weapons.find(weapon => entry.weaponImg && _weaponImg(weapon) === entry.weaponImg)
+          ?? weapons.find(weapon => entry.weaponName && _weaponName(weapon) === entry.weaponName);
+        return match
+          ? { ...entry, weaponId: _weaponId(match), weaponName: _weaponName(match), weaponImg: _weaponImg(match) }
+          : { ...entry, weaponId: "" };
+      };
+      const remapped = {
+        ...raw,
+        anchors: {
+          ...(raw.anchors ?? {}),
+          weaponEmitters: (raw.anchors?.weaponEmitters ?? []).map(remapWeaponRef),
+          arrayCurves: (raw.anchors?.arrayCurves ?? []).map(remapWeaponRef),
+        },
+        settings: {
+          ...(raw.settings ?? {}),
+          weaponVfx: (raw.settings?.weaponVfx ?? []).map(remapWeaponRef),
+        },
+      };
+
+      // Keep this ship's own texture path; normalized coordinates carry over.
+      this._anchors = await _saveShipVfxAnchors(this.actor, {
+        ...remapped,
+        textureSrc: this.textureSrc,
+      });
+      this._opaqueState = null;
+      this._pendingCurvePoints = [];
+      this._pendingZonePoints = [];
+      this._selectedEmitterIndex = 0;
+      ui.notifications.info(`STA2e Toolkit: VFX setup imported onto ${this.actor.name}.`);
+      this.render({ force: true });
+    }, { once: true });
+    input.click();
   }
 
   static _onClose(_event, _target) {

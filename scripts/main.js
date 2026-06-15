@@ -29,7 +29,8 @@ import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
 import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
-import { getSceneZones, getZoneDistance, getZoneAtPoint } from "./zone-data.js";
+import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
+import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
 import { ZoneMovementLog } from "./zone-movement-log.js";
 import { ZoneHazard } from "./zone-hazard.js";
@@ -49,8 +50,10 @@ import {
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
+import { clearTokenLocalHullDecals, registerHullDecals } from "./hull-decals.js";
 import { registerMomentumSpend } from "./momentum-spend.js";
 import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker, setTrackerBucket } from "./momentum-tracker.js";
+import { setPool } from "./pool-service.js";
 
 function getShipCardAllowedUserIds(message, payload = {}) {
   const toolkitFlags = message?.flags?.["sta2e-toolkit"] ?? {};
@@ -273,6 +276,8 @@ Hooks.once("init", () => {
   registerTransporterSettings();
   registerMomentumSpend();
   registerMomentumTracker();
+  registerZoneTokenConfig();
+  registerHullDecals();
 
   // ── Keybinding: toggle Combat HUD on selected token ───────────────────────
   game.keybindings.register("sta2e-toolkit", "toggleCombatHud", {
@@ -772,7 +777,12 @@ Hooks.once("ready", async () => {
     // Auto-save pool values to the active campaign whenever the STA tracker changes.
     // This keeps savedMomentum/savedThreat current so that switching campaigns
     // (via scene pin or switchCampaign) restores the right values.
-    if ((setting.key === "sta.momentum" || setting.key === "sta.threat") && _canWriteWorldSettings()) {
+    if (
+      (setting.key === "sta.momentum"
+        || setting.key === "sta.threat"
+        || setting.key === "sta2e-toolkit.alliedNpcMomentum")
+      && _canWriteWorldSettings()
+    ) {
       game.sta2eToolkit?.campaignStore?.syncPoolsFromTracker?.();
     }
   });
@@ -956,6 +966,16 @@ Hooks.once("ready", async () => {
     else if (msg.action === "refreshPoolTracker") {
       game.sta2eToolkit?.poolTracker?.applyMode?.();
       game.sta2eToolkit?.poolTracker?.refresh?.();
+    }
+
+    else if (msg.action === "setToolkitPool" && _isResponsibleGM()) {
+      if (msg.pool !== "alliedNpcMomentum") return;
+      const value = Math.max(0, Math.min(6, Number(msg.value) || 0));
+      await setPool(msg.pool, value, {
+        source: msg.source ?? "toolkit",
+        userId: msg.requesterUserId ?? null,
+      });
+      game.socket.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
     }
 
     else if (msg.action === "setAlert" && msg.condition) {
@@ -1619,6 +1639,10 @@ Hooks.on("createToken", async (tokenDoc) => {
         await tokenDoc.unsetFlag("sta2e-toolkit", flag);
       }
     } catch { /* flag didn't exist — fine */ }
+  }
+  const isUnlinkedToken = tokenDoc.actorLink === false || tokenDoc.isLinked === false;
+  if (isUnlinkedToken && tokenDoc.getFlag("sta2e-toolkit", "hullDecals")) {
+    await clearTokenLocalHullDecals(tokenDoc);
   }
   // Apply a random name from a rollable table if the actor matches a configured trait rule
   await applyWildcardName(tokenDoc);
@@ -2596,10 +2620,51 @@ Hooks.on("getTokenContextMenuEntries", (token, options) => {
  * hook and a subclass hook).
  */
 function _applySheetRollerOverride(app, html) {
-  if (!game.settings.get("sta2e-toolkit", "overrideSheetRoller")) return;
+  const overrideSheetRoller = game.settings.get("sta2e-toolkit", "overrideSheetRoller");
 
   // ── Inject "Assign Ships" button below Stress Modifier in the left panel ──
   const actor = app.document ?? app.actor;
+  if (!actor) return;
+  const alliedSource = actor.getFlag("sta2e-toolkit", "alliedMomentumSource") ?? "allied";
+  const alliedUsesPlayerPool = alliedSource === "player";
+  const alliedSourceHtml = `
+    <div class="sta2e-allied-source" style="display:grid;grid-template-columns:auto minmax(118px,1fr);align-items:center;gap:5px;margin:1px 0 0;font-size:0.72em;line-height:1.05;">
+      <span style="white-space:nowrap;">Momentum Source</span>
+      <button type="button" class="sta2e-allied-source-toggle"
+        data-source="${alliedUsesPlayerPool ? "player" : "allied"}"
+        aria-pressed="${alliedUsesPlayerPool ? "true" : "false"}"
+        title="Toggle between Allied NPC Momentum and Player Momentum"
+        style="min-width:0;max-width:180px;height:20px;display:flex;align-items:center;justify-content:space-between;gap:5px;
+          padding:1px 4px;border:1px solid var(--sta2e-primary,#c47f00);
+          border-radius:999px;background:rgba(0,0,0,0.18);cursor:pointer;color:inherit;font-size:1em;line-height:1;">
+        <span class="sta2e-allied-source-label">${alliedUsesPlayerPool ? "Player Pool" : "Allied NPC Pool"}</span>
+        <span class="sta2e-allied-source-knob" aria-hidden="true"
+          style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:14px;flex:0 0 28px;
+            border-radius:999px;background:${alliedUsesPlayerPool ? "var(--sta2e-primary,#c47f00)" : "rgba(255,255,255,0.18)"};">
+          <span style="width:10px;height:10px;border-radius:50%;background:#fff;
+            transform:translateX(${alliedUsesPlayerPool ? "6px" : "-6px"});transition:transform 120ms ease;"></span>
+        </span>
+      </button>
+    </div>`;
+  const wireAlliedSourceToggle = block => {
+    const toggle = block.querySelector(".sta2e-allied-source-toggle");
+    if (!toggle) return;
+    toggle.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      const next = toggle.dataset.source === "player" ? "allied" : "player";
+      await actor.setFlag("sta2e-toolkit", "alliedMomentumSource", next);
+      toggle.dataset.source = next;
+      toggle.setAttribute("aria-pressed", next === "player" ? "true" : "false");
+      const label = toggle.querySelector(".sta2e-allied-source-label");
+      if (label) label.textContent = next === "player" ? "Player Pool" : "Allied NPC Pool";
+      const knob = toggle.querySelector(".sta2e-allied-source-knob");
+      if (knob) {
+        knob.style.background = next === "player" ? "var(--sta2e-primary,#c47f00)" : "rgba(255,255,255,0.18)";
+        const dot = knob.querySelector("span");
+        if (dot) dot.style.transform = `translateX(${next === "player" ? "6px" : "-6px"})`;
+      }
+    });
+  };
   if (actor?.type === "character" && !html.querySelector(".sta2e-assign-ships-btn")) {
     const anchor = html.querySelector(".stressmod");
     if (anchor) {
@@ -2619,6 +2684,7 @@ function _applySheetRollerOverride(app, html) {
     const nameField = html.querySelector(".name-field");
     if (nameField) {
       const isNpc   = actor.getFlag("sta2e-toolkit", "isNpcShip")   ?? false;
+      const isAlliedNpc = actor.getFlag("sta2e-toolkit", "isAlliedNpc") ?? false;
       const quality = actor.getFlag("sta2e-toolkit", "crewQuality") ?? "proficient";
 
       const CREW_QUALITIES = [
@@ -2629,32 +2695,56 @@ function _applySheetRollerOverride(app, html) {
       ];
 
       const radioHTML = CREW_QUALITIES.map(o => `
-        <label class="sta2e-cq-option">
+        <label class="sta2e-cq-option" style="display:inline-flex;align-items:center;gap:3px;margin:0;line-height:1;white-space:nowrap;font-size:0.78em;">
           <input type="radio" name="sta2e-crewQuality" value="${o.key}"
             ${quality === o.key ? "checked" : ""}
-            style="accent-color:var(--sta2e-primary,#c47f00);" />
+            style="margin:0;accent-color:var(--sta2e-primary,#c47f00);" />
           <span class="sta2e-cq-label">${o.label}</span>
         </label>`).join("");
 
       const block = document.createElement("div");
       block.className = "sta2e-npc-ship-block";
+      block.style.cssText = "display:flex;flex-direction:column;gap:3px;margin:3px 0 2px;";
       block.innerHTML = `
-        <label class="sta2e-npc-toggle">
+        <label class="sta2e-npc-toggle" style="display:flex;align-items:center;gap:5px;margin:0;line-height:1.1;">
           <input type="checkbox" class="sta2e-npc-cb"
             ${isNpc ? "checked" : ""}
-            style="accent-color:var(--sta2e-primary,#c47f00);" />
+            style="margin:0;accent-color:var(--sta2e-primary,#c47f00);" />
           <span>NPC Ship</span>
         </label>
-        <div class="sta2e-crew-quality" style="display:${isNpc ? "block" : "none"};">
-          <div class="sta2e-cq-title">Crew Quality</div>
+        <label class="sta2e-allied-npc-toggle" style="display:${isNpc ? "flex" : "none"};align-items:center;gap:5px;margin:0;line-height:1.1;">
+          <input type="checkbox" class="sta2e-allied-npc-cb"
+            ${isAlliedNpc ? "checked" : ""}
+            style="margin:0;accent-color:var(--sta2e-primary,#c47f00);" />
+          <span>Allied NPC</span>
+        </label>
+        <div class="sta2e-allied-npc-source-wrap" style="display:${isNpc && isAlliedNpc ? "block" : "none"};">
+          ${alliedSourceHtml}
+        </div>
+        <div class="sta2e-crew-quality" style="display:${isNpc ? "flex" : "none"};align-items:center;gap:7px;flex-wrap:wrap;margin-top:1px;">
+          <span class="sta2e-cq-title" style="font-size:0.72em;line-height:1;white-space:nowrap;">Crew Quality</span>
           ${radioHTML}
         </div>`;
 
       block.querySelector(".sta2e-npc-cb").addEventListener("change", async (ev) => {
         await actor.setFlag("sta2e-toolkit", "isNpcShip", ev.target.checked);
         block.querySelector(".sta2e-crew-quality").style.display =
-          ev.target.checked ? "block" : "none";
+          ev.target.checked ? "flex" : "none";
+        block.querySelector(".sta2e-allied-npc-toggle").style.display =
+          ev.target.checked ? "flex" : "none";
+        block.querySelector(".sta2e-allied-npc-source-wrap").style.display =
+          ev.target.checked && block.querySelector(".sta2e-allied-npc-cb")?.checked ? "block" : "none";
       });
+
+      block.querySelector(".sta2e-allied-npc-cb").addEventListener("change", async (ev) => {
+        await actor.setFlag("sta2e-toolkit", "isAlliedNpc", ev.target.checked);
+        block.querySelector(".sta2e-allied-npc-source-wrap").style.display =
+          ev.target.checked ? "block" : "none";
+        game.socket?.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
+        game.sta2eToolkit?.poolTracker?.refresh?.();
+      });
+
+      wireAlliedSourceToggle(block);
 
       block.querySelectorAll('input[name="sta2e-crewQuality"]').forEach(radio => {
         radio.addEventListener("change", async (ev) => {
@@ -2666,6 +2756,47 @@ function _applySheetRollerOverride(app, html) {
       nameField.insertAdjacentElement("afterend", block);
     }
   }
+
+  const groundAlliedProfile = !_isShipActor(actor)
+    ? CombatHUD.getGroundCombatProfile(actor)
+    : null;
+  if (
+    groundAlliedProfile
+    && !groundAlliedProfile.isPlayerOwned
+    && !groundAlliedProfile.isShip
+    && !html.querySelector(".sta2e-ground-allied-npc-block")
+  ) {
+    const anchor = html.querySelector("#bar-stress-renderer")?.closest(".track")
+      ?? html.querySelector(".stressmod")
+      ?? html.querySelector(".name-field");
+    if (anchor) {
+      const isAlliedNpc = actor.getFlag("sta2e-toolkit", "isAlliedNpc") ?? false;
+      const block = document.createElement("div");
+      block.className = "sta2e-ground-allied-npc-block";
+      block.style.cssText = "display:flex;flex-direction:column;gap:3px;margin:3px 0 4px;";
+      block.innerHTML = `
+        <label style="display:flex;align-items:center;gap:5px;margin:0;cursor:pointer;font-size:0.78em;line-height:1.1;">
+          <input type="checkbox" class="sta2e-allied-npc-cb"
+            ${isAlliedNpc ? "checked" : ""}
+            style="margin:0;accent-color:var(--sta2e-primary,#c47f00);">
+          <span>Allied NPC</span>
+        </label>
+        <div class="sta2e-allied-npc-source-wrap" style="display:${isAlliedNpc ? "block" : "none"};">
+          ${alliedSourceHtml}
+        </div>`;
+      block.querySelector(".sta2e-allied-npc-cb").addEventListener("change", async (ev) => {
+        await actor.setFlag("sta2e-toolkit", "isAlliedNpc", ev.target.checked);
+        block.querySelector(".sta2e-allied-npc-source-wrap").style.display =
+          ev.target.checked ? "block" : "none";
+        game.socket?.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
+        game.sta2eToolkit?.poolTracker?.refresh?.();
+      });
+      wireAlliedSourceToggle(block);
+      anchor.insertAdjacentElement("afterend", block);
+    }
+  }
+
+  if (!overrideSheetRoller) return;
 
   html.querySelectorAll('[data-action="onAttributeTest"]:not([data-sta2e-roller-bound])').forEach(el => {
     el.dataset.sta2eRollerBound = "1";
@@ -3485,10 +3616,16 @@ Hooks.once("ready", () => {
       if (game.settings.get("sta2e-toolkit", "zoneRulerOverride") && sceneOn && zoneOrigin) {
         const zones = getSceneZones();
         if (zones.length > 0) {
-          const zoneInfo = getZoneDistance(
+          // Plain ruler measurements are multi-zone aware: an endpoint on a
+          // token flagged multiZone measures to its nearest occupied zone.
+          // When a token is being dragged (this.token), its own movement
+          // stays center-based, but other multi-zone tokens under the
+          // endpoints are still respected.
+          const zoneInfo = getZoneMeasurement(
             zoneOrigin,
             { x: waypoint.x, y: waypoint.y },
-            zones
+            zones,
+            { exclude: this.token ?? null }
           );
           if (zoneInfo.fromZone && zoneInfo.toZone && zoneInfo.zoneCount >= 0) {
             const parts = [];

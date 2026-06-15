@@ -305,6 +305,112 @@ export function clipPolygonToRect(vertices, rx, ry, rw, rh) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Token footprint zone detection (multi-zone tokens)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const MULTI_ZONE_FLAG = "multiZone";
+
+/**
+ * Whether a token has the "occupies multiple zones" flag set.
+ * Accepts a Token placeable or a TokenDocument.
+ * @param {Token|TokenDocument} token
+ * @returns {boolean}
+ */
+export function isMultiZoneToken(token) {
+  const doc = token?.document ?? token;
+  return !!doc?.getFlag?.(FLAG_SCOPE, MULTI_ZONE_FLAG);
+}
+
+/**
+ * Pixel-space bounding rect of a token.
+ * Accepts a Token placeable or a TokenDocument.
+ * @param {Token|TokenDocument} token
+ * @returns {{x:number, y:number, w:number, h:number}}
+ */
+export function tokenFootprint(token) {
+  const obj = token?.object ?? token;
+  const doc = obj?.document ?? token;
+  const gridSize = canvas?.scene?.grid?.size ?? 100;
+  const x = obj?.x ?? doc?.x ?? 0;
+  const y = obj?.y ?? doc?.y ?? 0;
+  const w = obj?.w ?? ((doc?.width  ?? 1) * gridSize);
+  const h = obj?.h ?? ((doc?.height ?? 1) * gridSize);
+  return { x, y, w, h };
+}
+
+/**
+ * Return all zones whose polygon meaningfully overlaps an axis-aligned rect.
+ * Uses Sutherland-Hodgman clipping; a zone counts as overlapping when the
+ * clipped intersection covers more than 1% of the smaller of the two areas,
+ * so a polygon that merely shares an edge with the rect is excluded.
+ * @param {number} x  rect left
+ * @param {number} y  rect top
+ * @param {number} w  rect width
+ * @param {number} h  rect height
+ * @param {object[]} zones
+ * @returns {object[]}
+ */
+export function getZonesForRect(x, y, w, h, zones) {
+  const rectArea = w * h;
+  if (rectArea <= 0) {
+    const z = getZoneAtPoint(x, y, zones);
+    return z ? [z] : [];
+  }
+  const results = [];
+  for (const zone of zones) {
+    if (!zone.vertices || zone.vertices.length < 3) continue;
+    const clipped = clipPolygonToRect(zone.vertices, x, y, w, h);
+    if (clipped.length < 3) continue;
+    const overlap   = Math.abs(polygonArea(clipped));
+    const zoneArea  = Math.abs(polygonArea(zone.vertices));
+    const threshold = Math.min(rectArea, zoneArea) * 0.01;
+    if (overlap > threshold) results.push(zone);
+  }
+  return results;
+}
+
+/**
+ * Return every zone a token occupies.
+ * Tokens flagged with `flags.sta2e-toolkit.multiZone` test their full
+ * footprint rect against zone polygons and may occupy several zones.
+ * All other tokens use their center point and occupy at most one zone.
+ * @param {Token|TokenDocument} token
+ * @param {object[]} [zones=getSceneZones()]
+ * @returns {object[]}
+ */
+export function getZonesForToken(token, zones = getSceneZones()) {
+  if (!token || !zones?.length) return [];
+  const fp = tokenFootprint(token);
+  if (isMultiZoneToken(token)) {
+    const overlapped = getZonesForRect(fp.x, fp.y, fp.w, fp.h, zones);
+    if (overlapped.length > 0) return overlapped;
+  }
+  const z = getZoneAtPoint(fp.x + fp.w / 2, fp.y + fp.h / 2, zones);
+  return z ? [z] : [];
+}
+
+/**
+ * Find a multi-zone-flagged token whose footprint rect contains a canvas point.
+ * Used by measurement tools so pointing anywhere on a Borg cube measures to
+ * the cube's nearest occupied zone instead of the zone under the cursor.
+ * @param {number} x
+ * @param {number} y
+ * @param {{exclude?: Token|TokenDocument|null}} [opts]  token to ignore
+ *        (e.g. the token being dragged, whose movement stays center-based)
+ * @returns {Token|null}
+ */
+export function getMultiZoneTokenAtPoint(x, y, { exclude = null } = {}) {
+  const excludeId = exclude?.id ?? exclude?.document?.id ?? null;
+  for (const t of canvas?.tokens?.placeables ?? []) {
+    if (excludeId && (t.id === excludeId || t.document?.id === excludeId)) continue;
+    if (!isMultiZoneToken(t)) continue;
+    const fp = tokenFootprint(t);
+    if (x >= fp.x && x <= fp.x + fp.w && y >= fp.y && y <= fp.y + fp.h) return t;
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Adjacency detection
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -549,6 +655,97 @@ export function getZoneDistance(pointA, pointB, zones) {
 }
 
 /**
+ * Zone distance between two sets of occupied zones (multi-source BFS).
+ * Used for multi-zone tokens: range is measured to whichever occupied zone
+ * pair is closest. Sharing any zone counts as zoneCount 0.
+ *
+ * @param {object[]} fromZones  zones occupied by the origin token
+ * @param {object[]} toZones    zones occupied by the destination token
+ * @param {object[]} zones      all scene zones
+ * @param {{contact?: boolean}} [opts]  contact=true upgrades a shared-zone
+ *                                      result from "Close" to "Contact"
+ * @returns same shape as getZoneDistance
+ */
+export function getZoneDistanceForZoneSets(fromZones, toZones, zones, opts = {}) {
+  const empty = {
+    zoneCount: -1, rangeBand: "", momentumCost: 0,
+    fromZone: fromZones?.[0] ?? null, toZone: toZones?.[0] ?? null, path: [],
+  };
+  if (!fromZones?.length || !toZones?.length) return empty;
+
+  const toIds = new Set(toZones.map(z => z.id));
+
+  // Any shared zone → same-zone result
+  const shared = fromZones.find(z => toIds.has(z.id));
+  if (shared) {
+    return {
+      zoneCount: 0,
+      rangeBand: opts.contact ? "Contact" : "Close",
+      momentumCost: 0,
+      fromZone: shared, toZone: shared, path: [shared.id],
+    };
+  }
+
+  // Multi-source BFS from all origin zones at once
+  const graph   = buildAdjacencyGraph(zones);
+  const zoneMap = new Map(zones.map(z => [z.id, z]));
+  const visited = new Set(fromZones.map(z => z.id));
+  const queue   = fromZones.map(z => ({ id: z.id, dist: 0, path: [z.id] }));
+
+  while (queue.length > 0) {
+    const { id, dist, path } = queue.shift();
+    for (const neighborId of graph.get(id) ?? []) {
+      if (visited.has(neighborId)) continue;
+      visited.add(neighborId);
+      const newPath = [...path, neighborId];
+      if (toIds.has(neighborId)) {
+        let momentum = 0;
+        for (let i = 1; i < newPath.length; i++) {
+          momentum += zoneMap.get(newPath[i])?.momentumCost ?? 0;
+        }
+        return {
+          zoneCount: dist + 1,
+          rangeBand: rangeBandFor(dist + 1),
+          momentumCost: momentum,
+          fromZone: zoneMap.get(newPath[0]) ?? null,
+          toZone: zoneMap.get(neighborId) ?? null,
+          path: newPath,
+        };
+      }
+      queue.push({ id: neighborId, dist: dist + 1, path: newPath });
+    }
+  }
+
+  return empty; // disconnected
+}
+
+/**
+ * Token-aware zone distance. Resolves each token's occupied zone set
+ * (footprint for multi-zone tokens, center point otherwise) and measures to
+ * the nearest occupied zone pair. Contact uses edge-to-edge footprint gap
+ * (≤ 1 grid unit) so huge tokens register base-to-base correctly.
+ *
+ * @param {Token|TokenDocument} tokenA
+ * @param {Token|TokenDocument} tokenB
+ * @param {object[]} [zones=getSceneZones()]
+ * @returns same shape as getZoneDistance
+ */
+export function getZoneDistanceBetweenTokens(tokenA, tokenB, zones = getSceneZones()) {
+  const fromZones = getZonesForToken(tokenA, zones);
+  const toZones   = getZonesForToken(tokenB, zones);
+
+  // Edge-to-edge gap between the two footprint rects
+  const fa = tokenFootprint(tokenA);
+  const fb = tokenFootprint(tokenB);
+  const gapX = Math.max(0, Math.max(fa.x, fb.x) - Math.min(fa.x + fa.w, fb.x + fb.w));
+  const gapY = Math.max(0, Math.max(fa.y, fb.y) - Math.min(fa.y + fa.h, fb.y + fb.h));
+  const gridSize = canvas?.scene?.grid?.size ?? 100;
+  const contact  = Math.hypot(gapX, gapY) <= gridSize;
+
+  return getZoneDistanceForZoneSets(fromZones, toZones, zones, { contact });
+}
+
+/**
  * Like getZoneDistance but returns the full BFS path with per-step details:
  * zone names, per-step momentum costs, and cumulative totals.
  * Used by the drag ruler to show a breakdown as the user drags.
@@ -569,10 +766,14 @@ export function getZoneDistance(pointA, pointB, zones) {
 export function getZonePathWithCosts(pointA, pointB, zones) {
   const base = getZoneDistance(pointA, pointB, zones);
   if (!base.fromZone || !base.toZone || base.zoneCount < 0) return base;
+  return { ...base, steps: _buildPathSteps(base.path, zones) };
+}
 
+/** Build per-step breakdown rows from a zone-id path. */
+function _buildPathSteps(path, zones) {
   const zoneMap = new Map(zones.map(z => [z.id, z]));
   let cumulative = 0;
-  const steps = base.path.map((id, index) => {
+  return (path ?? []).map((id, index) => {
     const zone = zoneMap.get(id);
     const stepCost = index === 0 ? 0 : (zone?.momentumCost ?? 0);
     cumulative += stepCost;
@@ -584,8 +785,48 @@ export function getZonePathWithCosts(pointA, pointB, zones) {
       color: zone?.color ?? "#ffffff",
     };
   });
+}
 
-  return { ...base, steps };
+/**
+ * Measurement-aware zone distance between two canvas points.
+ * If either point sits on a token flagged `multiZone`, that endpoint uses the
+ * token's full occupied zone set (nearest-zone semantics), so ruler
+ * measurements match weapon range checks against huge ships. Points not on a
+ * multi-zone token behave exactly like getZonePathWithCosts.
+ *
+ * @param {{x:number,y:number}} pointA
+ * @param {{x:number,y:number}} pointB
+ * @param {object[]} zones
+ * @param {{exclude?: Token|TokenDocument|null}} [opts]  token to ignore when
+ *        detecting multi-zone tokens under the endpoints (e.g. a dragged
+ *        token, whose own movement stays center-based)
+ * @returns same shape as getZonePathWithCosts (includes steps)
+ */
+export function getZoneMeasurement(pointA, pointB, zones, { exclude = null } = {}) {
+  const tokA = getMultiZoneTokenAtPoint(pointA.x, pointA.y, { exclude });
+  const tokB = getMultiZoneTokenAtPoint(pointB.x, pointB.y, { exclude });
+
+  // Neither endpoint on a multi-zone token → identical to the classic path
+  if (!tokA && !tokB) return getZonePathWithCosts(pointA, pointB, zones);
+
+  const pointZones = (pt) => {
+    const z = getZoneAtPoint(pt.x, pt.y, zones);
+    return z ? [z] : [];
+  };
+  const fromZones = tokA ? getZonesForToken(tokA, zones) : pointZones(pointA);
+  const toZones   = tokB ? getZonesForToken(tokB, zones) : pointZones(pointB);
+
+  // Contact check: edge-to-edge gap between footprints (points = zero-size rects)
+  const ra = tokA ? tokenFootprint(tokA) : { x: pointA.x, y: pointA.y, w: 0, h: 0 };
+  const rb = tokB ? tokenFootprint(tokB) : { x: pointB.x, y: pointB.y, w: 0, h: 0 };
+  const gapX = Math.max(0, Math.max(ra.x, rb.x) - Math.min(ra.x + ra.w, rb.x + rb.w));
+  const gapY = Math.max(0, Math.max(ra.y, rb.y) - Math.min(ra.y + ra.h, rb.y + rb.h));
+  const gridSize = canvas?.scene?.grid?.size ?? 100;
+  const contact  = Math.hypot(gapX, gapY) <= gridSize;
+
+  const base = getZoneDistanceForZoneSets(fromZones, toZones, zones, { contact });
+  if (!base.fromZone || !base.toZone || base.zoneCount < 0) return base;
+  return { ...base, steps: _buildPathSteps(base.path, zones) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

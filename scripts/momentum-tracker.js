@@ -37,7 +37,7 @@ function buildTrackerCardHtml({ float, bonus, versatile = 0, pool, ownerActorNam
   const border    = LC.border    ?? "#ff9900";
   const borderDim = LC.borderDim ?? "#664400";
 
-  const poolLabel = pool === "threat" ? "THREAT" : "MOMENTUM";
+  const poolLabel = pool === "threat" ? "THREAT" : pool === "alliedNpcMomentum" ? "ALLIED NPC MOMENTUM" : "MOMENTUM";
   const poolIcon  = pool === "threat" ? "⚡" : "💫";
   const headerColor = pool === "threat" ? (LC.primary ?? "#ff9900") : secondary;
 

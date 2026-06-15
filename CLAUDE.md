@@ -64,6 +64,8 @@ Three-file system:
 
 Zones are stored as scene flags. The ruler measurement is patched in `main.js` to annotate distances with zone counts when `zoneRulerOverride` is enabled.
 
+**Multi-zone tokens:** very large ships (Borg cubes, stations) can be flagged via a Token Config checkbox ("Occupies Multiple Zones", token flag `flags.sta2e-toolkit.multiZone`, injected by [scripts/zone-token-config.js](scripts/zone-token-config.js)). Flagged tokens test their full footprint rect against zone polygons (`getZonesForToken`) and may occupy several zones at once. Range is measured to the nearest occupied zone (`getZoneDistanceBetweenTokens`, multi-source BFS); weapon range checks and area-attack target filters use this. Hazards and movement remain center-based. Note: the hazard effect property `establishedEffects.multiZone` in zone-hazard.js is unrelated.
+
 ### NPC Roller
 
 [scripts/npc-roller.js](scripts/npc-roller.js) — LCARS-styled dice roller dialog (`DialogV2`). Handles two pools (Crew and Ship), clickable die pips for rerolls, Targeting Solution bonus die, and Threat spending for rerolls after the first. Posts results as LCARS chat cards.

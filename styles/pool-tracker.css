@@ -29,6 +29,10 @@
   display: none;
 }
 
+#sta2e-pool-tracker.sta2e-pool-tracker--has-allied {
+  width: 276px;
+}
+
 .sta2e-pool-tracker__header {
   display: flex;
   align-items: center;
@@ -82,7 +86,7 @@
 
 .sta2e-pool-tracker__body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
   gap: 1px;
   padding: 5px;
   background: transparent;
@@ -149,6 +153,10 @@
   padding: 4px;
   background: rgba(0, 0, 0, 0.14);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sta2e-pool-tracker__pool[hidden] {
+  display: none;
 }
 
 .sta2e-pool-tracker--auto-hide .sta2e-pool-tracker__pool {
@@ -289,7 +297,9 @@
 }
 
 .sta2e-pool-tracker__pool--momentum .sta2e-pool-tracker__label,
-.sta2e-pool-tracker__pool--momentum .sta2e-pool-tracker__btn:hover:not(:disabled) {
+.sta2e-pool-tracker__pool--momentum .sta2e-pool-tracker__btn:hover:not(:disabled),
+.sta2e-pool-tracker__pool--alliedNpcMomentum .sta2e-pool-tracker__label,
+.sta2e-pool-tracker__pool--alliedNpcMomentum .sta2e-pool-tracker__btn:hover:not(:disabled) {
   color: var(--sta2e-pool-secondary);
 }
 

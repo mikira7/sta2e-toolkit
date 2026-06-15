@@ -79,6 +79,7 @@ export function makeSpendContext({
   attackerTokenId = null,
   intenseTalentBonus = 0,
   trackerMessageId = null,
+  momentumPool = null,
 } = {}) {
   return {
     floatingMomentum: Math.max(0, floatingMomentum | 0),
@@ -98,6 +99,7 @@ export function makeSpendContext({
     attackerTokenId: attackerTokenId ?? null,
     intenseTalentBonus: Math.max(0, intenseTalentBonus | 0),
     trackerMessageId: trackerMessageId ?? null,
+    momentumPool: momentumPool === "alliedNpcMomentum" ? "alliedNpcMomentum" : null,
   };
 }
 
@@ -188,7 +190,8 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
   const extraCost = extraDamageCost(q);
   const groundMax = !q.isShip ? 2 : null;
 
-  const sourceDefault = spendCtx.attackerIsNpc ? "threat" : "momentum";
+  const sourceDefault = spendCtx.momentumPool === "alliedNpcMomentum" ? "momentum" : (spendCtx.attackerIsNpc ? "threat" : "momentum");
+  const momentumLabel = spendCtx.momentumPool === "alliedNpcMomentum" ? "ALLY" : "MOM";
 
   // Live tracker state — try by explicit messageId first, then fall back to
   // most-recent active tracker for the attacker (handles player-driven
@@ -226,7 +229,7 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;align-items:center;">
       <span style="${labelStyle}">SPEND:</span>
       <span class="sta2e-spend-chip" data-bucket="floating" style="${chipStyle(floating > 0)}" title="Floating Momentum — overflow that didn't fit in the pool. Spend on this action or it's lost.">FLOAT <strong class="sta2e-spend-chip-val sta2e-spend-float-val">${floating}</strong></span>
-      <span class="sta2e-spend-chip" data-bucket="pool" data-source="momentum" style="${chipStyle(false)}" title="Group Momentum pool">MOM <strong class="sta2e-spend-pool-mom">${readPool("momentum")}</strong></span>
+      <span class="sta2e-spend-chip" data-bucket="pool" data-source="momentum" style="${chipStyle(false)}" title="${spendCtx.momentumPool === "alliedNpcMomentum" ? "Allied NPC Momentum pool" : "Group Momentum pool"}">${momentumLabel} <strong class="sta2e-spend-pool-mom">${readPool(spendCtx.momentumPool ?? "momentum")}</strong></span>
       <span class="sta2e-spend-chip" data-bucket="pool" data-source="threat" style="${chipStyle(false)}" title="Threat pool">THR <strong class="sta2e-spend-pool-thr">${readPool("threat")}</strong></span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;align-items:center;">
@@ -303,7 +306,8 @@ function recomputeSpend(panelEl) {
   const bonusUsed = Math.min(bonusAvailEffective, remaining);
   remaining -= bonusUsed;
 
-  const source = panelEl.querySelector(".sta2e-spend-source:checked")?.value ?? blob.sourceDefault;
+  const sourceChoice = panelEl.querySelector(".sta2e-spend-source:checked")?.value ?? blob.sourceDefault;
+  const source = sourceChoice === "momentum" ? (ctx.momentumPool ?? "momentum") : sourceChoice;
   const poolAvail = readPool(source);
   const poolUsed = Math.min(poolAvail, remaining);
   remaining -= poolUsed;
@@ -322,7 +326,7 @@ function recomputeSpend(panelEl) {
   // Tracker pool fallback: if no tracker was found, derive pool from the
   // attacker's side (NPC=threat, PC=momentum) so floating spends still
   // deduct from the correct world pool.
-  const trackerPool = tracker.pool ?? (ctx.attackerIsNpc ? "threat" : "momentum");
+  const trackerPool = tracker.pool ?? (ctx.attackerIsNpc && !ctx.momentumPool ? "threat" : (ctx.momentumPool ?? "momentum"));
 
   return {
     spends,

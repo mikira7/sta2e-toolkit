@@ -949,6 +949,7 @@ function _buildCombatTaskPanelHtml(state) {
 }
 
 function _usesPlayerPayment(state, actor = null) {
+  if (_isAlliedNpcActor(actor) || state?.isAlliedNpc) return true;
   const sheetClass = actor?.sheet?.constructor?.name ?? "";
   const npcType = `${actor?.system?.npcType ?? ""}`.trim().toLowerCase();
   const isNpcType = npcType === "minor" || npcType === "notable" || npcType === "major";
@@ -967,6 +968,36 @@ function _usesPlayerPayment(state, actor = null) {
   if (state?.groundMode) return !state.groundIsNpc;
 
   return !!(state?.sheetMode && isPlayerCharacterSheet && !isNpcType);
+}
+
+function _isAlliedNpcActor(actor) {
+  if (!actor) return false;
+  if (actor.getFlag?.(MODULE, "isAlliedNpc")) return true;
+  if (actor.isToken) {
+    const baseActor = game.actors?.get?.(actor.id ?? actor._id);
+    if (baseActor?.getFlag?.(MODULE, "isAlliedNpc")) return true;
+  }
+  return false;
+}
+
+function _alliedMomentumPool(actor, state = {}) {
+  const source = state.alliedMomentumSource
+    ?? actor?.getFlag?.(MODULE, "alliedMomentumSource")
+    ?? "allied";
+  return source === "player" ? "momentum" : "alliedNpcMomentum";
+}
+
+function _rollResourceProfile(state = {}, actor = null) {
+  const allied = _isAlliedNpcActor(actor) || !!state.isAlliedNpc;
+  const momentumPool = allied ? _alliedMomentumPool(actor, state) : "momentum";
+  const usesPlayerPayment = _usesPlayerPayment(state, actor);
+  return {
+    allied,
+    momentumPool,
+    usesPlayerPayment,
+    generatedPool: usesPlayerPayment ? momentumPool : "threat",
+    momentumLabel: allied ? "Allied Momentum" : "Momentum",
+  };
 }
 
 function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = null) {
@@ -1331,7 +1362,8 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           //   Ship NPC / Ground minor NPC: Pool Threat only
           const _showBothThreats = state.groundIsNpc &&
             (state.groundNpcType === "notable" || state.groundNpcType === "major");
-          const usesPlayerPayment = _usesPlayerPayment(state, actor);
+          const resourceProfile = _rollResourceProfile(state, actor);
+          const usesPlayerPayment = resourceProfile.usesPlayerPayment;
           const sourcesHtml = usesPlayerPayment
             ? `<div style="display:flex; justify-content:center; gap:15px; margin-bottom:8px;">
                      <div style="text-align:center;">
@@ -2340,6 +2372,10 @@ function buildChatCard(actorName, state) {
   const effectiveDifficulty = taskDifficulty(state);
   const passed = total >= effectiveDifficulty;
   const momentum = Math.max(0, total - effectiveDifficulty);
+  const resourceProfile = _rollResourceProfile(state);
+  const generatedPoolLabel = resourceProfile.generatedPool === "threat"
+    ? "Threat"
+    : resourceProfile.momentumLabel;
   const passColor = passed ? LC.green : LC.red;
   const passText = passed ? "✓ SUCCESS" : "✗ FAILURE";
 
@@ -2508,7 +2544,7 @@ function buildChatCard(actorName, state) {
         ${[
       ["Successes", total, LC.tertiary],
       ["Difficulty", effectiveDifficulty, LC.text],
-      [state.playerMode ? "Momentum" : "Threat", momentum, momentum > 0 ? LC.secondary : LC.textDim],
+      [generatedPoolLabel, momentum, momentum > 0 ? LC.secondary : LC.textDim],
       ["Complic.", compls, compls > 0 ? LC.red : LC.textDim],
       ["Comp. Range", compRangeDisplay, _compRange > 1 ? LC.red : LC.textDim],
     ].map(([lbl, val, col]) => `
@@ -2525,19 +2561,19 @@ function buildChatCard(actorName, state) {
         color:${passColor};text-transform:uppercase;">
         ${passText}
         ${momentum > 0 ? `<span style="font-size:9px;color:${LC.secondary};font-weight:400;
-          margin-left:6px;">+${momentum} Threat</span>` : ""}
+          margin-left:6px;">+${momentum} ${generatedPoolLabel}</span>` : ""}
         ${compls > 0 ? `<span style="font-size:9px;color:${LC.red};font-weight:400;
           margin-left:6px;">${compls} Complication${compls > 1 ? "s" : ""}!</span>` : ""}
       </div>
       ${momentum > 0 && !noPoolButton && state.autoBanked ? `
       <div style="padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};
         text-align:center;font-family:${LC.font};font-size:10px;
-        color:${state.playerMode ? LC.secondary : LC.primary};letter-spacing:0.06em;">
+        color:${resourceProfile.generatedPool === "threat" ? LC.primary : LC.secondary};letter-spacing:0.06em;">
         ${state.playerMode ? "💫" : "⚡"} +${state.trackerBanked ?? momentum} ${state.playerMode ? "Momentum" : "Threat"} banked to pool${(state.trackerFloat ?? 0) > 0 ? ` · ${state.trackerFloat} floating (see tracker)` : ""}
       </div>` : (momentum > 0 && !noPoolButton ? `
       <div style="padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
         <button class="sta2e-add-to-pool"
-          data-pool="${state.playerMode ? "momentum" : "threat"}"
+          data-pool="${resourceProfile.generatedPool}"
           data-amount="${momentum}"
           data-token-id=""
           style="width:100%;padding:5px 8px;background:rgba(0,0,0,0.25);
@@ -2606,7 +2642,9 @@ export function buildPlayerRollCardHtml(rollData) {
   const passed = confirmed ? !!confirmedPassed : (totalSuccesses >= effectiveDifficulty);
   const passColor = passed ? LC.green : LC.red;
   const finalResultLabel = passed ? "Success" : "Failed";
-  const poolLabel = groundIsNpc ? "Threat" : "Momentum";
+  const resourceProfile = _rollResourceProfile(rollData);
+  const generatedPool = resourceProfile.generatedPool;
+  const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
   const totalComplications = [...(crewDice ?? []), ...allAssistDice, ...(shipDice ?? [])]
     .filter(d => d.complication).length + autoComplications(rollData);
@@ -2614,14 +2652,14 @@ export function buildPlayerRollCardHtml(rollData) {
     ? (rollData.autoBanked
         ? ""
         : `<button class="sta2e-add-to-pool"
-            data-pool="${groundIsNpc ? "threat" : "momentum"}"
+            data-pool="${generatedPool}"
             data-amount="${displayMomentum}"
             data-token-id="${rollData.tokenId ?? ""}"
             style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.25);
               border:2px solid ${LC.secondary};border-radius:2px;cursor:pointer;
               font-family:${LC.font};font-size:11px;font-weight:700;
               color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
-            ${groundIsNpc ? "Add Threat to Pool" : "Add Momentum to Pool"} (+${displayMomentum})
+            Add ${poolLabel} to Pool (+${displayMomentum})
           </button>`)
     : "";
 
@@ -3277,6 +3315,17 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     && (overrideShipSysKey || weaponContext)
   );
   const _initialShipAssist = initialShipAssist !== null ? initialShipAssist : _autoShipAssist;
+  const _isAlliedNpc = _isAlliedNpcActor(actor);
+  const _alliedMomentumSource = actor.getFlag?.(MODULE, "alliedMomentumSource") ?? "allied";
+  const _resourceProfile = _rollResourceProfile({
+    playerMode,
+    groundMode,
+    groundIsNpc,
+    sheetMode,
+    isAlliedNpc: _isAlliedNpc,
+    alliedMomentumSource: _alliedMomentumSource,
+    usesPlayerPayment: overrideUsesPlayerPayment,
+  }, actor);
 
   const state = {
     actorName: actor.name,
@@ -3295,7 +3344,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     playerMode,           // true = player-ship task roll (no NPC crew concepts)
     groundMode,           // true = ground character roll — hides ship pool entirely
     groundIsNpc,          // true = ground NPC → generates Threat (not Momentum)
-    usesPlayerPayment: overrideUsesPlayerPayment ?? _usesPlayerPayment({ playerMode, groundMode, groundIsNpc, sheetMode }, actor),
+    isAlliedNpc: _isAlliedNpc,
+    alliedMomentumSource: _alliedMomentumSource,
+    alliedMomentumPool: _resourceProfile.momentumPool,
+    usesPlayerPayment: overrideUsesPlayerPayment ?? _resourceProfile.usesPlayerPayment,
     noPoolButton,         // true = suppress pool button on this roll (defender defense rolls)
     noShipAssist,         // true = this task cannot use the ship assist pool
     // Crew assist die: pre-checked when NPC crew (ship itself) declared a pending assist.
@@ -3608,6 +3660,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       availableShips: state.availableShips ?? [],
       selectedShipIdx: state.selectedShipIdx ?? -1,
       playerMode: state.playerMode ?? false,
+      isAlliedNpc: state.isAlliedNpc ?? false,
+      alliedMomentumSource: state.alliedMomentumSource ?? "allied",
+      alliedMomentumPool: state.alliedMomentumPool ?? "alliedNpcMomentum",
+      usesPlayerPayment: state.usesPlayerPayment ?? false,
       isAssistRoll: state.isAssistRoll ?? false,
       assistOfficerName: state.isAssistRoll ? (state.officer?.name ?? actor.name) : null,
       assistApplied: null,
@@ -3753,7 +3809,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _hitIntenseBonus = (isHit && _hitThreatBought > 0 && _hitIntenseSubject && actorHasIntenseTalent(_hitIntenseSubject))
                 ? _hitThreatBought : 0;
               const _hitShowOffBonus = showOffBonusMomentum(state, isHit);
-              const _hitPool = state.playerMode ? "momentum" : "threat";
+              const _hitPool = _rollResourceProfile(state, actor).generatedPool;
               const _hitWQ = weapon?.system?.qualities ?? {};
               const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
               if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitVersatile > 0)) {
@@ -3890,7 +3946,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prIntenseBonus = (_prPassed && _prThreatBought > 0 && _prIntenseSubject && actorHasIntenseTalent(_prIntenseSubject))
                 ? _prThreatBought : 0;
               const _prShowOffBonus = showOffBonusMomentum(state, _prPassed);
-              const _prPool = state.playerMode ? "momentum" : "threat";
+              const _prPool = _rollResourceProfile(state, actor).generatedPool;
               if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0)) {
                 try {
                   const _prTrackerRes = await createTracker(actor, {
@@ -4498,14 +4554,15 @@ async function _doRoll(state, speaker) {
 
     state.paymentSpent = { momentum: momentumUsed, threat: threatUsed, personalThreat: personalThreatUsed };
 
-    const usesPlayerPayment = _usesPlayerPayment(state);
+    const resourceProfile = _rollResourceProfile(state, game.actors.get(state.actorId));
+    const usesPlayerPayment = resourceProfile.usesPlayerPayment;
     const paymentContext = {
       actor: game.actors.get(state.actorId),
       token: canvas.tokens?.placeables.find(t => t.actor?.id === state.actorId) ?? null,
     };
     if (usesPlayerPayment) {
       if (momentumUsed > 0) {
-        await adjustPool("momentum", -momentumUsed, { source: "diceRoller", ...paymentContext });
+        await adjustPool(resourceProfile.momentumPool, -momentumUsed, { source: "diceRoller", ...paymentContext });
       }
       if (threatUsed > 0) {
         await adjustPool("threat", threatUsed, { source: "diceRoller", ...paymentContext });
@@ -4828,7 +4885,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           };
 
           let cursor = 0;
-          const usesPlayerPayment = _usesPlayerPayment(state);
+          const resourceProfile = _rollResourceProfile(state, game.actors.get(state.actorId));
+          const usesPlayerPayment = resourceProfile.usesPlayerPayment;
           if (usesPlayerPayment) {
             // Player: momentum first, then threat to cover any remainder
             const mFilled = _fill("momentum", need, cursor);
@@ -4853,9 +4911,10 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
     // Determine currently available pools to validate drops
     const _getAvailablePool = (type) => {
       if (type === "momentum") {
-        return readPool("momentum");
+        const resourceProfile = _rollResourceProfile(state, game.actors.get(state.actorId));
+        return readPool(resourceProfile.momentumPool);
       } else if (type === "threat" || type === "poolThreat") {
-        const usesPlayerPayment = _usesPlayerPayment(state);
+        const usesPlayerPayment = _rollResourceProfile(state, game.actors.get(state.actorId)).usesPlayerPayment;
         if (usesPlayerPayment && type === "threat") return 99; // players generate threat, no pool cap
         return readPool("threat");
       } else if (type === "personalThreat") {

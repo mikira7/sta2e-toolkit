@@ -66,10 +66,11 @@ import {
   getConditions,
   getCollisionDamage,
 } from "./token-conditions.js";
-import { getSceneZones, getZoneAtPoint, getZonePathWithCosts } from "./zone-data.js";
+import { getSceneZones, getZoneAtPoint, getZonePathWithCosts, getZonesForToken } from "./zone-data.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "./weapon-range.js";
 import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit, readTrackerState } from "./momentum-spend.js";
 import { createTracker, getActiveTracker } from "./momentum-tracker.js";
+import { clearHullDecals, hasHullDecals } from "./hull-decals.js";
 
 const MODULE      = "sta2e-toolkit";
 const HUD_ID      = "sta2e-combat-hud";
@@ -315,11 +316,33 @@ function _rollEditPaymentSlotsFromSpent(spent = {}, usesPlayerPayment = true) {
   return slots.slice(0, 6);
 }
 
+function _rollEditActorIsAlliedNpc(actor) {
+  if (!actor) return false;
+  if (actor.getFlag?.("sta2e-toolkit", "isAlliedNpc")) return true;
+  if (actor.isToken) {
+    const baseActor = game.actors?.get?.(actor.id ?? actor._id);
+    if (baseActor?.getFlag?.("sta2e-toolkit", "isAlliedNpc")) return true;
+  }
+  return false;
+}
+
+function _rollEditMomentumPool(rollData = {}) {
+  if (rollData.alliedMomentumPool) return rollData.alliedMomentumPool;
+  const actor = rollData?.actorId ? game.actors.get(rollData.actorId) : null;
+  const isAllied = !!rollData.isAlliedNpc || _rollEditActorIsAlliedNpc(actor);
+  if (!isAllied) return "momentum";
+  const source = rollData.alliedMomentumSource
+    ?? actor?.getFlag?.("sta2e-toolkit", "alliedMomentumSource")
+    ?? "allied";
+  return source === "player" ? "momentum" : "alliedNpcMomentum";
+}
+
 function _rollEditUsesPlayerPayment(rollData) {
   if (rollData?.usesPlayerPayment === true) return true;
   if (rollData?.usesPlayerPayment === false) return false;
 
   const actor = rollData?.actorId ? game.actors.get(rollData.actorId) : null;
+  if (rollData?.isAlliedNpc || _rollEditActorIsAlliedNpc(actor)) return true;
   const sheetClass = actor?.sheet?.constructor?.name ?? "";
   const npcType = `${actor?.system?.npcType ?? ""}`.trim().toLowerCase();
   const isNpcType = npcType === "minor" || npcType === "notable" || npcType === "major";
@@ -448,7 +471,7 @@ async function _rollEditApplyPaymentDelta(oldRollData, newRollData) {
   const tokenObj = newRollData?.tokenId ? canvas.tokens?.get(newRollData.tokenId) : null;
   const poolContext = { source: "rollEdit", token: tokenObj };
   const setPool = async (pool, value) => {
-    const max = pool === "momentum" ? poolLimit("momentum") : 99;
+    const max = pool === "momentum" || pool === "alliedNpcMomentum" ? poolLimit(pool) : 99;
     await writePool(pool, Math.min(max, Math.max(0, value)), poolContext);
   };
 
@@ -457,7 +480,8 @@ async function _rollEditApplyPaymentDelta(oldRollData, newRollData) {
   const personalDelta = (newSpent.personalThreat ?? 0) - (oldSpent.personalThreat ?? 0);
 
   if (usesPlayerPayment) {
-    if (momentumDelta !== 0) await setPool("momentum", readPool("momentum") - momentumDelta);
+    const momentumPool = _rollEditMomentumPool(newRollData);
+    if (momentumDelta !== 0) await setPool(momentumPool, readPool(momentumPool) - momentumDelta);
     if (threatDelta !== 0) await setPool("threat", readPool("threat") + threatDelta);
   } else {
     if (threatDelta !== 0) await setPool("threat", readPool("threat") - threatDelta);
@@ -3851,21 +3875,23 @@ export class CombatHUD {
     const primaryCenter = CombatHUD._centerOfToken(primaryToken);
     const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
     const zones = zonesEnabled ? getSceneZones() : [];
-    const primaryZone = zones.length ? getZoneAtPoint(primaryCenter.x, primaryCenter.y, zones) : null;
-    const usingZones = !!primaryZone;
+    // Multi-zone tokens (flags.sta2e-toolkit.multiZone) occupy every zone
+    // their footprint overlaps; normal tokens resolve to their center zone.
+    const primaryZones  = zones.length ? getZonesForToken(primaryToken, zones) : [];
+    const primaryZoneIds = new Set(primaryZones.map(z => z.id));
+    const usingZones = primaryZones.length > 0;
 
     const targets = (canvas.tokens?.placeables ?? []).filter(t => {
       if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
       if (!CombatHUD._isShipToken(t)) return false;
-      const center = CombatHUD._centerOfToken(t);
       if (usingZones) {
-        const z = getZoneAtPoint(center.x, center.y, zones);
-        return z?.id === primaryZone.id;
+        return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
       }
+      const center = CombatHUD._centerOfToken(t);
       return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
     });
 
-    return { targets, usingZones, zoneName: primaryZone?.name ?? null };
+    return { targets, usingZones, zoneName: primaryZones[0]?.name ?? null };
   }
 
   static _weaponFromPayload(attackerToken, payload, itemType) {
@@ -4109,6 +4135,7 @@ export class CombatHUD {
         attackerActorId: token?.actor?.id ?? null,
         attackerTokenId: (token?.document ?? token)?.id ?? null,
         intenseTalentBonus: 0,
+        momentumPool: CombatHUD.alliedNpcMomentumPool(token?.actor),
       }) : null;
 
       ChatMessage.create({
@@ -4318,6 +4345,7 @@ export class CombatHUD {
         spreadAvailable,
         spread:         spreadActive,
         attackerIsNpc:  CombatHUD.isNpcShip(actor),
+        momentumPool:   CombatHUD.alliedNpcMomentumPool(actor),
         weaponImg:      weapon.img ?? null,
         weaponId:       weapon.id ?? null,
         weaponName:     weapon.name,
@@ -4350,6 +4378,7 @@ export class CombatHUD {
       attackerTokenId: (token?.document ?? token)?.id ?? null,
       intenseTalentBonus,
       trackerMessageId: _resolvedTrackerId,
+      momentumPool: CombatHUD.alliedNpcMomentumPool(actor),
     }) : null;
     ChatMessage.create({
       flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name, ...(spendContext ? { spendContext } : {}) } },
@@ -9565,9 +9594,20 @@ export class CombatHUD {
         btn.title       = `Set ship status to ${s.label}`;
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          await CombatHUD.setShipStatus(actor, s.key);
-          if (s.key === "destroyed" && CombatHUD.isNpcShip(actor)) {
-            await CombatHUD.fireDestructionEffect(this._token);
+          if (s.key === "destroyed") {
+            const vaporize = CombatHUD._isEnginesDestroyed(actor) || CombatHUD.getWarpBreachState(actor);
+            const autoStarted = CombatHUD._startAutoShipDestructionIfEnabled(actor, this._token, {
+              vaporize,
+              reason: `${actor.name} destroyed at GM discretion.`,
+            });
+            if (!autoStarted) {
+              await CombatHUD.setShipStatus(actor, s.key);
+              if (CombatHUD.isNpcShip(actor)) {
+                await CombatHUD.fireDestructionEffect(this._token);
+              }
+            }
+          } else {
+            await CombatHUD.setShipStatus(actor, s.key);
           }
           this._refresh();
         });
@@ -9595,12 +9635,50 @@ export class CombatHUD {
         });
         section.appendChild(repairBtn);
       }
+
+      if (hasHullDecals(this._token ?? actor)) {
+        const clearDecalsBtn = document.createElement("button");
+        clearDecalsBtn.style.cssText = `
+          width:calc(100% - 16px);margin:0 8px 8px;padding:4px 6px;
+          font-size:9px;font-weight:700;cursor:pointer;
+          font-family:${LC.font};letter-spacing:0.1em;text-transform:uppercase;
+          background:rgba(120,30,0,0.22);
+          border:1px solid ${LC.orange};border-radius:2px;
+          color:${LC.orange};
+        `;
+        clearDecalsBtn.textContent = "CLEAR HULL DECALS";
+        clearDecalsBtn.title       = "Remove scorch decals from this ship model";
+        clearDecalsBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const confirm = await foundry.applications.api.DialogV2.wait({
+            window: { title: "Clear Hull Decals?" },
+            content: `<p>Remove all hull scorch decals from <strong>${actor.name}</strong>?</p>`,
+            buttons: [
+              { action: "clear",  label: "Clear Decals", icon: "fas fa-eraser", default: true },
+              { action: "cancel", label: "Cancel",       icon: "fas fa-times" },
+            ],
+          });
+          if (confirm !== "clear") return;
+          await clearHullDecals(this._token ?? actor);
+          ui.notifications.info(`STA2e Toolkit: Hull decals cleared from ${actor.name}.`);
+          this._refresh();
+        });
+        section.appendChild(clearDecalsBtn);
+      }
     }
 
     return section;
   }
 
+  static async _clearHullDecalsForDestruction(token) {
+    if (!token) return;
+    try { await clearHullDecals(token); }
+    catch (err) { console.warn("STA2e Toolkit | Destruction hull decal clear failed:", err); }
+  }
+
   static async fireDestructionEffect(token) {
+    await CombatHUD._clearHullDecalsForDestruction(token);
+
     try {
       const path = game.settings.get("sta2e-toolkit", "sndShipDestroyed");
       if (path) AudioHelper.play({ src: path, volume: 1, autoplay: true, loop: false }, true);
@@ -10820,6 +10898,22 @@ export class CombatHUD {
     return false;
   }
 
+  static isAlliedNpcActor(actor) {
+    if (!actor) return false;
+    if (actor.getFlag?.("sta2e-toolkit", "isAlliedNpc")) return true;
+    if (actor.isToken) {
+      const baseActor = game.actors.get(actor.id ?? actor._id);
+      if (baseActor?.getFlag?.("sta2e-toolkit", "isAlliedNpc")) return true;
+    }
+    return false;
+  }
+
+  static alliedNpcMomentumPool(actor) {
+    if (!CombatHUD.isAlliedNpcActor(actor)) return null;
+    const source = actor?.getFlag?.("sta2e-toolkit", "alliedMomentumSource") ?? "allied";
+    return source === "player" ? null : "alliedNpcMomentum";
+  }
+
   /**
    * Returns true when the actor is a ground-combat NPC (not a PC or supporting character).
    * PCs (STACharacterSheet2e) and supporting characters (STASupportingSheet2e) generate
@@ -11111,15 +11205,16 @@ export class CombatHUD {
   static async _applyToPool(pool, amount, speakerToken = null) {
     if (amount <= 0) return;
     try {
-      if (pool === "momentum") {
-        const current  = readPool("momentum");
-        const max      = poolLimit("momentum");
+      if (pool === "momentum" || pool === "alliedNpcMomentum") {
+        const poolLabel = pool === "alliedNpcMomentum" ? "Allied NPC Momentum" : "Momentum";
+        const current  = readPool(pool);
+        const max      = poolLimit(pool);
         const canAdd   = Math.max(0, Math.min(amount, max - current));
         const overflow = amount - canAdd;
 
         if (canAdd > 0) {
-          const updated = await writePool("momentum", current + canAdd, { source: "combat", token: speakerToken });
-          if (!updated) ui.notifications?.warn("STA2e Toolkit: Momentum pool update was blocked by STA permissions.");
+          const updated = await writePool(pool, current + canAdd, { source: "combat", token: speakerToken });
+          if (!updated) ui.notifications?.warn(`STA2e Toolkit: ${poolLabel} pool update was blocked by permissions.`);
         }
 
         if (overflow > 0) {
@@ -11303,11 +11398,14 @@ export class CombatHUD {
 
       if (token) CombatHUD._stopBreachTrailFX(token);
       // Engines are gone in a reactor breach — vaporize before the final blast.
-      await CombatHUD._postDestructionControlCard(actor, token, {
+      const opts = {
         vaporize:   true,
         reason:     `Warp core breach — reactor detonation. ${actor.name} is destroyed.`,
         autoThroes: true,
-      });
+      };
+      if (!CombatHUD._startAutoShipDestructionIfEnabled(actor, token, opts)) {
+        await CombatHUD._postDestructionControlCard(actor, token, opts);
+      }
 
     } else {
       // ── SAFE this round ─────────────────────────────────────────────────
@@ -11592,11 +11690,17 @@ export class CombatHUD {
 
     // If all breaches cleared, also clear the warp core breach trail + flag
     if (totalRemaining === 0) {
+      const tokens = CombatHUD._tokensForActor(updatedActor);
+      if (tokens.length) {
+        for (const token of tokens) await clearHullDecals(token);
+      } else {
+        await clearHullDecals(updatedActor);
+      }
+
       if (CombatHUD.getWarpBreachState(updatedActor)) {
         await CombatHUD.setWarpBreachState(updatedActor, false);
       }
       // Clear breach trail FX directly on all tokens too (belt-and-suspenders)
-      const tokens = CombatHUD._tokensForActor(updatedActor);
       for (const token of tokens) CombatHUD._stopBreachTrailFX(token);
 
       // Reset ship status to active if it was disabled (not destroyed)
@@ -12232,7 +12336,7 @@ export class CombatHUD {
   static _applyBreachTokenFX(actor, breachCount) {
     if (!window.TokenMagic) return;
     try {
-      if (!game.settings.get("sta2e-toolkit", "breachTokenFX")) return;
+      if (game.settings.get("sta2e-toolkit", "hullDamageStyle") !== "tokenmagic") return;
     } catch { return; }
 
     const tokens = CombatHUD._tokensForActor(actor);
@@ -12323,11 +12427,14 @@ export class CombatHUD {
       // GM-gated death-throes sequence rather than killing it instantly.
       const vaporize = CombatHUD._isEnginesDestroyed(actor)
         || CombatHUD.getWarpBreachState(actor);
-      await CombatHUD._postDestructionControlCard(actor, token, {
+      const opts = {
         vaporize,
         reason:     `Additional breach suffered while at critical damage. ${actor.name} is destroyed.`,
         autoThroes: false,
-      });
+      };
+      if (!CombatHUD._startAutoShipDestructionIfEnabled(actor, token, opts)) {
+        await CombatHUD._postDestructionControlCard(actor, token, opts);
+      }
     }
   }
 
@@ -12444,6 +12551,94 @@ export class CombatHUD {
     return CombatHUD._deathThroes;
   }
 
+  static _autoDestructionMap() {
+    if (!CombatHUD._autoDestruction) CombatHUD._autoDestruction = new Map();
+    return CombatHUD._autoDestruction;
+  }
+
+  static _shipAutoDestructionEnabled(actor) {
+    const isNpc = CombatHUD.isNpcShip(actor);
+    const key = isNpc ? "autoDestroyNpcStarships" : "autoDestroyPlayerStarships";
+    try { return game.settings.get("sta2e-toolkit", key) === true; }
+    catch { return isNpc; }
+  }
+
+  static _shipDestructionThroesDurationMs() {
+    let seconds = 10;
+    try { seconds = Number(game.settings.get("sta2e-toolkit", "shipDestructionThroesDuration")); }
+    catch { /* use default */ }
+    if (!Number.isFinite(seconds)) seconds = 10;
+    seconds = Math.min(30, Math.max(2, seconds));
+    return seconds * 1000;
+  }
+
+  static _autoDestructionKey(actor, token) {
+    if (token?.id) return `token:${token.id}`;
+    if (actor?.uuid) return `actor:${actor.uuid}`;
+    if (actor?.id) return `actor:${actor.id}`;
+    return null;
+  }
+
+  static async _deleteActiveShipDestructionCards(actor, token) {
+    const targetTokenId = token?.id ?? CombatHUD._tokenDocFor(actor)?.id ?? null;
+    const targetActorId = actor?.id ?? null;
+    if (!targetTokenId && !targetActorId) return;
+
+    const messages = game.messages?.contents ?? Array.from(game.messages ?? []);
+    const deletes = [];
+    for (const message of messages) {
+      const flags = message.flags?.[MODULE] ?? {};
+      const isAbandonCard = flags.abandonShipCard && !flags.abandonResolved;
+      const isDestructionCard = flags.shipDestructionCard && flags.destructStage !== "done";
+      if (!isAbandonCard && !isDestructionCard) continue;
+
+      let data = {};
+      try { data = JSON.parse(decodeURIComponent(flags.destructData ?? "{}")); }
+      catch { /* ignore malformed card payloads */ }
+
+      const tokenMatches = targetTokenId && data.tokenId === targetTokenId;
+      const actorMatches = !targetTokenId && targetActorId && data.actorId === targetActorId;
+      if (!tokenMatches && !actorMatches) continue;
+
+      deletes.push(message.delete().catch(err =>
+        console.warn("STA2e Toolkit | Could not delete stale destruction card:", err)));
+    }
+
+    if (deletes.length) await Promise.all(deletes);
+  }
+
+  static _startAutoShipDestructionIfEnabled(actor, token, opts = {}) {
+    if (!actor || !CombatHUD._shipAutoDestructionEnabled(actor)) return false;
+    CombatHUD._startAutoShipDestruction(actor, token, opts)
+      .catch(err => console.error("STA2e Toolkit | Auto ship destruction failed:", err));
+    return true;
+  }
+
+  static async _startAutoShipDestruction(actor, token, { vaporize = false, reason = "" } = {}) {
+    const destroyToken = token
+      ?? canvas.tokens?.placeables.find(t => t.actor === actor || t.document?.actorId === actor.id)
+      ?? null;
+    const key = CombatHUD._autoDestructionKey(actor, destroyToken);
+    const map = CombatHUD._autoDestructionMap();
+    if (key && map.has(key)) return;
+    if (key) map.set(key, true);
+
+    try {
+      await CombatHUD._deleteActiveShipDestructionCards(actor, destroyToken);
+      if (destroyToken) CombatHUD._ensureDeathThroes(destroyToken.id);
+      await new Promise(r => setTimeout(r, CombatHUD._shipDestructionThroesDurationMs()));
+      await CombatHUD._finalizeShipDestruction({
+        actorId:  actor.id,
+        tokenId:  destroyToken?.id ?? null,
+        vaporize: !!vaporize,
+        reason,
+        shipName: actor.name,
+      }, { postChat: false });
+    } finally {
+      if (key) map.delete(key);
+    }
+  }
+
   /** Start the death-throes loop for a token if one is not already running. */
   static _ensureDeathThroes(tokenId) {
     if (!tokenId) return;
@@ -12458,6 +12653,8 @@ export class CombatHUD {
     const tokenId = token.id;
     const map     = CombatHUD._deathThroesMap();
     if (map.has(tokenId)) return;
+
+    await CombatHUD._clearHullDecalsForDestruction(token);
 
     const grid = canvas.grid?.size ?? 100;
     const state = {
@@ -12597,7 +12794,7 @@ export class CombatHUD {
    * Stop the death throes and run the final destruction: optional vaporize FX,
    * the explosion sequence, status update and token removal.
    */
-  static async _finalizeShipDestruction(data) {
+  static async _finalizeShipDestruction(data, { postChat = true } = {}) {
     const { tokenId, actorId, vaporize, reason } = data;
     CombatHUD._stopDeathThroes(tokenId);
 
@@ -12610,17 +12807,20 @@ export class CombatHUD {
       try { await CombatHUD.setWarpBreachState(actor, false); } catch { /* ignore */ }
     }
 
-    ChatMessage.create({
-      content: lcarsCard("💀 SHIP DESTROYED", LC.red, `
-        <div style="font-size:12px;font-weight:700;color:${LC.red};
-          margin-bottom:4px;font-family:${LC.font};">${actor?.name ?? data.shipName ?? ""}</div>
-        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};">
-          ${reason ?? "The vessel has been destroyed."}
-        </div>`),
-      speaker: { alias: "STA2e Toolkit" },
-    });
+    if (postChat) {
+      ChatMessage.create({
+        content: lcarsCard("💀 SHIP DESTROYED", LC.red, `
+          <div style="font-size:12px;font-weight:700;color:${LC.red};
+            margin-bottom:4px;font-family:${LC.font};">${actor?.name ?? data.shipName ?? ""}</div>
+          <div style="font-size:10px;color:${LC.text};font-family:${LC.font};">
+            ${reason ?? "The vessel has been destroyed."}
+          </div>`),
+        speaker: { alias: "STA2e Toolkit" },
+      });
+    }
 
     if (token) {
+      await CombatHUD._clearHullDecalsForDestruction(token);
       if (vaporize) await CombatHUD._applyVaporizeFX(token, "orange", 1000);
       await CombatHUD.fireDestructionEffect(token);
     }
@@ -13147,7 +13347,9 @@ export class CombatHUD {
       if (attackerSuccesses !== null) {
         const delta = attackerSuccesses - opposedDifficulty;
         if (delta > 0) {
-          const attackerPoolLabel = (payload.attackerIsNpc ?? false) ? "Threat" : "Momentum";
+          const attackerPoolLabel = payload.momentumPool === "alliedNpcMomentum"
+            ? "Allied Momentum"
+            : (payload.attackerIsNpc ?? false) ? "Threat" : "Momentum";
           // Attacker won — momentum for attacker
           deltaHtml = `
             <div style="font-size:11px;font-weight:700;color:${LC.green};font-family:${LC.font};margin-top:4px;">
@@ -13300,7 +13502,8 @@ export class CombatHUD {
     if (!selectedIds.length || (Number(payload.finalDamage) || 0) <= 0) return;
 
     const attackerIsNpc = payload.attackerIsNpc ?? false;
-    const costPool = attackerIsNpc ? "threat" : "momentum";
+    const costPool = payload.momentumPool ?? (attackerIsNpc ? "threat" : "momentum");
+    const costPoolLabel = costPool === "threat" ? "Threat" : costPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
     const totalCost = selectedIds.length;
 
     // Fund the per-ship Area cost from the same buckets the spend panel uses:
@@ -13316,7 +13519,7 @@ export class CombatHUD {
     const poolUsed  = Math.min(poolAvail, remaining);     remaining -= poolUsed;
 
     if (remaining > 0) {
-      ui.notifications.warn(`STA2e Toolkit: Not enough ${attackerIsNpc ? "Threat" : "Momentum"} for Area attack (need ${totalCost}; have float ${tracker.float} + bonus ${tracker.bonus} + pool ${poolAvail}).`);
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${costPoolLabel} for Area attack (need ${totalCost}; have float ${tracker.float} + bonus ${tracker.bonus} + pool ${poolAvail}).`);
       return;
     }
 
@@ -13416,7 +13619,8 @@ export class CombatHUD {
     //   versatile (eligible) → tracker float → tracker bonus → pool
     // versatile/float/bonus all live on the active tracker for the attacker.
     const devCost = spread ? 1 : 2;
-    const pool    = atkIsNpc ? "threat" : "momentum";
+    const pool    = payload.momentumPool ?? (atkIsNpc ? "threat" : "momentum");
+    const poolLabel = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
     const attackerActor = attackerToken?.actor ?? (payload.attackerActorId ? game.actors.get(payload.attackerActorId) : null);
     const { readTrackerState } = await import("./momentum-spend.js");
     const tracker = readTrackerState(payload.trackerMessageId ?? null, attackerActor?.id ?? null);
@@ -13435,7 +13639,7 @@ export class CombatHUD {
       const current = readPool(pool);
       if (current < remaining) {
         ui.notifications.warn(
-          `STA2e Toolkit: Not enough ${atkIsNpc ? "Threat" : "Momentum"} for Devastating Attack` +
+          `STA2e Toolkit: Not enough ${poolLabel} for Devastating Attack` +
           ` (need ${devCost}; tracker has V${tracker.versatile}+F${tracker.float}+B${tracker.bonus}, pool ${current}).`
         );
         return;
@@ -13489,29 +13693,33 @@ export class CombatHUD {
     const primaryCenter = CombatHUD._centerOfToken(primaryToken);
     const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
     const zones = zonesEnabled ? getSceneZones() : [];
-    const primaryZone = zones.length ? getZoneAtPoint(primaryCenter.x, primaryCenter.y, zones) : null;
-    const usingZones = !!primaryZone;
+    // Multi-zone tokens (flags.sta2e-toolkit.multiZone) occupy every zone
+    // their footprint overlaps; normal tokens resolve to their center zone.
+    const primaryZones  = zones.length ? getZonesForToken(primaryToken, zones) : [];
+    const primaryZoneIds = new Set(primaryZones.map(z => z.id));
+    const usingZones = primaryZones.length > 0;
 
     const nearby = (canvas.tokens?.placeables ?? []).filter(t => {
       if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
       if (!CombatHUD._isShipToken(t)) return false;
-      const center = CombatHUD._centerOfToken(t);
       if (usingZones) {
-        const z = getZoneAtPoint(center.x, center.y, zones);
-        return z?.id === primaryZone.id;
+        return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
       }
+      const center = CombatHUD._centerOfToken(t);
       return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
     });
 
     if (nearby.length === 0) {
       ui.notifications.info(usingZones
-        ? `No additional starship targets in ${primaryZone?.name ?? "the primary target's zone"}.`
+        ? `No additional starship targets in ${primaryZones[0]?.name ?? "the primary target's zone"}.`
         : "No nearby starship targets within 250 px of the primary target.");
       return;
     }
 
-    const costLabel = attackerIsNpc ? "1 Threat" : "1 Momentum";
-    const costPool = attackerIsNpc ? "threat" : "momentum";
+    const costPool = payload.momentumPool ?? (attackerIsNpc ? "threat" : "momentum");
+    const costLabel = costPool === "threat"
+      ? "1 Threat"
+      : costPool === "alliedNpcMomentum" ? "1 Allied Momentum" : "1 Momentum";
     const checkboxes = nearby.map(t =>
       `<label style="display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer;">
         <input type="checkbox" name="area-target" value="${t.id}" style="cursor:pointer;">
@@ -13554,7 +13762,7 @@ export class CombatHUD {
     const totalCost = selectedIds.length;
     const currentPool = readPool(costPool);
     if (currentPool < totalCost) {
-      ui.notifications.warn(`STA2e Toolkit: Not enough ${attackerIsNpc ? "Threat" : "Momentum"} for Area attack (need ${totalCost}, have ${currentPool}).`);
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${costLabel.replace(/^1\s+/, "")} for Area attack (need ${totalCost}, have ${currentPool}).`);
       return;
     }
     if (totalCost > 0) await writePool(costPool, currentPool - totalCost);
@@ -17137,6 +17345,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       btn.addEventListener("click", async () => {
         const action = btn.dataset.action;
         let payload = {};
+        let autoStarted = false;
         try { payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}")); } catch { /* ignore */ }
         html.querySelectorAll(".sta2e-abandon-btn").forEach(b => { b.disabled = true; b.style.opacity = "0.4"; });
 
@@ -17145,13 +17354,18 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           const actor = token?.actor ?? game.actors.get(payload.actorId) ?? null;
           if (actor) {
             const vaporize = CombatHUD._isEnginesDestroyed(actor) || CombatHUD.getWarpBreachState(actor);
-            await CombatHUD._postDestructionControlCard(actor, token, {
+            const opts = {
               vaporize,
               reason:     `${actor.name} destroyed at GM discretion.`,
               autoThroes: true,
-            });
+            };
+            autoStarted = CombatHUD._startAutoShipDestructionIfEnabled(actor, token, opts);
+            if (!autoStarted) {
+              await CombatHUD._postDestructionControlCard(actor, token, opts);
+            }
           }
         }
+        if (autoStarted) return;
         await message.update({ "flags.sta2e-toolkit.abandonResolved": true })
           .catch(err => console.error("STA2e Toolkit | abandon-ship resolve failed:", err));
       });
@@ -18121,7 +18335,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const passColor  = passed ? (LC.green ?? "#00cc66") : (LC.red ?? "#ff4444");
         // Determine whether this roll generates Momentum (PC) or Threat (NPC)
         const isNpcRoll  = groundMode ? groundIsNpc : (playerMode ? false : CombatHUD.isNpcShip(shipActor));
-        const poolLabel  = isNpcRoll ? "Threat" : "Momentum";
+        const generatedPool = payload.isAlliedNpc ? _rollEditMomentumPool(payload) : (isNpcRoll ? "threat" : "momentum");
+        const poolLabel  = generatedPool === "threat"
+          ? "Threat"
+          : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
         const poolColor  = momentum > 0 ? (LC.secondary ?? "#cc88ff") : (LC.textDim ?? "#888");
         const totalComplications = allDice.filter(d => d.complication).length + _rollResultAutoComplications(payload);
 
@@ -18130,7 +18347,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         // banked pool deposit) + bonus (non-bankable, e.g. Andorian Intense)
         // so downstream damage cards or future spend prompts can decrement it.
         // Compute Andorian Intense bonus from threat-purchased d20s.
-        const _trackerPool = isNpcRoll ? "threat" : "momentum";
+        const _trackerPool = generatedPool;
         const _trackerOwner = (groundMode ? (tokenObj?.actor ?? game.actors.get(actorId)) : shipActor) ?? null;
         const _trackerThreatBought = passed
           ? (payload.paymentSlots ?? []).filter(s => s === "threat" || s === "poolThreat" || s === "personalThreat").length
@@ -18407,6 +18624,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 attackerTokenId: tokenId ?? null,
                 intenseTalentBonus: _intenseBonus + _trackerShowOffBonus,
                 trackerMessageId: _trackerMessageId,
+                momentumPool: CombatHUD.alliedNpcMomentumPool(charActor),
               }) : null;
 
               // For an opposed ground attack resolved by a player, the resolved
@@ -18726,6 +18944,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
   // ── Add Momentum / Threat to pool ────────────────────────────────────────
   // Visible to all users; permission enforced by game.settings.set.
   html.querySelectorAll(".sta2e-add-to-pool").forEach(btn => {
+    const poolAddedLabel = pool => pool === "threat"
+      ? "Threat"
+      : pool === "alliedNpcMomentum" ? "Allied NPC Momentum" : "Momentum";
     // Already added on a previous render — lock the button immediately.
     if (message.getFlag("sta2e-toolkit", "poolAdded")) {
       btn.disabled      = true;

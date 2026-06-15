@@ -327,7 +327,8 @@ function _useAlphaAwareHitPoints() {
 
 function _normalizeRepeatCount(repeatCount) {
   const count = Math.floor(Number(repeatCount) || 1);
-  return Math.min(3, Math.max(1, count));
+  // Damage-scaled energy weapon counts can exceed the old 3-burst ceiling.
+  return Math.min(12, Math.max(1, count));
 }
 
 function _shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
@@ -340,9 +341,11 @@ function _shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
 }
 
 async function _firePhaserBank(isHit, sourceToken, targets, opts) {
+  // Keep the signature triple-burst as a floor, scale beyond it with damage.
+  const bursts = isHit ? Math.max(3, _normalizeRepeatCount(opts.repeatCount)) : 1;
   for (const target of targets) {
     _playSound(opts.soundPath);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < bursts; i++) {
       const targetPoint = await _targetPointForShot(sourceToken, target, {
         isHit,
         targetSystem: opts.targetSystem,
@@ -363,7 +366,7 @@ async function _firePhaserBank(isHit, sourceToken, targets, opts) {
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: 300 });
         else {
           scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
-            ..._shieldImpactForShot(opts.shieldImpact, i, 3),
+            ..._shieldImpactForShot(opts.shieldImpact, i, bursts),
             delayMs: 300,
           });
         }

@@ -1,4 +1,4 @@
-import { getZoneDistance } from "./zone-data.js";
+import { getZoneDistanceBetweenTokens } from "./zone-data.js";
 
 export const WEAPON_RANGE_WARNING = "Outside listed range; traits may extend this.";
 
@@ -75,15 +75,9 @@ export function evaluateWeaponRangeBetweenTokens(weapon, sourceToken, targetToke
   if (!sourceToken || !targetToken || !zones?.length) {
     return evaluateWeaponRange(weapon, null);
   }
-  const sourceCenter = {
-    x: (sourceToken.x ?? 0) + (sourceToken.w ?? 0) / 2,
-    y: (sourceToken.y ?? 0) + (sourceToken.h ?? 0) / 2,
-  };
-  const targetCenter = {
-    x: (targetToken.x ?? 0) + (targetToken.w ?? 0) / 2,
-    y: (targetToken.y ?? 0) + (targetToken.h ?? 0) / 2,
-  };
-  const zoneInfo = getZoneDistance(sourceCenter, targetCenter, zones);
+  // Token-aware: multi-zone tokens (flags.sta2e-toolkit.multiZone) measure
+  // from their nearest occupied zone; normal tokens use their center.
+  const zoneInfo = getZoneDistanceBetweenTokens(sourceToken, targetToken, zones);
   return { ...evaluateWeaponRange(weapon, zoneInfo), zoneInfo };
 }
 

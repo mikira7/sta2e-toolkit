@@ -31,6 +31,7 @@ function defaultCampaign(overrides = {}) {
     dailyRate: 1.0,         // used by "custom" era only
     savedMomentum: null,    // saved pool value (null = never saved)
     savedThreat: null,      // saved pool value (null = never saved)
+    savedAlliedNpcMomentum: null,
     ...overrides
   };
 }
@@ -156,7 +157,8 @@ export class CampaignStore {
 
     const savedMomentum = CampaignStore._getPoolValue("momentum");
     const savedThreat   = CampaignStore._getPoolValue("threat");
-    await this.updateCampaign(campaign.id, { savedMomentum, savedThreat });
+    const savedAlliedNpcMomentum = CampaignStore._getPoolValue("alliedNpcMomentum");
+    await this.updateCampaign(campaign.id, { savedMomentum, savedThreat, savedAlliedNpcMomentum });
   }
 
   /**
@@ -175,9 +177,11 @@ export class CampaignStore {
     // campaigns that have never had pools explicitly saved.
     const momentum = campaign.savedMomentum ?? 0;
     const threat   = campaign.savedThreat   ?? 0;
+    const alliedNpcMomentum = campaign.savedAlliedNpcMomentum ?? 0;
 
     await CampaignStore._setPoolValue("momentum", momentum);
     await CampaignStore._setPoolValue("threat",   threat);
+    await CampaignStore._setPoolValue("alliedNpcMomentum", alliedNpcMomentum);
   }
 
   // --- Public pool helpers (for macros) ----------------------------------------
@@ -192,7 +196,7 @@ export class CampaignStore {
     await this.syncPoolsFromTracker();
     const c = this.getActiveCampaign(); // re-fetch after save
     ui.notifications.info(
-      `STA2e Toolkit: Saved pools for "${c.name}" — Momentum ${c.savedMomentum ?? 0}, Threat ${c.savedThreat ?? 0}.`
+      `STA2e Toolkit: Saved pools for "${c.name}" - Momentum ${c.savedMomentum ?? 0}, Threat ${c.savedThreat ?? 0}, Allied NPC Momentum ${c.savedAlliedNpcMomentum ?? 0}.`
     );
   }
 
@@ -205,14 +209,14 @@ export class CampaignStore {
     const campaign = this.getCampaignById(id);
     if (!campaign) return;
 
-    const { savedMomentum, savedThreat } = campaign;
-    if (savedMomentum === null && savedThreat === null) {
+    const { savedMomentum, savedThreat, savedAlliedNpcMomentum } = campaign;
+    if (savedMomentum === null && savedThreat === null && savedAlliedNpcMomentum === null) {
       ui.notifications.warn(`STA2e Toolkit: No saved pools found for "${campaign.name}".`);
       return;
     }
     await this._silentRestorePools(id);
     ui.notifications.info(
-      `STA2e Toolkit: Restored pools for "${campaign.name}" — Momentum ${savedMomentum ?? "—"}, Threat ${savedThreat ?? "—"}.`
+      `STA2e Toolkit: Restored pools for "${campaign.name}" - Momentum ${savedMomentum ?? "-"}, Threat ${savedThreat ?? "-"}, Allied NPC Momentum ${savedAlliedNpcMomentum ?? "-"}.`
     );
   }
 

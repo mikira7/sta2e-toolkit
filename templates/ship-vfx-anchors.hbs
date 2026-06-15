@@ -509,6 +509,49 @@
       color: #111827;
       box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24), 0 0 14px rgba(255, 242, 192, 0.8);
     }
+    .sta2e-hit-zone-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .sta2e-hit-zone-path {
+      fill: var(--zone-color, #33aaff);
+      fill-opacity: 0.16;
+      stroke: var(--zone-color, #33aaff);
+      stroke-width: 1.1;
+      filter: drop-shadow(0 0 3px var(--zone-color, #33aaff));
+      vector-effect: non-scaling-stroke;
+    }
+    .sta2e-hit-zone-path.is-pending {
+      fill-opacity: 0.08;
+      stroke-dasharray: 2 2;
+    }
+    .sta2e-hit-zone-marker {
+      position: absolute;
+      width: 13px;
+      height: 13px;
+      margin-left: -7px;
+      margin-top: -7px;
+      border: 2px solid #ffffff;
+      border-radius: 3px;
+      background: var(--zone-color, #33aaff);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22), 0 0 12px var(--zone-color, #33aaff);
+      cursor: move;
+      pointer-events: auto;
+      color: #ffffff;
+      font-size: 7px;
+      font-weight: 800;
+      line-height: 9px;
+      text-align: center;
+    }
+    .sta2e-hit-zone-marker.is-pending {
+      background: #ffffff;
+      color: #111827;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24), 0 0 12px var(--zone-color, #33aaff);
+    }
     .sta2e-anchor-empty {
       padding: 24px;
       color: #8fb3d1;
@@ -608,7 +651,7 @@
     <div class="sta2e-anchor-label">Texture</div>
     <div class="sta2e-anchor-value" title="{{textureSrc}}">{{#if textureSrc}}{{textureSrc}}{{else}}No image found{{/if}}</div>
     <div class="sta2e-anchor-label">Points</div>
-    <div class="sta2e-anchor-value" data-anchor-coords>{{activeEmitterCount}} {{activePointKind}} point(s){{#if isArrayWeaponTab}} / {{activeCurveCount}} curve(s){{/if}} for {{activeTabLabel}}</div>
+    <div class="sta2e-anchor-value" data-anchor-coords>{{#if isHitLocationsTab}}{{activeZoneCount}} zone(s) / {{activeEmitterCount}} legacy point(s){{else}}{{activeEmitterCount}} {{activePointKind}} point(s){{#if isArrayWeaponTab}} / {{activeCurveCount}} curve(s){{/if}}{{/if}} for {{activeTabLabel}}</div>
     <div class="sta2e-anchor-label">Alpha</div>
     <div class="sta2e-anchor-value" data-anchor-opacity>{{#if opaqueState}}{{opaqueState}}{{else}}Not checked{{/if}}</div>
   </div>
@@ -632,6 +675,20 @@
       <span class="sta2e-anchor-tab-count">{{count}}</span>
     </button>
     {{/each}}
+  </div>
+  <div class="sta2e-curve-build-actions">
+    <button type="button" class="sta2e-curve-finish" data-finish-zone {{#unless canFinishZone}}disabled{{/unless}}>
+      <i class="fas fa-check"></i>
+      <span>Finish Zone</span>
+    </button>
+    <button type="button" data-cancel-zone {{#unless pendingZoneCount}}disabled{{/unless}}>
+      <i class="fas fa-times"></i>
+      <span>Cancel Zone</span>
+    </button>
+    <span class="sta2e-anchor-value">{{pendingZoneCount}} vertex(es) placed for {{activeHitSystemLabel}}; need 3+ to finish</span>
+  </div>
+  <div class="sta2e-curve-build-hint">
+    Click the ship to place polygon vertices, then Finish Zone to close the shape. Hits land at a random point inside the zone; bigger zones soak up more hits. Drag a vertex to move it, shift-click near an edge to insert one, right-click a vertex to remove it.
   </div>
   {{/if}}
 
@@ -752,7 +809,7 @@
       </div>
       <div class="sta2e-vfx-settings-row">
         <label for="sta2e-emitter-arc">Arc Width</label>
-        <input id="sta2e-emitter-arc" type="range" min="60" max="180" step="1" value="{{activeEmitterArcControls.arcWidthDeg}}" data-emitter-setting="arcWidthDeg" />
+        <input id="sta2e-emitter-arc" type="range" min="{{activeEmitterArcControls.minArcWidthDeg}}" max="180" step="1" value="{{activeEmitterArcControls.arcWidthDeg}}" data-emitter-setting="arcWidthDeg" />
       </div>
       <div class="sta2e-vfx-settings-row">
         <label>Arc Value</label>
@@ -906,6 +963,24 @@
         <div class="sta2e-array-curve-marker is-pending {{#if isControl}}is-control{{/if}}" title="{{coords}}" style="left: {{left}}; top: {{top}};">{{label}}</div>
         {{/each}}
         {{/if}}
+        {{#if isHitLocationsTab}}
+        <svg class="sta2e-hit-zone-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {{#each activeZones}}
+          <path class="sta2e-hit-zone-path" data-zone-path="{{index}}" d="{{path}}" style="--zone-color: {{color}};"></path>
+          {{/each}}
+          {{#if pendingZonePath}}
+          <path class="sta2e-hit-zone-path is-pending" d="{{pendingZonePath}}" style="--zone-color: {{activeHitSystemColor}};"></path>
+          {{/if}}
+        </svg>
+        {{#each activeZones}}
+          {{#each vertexMarkers}}
+          <div class="sta2e-hit-zone-marker" data-move-zone="{{zoneIndex}}" data-move-zone-point="{{pointIndex}}" title="Zone {{zoneIndex}} vertex {{label}} - {{coords}}" style="left: {{left}}; top: {{top}}; --zone-color: {{color}};">{{label}}</div>
+          {{/each}}
+        {{/each}}
+        {{#each pendingZoneMarkers}}
+        <div class="sta2e-hit-zone-marker is-pending" title="{{coords}}" style="left: {{left}}; top: {{top}}; --zone-color: {{color}};">{{label}}</div>
+        {{/each}}
+        {{/if}}
         {{#each activeMarkers}}
         <div class="sta2e-anchor-marker {{#if selected}}is-selected{{/if}} {{#if showFacingArrow}}has-facing-arrow{{/if}}" data-anchor-marker data-move-emitter="{{index}}" title="{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} - Facing {{facingDeg}} deg / Arc {{arcWidthDeg}} deg / {{layerLabel}}{{/if}}" style="left: {{left}}; top: {{top}}; background: {{markerColor}}; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28), 0 0 14px {{markerColor}};">
           {{#if showFacingArrow}}<span class="sta2e-anchor-facing-arrow" style="transform: rotate({{facingDeg}}deg);"></span>{{/if}}
@@ -937,6 +1012,25 @@
       {{/if}}
       <div class="sta2e-anchor-list-heading">Emitter Points</div>
     {{/if}}
+    {{#if isHitLocationsTab}}
+      <div class="sta2e-anchor-list-heading">{{activeHitSystemLabel}} Hit Zones</div>
+      {{#if hasActiveZones}}
+        {{#each activeZones}}
+        <div class="sta2e-anchor-list-row">
+          <div class="sta2e-anchor-pill" style="background: {{color}};">{{displayIndex}}</div>
+          <div>{{label}} - {{coords}}</div>
+          <button type="button" class="sta2e-anchor-remove" data-remove-zone="{{index}}" title="Remove zone {{displayIndex}}">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
+        {{/each}}
+      {{else}}
+        <div class="sta2e-anchor-empty">No hit zones drawn for {{activeHitSystemLabel}}. Click the ship to start one.</div>
+      {{/if}}
+      {{#if hasLegacyHitPoints}}
+      <div class="sta2e-anchor-list-heading">Legacy Hit Points (fallback when no zones)</div>
+      {{/if}}
+    {{/if}}
     {{#if hasActiveEmitters}}
       {{#each activeMarkers}}
         <div class="sta2e-anchor-list-row {{#if selected}}is-selected{{/if}}" data-select-emitter="{{index}}">
@@ -948,11 +1042,15 @@
       </div>
       {{/each}}
     {{else}}
+      {{#unless isHitLocationsTab}}
       <div class="sta2e-anchor-empty">No {{activePointKind}} points saved for {{activeTabLabel}}.</div>
+      {{/unless}}
     {{/if}}
   </div>
 
   <div class="sta2e-anchor-actions">
+    <button type="button" data-action="export" title="Download this ship's full VFX setup as JSON"><i class="fas fa-file-export"></i> Export</button>
+    <button type="button" data-action="import" title="Load a VFX setup JSON onto this ship (replaces everything)"><i class="fas fa-file-import"></i> Import</button>
     <button type="button" data-action="clear"><i class="fas fa-eraser"></i> Clear Tab</button>
     <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
     <button type="button" class="sta2e-anchor-save" data-action="save"><i class="fas fa-save"></i> Save</button>

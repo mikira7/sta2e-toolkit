@@ -8,6 +8,7 @@ import {
   TRACTOR_BEAM_WORLD_SETTING,
 } from "./tractor-beam-vfx.js";
 import { NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
+import { resyncAllHullDecals, refreshAllHullDecals } from "./hull-decals.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
 import { CharacterCreatorConfig, CHARACTER_CREATOR_DEFAULT_DATA } from "./character-creator.js";
 
@@ -73,6 +74,32 @@ export function registerSettings() {
     config:  true,
     type:    Boolean,
     default: false,
+  });
+
+  game.settings.register("sta2e-toolkit", "alliedNpcMomentum", {
+    name:    "Allied NPC Momentum",
+    hint:    "Secondary Momentum pool used by allied NPCs. Maximum 6.",
+    scope:   "world",
+    config:  false,
+    type:    Number,
+    default: 0,
+    onChange: () => {
+      game.sta2eToolkit?.poolTracker?.refresh?.();
+      game.socket?.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
+    },
+  });
+
+  game.settings.register("sta2e-toolkit", "showAlliedNpcMomentumTracker", {
+    name:    "Show Allied NPC Momentum in Tracker",
+    hint:    "When enabled, the toolkit pool tracker shows the Allied NPC Momentum pool while the active scene has an allied NPC token.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => {
+      game.sta2eToolkit?.poolTracker?.refresh?.();
+      game.socket?.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
+    },
   });
 
   game.settings.register("sta2e-toolkit", "poolTrackerLayout", {
@@ -392,6 +419,15 @@ export function registerSettings() {
     default: {},
   });
 
+  // Per-family energy weapon animation play-counts (base + per-damage + max).
+  // Managed by the Energy Weapons tab in the Sounds & Animations menu.
+  game.settings.register("sta2e-toolkit", "energyWeaponCountConfig", {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: {},
+  });
+
   // ── Combat Sound Effects ─────────────────────────────────────────────────
   // All optional — empty string = no sound played for that slot.
 
@@ -413,17 +449,29 @@ export function registerSettings() {
   game.settings.register("sta2e-toolkit", "sndShipCannonDisruptorMiss",snd("Ship Sound — Disruptor Cannon (Miss)","Sound when a disruptor cannon misses."));
   game.settings.register("sta2e-toolkit", "sndShipCannonPolaronHit",   snd("Ship Sound — Polaron Cannon (Hit)",   "Sound when a polaron cannon hits."));
   game.settings.register("sta2e-toolkit", "sndShipCannonPolaronMiss",  snd("Ship Sound — Polaron Cannon (Miss)",  "Sound when a polaron cannon misses."));
+  // Spinal Lance — per type. Blank falls back to the matching beam sound.
+  game.settings.register("sta2e-toolkit", "sndShipLancePhaserHit",     snd("Ship Sound — Phaser Spinal Lance (Hit)",     "Sound when a phaser spinal lance hits. Blank uses the phaser beam (hit) sound."));
+  game.settings.register("sta2e-toolkit", "sndShipLancePhaserMiss",    snd("Ship Sound — Phaser Spinal Lance (Miss)",    "Sound when a phaser spinal lance misses. Blank uses the phaser beam (miss) sound."));
+  game.settings.register("sta2e-toolkit", "sndShipLanceDisruptorHit",  snd("Ship Sound — Disruptor Spinal Lance (Hit)",  "Sound when a disruptor spinal lance hits. Blank uses the disruptor beam (hit) sound."));
+  game.settings.register("sta2e-toolkit", "sndShipLanceDisruptorMiss", snd("Ship Sound — Disruptor Spinal Lance (Miss)", "Sound when a disruptor spinal lance misses. Blank uses the disruptor beam (miss) sound."));
+  game.settings.register("sta2e-toolkit", "sndShipLancePolaronHit",    snd("Ship Sound — Polaron Spinal Lance (Hit)",    "Sound when a polaron spinal lance hits. Blank uses the polaron beam (hit) sound."));
+  game.settings.register("sta2e-toolkit", "sndShipLancePolaronMiss",   snd("Ship Sound — Polaron Spinal Lance (Miss)",   "Sound when a polaron spinal lance misses. Blank uses the polaron beam (miss) sound."));
   for (const era of [
     { key: "Ent", label: "ENT" },
     { key: "Tos", label: "TOS" },
     { key: "Tmp", label: "TMP" },
     { key: "Tng", label: "TNG/DS9/VOY" },
   ]) {
-    for (const type of ["Bank", "Array", "Cannon"]) {
+    for (const type of [
+      { key: "Bank",   label: "Bank" },
+      { key: "Array",  label: "Array" },
+      { key: "Cannon", label: "Cannon" },
+      { key: "Lance",  label: "Spinal Lance" },
+    ]) {
       for (const result of ["Hit", "Miss"]) {
-        game.settings.register("sta2e-toolkit", `sndShipPhaser${type}${era.key}${result}`, snd(
-          `Ship Sound - Phaser ${type} ${era.label} (${result})`,
-          `Sound when a ${era.label} phaser ${type.toLowerCase()} ${result.toLowerCase()} animation plays. Blank falls back to the legacy phaser sound.`
+        game.settings.register("sta2e-toolkit", `sndShipPhaser${type.key}${era.key}${result}`, snd(
+          `Ship Sound - Phaser ${type.label} ${era.label} (${result})`,
+          `Sound when a ${era.label} phaser ${type.label.toLowerCase()} ${result.toLowerCase()} animation plays. Blank falls back to the base phaser sound.`
         ));
       }
     }
@@ -495,6 +543,34 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register("sta2e-toolkit", "autoDestroyNpcStarships", {
+    name:    "STA2E.Settings.AutoDestroyNpcStarships.Name",
+    hint:    "STA2E.Settings.AutoDestroyNpcStarships.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "autoDestroyPlayerStarships", {
+    name:    "STA2E.Settings.AutoDestroyPlayerStarships.Name",
+    hint:    "STA2E.Settings.AutoDestroyPlayerStarships.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
+
+  game.settings.register("sta2e-toolkit", "shipDestructionThroesDuration", {
+    name:    "STA2E.Settings.ShipDestructionThroesDuration.Name",
+    hint:    "STA2E.Settings.ShipDestructionThroesDuration.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 2, max: 30, step: 1 },
+    default: 10,
+  });
+
   game.settings.register("sta2e-toolkit", "alphaAwareWeaponHitPoints", {
     name:    "STA2E.Settings.AlphaAwareWeaponHitPoints.Name",
     hint:    "STA2E.Settings.AlphaAwareWeaponHitPoints.Hint",
@@ -528,13 +604,61 @@ export function registerSettings() {
     default: "cinematic",
   });
 
-  game.settings.register("sta2e-toolkit", "breachTokenFX", {
-    name:    "STA2E.Settings.BreachTokenFX.Name",
-    hint:    "STA2E.Settings.BreachTokenFX.Hint",
+  // Hull damage visuals — choose ONE system (or none) so they don't stack.
+  //   decal      → persistent scorch PNG pinned to the hull (pins through rotation)
+  //   tokenmagic → Token Magic FX splash filter on the token
+  //   off        → no hull damage visual
+  game.settings.register("sta2e-toolkit", "hullDamageStyle", {
+    name:    "Hull Damage Visuals",
+    hint:    "How a starship shows hull damage when a hit penetrates its shields. Scorch decals stamp a persistent mark pinned to the hull. Token Magic uses the splash filter. Off disables both.",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      decal:      "Scorch decals (pinned to hull)",
+      tokenmagic: "Token Magic splash",
+      off:        "Off",
+    },
+    default: "decal",
+  });
+
+  // Global size multiplier for scorch decals (1.0 = default). Lower = smaller.
+  game.settings.register("sta2e-toolkit", "hullDecalScale", {
+    name:    "Hull Decal Size",
+    hint:    "Overall size of hull scorch decals. Use together with Hull Decal Growth to balance small vs large ships.",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 0.3, max: 2, step: 0.05 },
+    default: 1,
+    onChange: () => resyncAllHullDecals(),
+  });
+
+  // Extra growth for decals on larger tokens, on top of the linear token-size
+  // scaling. 1.0 = decals are a constant fraction of the token image; higher =
+  // bigger tokens get proportionally larger marks than smaller tokens.
+  game.settings.register("sta2e-toolkit", "hullDecalGrowth", {
+    name:    "Hull Decal Growth",
+    hint:    "Extra scaling for decals on larger tokens. 1.0 keeps marks a constant fraction of each token's image size; higher values make bigger tokens' marks proportionally larger still. (No effect when all tokens are the same size.)",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 1, max: 2, step: 0.05 },
+    default: 1,
+    onChange: () => resyncAllHullDecals(),
+  });
+
+  // Keep decals on the hull: nudge a mark's placement inward until its footprint
+  // sits on opaque ship pixels, using the token image's transparency. Avoids the
+  // overhang you get from a hit near the silhouette edge. Applies to new marks.
+  game.settings.register("sta2e-toolkit", "hullDecalMask", {
+    name:    "Keep Decals on the Hull",
+    hint:    "Pull scorch marks inward so they stay on the ship's shape instead of overhanging the edge into empty space. Uses the token image's transparency, and applies to newly created marks.",
     scope:   "world",
     config:  true,
     type:    Boolean,
     default: true,
+    onChange: () => refreshAllHullDecals(),
   });
 
   game.settings.register("sta2e-toolkit", "breachTrailFX", {

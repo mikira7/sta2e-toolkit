@@ -23,6 +23,7 @@ import {
   getSceneZones,
   getZoneAtPoint,
 } from "./zone-data.js";
+import { stampHullDecal } from "./hull-decals.js";
 
 const SHIP_HULL_IMPACT_EFFECT = "jb2a.explosion_side.01.orange.2";
 
@@ -288,6 +289,7 @@ const PHASER_KIND_SOUND_PARTS = Object.freeze({
   bank: "Bank",
   array: "Array",
   cannon: "Cannon",
+  lance: "Lance",
 });
 
 function normalizePhaserEra(era) {
@@ -301,6 +303,8 @@ function phaserWeaponKind(weapon, config) {
   const isPhaser = /\bphasers?\b/.test(name) || /\bphase[-\s]?pulse\b/.test(name) || img.includes("phaser");
   if (!isPhaser && config?.color !== "orange") return null;
   if (img.includes("phaser-cannon") || /\bcannons?\b/.test(name)) return "cannon";
+  // Spinal Lance must be checked before "array": its slug contains "phaser-array".
+  if (img.includes("phaser-array-spread") || /\bspinal lance\b/.test(name)) return "lance";
   if (img.includes("phaser-array") || config?.isArray || /\barrays?\b/.test(name)) return "array";
   if (img.includes("phaser-bank") || /\bbanks?\b/.test(name)) return "bank";
   return null;
@@ -317,6 +321,9 @@ function phaserEraSound(kind, era, isHit, baseConfig) {
 }
 
 function phaserEraEffect(kind, era, baseConfig) {
+  // Spinal Lance shares the beam VFX; the era only swaps the sound, never the
+  // visual, so it keeps its beam-counterpart effect across all eras.
+  if (kind === "lance") return baseConfig.effect;
   const weaponKey = kind === "cannon" ? "phaserCannon" : "phaser";
   return animOverride("shipWeapons", weaponKey, "animHit")
     ?? PHASER_ERA_EFFECTS[era]?.[kind]
@@ -431,7 +438,7 @@ function radarScanEffect() {
 function shipBeam(name, color, shots, isArray = false) {
   const wk = color === "green" ? "disruptor" : color === "purple" ? "polaron" : "phaser";
   return {
-    name, color, shots, type: "beam", isArray,
+    name, color, shots, type: "beam", isArray, family: isArray ? "array" : "bank",
     get effect()    { return beamEffect(color); },
     get impact()    { return animOverride("shipWeapons", wk, "animImpact") ?? impactEffect(color); },
     get sound()     {
@@ -449,10 +456,28 @@ function shipBeam(name, color, shots, isArray = false) {
   };
 }
 
+// Spinal Lance — a single-shot beam that shares the beam's VFX/effect but has
+// its own per-type sound. Blank lance sound falls back to the matching beam
+// counterpart (sndShip{Disruptor,Polaron,Phaser}Hit/Miss).
+function shipLance(name, color) {
+  const wk = color === "green" ? "disruptor" : color === "purple" ? "polaron" : "phaser";
+  const lanceHit  = color === "green" ? "sndShipLanceDisruptorHit"  : color === "purple" ? "sndShipLancePolaronHit"  : "sndShipLancePhaserHit";
+  const lanceMiss = color === "green" ? "sndShipLanceDisruptorMiss" : color === "purple" ? "sndShipLancePolaronMiss" : "sndShipLancePhaserMiss";
+  const beamHit   = color === "green" ? "sndShipDisruptorHit"       : color === "purple" ? "sndShipPolaronHit"       : "sndShipPhaserHit";
+  const beamMiss  = color === "green" ? "sndShipDisruptorMiss"      : color === "purple" ? "sndShipPolaronMiss"      : "sndShipPhaserMiss";
+  return {
+    name, color, shots: 1, type: "beam", isArray: false, family: "lance",
+    get effect()    { return beamEffect(color); },
+    get impact()    { return animOverride("shipWeapons", wk, "animImpact") ?? impactEffect(color); },
+    get sound()     { return snd(lanceHit)  || snd(beamHit); },
+    get missSound() { return snd(lanceMiss) || snd(beamMiss); },
+  };
+}
+
 function shipCannon(name, color, shots) {
   const wk = color === "green" ? "disruptorCannon" : color === "purple" ? "polaronCannon" : "phaserCannon";
   return {
-    name, color, shots, type: "cannon",
+    name, color, shots, type: "cannon", family: "cannon",
     get effect()    { return cannonEffect(color); },
     get impact()    { return animOverride("shipWeapons", wk, "animImpact") ?? impactEffect(color); },
     get sound() {
@@ -504,17 +529,17 @@ export const STARSHIP_WEAPON_CONFIGS = {
   "weapon-phaser-array":        withNativeVfx(shipBeam("Phaser Arrays",        "orange", 4, true), "weapon-phaser-array"),
   "weapon-phaser-bank":         withNativeVfx(shipBeam("Phaser Banks",         "orange", 3),       "weapon-phaser-bank"),
   "weapon-phaser-cannon":       shipCannon("Phaser Cannon",      "orange", 4),
-  "weapon-phaser-array-spread": shipBeam("Phaser Spinal Lance",  "orange", 1),
+  "weapon-phaser-array-spread": shipLance("Phaser Spinal Lance",  "orange"),
 
   "weapon-disruptor-array":        shipBeam("Disruptor Arrays",       "green", 4, true),
   "weapon-disruptor-bank":         shipBeam("Disruptor Banks",        "green", 3),
   "weapon-disruptor-cannon":       shipCannon("Disruptor Cannon",     "green", 4),
-  "weapon-disruptor-array-spread": shipBeam("Disruptor Spinal Lance", "green", 1),
+  "weapon-disruptor-array-spread": shipLance("Disruptor Spinal Lance", "green"),
 
   "weapon-polaron-array":        shipBeam("Polaron Arrays",       "purple", 4, true),
   "weapon-polaron-bank":         shipBeam("Polaron Banks",        "purple", 3),
   "weapon-polaron-cannon":       shipCannon("Polaron Cannon",     "purple", 4),
-  "weapon-polaron-array-spread": shipBeam("Polaron Spinal Lance", "purple", 1),
+  "weapon-polaron-array-spread": shipLance("Polaron Spinal Lance", "purple"),
 
   "weapon-photon-torpedo":        shipTorpedo("Photon Torpedo",        "red",   false, 1, "photon"),
   "weapon-photon-torpedo-salvo":  shipTorpedo("Photon Torpedo Salvo",  "red",   true,  3, "photon"),
@@ -1330,8 +1355,60 @@ function normalizeRepeatCount(repeatCount) {
   return Math.min(3, Math.max(1, count));
 }
 
-function cannonShotCount(repeatCount) {
-  return normalizeRepeatCount(repeatCount) * 2;
+// Energy weapon families that scale their animation play-count by damage, with
+// display labels for the config menu. Banks/arrays/lances are "beam" type;
+// cannons are "cannon" type. The family is tagged on each config.
+export const ENERGY_WEAPON_FAMILIES = Object.freeze([
+  { family: "bank",   label: "Phaser / Energy Banks" },
+  { family: "array",  label: "Phaser / Energy Arrays" },
+  { family: "cannon", label: "Cannons" },
+  { family: "lance",  label: "Spinal Lances" },
+]);
+
+// Per-family defaults: base = animation plays on any hit; perDamage = fire one
+// additional play per this many points of final damage (0 disables scaling);
+// max = hard cap. Bank/array reproduce the old 1/2/3 feel and extend past it.
+const ENERGY_WEAPON_COUNT_DEFAULTS = Object.freeze({
+  bank:   { base: 1, perDamage: 4, max: 6 },
+  array:  { base: 1, perDamage: 4, max: 6 },
+  cannon: { base: 2, perDamage: 3, max: 8 },
+  lance:  { base: 1, perDamage: 6, max: 4 },
+});
+
+// Clamp a stored slider value. perDamage may be 0 (no scaling); base/max floor
+// at 1. All cap at 20.
+function clampEnergySlider(value, fallback, min = 1) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(20, n));
+}
+
+// Merged, validated per-family count config (stored setting over defaults).
+export function getEnergyWeaponCountConfig() {
+  let stored = {};
+  try { stored = game.settings.get("sta2e-toolkit", "energyWeaponCountConfig") ?? {}; }
+  catch { stored = {}; }
+  const merged = {};
+  for (const { family } of ENERGY_WEAPON_FAMILIES) {
+    const d = ENERGY_WEAPON_COUNT_DEFAULTS[family];
+    const s = stored[family] ?? {};
+    merged[family] = {
+      base:      clampEnergySlider(s.base,      d.base,      1),
+      perDamage: clampEnergySlider(s.perDamage, d.perDamage, 0),
+      max:       clampEnergySlider(s.max,       d.max,       1),
+    };
+  }
+  return merged;
+}
+
+// How many times to play the firing animation: base + one per perDamage points
+// of final damage, floored at base and capped at max.
+export function getEnergyWeaponShotCount(family, finalDamage) {
+  const cfg = getEnergyWeaponCountConfig();
+  const c = cfg[family] ?? cfg.bank;
+  const damage = Math.max(0, Number(finalDamage) || 0);
+  const extra = c.perDamage > 0 ? Math.floor(damage / c.perDamage) : 0;
+  return Math.max(c.base, Math.min(c.max, c.base + extra));
 }
 
 function isShipWeaponConfig(config) {
@@ -1648,7 +1725,33 @@ function shipImpactScaleForToken(token, requestedScale = 1.5, maxTokenRatio = 0.
 }
 
 function shipImpactEffect(effect, targetToken, scale = 1.5, maxTokenRatio = 0.85) {
+  // The hit flash always renders above the target token, even when the firing
+  // emitter sits on the "below" layer (e.g. a ventral phaser). Without this the
+  // impact inherits the default layer and can appear tucked under the target
+  // hull instead of on top of it.
+  if (typeof effect.aboveTokens === "function") effect = effect.aboveTokens();
   return effect.scale(shipImpactScaleForToken(targetToken, scale, maxTokenRatio));
+}
+
+// For a beam fired from a "below" emitter, add a second copy of the beam forced
+// ABOVE tokens and masked to the target token. The mask means this copy only
+// shows where it crosses the target, so the beam reads as striking ON TOP of
+// the target while the primary beam stays UNDER the firing ship's hull. The two
+// copies share the same geometry and timing, so there is no mid-beam seam.
+// No-op for normal/above emitters. Add this immediately BEFORE the primary beam
+// effect so both start together (the primary's wait gates only later steps).
+function addAboveTargetBeamOverlay(s, config, source, target, targetToken) {
+  if (source?.layer !== "below" || !targetToken) return;
+  try {
+    let over = stretchToSequenceLocation(
+      atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), { ...source, layer: null }),
+      target,
+    );
+    if (typeof over.aboveTokens === "function") over = over.aboveTokens();
+    if (typeof over.mask === "function") over = over.mask(targetToken);
+  } catch (err) {
+    console.warn("STA2e Toolkit | Above-target beam overlay failed:", err);
+  }
 }
 
 function shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
@@ -1733,7 +1836,8 @@ export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoin
 }
 
 async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
-  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
+  // repeatCount is the resolved damage-scaled play count from fireWeapon.
+  const repeats = isHit ? Math.max(1, Math.floor(Number(repeatCount) || 1)) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = seq();
@@ -1749,6 +1853,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
             locations.target
           ));
           addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats);
+          _stampHullDecalAt(shot, target, locations.target, hullImpact);
           shipImpactEffect(atSequenceLocation(shot.effect().file(shipImpactFile(config, "impact", hullImpact)), locations.impact), target, 1.5);
           await playSequenceAndWaitForArrayBeam(shot);
           if (i < repeats - 1) await _delay(250);
@@ -1759,11 +1864,13 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
       for (let i = 0; i < repeats; i++) {
         const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
         s = withSound(s, soundPath).wait(50);
+        addAboveTargetBeamOverlay(s, config, locations.source, locations.target, target);
         waitForBeamImpact(stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
           locations.target
         ));
         addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
+        _stampHullDecalAt(s, target, locations.target, hullImpact);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), locations.impact), target, 1.5);
         if (i < repeats - 1) s.wait(250);
       }
@@ -1781,7 +1888,8 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
 }
 
 async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
-  const repeats = isHit ? normalizeRepeatCount(repeatCount) : 1;
+  // repeatCount is the resolved damage-scaled play count from fireWeapon.
+  const repeats = isHit ? Math.max(1, Math.floor(Number(repeatCount) || 1)) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = seq();
@@ -1806,6 +1914,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
             locations.target
           ));
           addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats);
+          _stampHullDecalAt(shot, target, locations.target, hullImpact);
           if (i === repeats - 1) {
             shipImpactEffect(atSequenceLocation(shot.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
           }
@@ -1816,6 +1925,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
       }
 
       let impactLocation = sequenceLocation(target, null);
+      let impactPoint = null;
       for (let i = 0; i < repeats; i++) {
         const locations = await shipShotLocations(token, target, {
           sourceOptions: { randomOffset: true },
@@ -1826,7 +1936,9 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
           selectedEmitter,
         });
         impactLocation = locations.impact;
+        impactPoint = locations.target?.location ?? impactPoint;
         s = withSound(s, soundPath).wait(50);
+        addAboveTargetBeamOverlay(s, config, locations.source, locations.target, target);
         s = waitForBeamImpact(stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
           locations.target
@@ -1834,6 +1946,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
       }
       addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, repeats - 1, repeats);
       shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
+      _stampHullDecalAt(s, target, impactPoint, hullImpact);
     } else {
       s = withSound(s, soundPath).wait(50);
       const missTarget = shipWeaponMissTargetLocation(target);
@@ -1848,12 +1961,14 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
 }
 
 async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
-  const shots = isHit ? cannonShotCount(repeatCount) : 1;
+  // repeatCount is the resolved damage-scaled shot count from fireWeapon.
+  const shots = isHit ? Math.max(1, Math.floor(Number(repeatCount) || 1)) : 1;
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = seq();
     if (isHit) {
       let impactLocation = sequenceLocation(target, null);
+      let impactPoint = null;
       for (let i = 0; i < shots; i++) {
         const locations = await shipShotLocations(token, target, {
           sourceOptions: { randomOffset: true },
@@ -1864,7 +1979,9 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
           selectedEmitter,
         });
         impactLocation = locations.impact;
+        impactPoint = locations.target?.location ?? impactPoint;
         s = withSound(s, soundPath).wait(50);
+        addAboveTargetBeamOverlay(s, config, locations.source, locations.target, target);
         s = stretchToSequenceLocation(
           atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), locations.source),
           locations.target
@@ -1872,6 +1989,7 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
       }
       addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, shots - 1, shots);
       shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "impact", hullImpact)), impactLocation), target, 1.5);
+      _stampHullDecalAt(s, target, impactPoint, hullImpact);
     } else {
       s = withSound(s, soundPath).wait(50);
       stretchToSequenceLocation(
@@ -1896,6 +2014,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
         applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
         s.wait(torpedoTravelMs(config));
         addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats);
+        _stampHullDecalAt(s, target, locations.target, hullImpact);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
         if (i < repeats - 1) s.wait(250);
       }
@@ -1925,6 +2044,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
           applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
           s.wait(torpedoTravelMs(config));
           addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, r, salvoCount);
+          _stampHullDecalAt(s, target, locations.target, hullImpact);
           shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact), target, 1.5);
           if (r < salvoCount - 1) s.wait(250);
         }
@@ -1946,6 +2066,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         // Salvo count is base × damage tier, capped, configured per torpedo type.
         const salvoShots = salvoCount;
         let explosionLocation = sequenceLocation(target, null);
+        let explosionPoint = null;
         for (let i = 0; i < salvoShots; i++) {
           const locations = await shipShotLocations(token, target, {
             sourceOptions: { randomOffset: 0.4 },
@@ -1957,6 +2078,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
             arcRestrict: true,
           });
           explosionLocation = locations.impact;
+          explosionPoint = locations.target?.location ?? explosionPoint;
           if (i > 0) s.wait(180);
           // Cap the launch sounds so a large barrage doesn't stack into noise.
           if (soundPath && i < 4) s.sound().file(soundPath).volume(i === 0 ? 1 : 0.6);
@@ -1966,6 +2088,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         s.wait(torpedoTravelMs(config));
         addShieldImpactStep(s, token, target, explosionLocation?.location, shieldImpact, salvoShots - 1, salvoShots);
         shipImpactEffect(atSequenceLocation(s.effect().file(shipImpactFile(config, "explosion", hullImpact)), explosionLocation), target, 2.0, 0.9);
+        _stampHullDecalAt(s, target, explosionPoint, hullImpact);
       } else {
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
@@ -2132,16 +2255,41 @@ export async function fireTargetingSolution(attackerToken, targetToken) {
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
+// Stamp a persistent scorch decal at the exact spot a shot struck the hull.
+// `location` is a sequence-location ({ location: {x,y} }) or a raw {x,y} point —
+// the same point the impact VFX is drawn at. Only fires when the hit reached the
+// hull (shields down). Severity comes from hullImpact.finalDamage.
+function _stampHullDecalAt(seq, targetToken, location, hullImpact) {
+  if (!hullImpact?.shieldsDown || !targetToken) return;
+  const point = (location && typeof location.x === "number") ? location : location?.location;
+  if (!point || typeof point.x !== "number") return;
+  const px = point.x, py = point.y, fd = hullImpact.finalDamage;
+  const stamp = () => {
+    stampHullDecal(targetToken, { x: px, y: py }, { finalDamage: fd })
+      ?.catch?.(err => console.warn("STA2e Toolkit | Hull decal stamp failed:", err));
+  };
+  // Run the stamp WHEN the sequence reaches the impact, so the scorch appears
+  // together with the explosion rather than the instant the animation starts.
+  if (seq && typeof seq.thenDo === "function") seq.thenDo(stamp);
+  else stamp();
+}
+
 export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0 } = {}) {
   if (!config) return;
   config = withPhaserEraConfig(config, token, weapon);
   const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
+  // Energy weapons (banks/arrays/lances = "beam", cannons = "cannon") scale how
+  // many times the animation plays by final damage, per-family configurable.
+  const isEnergyWeapon = config.type === "beam" || config.type === "cannon";
+  const energyShotCount = isHit && isEnergyWeapon
+    ? getEnergyWeaponShotCount(config.family, finalDamage)
+    : shipRepeatCount;
   const selectedEmitter = await prepareShipEmitterFacing(config, token, targets, weapon);
 
   if (await fireNativeWeaponVFX(config, isHit, token, targets, {
     spreadDeclared,
     salvoMode,
-    repeatCount: shipRepeatCount,
+    repeatCount: energyShotCount,
     weapon,
     targetSystem,
     shieldImpact,
@@ -2154,11 +2302,11 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
   switch (config.type) {
     // Ship-scale weapons
     case "beam":
-      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
-      else await fireBeamSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      if (spreadDeclared || salvoMode === "spread") await fireBeamSpread(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      else await fireBeamSingle(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "cannon":
-      await fireCannons(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      await fireCannons(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "torpedo":
       // Count comes from the per-type sliders (base × damage tier, capped).

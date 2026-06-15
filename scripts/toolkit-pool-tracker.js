@@ -25,8 +25,27 @@ function trackerLayout() {
   catch { return "docked"; }
 }
 
+function showAlliedNpcMomentumTracker() {
+  try { return game.settings.get(MODULE, "showAlliedNpcMomentumTracker") !== false; }
+  catch { return true; }
+}
+
 function assetPath(pool) {
-  return `modules/${MODULE}/assets/${pool}.svg`;
+  return `modules/${MODULE}/assets/${pool === "alliedNpcMomentum" ? "momentum" : pool}.svg`;
+}
+
+function actorIsAlliedNpc(actor) {
+  if (!actor) return false;
+  if (actor.getFlag?.(MODULE, "isAlliedNpc")) return true;
+  if (actor.isToken) {
+    const baseActor = game.actors?.get?.(actor.id ?? actor._id);
+    if (baseActor?.getFlag?.(MODULE, "isAlliedNpc")) return true;
+  }
+  return false;
+}
+
+function sceneHasAlliedNpcToken() {
+  return !!canvas?.tokens?.placeables?.some(token => actorIsAlliedNpc(token.actor));
 }
 
 export class ToolkitPoolTracker {
@@ -46,6 +65,8 @@ export class ToolkitPoolTracker {
           if (
             setting.key === "sta.momentum"
             || setting.key === "sta.threat"
+            || setting.key === `${MODULE}.alliedNpcMomentum`
+            || setting.key === `${MODULE}.showAlliedNpcMomentumTracker`
             || setting.key === `${MODULE}.poolTrackerMode`
             || setting.key === `${MODULE}.poolTrackerLayout`
           ) {
@@ -55,6 +76,15 @@ export class ToolkitPoolTracker {
             } catch (err) {
               logTrackerError("settings refresh", err);
             }
+          }
+        });
+        Hooks.on("canvasReady", () => this.refresh());
+        Hooks.on("createToken", () => this.refresh());
+        Hooks.on("deleteToken", () => this.refresh());
+        Hooks.on("updateToken", () => this.refresh());
+        Hooks.on("updateActor", (_actor, changed) => {
+          if (foundry.utils.hasProperty(changed, `flags.${MODULE}.isAlliedNpc`)) {
+            this.refresh();
           }
         });
       }
@@ -97,6 +127,8 @@ export class ToolkitPoolTracker {
     if (!this._el) return;
     const momentum = this._el.querySelector('[data-pool-value="momentum"]');
     const threat = this._el.querySelector('[data-pool-value="threat"]');
+    const allied = this._el.querySelector('[data-pool-value="alliedNpcMomentum"]');
+    const alliedSection = this._el.querySelector('[data-pool="alliedNpcMomentum"]');
     if (momentum && momentum.dataset.editing !== "1") {
       momentum.value = String(readPool("momentum"));
       momentum.dataset.committedValue = momentum.value;
@@ -105,6 +137,13 @@ export class ToolkitPoolTracker {
       threat.value = String(readPool("threat"));
       threat.dataset.committedValue = threat.value;
     }
+    if (allied && allied.dataset.editing !== "1") {
+      allied.value = String(readPool("alliedNpcMomentum"));
+      allied.dataset.committedValue = allied.value;
+    }
+    const showAllied = showAlliedNpcMomentumTracker() && sceneHasAlliedNpcToken();
+    if (alliedSection) alliedSection.hidden = !showAllied;
+    this._el.classList.toggle("sta2e-pool-tracker--has-allied", showAllied);
     this._refreshControls();
   }
 
@@ -163,6 +202,7 @@ export class ToolkitPoolTracker {
       body.className = "sta2e-pool-tracker__body";
       body.appendChild(this._buildPool("momentum", "Momentum"));
       body.appendChild(this._buildPool("threat", "Threat"));
+      body.appendChild(this._buildPool("alliedNpcMomentum", "Allied NPC"));
 
       el.appendChild(header);
       el.appendChild(body);
@@ -258,7 +298,7 @@ export class ToolkitPoolTracker {
     btn.className = "sta2e-pool-tracker__btn";
     btn.dataset.pool = pool;
     btn.dataset.delta = String(delta);
-    btn.title = `${delta > 0 ? "Add" : "Remove"} ${pool === "threat" ? "Threat" : "Momentum"}`;
+    btn.title = `${delta > 0 ? "Add" : "Remove"} ${pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied NPC Momentum" : "Momentum"}`;
     btn.innerHTML = delta > 0 ? '<i class="fas fa-plus"></i>' : '<i class="fas fa-minus"></i>';
     btn.addEventListener("click", async (event) => {
       event.preventDefault();
@@ -282,7 +322,7 @@ export class ToolkitPoolTracker {
 
   async _applyInlinePoolValue(pool, valueInput) {
     if (valueInput.dataset.applying === "1") return;
-    const label = pool === "threat" ? "Threat" : "Momentum";
+    const label = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied NPC Momentum" : "Momentum";
     const current = readPool(pool);
     const limit = poolLimit(pool);
     const next = Math.max(0, Math.min(Number(valueInput.value) || 0, limit));
@@ -335,7 +375,7 @@ export class ToolkitPoolTracker {
       value.disabled = !allowed;
       value.classList.toggle("sta2e-pool-tracker__value--disabled", !allowed);
       value.title = allowed
-        ? `Set ${pool === "threat" ? "Threat" : "Momentum"}`
+        ? `Set ${pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied NPC Momentum" : "Momentum"}`
         : "Only the GM can set Threat";
     });
   }

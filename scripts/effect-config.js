@@ -10,6 +10,8 @@ import {
 import {
   TORPEDO_TYPES,
   getTorpedoCountConfig,
+  ENERGY_WEAPON_FAMILIES,
+  getEnergyWeaponCountConfig,
 } from "./weapon-configs.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -58,14 +60,19 @@ function buildPhaserEraSoundRows() {
     { key: "Tmp", label: "TMP" },
     { key: "Tng", label: "TNG/DS9/VOY" },
   ];
-  const types = ["Bank", "Array", "Cannon"];
+  const types = [
+    { key: "Bank",   label: "Bank" },
+    { key: "Array",  label: "Array" },
+    { key: "Cannon", label: "Cannon" },
+    { key: "Lance",  label: "Spinal Lance" },
+  ];
   const results = ["Hit", "Miss"];
   return eras.flatMap(era => types.flatMap(type => results.map(result => ({
-    label: `Phaser ${type} - ${era.label}`,
+    label: `Phaser ${type.label} - ${era.label}`,
     slot: result,
-    sndKey: `sndShipPhaser${type}${era.key}${result}`,
+    sndKey: `sndShipPhaser${type.key}${era.key}${result}`,
     animKey: null,
-    defaultHint: "Blank uses the legacy phaser sound for this weapon type.",
+    defaultHint: "Blank uses the base phaser sound for this weapon type.",
   }))));
 }
 
@@ -98,6 +105,20 @@ function buildTabDefs() {
           defaultHint: jb2aHint("jb2a.impact.011.purple", _IMP) },
         { label: "Polaron",              slot: "Beam (Miss)",   sndKey: "sndShipPolaronMiss",   animKey: "shipWeapons.polaron.animMiss",
           defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Purple_90ft_4000x400.webm`, `${_FREE}/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`) },
+        // ── Spinal Lance ───────────────────────────────────────────────────
+        // Lances share the beam VFX; only the sound differs. Blank = beam sound.
+        { label: "Phaser Spinal Lance",    slot: "Beam (Hit)",  sndKey: "sndShipLancePhaserHit",     animKey: null,
+          defaultHint: "Blank uses the Phaser beam (hit) sound." },
+        { label: "Phaser Spinal Lance",    slot: "Beam (Miss)", sndKey: "sndShipLancePhaserMiss",    animKey: null,
+          defaultHint: "Blank uses the Phaser beam (miss) sound." },
+        { label: "Disruptor Spinal Lance", slot: "Beam (Hit)",  sndKey: "sndShipLanceDisruptorHit",  animKey: null,
+          defaultHint: "Blank uses the Disruptor beam (hit) sound." },
+        { label: "Disruptor Spinal Lance", slot: "Beam (Miss)", sndKey: "sndShipLanceDisruptorMiss", animKey: null,
+          defaultHint: "Blank uses the Disruptor beam (miss) sound." },
+        { label: "Polaron Spinal Lance",   slot: "Beam (Hit)",  sndKey: "sndShipLancePolaronHit",    animKey: null,
+          defaultHint: "Blank uses the Polaron beam (hit) sound." },
+        { label: "Polaron Spinal Lance",   slot: "Beam (Miss)", sndKey: "sndShipLancePolaronMiss",   animKey: null,
+          defaultHint: "Blank uses the Polaron beam (miss) sound." },
         // ── Phaser Cannon ──────────────────────────────────────────────────
         { label: "Phaser Cannon",        slot: "Shot (Hit)",    sndKey: "sndShipCannonPhaserHit",   animKey: "shipWeapons.phaserCannon.animHit",
           defaultHint: jb2aHint("jb2a.lasershot.orange", `${_WA}/LaserShot_01_Regular_Orange_30ft_1600x400.webm`) },
@@ -201,6 +222,13 @@ function buildTabDefs() {
       rows: [],
     },
     {
+      id:    "energyWeaponCounts",
+      label: "Energy Weapons",
+      customKey: null,
+      energyWeaponCounts: true,
+      rows: [],
+    },
+    {
       id:    "shipTasks",
       label: "Ship Tasks",
       customKey: null,
@@ -265,6 +293,15 @@ function buildTorpedoRows() {
   return TORPEDO_TYPES.map(({ type, label }) => {
     const c = cfg[type] ?? {};
     return { type, label, standard: c.standard ?? 1, salvo: c.salvo ?? 1, max: c.max ?? 1 };
+  });
+}
+
+// Per-family energy weapon count rows for the Energy Weapons tab.
+function buildEnergyWeaponRows() {
+  const cfg = getEnergyWeaponCountConfig();
+  return ENERGY_WEAPON_FAMILIES.map(({ family, label }) => {
+    const c = cfg[family] ?? {};
+    return { family, label, base: c.base ?? 1, perDamage: c.perDamage ?? 0, max: c.max ?? 1 };
   });
 }
 
@@ -348,6 +385,7 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
         ? (custom[tab.customKey] ?? []).map((c, i) => ({ ...c, index: i }))
         : null,
       torpedoRows: tab.torpedoCounts ? buildTorpedoRows() : null,
+      energyWeaponRows: tab.energyWeaponCounts ? buildEnergyWeaponRows() : null,
     }));
 
     return { tabs, activeTab: tabs[0]?.id ?? "" };
@@ -476,6 +514,23 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     }
     try { await game.settings.set(MODULE, "torpedoCountConfig", torpedoCounts); }
     catch(e) { console.warn("STA2e Toolkit | Could not save torpedoCountConfig:", e); }
+
+    // Per-family energy weapon counts (Energy Weapons tab)
+    const energyWeaponCounts = foundry.utils.deepClone(
+      (() => { try { return game.settings.get(MODULE, "energyWeaponCountConfig") ?? {}; } catch { return {}; } })()
+    );
+    for (const input of el.querySelectorAll("[data-energy-family]")) {
+      const family = input.dataset.energyFamily;
+      const field  = input.dataset.energyField;
+      if (!family || !field) continue;
+      // perDamage may be 0 (no scaling); base/max floor at 1.
+      const min = field === "perDamage" ? 0 : 1;
+      const val = Math.max(min, Math.min(20, parseInt(input.value) || min));
+      if (!energyWeaponCounts[family] || typeof energyWeaponCounts[family] !== "object") energyWeaponCounts[family] = {};
+      energyWeaponCounts[family][field] = val;
+    }
+    try { await game.settings.set(MODULE, "energyWeaponCountConfig", energyWeaponCounts); }
+    catch(e) { console.warn("STA2e Toolkit | Could not save energyWeaponCountConfig:", e); }
 
     ui.notifications.info("STA2e Toolkit | Sounds & Animations saved.");
     this.close();
