@@ -1,6 +1,5 @@
 import {
   getClosestShipArrayCurvePoint,
-  getClosestShipWeaponEmitterPoint,
   getShipWeaponEmitterArcSelection,
   getShipHitLocationPointForShot,
   getShipWeaponVfxSettings,
@@ -135,6 +134,12 @@ const SHIP_SCALE_SPEED_BASELINE = 1;
 const SHIP_SCALE_SPEED_PER_POINT = 0.18;
 const SHIP_SCALE_SPEED_MIN = 0.6;
 const SHIP_SCALE_SPEED_MAX = 2.5;
+const DISABLE_WEAPON_AUTO_ROTATE_FLAG = "disableWeaponAutoRotate";
+
+function isWeaponAutoRotateDisabled(token) {
+  const doc = token?.document ?? token;
+  return !!doc?.getFlag?.("sta2e-toolkit", DISABLE_WEAPON_AUTO_ROTATE_FLAG);
+}
 
 /**
  * Duration multiplier from a ship's Scale stat (actor.system.scale). Higher
@@ -965,12 +970,39 @@ function emitterAnchorKey(anchor) {
   return `${r(anchor.x)}:${r(anchor.y)}:${r(anchor.facingDeg)}`;
 }
 
+function nearestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint, settingsOverride = null) {
+  const anchors = getShipWeaponEmitterAnchors(sourceToken, weapon);
+  if (!anchors.length || !targetPoint) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const anchor of anchors) {
+    const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, anchor, settingsOverride, targetPoint);
+    if (!point) continue;
+    const distance = Math.hypot(point.x - targetPoint.x, point.y - targetPoint.y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = {
+        x: point.x,
+        y: point.y,
+        layer: anchor.layer ?? point.layer ?? "above",
+        facingDeg: anchor.facingDeg,
+      };
+    }
+  }
+  return best;
+}
+
 function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, selectedEmitter = null, arcRestrict = false) {
   if (!weapon || !targetPoint) return null;
 
   if (isShipArrayWeapon(weapon)) {
     const curvePoint = getClosestShipArrayCurvePoint(sourceToken, weapon, targetPoint);
     if (curvePoint) return curvePoint;
+  }
+
+  if (isWeaponAutoRotateDisabled(sourceToken)) {
+    return nearestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint);
   }
 
   const anchors = getShipWeaponEmitterAnchors(sourceToken, weapon);
@@ -1417,6 +1449,7 @@ function isShipWeaponConfig(config) {
 
 async function prepareShipEmitterFacing(config, token, targets, weapon) {
   if (!isShipWeaponConfig(config) || !token || !weapon || isShipArrayWeapon(weapon)) return null;
+  if (isWeaponAutoRotateDisabled(token)) return null;
   const primaryTarget = normalizeTargetList(targets)[0] ?? null;
   if (!primaryTarget) return null;
   let selection = getShipWeaponEmitterArcSelection(token, weapon, tokenCenter(primaryTarget));

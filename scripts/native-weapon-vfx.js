@@ -25,6 +25,7 @@ const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 920_000;
 const PHASER_PRIMARY = 0xff9a33;
 const PHASER_CORE = 0xfff2c0;
+const DISABLE_WEAPON_AUTO_ROTATE_FLAG = "disableWeaponAutoRotate";
 
 export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
   "weapon-phaser-bank": "current",
@@ -151,6 +152,11 @@ function _nativeAvailable(sourceToken, targets) {
     && targets.length > 0;
 }
 
+function _isWeaponAutoRotateDisabled(token) {
+  const doc = token?.document ?? token;
+  return !!doc?.getFlag?.(MODULE, DISABLE_WEAPON_AUTO_ROTATE_FLAG);
+}
+
 function _effectLayer() {
   const layer = canvas.tokens ?? canvas.interface ?? canvas.primary ?? canvas.stage;
   if (layer && !layer.sortableChildren) layer.sortableChildren = true;
@@ -252,6 +258,11 @@ function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vf
     if (curvePoint) return curvePoint;
   }
 
+  if (_isWeaponAutoRotateDisabled(sourceToken)) {
+    const nearestPoint = _nearestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint, vfxSettings);
+    if (nearestPoint) return nearestPoint;
+  }
+
   if (selectedEmitter?.anchor && !isShipArrayWeapon(weapon)) {
     const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, selectedEmitter.anchor, vfxSettings, targetPoint);
     if (point) return { ...point, layer: selectedEmitter.layer ?? selectedEmitter.anchor.layer ?? "above" };
@@ -273,6 +284,24 @@ function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vf
     if (points.length) return points[Math.abs(shotIndex) % points.length];
   }
   return _tokenEdgePoint(sourceToken, targetPoint, "source");
+}
+
+function _nearestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint, vfxSettings = null) {
+  const anchors = weapon ? getShipWeaponEmitterAnchors(sourceToken, weapon) : [];
+  if (!anchors.length || !targetPoint) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const anchor of anchors) {
+    const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, anchor, vfxSettings, targetPoint);
+    if (!point) continue;
+    const distance = Math.hypot(point.x - targetPoint.x, point.y - targetPoint.y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { ...point, layer: anchor.layer ?? point.layer ?? "above" };
+    }
+  }
+  return best;
 }
 
 async function _targetPointForShot(sourceToken, targetToken, { isHit, targetSystem = null, shotIndex = 0 } = {}) {

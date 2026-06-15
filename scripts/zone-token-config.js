@@ -1,6 +1,6 @@
 /**
  * sta2e-toolkit | zone-token-config.js
- * Injects an "Occupies Multiple Zones" checkbox into the Token Config sheet.
+ * Injects STA Toolkit checkboxes into the Token Config sheet.
  *
  * Tokens with this flag set test their displayed image footprint against zone
  * polygons instead of just their center point, so a Borg cube or station that
@@ -13,25 +13,25 @@
  */
 
 const FLAG_SCOPE = "sta2e-toolkit";
-const FLAG_NAME  = "multiZone";
-const FORM_PATH  = `flags.${FLAG_SCOPE}.${FLAG_NAME}`;
+const MULTI_ZONE_FLAG = "multiZone";
+const DISABLE_WEAPON_AUTO_ROTATE_FLAG = "disableWeaponAutoRotate";
+const MULTI_ZONE_FORM_PATH = `flags.${FLAG_SCOPE}.${MULTI_ZONE_FLAG}`;
+const DISABLE_WEAPON_AUTO_ROTATE_FORM_PATH = `flags.${FLAG_SCOPE}.${DISABLE_WEAPON_AUTO_ROTATE_FLAG}`;
 
 /**
  * Build the injected form group element.
- * @param {boolean} checked
+ * @param {object} options
  * @returns {HTMLDivElement}
  */
-function _buildFormGroup(checked) {
+function _buildFormGroup({ label, formPath, checked, hint }) {
   const group = document.createElement("div");
   group.classList.add("form-group");
   group.innerHTML = `
-    <label>Occupies Multiple Zones <span style="opacity:0.65;">(STA Toolkit)</span></label>
+    <label>${label} <span style="opacity:0.65;">(STA Toolkit)</span></label>
     <div class="form-fields">
-      <input type="checkbox" name="${FORM_PATH}" ${checked ? "checked" : ""}>
+      <input type="checkbox" name="${formPath}" ${checked ? "checked" : ""}>
     </div>
-    <p class="hint">Detect this token in every zone its displayed image overlaps,
-      instead of only the zone under its center. Enable for very large ships
-      and stations (Borg cubes, starbases) that span multiple zones.</p>`;
+    <p class="hint">${hint}</p>`;
   return group;
 }
 
@@ -44,14 +44,8 @@ function _injectMultiZoneCheckbox(app, html) {
   const root = html instanceof HTMLElement ? html : html?.[0];
   if (!root) return;
 
-  // Already injected (re-renders)
-  if (root.querySelector(`input[name="${FORM_PATH}"]`)) return;
-
   // Resolve the token-ish document (TokenDocument or PrototypeToken)
   const doc = app.token ?? app.document ?? app.object ?? null;
-  const checked = !!foundry.utils.getProperty(doc ?? {}, FORM_PATH);
-
-  const group = _buildFormGroup(checked);
 
   // Prefer the Appearance tab; fall back to any tab body, then the form itself.
   const target =
@@ -59,7 +53,28 @@ function _injectMultiZoneCheckbox(app, html) {
     ?? root.querySelector(".tab[data-tab]")
     ?? root.querySelector("form")
     ?? root;
-  target.appendChild(group);
+
+  if (!root.querySelector(`input[name="${MULTI_ZONE_FORM_PATH}"]`)) {
+    target.appendChild(_buildFormGroup({
+      label: "Occupies Multiple Zones",
+      formPath: MULTI_ZONE_FORM_PATH,
+      checked: !!foundry.utils.getProperty(doc ?? {}, MULTI_ZONE_FORM_PATH),
+      hint: `Detect this token in every zone its displayed image overlaps,
+        instead of only the zone under its center. Enable for very large ships
+        and stations (Borg cubes, starbases) that span multiple zones.`,
+    }));
+  }
+
+  if (!root.querySelector(`input[name="${DISABLE_WEAPON_AUTO_ROTATE_FORM_PATH}"]`)) {
+    target.appendChild(_buildFormGroup({
+      label: "Disable Weapon Auto-Rotate",
+      formPath: DISABLE_WEAPON_AUTO_ROTATE_FORM_PATH,
+      checked: !!foundry.utils.getProperty(doc ?? {}, DISABLE_WEAPON_AUTO_ROTATE_FORM_PATH),
+      hint: `Prevent this token from rotating or gliding to face weapon fire.
+        Non-array ship weapons use the nearest matching emitter even when the
+        target is outside that emitter's facing arc.`,
+    }));
+  }
 }
 
 /**
