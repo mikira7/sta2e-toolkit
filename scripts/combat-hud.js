@@ -2995,6 +2995,7 @@ export class CombatHUD {
               name:      weapon.name,
               weaponId:  weapon.id ?? null,
               shipActorId: actor.id ?? null,
+              shipTokenId: this._token?.id ?? null,
               isTorpedo: _isTorpedo,
               isArray:   _modeInfo_op.isArray,
               isSalvo:   _modeInfo_op.isSalvo,
@@ -3079,6 +3080,7 @@ export class CombatHUD {
               name:      weapon.name,
               weaponId:  weapon.id ?? null,
               shipActorId: actor.id ?? null,
+              shipTokenId: this._token?.id ?? null,
               isTorpedo,
               cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
               damage:    total,
@@ -3251,6 +3253,7 @@ export class CombatHUD {
                 name:      weapon.name,
                 weaponId:  weapon.id ?? null,
                 shipActorId: actor.id ?? null,
+                shipTokenId: this._token?.id ?? null,
                 isTorpedo,
                 isArray:   _modeInfo.isArray,
                 isSalvo:   _modeInfo.isSalvo,
@@ -3914,6 +3917,36 @@ export class CombatHUD {
     return null;
   }
 
+  static _shipTokenMatchesActor(token, actorId) {
+    if (!token || !actorId) return false;
+    return token.actor?.id === actorId || token.document?.actorId === actorId;
+  }
+
+  static _resolveShipWeaponSourceToken(weaponContext = {}, fallbackToken = null, { warn = true } = {}) {
+    const ctx = weaponContext ?? {};
+    const shipTokenId = ctx.shipTokenId ?? ctx.attackerTokenId ?? null;
+    const shipActorId = ctx.shipActorId ?? ctx.attackerActorId ?? fallbackToken?.actor?.id ?? fallbackToken?.document?.actorId ?? null;
+
+    if (shipTokenId) {
+      const exact = canvas.tokens?.get(shipTokenId) ?? null;
+      if (exact && (!shipActorId || CombatHUD._shipTokenMatchesActor(exact, shipActorId))) return exact;
+      if (exact && warn) ui.notifications.warn("STA2e Toolkit: The firing ship token no longer matches the weapon's ship actor.");
+      if (!exact && warn) ui.notifications.warn("STA2e Toolkit: The firing ship token is no longer on the scene.");
+    }
+
+    if (fallbackToken && (!shipActorId || CombatHUD._shipTokenMatchesActor(fallbackToken, shipActorId))) {
+      return fallbackToken;
+    }
+
+    if (!shipActorId) return null;
+    const matches = (canvas.tokens?.placeables ?? []).filter(t => CombatHUD._shipTokenMatchesActor(t, shipActorId));
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1 && warn) {
+      ui.notifications.warn("STA2e Toolkit: Multiple possible firing ship tokens found. Select or re-open the attack from the correct ship.");
+    }
+    return null;
+  }
+
   static _enqueueShipAttackAnimation(task) {
     const run = async () => {
       try { await task(); }
@@ -3929,7 +3962,10 @@ export class CombatHUD {
   }
 
   static async _playShipAttackAnimationNow(payload, targetOverride = null) {
-    const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
+    const attackerToken = CombatHUD._resolveShipWeaponSourceToken({
+      shipTokenId: payload.attackerTokenId ?? null,
+      shipActorId: payload.attackerActorId ?? null,
+    }, null, { warn: false });
     const targetToken = targetOverride ?? canvas.tokens?.get(payload.tokenId ?? payload.primaryTokenId);
     if (!attackerToken || !targetToken || !payload.weaponImg) return;
     const slug = payload.weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
@@ -4189,6 +4225,13 @@ export class CombatHUD {
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
    */
   static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
+    token = CombatHUD._resolveShipWeaponSourceToken({
+      shipActorId: weapon?.parent?.id ?? token?.actor?.id ?? token?.document?.actorId ?? null,
+    }, token);
+    if (!token?.actor) {
+      ui.notifications.warn("STA2e Toolkit: Could not resolve the firing ship token.");
+      return;
+    }
     const actor   = token.actor;
     const targets = overrideTargets ?? Array.from(game.user.targets);
 
@@ -4216,28 +4259,16 @@ export class CombatHUD {
     if (areaSpreadMode.needsMode && spreadDeclared) salvoMode = "spread";
 
     // ── Scan for Weakness ──────────────────────────────────────────────────
-    let scanBonus    = 0;
-    let scanPiercing = false;
     const attackerTokenId = (token?.document ?? token)?.id ?? null;
-    const scanTarget = targets.find(t => {
-      if (!hasCondition(t, "scan-for-weakness")) return false;
+    const scanStatesByTargetId = new Map();
+    for (const t of targets) {
+      if (!hasCondition(t, "scan-for-weakness")) continue;
       const srcId = doc(t).getFlag(MODULE, "scanForWeaknessSourceId") ?? null;
-      return srcId === null || srcId === attackerTokenId;
-    });
-    if (isHit && scanTarget) {
-      const choice = await foundry.applications.api.DialogV2.wait({
-        window: { title: "Scan for Weakness" },
-        content: `<p style="margin:8px 0">Choose the Scan for Weakness effect against <strong>${scanTarget.name}</strong>:</p>`,
-        buttons: [
-          { action: "damage",   icon: "fas fa-bolt",       label: "+2 Damage",                default: true },
-          { action: "piercing", icon: "fas fa-shield-alt", label: "Piercing (ignore Resistance)" },
-        ],
-      });
-      if (choice === "damage")   scanBonus    = 2;
-      if (choice === "piercing") scanPiercing = true;
-      removeCondition(doc(scanTarget), "scan-for-weakness");
-      doc(scanTarget).unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
-      doc(scanTarget).unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+      if (srcId !== null && srcId !== attackerTokenId) continue;
+      const pending = normalizeScanForWeaknessState(doc(t).getFlag(MODULE, "scanForWeaknessPending") ?? {});
+      if (pending.consumed) continue;
+      if (pending.sourceTokenId && pending.sourceTokenId !== attackerTokenId) continue;
+      scanStatesByTargetId.set(t.id, pending);
     }
 
     // ── Targeting Solution ─────────────────────────────────────────────────
@@ -4284,7 +4315,13 @@ export class CombatHUD {
       const tActor      = t.actor;
       const { total }   = hud ? hud._weaponDamageBreakdown(weapon, actor)
                               : { total: weapon.system?.damage ?? 0 };
-      const resistanceIgnored = scanPiercing || weaponPiercing;
+      const scanState = scanStatesByTargetId.get(t.id) ?? null;
+      const scanBonus = isHit && scanState && ["damage", "both"].includes(scanState.effect)
+        ? scanState.damageBonus
+        : 0;
+      const scanPiercing = !!(isHit && scanState && ["piercing", "both"].includes(scanState.effect));
+      const scanPiercingPercent = scanPiercing ? scanState.piercingPercent : 0;
+      const fullResistanceIgnored = weaponPiercing || (scanPiercing && scanPiercingPercent >= 100);
       // Glancing Impact: if the target has Evasive Action active and their
       // Helm officer has the Glancing Impact talent, +2 Resistance
       const targetToken     = canvas.tokens?.get(t.id);
@@ -4296,13 +4333,18 @@ export class CombatHUD {
       })();
       const hasModulatedShields = CombatHUD.getModulatedShields(tActor);
       const listedResistance = Number(tActor?.system?.resistance ?? 0) || 0;
-      const baseResistance  = resistanceIgnored ? 0 : listedResistance;
-      const glancingBonus   = !resistanceIgnored && hasGlancingImpactBonus ? 2 : 0;
-      const modulationBonus = !resistanceIgnored && hasModulatedShields ? 2 : 0;
-      const resistance      = baseResistance + glancingBonus + modulationBonus;
-      const ignoredResistance = resistanceIgnored
-        ? listedResistance + (hasGlancingImpactBonus ? 2 : 0) + (hasModulatedShields ? 2 : 0)
-        : 0;
+      const glancingBonusTotal = hasGlancingImpactBonus ? 2 : 0;
+      const modulationBonusTotal = hasModulatedShields ? 2 : 0;
+      const totalResistanceBeforePiercing = listedResistance + glancingBonusTotal + modulationBonusTotal;
+      const ignoredResistance = fullResistanceIgnored
+        ? totalResistanceBeforePiercing
+        : scanPiercing
+          ? Math.ceil(totalResistanceBeforePiercing * (scanPiercingPercent / 100))
+          : 0;
+      const resistance      = Math.max(0, totalResistanceBeforePiercing - ignoredResistance);
+      const glancingBonus   = fullResistanceIgnored || scanPiercing ? 0 : glancingBonusTotal;
+      const modulationBonus = fullResistanceIgnored || scanPiercing ? 0 : modulationBonusTotal;
+      const resistanceIgnored = fullResistanceIgnored || ignoredResistance > 0;
       const rawDamage   = Math.max(0, total + scanBonus + rfBonus + cwBonus - complicationInfo.penalty);
       const finalDamage = Math.max(0, rawDamage - resistance);
       const persistentDamage = Math.ceil(Math.max(0, total) / 2);
@@ -4324,6 +4366,7 @@ export class CombatHUD {
         complicationsBoughtOff: complicationInfo.boughtOff,
         glancingBonus,
         scanPiercing,
+        scanPiercingPercent,
         weaponPiercing,
         resistanceIgnored,
         ignoredResistance,
@@ -4383,10 +4426,19 @@ export class CombatHUD {
     ChatMessage.create({
       flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name, ...(spendContext ? { spendContext } : {}) } },
       content: hud
-        ? hud._weaponChatCard(token.name, weapon, actor, targetNames, isHit, targetData, scanBonus, scanPiercing)
+        ? hud._weaponChatCard(token.name, weapon, actor, targetNames, isHit, targetData)
         : `<p>${token.name} attacked ${targetNames} — ${isHit ? "HIT" : "MISS"}</p>`,
       speaker: ChatMessage.getSpeaker({ token }),
     });
+
+    for (const [targetId, scanState] of scanStatesByTargetId.entries()) {
+      const targetToken = canvas.tokens?.get(targetId) ?? targets.find(t => t.id === targetId) ?? null;
+      if (!targetToken) continue;
+      await consumeScanForWeaknessState(targetToken, scanState, {
+        hit: isHit,
+        attackerName: token?.name ?? actor?.name ?? "Ship",
+      });
+    }
 
     if (!isHit) {
       setTimeout(async () => {
@@ -6539,14 +6591,19 @@ export class CombatHUD {
       // Helper to render a single target damage row (mirrors weapon card style)
       const damageRow = (t, label, color, { hideApply = false } = {}) => {
         const shieldAfter = Math.max(0, t.currentShields - t.finalDamage);
-        const shieldColor = shieldAfter / t.maxShields > 0.5 ? LC.green
-                          : shieldAfter / t.maxShields > 0.25 ? LC.yellow : LC.red;
+        const pctBefore = t.maxShields > 0 ? t.currentShields / t.maxShields : 1;
+        const pctAfter  = t.maxShields > 0 ? shieldAfter / t.maxShields : 0;
+        const crossed50 = pctBefore > 0.50 && pctAfter <= 0.50;
+        const crossed25 = pctBefore > 0.25 && pctAfter <= 0.25;
+        const shieldColor = pctAfter > 0.5 ? LC.green
+                          : pctAfter > 0.25 ? LC.yellow : LC.red;
         const warnings = [];
         if (t.currentShields === 0) warnings.push("💥 BREACH — shields already down");
         else if (shieldAfter === 0)  warnings.push("💥 BREACH — shields reduced to 0");
-        else if (shieldAfter / t.maxShields < 0.25 && t.shaken) warnings.push("💥 BREACH — punched through (already shaken)");
-        else if (shieldAfter / t.maxShields < 0.25) warnings.push("⚠️ SHAKEN — shields below 25%");
-        else if (shieldAfter / t.maxShields < 0.5)  warnings.push("⚠️ SHAKEN — shields below 50%");
+        else if (crossed25 && (t.shaken || crossed50)) warnings.push("💥 BREACH — punched through at 25%");
+        else if (crossed50 && t.shaken) warnings.push("💥 BREACH — punched through at 50%");
+        else if (crossed25) warnings.push("⚠️ SHAKEN — shields at or below 25%");
+        else if (crossed50) warnings.push("⚠️ SHAKEN — shields at or below 50%");
 
         return `
         <div style="margin-bottom:8px;padding:6px;
@@ -7722,8 +7779,8 @@ export class CombatHUD {
     const sensorsOfficer  = sensorsOfficers.length > 0 ? readOfficerStats(sensorsOfficers[0]) : null;
 
     const applyResult = async () => {
-      const cardHtml = await applyScanForWeakness(token, target, token.name ?? actor.name);
-      ChatMessage.create({ content: cardHtml });
+      const cardData = await applyScanForWeakness(token, target, token.name ?? actor.name);
+      ChatMessage.create({ ...cardData, speaker: ChatMessage.getSpeaker({ token }) });
       this._refresh();
     };
 
@@ -8932,6 +8989,7 @@ export class CombatHUD {
         name:      weapon.name,
         weaponId:  weapon.id ?? null,
         shipActorId: actor.id ?? null,
+        shipTokenId: token?.id ?? null,
         isTorpedo,
         isArray:   modeInfo.isArray,
         isSalvo:   modeInfo.isSalvo,
@@ -10443,7 +10501,10 @@ export class CombatHUD {
     // Per-target damage rows
     const targetRows = isHit ? targetData.map(t => {
       const shieldAfter = Math.max(0, t.currentShields - t.finalDamage);
+      const pctBefore   = t.maxShields > 0 ? t.currentShields / t.maxShields : 1;
       const pctAfter    = t.maxShields > 0 ? shieldAfter / t.maxShields : 0;
+      const crossed50   = pctBefore > 0.50 && pctAfter <= 0.50;
+      const crossed25   = pctBefore > 0.25 && pctAfter <= 0.25;
       const shieldColor = pctAfter > 0.5 ? LC.green : pctAfter > 0.25 ? LC.yellow : LC.red;
 
       // Threshold warnings
@@ -10452,12 +10513,14 @@ export class CombatHUD {
         warnings.push("💥 BREACH — shields already down");
       } else if (shieldAfter === 0) {
         warnings.push("💥 BREACH — shields reduced to 0");
-      } else if (pctAfter < 0.25 && t.shaken) {
-        warnings.push("💥 BREACH — punched through (already shaken at 25%)");
-      } else if (pctAfter < 0.25) {
-        warnings.push("⚠️ SHAKEN — shields below 25%");
-      } else if (pctAfter < 0.50) {
-        warnings.push("⚠️ SHAKEN — shields below 50%");
+      } else if (crossed25 && (t.shaken || crossed50)) {
+        warnings.push("💥 BREACH — punched through at 25%");
+      } else if (crossed50 && t.shaken) {
+        warnings.push("💥 BREACH — punched through at 50%");
+      } else if (crossed25) {
+        warnings.push("⚠️ SHAKEN — shields at or below 25%");
+      } else if (crossed50) {
+        warnings.push("⚠️ SHAKEN — shields at or below 50%");
       }
 
       const warningHtml = warnings.map(w => `
@@ -10574,9 +10637,13 @@ export class CombatHUD {
       }));
       const resistanceIgnored = !!t.resistanceIgnored;
       const ignoredResistance = t.ignoredResistance ?? t.resistance ?? 0;
+      const targetScanBonus = t.scanBonus ?? 0;
+      const scanPiercingPercent = t.scanPiercingPercent ?? 0;
       const resistanceLabel = resistanceIgnored ? "Resist" : "−Resist";
       const resistanceValueHtml = resistanceIgnored
-        ? `<span style="text-decoration:line-through">${ignoredResistance}</span>`
+        ? (t.resistance > 0
+            ? `${t.resistance}<span style="color:${LC.textDim};font-size:9px;" title="Scan for Weakness Piercing ${scanPiercingPercent}%"> (${ignoredResistance} ignored)</span>`
+            : `<span style="text-decoration:line-through">${ignoredResistance}</span>`)
         : (() => {
             const base = t.resistance - (t.glancingBonus ?? 0) - (t.modulationBonus ?? 0);
             const parts = [];
@@ -10594,7 +10661,7 @@ export class CombatHUD {
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:5px;text-align:center;">
             <div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
               <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Weapon</div>
-              <div style="font-size:15px;font-weight:700;color:${LC.tertiary};">${t.rawDamage - (scanBonus ?? 0) - (t.rapidFireBonus ?? 0) - (t.calibrateWeaponsBonus ?? 0)}${scanBonus ? `<span style="color:${LC.primary};font-size:10px;">+${scanBonus}</span>` : ""}${t.rapidFireBonus ? `<span style="color:${LC.green};font-size:10px;" title="Rapid-Fire Torpedo Launcher">+${t.rapidFireBonus}</span>` : ""}${t.calibrateWeaponsBonus ? `<span style="color:${LC.primary};font-size:10px;" title="Calibrate Weapons">+${t.calibrateWeaponsBonus}</span>` : ""}</div>
+              <div style="font-size:15px;font-weight:700;color:${LC.tertiary};">${t.rawDamage - targetScanBonus - (t.rapidFireBonus ?? 0) - (t.calibrateWeaponsBonus ?? 0)}${targetScanBonus ? `<span style="color:${LC.primary};font-size:10px;">+${targetScanBonus}</span>` : ""}${t.rapidFireBonus ? `<span style="color:${LC.green};font-size:10px;" title="Rapid-Fire Torpedo Launcher">+${t.rapidFireBonus}</span>` : ""}${t.calibrateWeaponsBonus ? `<span style="color:${LC.primary};font-size:10px;" title="Calibrate Weapons">+${t.calibrateWeaponsBonus}</span>` : ""}</div>
             </div>
             <div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
               <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">${resistanceLabel}</div>
@@ -10681,6 +10748,8 @@ export class CombatHUD {
           ${breakdown ? `<div style="font-size:9px;color:${LC.textDim};margin-bottom:6px;font-family:${LC.font};">${breakdown}</div>` : ""}
           ${qualities !== "None" ? `<div style="font-size:10px;color:${LC.tertiary};margin-bottom:6px;font-family:${LC.font};">QUALITIES: ${qualities}</div>` : ""}
           ${targetData.some(t => t.weaponPiercing) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">PIERCING QUALITY - RESISTANCE IGNORED</div>` : ""}
+          ${targetData.some(t => t.scanPiercing) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS - PIERCING (${Math.max(...targetData.filter(t => t.scanPiercing).map(t => t.scanPiercingPercent ?? 100))}% RESISTANCE IGNORED)</div>` : ""}
+          ${targetData.some(t => (t.scanBonus ?? 0) > 0) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS - +${Math.max(...targetData.map(t => t.scanBonus ?? 0))} DAMAGE</div>` : ""}
           ${scanPiercing ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — PIERCING (RESISTANCE IGNORED)</div>` : ""}
           ${scanBonus > 0 ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — +2 DAMAGE</div>` : ""}
           ${targetData.some(t => t.rapidFireBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.green};font-size:10px;color:${LC.green};font-family:${LC.font};">🚀 RAPID-FIRE TORPEDO LAUNCHER — +1 DAMAGE · Ship assist die may be re-rolled</div>` : ""}
@@ -13144,7 +13213,7 @@ export class CombatHUD {
       shakenNotes.push("💥 BREACH — shields were already down");
     } else {
       // ── 50% threshold ─────────────────────────────────────────────────────
-      if (pctBefore >= 0.50 && pctAfter < 0.50) {
+      if (pctBefore > 0.50 && pctAfter <= 0.50) {
         if (wasShaken) {
           // Already shaken before this hit — punch through at 50%
           breachCount++;
@@ -13159,7 +13228,7 @@ export class CombatHUD {
       }
 
       // ── 25% threshold (checked independently of 50%) ──────────────────────
-      if (pctBefore >= 0.25 && pctAfter < 0.25) {
+      if (pctBefore > 0.25 && pctAfter <= 0.25) {
         const alreadyShaken = wasShaken || (!hasDepleting && shakenThisAttack);
         if (alreadyShaken) {
           breachCount++;
@@ -14804,6 +14873,7 @@ export class CombatHUD {
 
 export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer) {
   const weaponCtx       = buildWeaponContext(weapon);
+  weaponCtx.shipTokenId = shipToken?.id ?? null;
   const tokenDoc        = shipToken?.document ?? null;
   const hasTS           = CombatHUD.hasTargetingSolution(shipToken);
   const hasRFT          = hasRapidFireTorpedoLauncher(shipActor) && weaponCtx.isTorpedo;
@@ -14827,6 +14897,267 @@ export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer
   });
 }
 
+const SCAN_PIERCING_PERCENTS = [100, 75, 50, 25];
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
+function getTokenById(tokenId) {
+  if (!tokenId) return null;
+  return canvas.tokens?.get(tokenId)
+    ?? canvas.tokens?.placeables?.find(t => t.id === tokenId || t.document?.id === tokenId)
+    ?? null;
+}
+
+function getActorOwnerUserIds(actor) {
+  if (!actor) return [];
+  return game.users
+    .filter(user => !user.isGM && actor.testUserPermission?.(user, "OWNER"))
+    .map(user => user.id);
+}
+
+function normalizeScanForWeaknessState(raw = {}) {
+  const effect = ["damage", "piercing", "both"].includes(raw.effect) ? raw.effect : "damage";
+  const traitMode = !!raw.traitMode;
+  return {
+    sourceTokenId: raw.sourceTokenId ?? null,
+    sourceActorId: raw.sourceActorId ?? null,
+    targetTokenId: raw.targetTokenId ?? null,
+    targetActorId: raw.targetActorId ?? null,
+    sourceName: String(raw.sourceName ?? "Unknown"),
+    targetName: String(raw.targetName ?? "target"),
+    rollOwnerUserId: raw.rollOwnerUserId ?? null,
+    allowedUserIds: Array.isArray(raw.allowedUserIds) ? raw.allowedUserIds : [],
+    effect: effect === "both" && !traitMode ? "damage" : effect,
+    traitMode,
+    damageBonus: Number(raw.damageBonus) === 1 ? 1 : 2,
+    piercingPercent: SCAN_PIERCING_PERCENTS.includes(Number(raw.piercingPercent))
+      ? Number(raw.piercingPercent)
+      : 100,
+    consumed: !!raw.consumed,
+    consumedBy: raw.consumedBy ?? null,
+    consumedOnHit: raw.consumedOnHit ?? null,
+    messageId: raw.messageId ?? null,
+  };
+}
+
+function scanForWeaknessStateFromTokens(sourceToken, targetToken, sourceName, options = {}) {
+  const sourceActor = sourceToken?.actor ?? null;
+  const targetActor = targetToken?.actor ?? null;
+  const rollOwnerUserId = options.rollOwnerUserId ?? game.userId;
+  const allowedUserIds = Array.from(new Set([
+    ...(rollOwnerUserId ? [rollOwnerUserId] : []),
+    ...getActorOwnerUserIds(sourceActor),
+  ].filter(Boolean)));
+
+  return normalizeScanForWeaknessState({
+    sourceTokenId: doc(sourceToken)?.id ?? sourceToken?.id ?? null,
+    sourceActorId: sourceActor?.id ?? null,
+    targetTokenId: doc(targetToken)?.id ?? targetToken?.id ?? null,
+    targetActorId: targetActor?.id ?? null,
+    sourceName: sourceName ?? sourceActor?.name ?? sourceToken?.name ?? "Unknown",
+    targetName: targetActor?.name ?? targetToken?.name ?? "target",
+    rollOwnerUserId,
+    allowedUserIds,
+    effect: "damage",
+    traitMode: false,
+    damageBonus: 2,
+    piercingPercent: 100,
+  });
+}
+
+function scanForWeaknessEffectLabel(state) {
+  if (state.effect === "both") return `+${state.damageBonus} Damage + Piercing ${state.piercingPercent}%`;
+  if (state.effect === "piercing") return `Piercing ${state.piercingPercent}%`;
+  return `+${state.damageBonus} Damage`;
+}
+
+function canUseScanForWeaknessState(state, userId = game.userId) {
+  const user = game.users.get(userId);
+  return !!user?.isGM
+    || (!!state.rollOwnerUserId && state.rollOwnerUserId === userId)
+    || (state.allowedUserIds ?? []).includes(userId);
+}
+
+function scanForWeaknessCardHtml(rawState) {
+  const state = normalizeScanForWeaknessState(rawState);
+  const encoded = encodeURIComponent(JSON.stringify(state));
+  const effectButton = (effect, label, title) => {
+    const active = state.effect === effect;
+    const disabled = state.consumed || (effect === "both" && !state.traitMode);
+    return `<button class="sta2e-scan-weakness-effect"
+      data-effect="${effect}" data-payload="${encoded}" title="${escapeHtml(title)}"
+      ${disabled ? "disabled" : ""}
+      style="flex:1;padding:5px 6px;border-radius:2px;font-size:10px;font-weight:700;
+        font-family:${LC.font};letter-spacing:0.08em;text-transform:uppercase;
+        cursor:${disabled ? "default" : "pointer"};
+        border:1px solid ${active ? LC.secondary : LC.borderDim};
+        background:${active ? "rgba(204,136,255,0.18)" : "rgba(0,0,0,0.22)"};
+        color:${disabled ? LC.textDim : active ? LC.secondary : LC.text};">
+      ${active ? "* " : ""}${label}
+    </button>`;
+  };
+  const damageOptions = [2, 1].map(n =>
+    `<option value="${n}" ${state.damageBonus === n ? "selected" : ""}>+${n} Damage</option>`
+  ).join("");
+  const piercingOptions = SCAN_PIERCING_PERCENTS.map(n =>
+    `<option value="${n}" ${state.piercingPercent === n ? "selected" : ""}>${n}% Resistance ignored</option>`
+  ).join("");
+  const status = state.consumed
+    ? `<div style="margin-top:6px;padding:4px 7px;border-left:3px solid ${LC.textDim};
+        background:rgba(255,255,255,0.04);font-size:10px;color:${LC.textDim};font-family:${LC.font};">
+        Consumed by ${escapeHtml(state.consumedBy ?? "the next attack")}${state.consumedOnHit === false ? " (miss)" : ""}.
+      </div>`
+    : `<div style="margin-top:6px;padding:4px 7px;border-left:3px solid ${LC.primary};
+        background:rgba(255,153,0,0.08);font-size:10px;color:${LC.text};font-family:${LC.font};">
+        Pending effect: <strong style="color:${LC.tertiary};">${escapeHtml(scanForWeaknessEffectLabel(state))}</strong>.
+        Applies to the next attack from ${escapeHtml(state.sourceName)} against ${escapeHtml(state.targetName)}.
+      </div>`;
+
+  return lcarsCard(
+    state.consumed ? "Scan for Weakness - Consumed" : "Scan for Weakness - Active",
+    state.consumed ? LC.textDim : LC.primary,
+    `<div style="font-size:11px;font-weight:700;color:${LC.tertiary};
+        margin-bottom:5px;font-family:${LC.font};">
+      ${escapeHtml(state.sourceName)} -> ${escapeHtml(state.targetName)}
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:6px;" class="sta2e-scan-weakness-controls">
+      ${effectButton("damage", `+${state.damageBonus} Damage`, "Apply bonus damage")}
+      ${effectButton("piercing", `Piercing ${state.piercingPercent}%`, "Ignore part or all of Resistance")}
+      ${effectButton("both", "Both", "Requires GM-enabled trait setup")}
+    </div>
+    <div class="sta2e-scan-weakness-gm" style="display:flex;flex-direction:column;gap:5px;margin-top:5px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:${LC.text};font-family:${LC.font};">
+        <input class="sta2e-scan-trait-mode" type="checkbox" data-payload="${encoded}"
+          ${state.traitMode ? "checked" : ""} ${state.consumed ? "disabled" : ""}
+          style="accent-color:${LC.secondary};"/>
+        Trait setup unlocks Both
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+        <select class="sta2e-scan-damage-bonus" data-payload="${encoded}" ${state.consumed ? "disabled" : ""}
+          style="min-width:0;padding:3px 5px;background:${LC.bg};border:1px solid ${LC.border};
+            border-radius:2px;color:${LC.text};font-family:${LC.font};font-size:10px;">
+          ${damageOptions}
+        </select>
+        <select class="sta2e-scan-piercing-percent" data-payload="${encoded}" ${state.consumed ? "disabled" : ""}
+          style="min-width:0;padding:3px 5px;background:${LC.bg};border:1px solid ${LC.border};
+            border-radius:2px;color:${LC.text};font-family:${LC.font};font-size:10px;">
+          ${piercingOptions}
+        </select>
+      </div>
+      <button class="sta2e-scan-retarget" data-payload="${encoded}" ${state.consumed ? "disabled" : ""}
+        style="padding:4px 6px;border:1px solid ${LC.border};border-radius:2px;
+          background:rgba(255,153,0,0.08);color:${LC.primary};font-size:10px;
+          font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
+          font-family:${LC.font};">
+        Apply to Selected Target
+      </button>
+    </div>
+    ${status}`
+  );
+}
+
+async function writeScanForWeaknessStateToTarget(state) {
+  const targetToken = getTokenById(state.targetTokenId);
+  if (!targetToken) return false;
+  await addCondition(targetToken, "scan-for-weakness");
+  await doc(targetToken).setFlag(MODULE, "scanForWeaknessSource", state.sourceName);
+  await doc(targetToken).setFlag(MODULE, "scanForWeaknessSourceId", state.sourceTokenId);
+  await doc(targetToken).setFlag(MODULE, "scanForWeaknessPending", state);
+  return true;
+}
+
+export async function updateScanForWeaknessCard(message, updates = {}, requesterUserId = game.userId) {
+  if (!message) return false;
+  const flagged = normalizeScanForWeaknessState(message.getFlag(MODULE, "scanForWeakness") ?? {});
+  const targetToken = getTokenById(flagged.targetTokenId);
+  const tokenState = normalizeScanForWeaknessState(
+    targetToken ? (doc(targetToken).getFlag(MODULE, "scanForWeaknessPending") ?? flagged) : flagged
+  );
+  const current = normalizeScanForWeaknessState({ ...flagged, ...tokenState, messageId: message.id });
+  const requester = game.users.get(requesterUserId);
+  const requesterIsGM = !!requester?.isGM;
+  if (!canUseScanForWeaknessState(current, requesterUserId)) return false;
+  if (current.consumed) return false;
+
+  let next = { ...current };
+  if (typeof updates.effect === "string" && ["damage", "piercing", "both"].includes(updates.effect)) {
+    next.effect = updates.effect === "both" && !next.traitMode ? "damage" : updates.effect;
+  }
+
+  if (requesterIsGM) {
+    if (Object.prototype.hasOwnProperty.call(updates, "traitMode")) next.traitMode = !!updates.traitMode;
+    if (Object.prototype.hasOwnProperty.call(updates, "damageBonus")) {
+      next.damageBonus = Number(updates.damageBonus) === 1 ? 1 : 2;
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, "piercingPercent")) {
+      const pct = Number(updates.piercingPercent);
+      next.piercingPercent = SCAN_PIERCING_PERCENTS.includes(pct) ? pct : next.piercingPercent;
+    }
+    if (updates.retargetTokenId) {
+      const newTarget = getTokenById(updates.retargetTokenId);
+      if (newTarget?.actor) {
+        const oldTarget = getTokenById(next.targetTokenId);
+        if (oldTarget && oldTarget.id !== newTarget.id) {
+          await removeCondition(oldTarget, "scan-for-weakness");
+          await doc(oldTarget).unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
+          await doc(oldTarget).unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+          await doc(oldTarget).unsetFlag(MODULE, "scanForWeaknessPending").catch(() => {});
+        }
+        next.targetTokenId = newTarget.id;
+        next.targetActorId = newTarget.actor.id;
+        next.targetName = newTarget.actor.name ?? newTarget.name ?? "target";
+      }
+    }
+  }
+
+  if (!next.traitMode && next.effect === "both") next.effect = "damage";
+  next = normalizeScanForWeaknessState(next);
+  await writeScanForWeaknessStateToTarget(next);
+  await message.update({
+    content: scanForWeaknessCardHtml(next),
+    [`flags.${MODULE}.scanForWeakness`]: next,
+    [`flags.${MODULE}.allowedUserIds`]: next.allowedUserIds,
+  }).catch(err => console.error("STA2e Toolkit | Scan for Weakness card update failed:", err));
+  return true;
+}
+
+async function consumeScanForWeaknessState(targetToken, rawState, { hit = false, attackerName = "Ship" } = {}) {
+  const state = normalizeScanForWeaknessState(rawState);
+  const consumed = normalizeScanForWeaknessState({
+    ...state,
+    consumed: true,
+    consumedBy: attackerName,
+    consumedOnHit: !!hit,
+  });
+  await removeCondition(targetToken, "scan-for-weakness");
+  await doc(targetToken).unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
+  await doc(targetToken).unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+  await doc(targetToken).unsetFlag(MODULE, "scanForWeaknessPending").catch(() => {});
+
+  const messages = game.messages?.contents ?? Array.from(game.messages ?? []);
+  const related = messages.filter(m => {
+    const mState = normalizeScanForWeaknessState(m.getFlag?.(MODULE, "scanForWeakness") ?? {});
+    return m.getFlag?.(MODULE, "scanForWeaknessCard")
+      && !mState.consumed
+      && mState.sourceTokenId === state.sourceTokenId
+      && mState.targetTokenId === state.targetTokenId;
+  });
+  for (const message of related) {
+    await message.update({
+      content: scanForWeaknessCardHtml(consumed),
+      [`flags.${MODULE}.scanForWeakness`]: consumed,
+    }).catch(err => console.error("STA2e Toolkit | Scan for Weakness consume update failed:", err));
+  }
+}
+
 /**
  * Apply the Scan for Weakness condition to a target token.
  * Shared between the Combat HUD path and the character-sheet combat task panel path
@@ -14837,15 +15168,14 @@ export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer
  * @param {string} sourceName   - Override display name (defaults to sourceToken's actor name)
  * @returns {string} LCARS chat card HTML to post
  */
-export async function applyScanForWeakness(sourceToken, targetToken, sourceName) {
+export async function applyScanForWeakness(sourceToken, targetToken, sourceName, options = {}) {
   const targetName    = targetToken?.actor?.name ?? "target";
   const displayName   = sourceName ?? sourceToken?.actor?.name ?? "Unknown";
   const sourceTokenId = doc(sourceToken)?.id ?? null;
+  const pending = scanForWeaknessStateFromTokens(sourceToken, targetToken, displayName, options);
 
   if (game.user.isGM) {
-    await addCondition(targetToken, "scan-for-weakness");
-    await doc(targetToken).setFlag(MODULE, "scanForWeaknessSource",   displayName);
-    await doc(targetToken).setFlag(MODULE, "scanForWeaknessSourceId", sourceTokenId);
+    await writeScanForWeaknessStateToTarget(pending);
     try { await fireScanForWeakness(sourceToken, targetToken); } catch {}
   } else {
     game.socket.emit("module.sta2e-toolkit", {
@@ -14853,8 +15183,20 @@ export async function applyScanForWeakness(sourceToken, targetToken, sourceName)
       sourceTokenId,
       targetTokenId: doc(targetToken)?.id ?? null,
       sourceName:    displayName,
+      rollOwnerUserId: pending.rollOwnerUserId,
     });
   }
+
+  return {
+    content: scanForWeaknessCardHtml(pending),
+    flags: {
+      [MODULE]: {
+        scanForWeaknessCard: true,
+        scanForWeakness: pending,
+        allowedUserIds: pending.allowedUserIds,
+      },
+    },
+  };
 
   return lcarsCard(
     "Scan for Weakness — Active",
@@ -15689,14 +16031,19 @@ export async function applyRamForOfficer(shipToken, targetToken, passed, momentu
 
   const damageRow = (t, label, color, { hideApply = false } = {}) => {
     const shieldAfter = Math.max(0, t.currentShields - t.finalDamage);
-    const shieldColor = shieldAfter / t.maxShields > 0.5  ? LC.green
-                      : shieldAfter / t.maxShields > 0.25 ? LC.yellow : LC.red;
+    const pctBefore = t.maxShields > 0 ? t.currentShields / t.maxShields : 1;
+    const pctAfter  = t.maxShields > 0 ? shieldAfter / t.maxShields : 0;
+    const crossed50 = pctBefore > 0.50 && pctAfter <= 0.50;
+    const crossed25 = pctBefore > 0.25 && pctAfter <= 0.25;
+    const shieldColor = pctAfter > 0.5  ? LC.green
+                      : pctAfter > 0.25 ? LC.yellow : LC.red;
     const warnings = [];
     if (t.currentShields === 0)                                         warnings.push("💥 BREACH — shields already down");
     else if (shieldAfter === 0)                                         warnings.push("💥 BREACH — shields reduced to 0");
-    else if (shieldAfter / t.maxShields < 0.25 && t.shaken)            warnings.push("💥 BREACH — punched through (already shaken)");
-    else if (shieldAfter / t.maxShields < 0.25)                        warnings.push("⚠️ SHAKEN — shields below 25%");
-    else if (shieldAfter / t.maxShields < 0.5)                         warnings.push("⚠️ SHAKEN — shields below 50%");
+    else if (crossed25 && (t.shaken || crossed50))                     warnings.push("💥 BREACH — punched through at 25%");
+    else if (crossed50 && t.shaken)                                    warnings.push("💥 BREACH — punched through at 50%");
+    else if (crossed25)                                                warnings.push("⚠️ SHAKEN — shields at or below 25%");
+    else if (crossed50)                                                warnings.push("⚠️ SHAKEN — shields at or below 50%");
     return `
       <div style="margin-bottom:8px;padding:6px;
         background:rgba(255,51,51,0.05);border:1px solid ${LC.borderDim};border-radius:2px;">
@@ -17495,6 +17842,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           name:      weapon.name,
           weaponId:  weapon.id ?? null,
           shipActorId: shipActor.id ?? null,
+          shipTokenId: tokenObj?.id ?? shipTokenId ?? null,
           isTorpedo,
           isArray:   modeInfo.isArray,
           isSalvo:   modeInfo.isSalvo,
@@ -17547,8 +17895,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         } else if (taskKey === "scan-for-weakness") {
           if (!passed) return;
           if (!targetToken) { ui.notifications.warn("Select a target token for Scan for Weakness."); return; }
-          const cardHtml = await applyScanForWeakness(tokenObj, targetToken, tokenObj?.name ?? shipActor.name);
-          ChatMessage.create({ content: cardHtml, speaker: ChatMessage.getSpeaker({ token: tokenObj }) });
+          const cardData = await applyScanForWeakness(tokenObj, targetToken, tokenObj?.name ?? shipActor.name);
+          ChatMessage.create({ ...cardData, speaker: ChatMessage.getSpeaker({ token: tokenObj }) });
 
         } else if (["regen-shields","regain-power","reroute-power","damage-control","transport"].includes(taskKey)) {
           await handleOfficerTaskResult(taskKey, shipActor, tokenObj, officerActorObj,
@@ -18663,10 +19011,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             : _weaponActor?.items.find(i => i.type === "starshipweapon2e" && i.name === weaponContext.name);
           if (weapon) {
             const calibrateWeaponsBonus = hasCalibrateWeapons ? 1 : 0;
-            // Use ship token — sheet path resolves by shipActorId; HUD path tokenObj is already ship token
-            const _weaponTokenObj = weaponContext.shipActorId
-              ? canvas.tokens?.placeables.find(t => t.actor?.id === weaponContext.shipActorId) ?? tokenObj
-              : tokenObj;
+            // Resolve the exact firing ship token; never guess when multiple tokens share the actor.
+            const _weaponTokenObj = CombatHUD._resolveShipWeaponSourceToken(weaponContext, tokenObj);
+            if (!_weaponTokenObj) return;
+            weaponContext.shipTokenId = _weaponTokenObj.id;
             // Floating momentum = the unbankable overflow from createTracker.
             const _shipFloating = _trackerFloat;
             // Andorian Intense: +1 bonus mom per d20 purchased by adding Threat.
@@ -18698,9 +19046,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             });
             // Clear calibrate weapons flag (GM only)
             if (calibrateWeaponsBonus && game.user.isGM) {
-              const _flagDoc = weaponContext.shipActorId
-                ? canvas.tokens?.placeables.find(t => t.actor?.id === weaponContext.shipActorId)?.document
-                : tokenDoc;
+              const _flagDoc = _weaponTokenObj?.document ?? tokenDoc;
               _flagDoc?.unsetFlag("sta2e-toolkit", "calibrateWeapons").catch(err =>
                 console.warn("STA2e Toolkit | clearCalibrateWeapons error:", err)
               );
@@ -19281,6 +19627,74 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       }
     });
   });
+
+  if (toolkitFlags.scanForWeaknessCard) {
+    const state = normalizeScanForWeaknessState(toolkitFlags.scanForWeakness ?? {});
+    const canUse = canUseScanForWeaknessState(state);
+    const sendUpdate = async (updates) => {
+      if (!canUse || state.consumed) return;
+      if (game.user.isGM) {
+        await updateScanForWeaknessCard(message, updates, game.userId);
+      } else {
+        game.socket.emit("module.sta2e-toolkit", {
+          action: "updateScanForWeaknessCard",
+          messageId: message.id,
+          requesterUserId: game.userId,
+          updates,
+        });
+      }
+    };
+
+    if (!canUse || state.consumed) {
+      html.querySelectorAll(".sta2e-scan-weakness-controls, .sta2e-scan-weakness-gm")
+        .forEach(el => {
+          if (state.consumed) el.querySelectorAll?.("button,input,select").forEach(ctrl => ctrl.disabled = true);
+          else el.remove();
+        });
+    } else {
+      html.querySelectorAll(".sta2e-scan-weakness-effect").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await sendUpdate({ effect: btn.dataset.effect });
+        });
+      });
+
+      if (!game.user.isGM) {
+        html.querySelectorAll(".sta2e-scan-weakness-gm").forEach(el => el.remove());
+      } else {
+        html.querySelectorAll(".sta2e-scan-trait-mode").forEach(input => {
+          input.addEventListener("change", async () => {
+            await sendUpdate({ traitMode: !!input.checked });
+          });
+          input.addEventListener("mousedown", e => e.stopPropagation());
+          input.addEventListener("click", e => e.stopPropagation());
+        });
+        html.querySelectorAll(".sta2e-scan-damage-bonus").forEach(select => {
+          select.addEventListener("change", async () => {
+            await sendUpdate({ damageBonus: Number(select.value) || 2 });
+          });
+          select.addEventListener("mousedown", e => e.stopPropagation());
+          select.addEventListener("click", e => e.stopPropagation());
+        });
+        html.querySelectorAll(".sta2e-scan-piercing-percent").forEach(select => {
+          select.addEventListener("change", async () => {
+            await sendUpdate({ piercingPercent: Number(select.value) || 100 });
+          });
+          select.addEventListener("mousedown", e => e.stopPropagation());
+          select.addEventListener("click", e => e.stopPropagation());
+        });
+        html.querySelectorAll(".sta2e-scan-retarget").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const selected = Array.from(game.user.targets ?? [])[0] ?? null;
+            if (!selected) {
+              ui.notifications.warn("Select a ship target to apply this Scan for Weakness card.");
+              return;
+            }
+            await sendUpdate({ retargetTokenId: selected.id });
+          });
+        });
+      }
+    }
+  }
 
   if (!game.user.isGM) return;
 

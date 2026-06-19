@@ -16,7 +16,7 @@ import { triggerEngineTrailForMovement } from "./engine-trail-vfx.js";
 import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
-import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination } from "./combat-hud.js";
+import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination } from "./combat-hud.js";
 import { buildWeaponContext, refreshTorpedoSpriteCache } from "./weapon-configs.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
@@ -1126,13 +1126,19 @@ Hooks.once("ready", async () => {
 
     else if (msg.action === "applyScanForWeakness" && _isResponsibleGM()) {
       // Player confirmed a Scan for Weakness roll — apply conditions/flags to the target token.
-      const { sourceTokenId, targetTokenId, sourceName } = msg;
+      const { sourceTokenId, targetTokenId, sourceName, rollOwnerUserId } = msg;
       const sourceToken = canvas.tokens.get(sourceTokenId);
       const targetToken = canvas.tokens.get(targetTokenId);
       if (!targetToken) return;
       // Runs the GM branch of applyScanForWeakness; returned card HTML is discarded
       // (the player already created the ChatMessage on their client)
-      await applyScanForWeakness(sourceToken, targetToken, sourceName);
+      await applyScanForWeakness(sourceToken, targetToken, sourceName, { rollOwnerUserId });
+    }
+
+    else if (msg.action === "updateScanForWeaknessCard" && _isResponsibleGM()) {
+      const message = msg.messageId ? game.messages.get(msg.messageId) : null;
+      if (!message) return;
+      await updateScanForWeaknessCard(message, msg.updates ?? {}, msg.requesterUserId);
     }
 
     else if (msg.action === "runImpulseEngageCard" && _isResponsibleGM()) {
@@ -3032,11 +3038,11 @@ function _applySheetRollerOverride(app, html) {
               ui.notifications.warn("STA2e Toolkit: Target ship not on canvas — scan not applied.");
               return;
             }
-            const cardHtml = await applyScanForWeakness(
+            const cardData = await applyScanForWeakness(
               shipToken, targetToken, combatTaskContext.combatShip.label
             );
             ChatMessage.create({
-              content:  cardHtml,
+              ...cardData,
               speaker:  ChatMessage.getSpeaker({ token: shipToken }),
             });
 

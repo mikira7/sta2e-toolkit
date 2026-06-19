@@ -759,7 +759,7 @@ export function getWeaponConfig(item) {
  * Build a weapon context object for use with openPlayerRoller / openNpcRoller.
  * Extracts the name, torpedo flag, damage, and quality string from a weapon item.
  * @param {Item} weapon - A starshipweapon2e item
- * @returns {{ name: string, weaponId: string|null, shipActorId: string|null, isTorpedo: boolean, damage: number, qualities: string }}
+ * @returns {{ name: string, weaponId: string|null, shipActorId: string|null, shipTokenId: string|null, isTorpedo: boolean, damage: number, qualities: string }}
  */
 export function buildWeaponContext(weapon) {
   const config    = getWeaponConfig(weapon);
@@ -784,6 +784,7 @@ export function buildWeaponContext(weapon) {
     name:      weapon.name,
     weaponId:  weapon.id ?? null,
     shipActorId: weapon.parent?.id ?? null,
+    shipTokenId: null,
     isTorpedo,
     isArray,
     isSalvo,
