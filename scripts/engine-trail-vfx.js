@@ -10,9 +10,8 @@
  * streak). The trail is a redrawn ribbon — a polyline through the recent path
  * of the emitter point — not loose particles, so it reads as a continuous line.
  *
- * A short move fires the impulse trail; a long move (>= the per-ship warp
- * threshold, in grid squares) fires the warp streak. See the foundry-vfx skill
- * for the PIXI v8 patterns this builds on.
+ * The action handlers decide whether an impulse or warp trail should fire.
+ * See the foundry-vfx skill for the PIXI v8 patterns this builds on.
  */
 
 import {
@@ -107,6 +106,8 @@ function _degToRad(deg) {
  * @param {object} [opts.settings]    Full engineTrail settings object (normalized or raw).
  * @param {object[]} [opts.emitters]  Emitter anchors; defaults to the saved ones for this kind.
  * @param {number} [opts.emitDuration] How long to keep emitting, ms.
+ * @param {Function} [opts.sampleToken] Optional virtual token sampler for scripted action paths.
+ * @param {boolean} [opts.drift] Whether old nodes drift along emitter facing; defaults true.
  */
 export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   const token = _resolveToken(tokenOrDoc);
@@ -134,6 +135,7 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   const width = Math.max(1, mode.width);
   const peakAlpha = Math.max(0, Math.min(1, mode.alpha));
   const emitDuration = Math.max(120, opts.emitDuration ?? 700);
+  const drift = opts.drift !== false;
   const maxNodes = 64;
   const nodeInterval = Math.max(8, life / maxNodes);           // even node spacing along the line
 
@@ -152,6 +154,7 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
 
   const startedAt = performance.now();
   let prevNow = startedAt;
+  let forceStop = false;
 
   const cleanup = () => {
     try { canvas.app.ticker.remove(tick); } catch { /* no-op */ }
@@ -166,14 +169,17 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
     prevNow = now;
     const dtSec = dt / 1000;
     const elapsed = now - startedAt;
-    const emitting = elapsed < emitDuration;
+    const emitting = !forceStop && elapsed < emitDuration;
 
     let liveNodes = 0;
     for (const source of sources) {
-      const head = shipEngineEmitterToCanvasPoint(token, source.anchor);
-      const angle = _degToRad(shipEngineFacingToCanvasDeg(token, source.anchor.facingDeg));
-      const vx = Math.cos(angle) * speed;
-      const vy = Math.sin(angle) * speed;
+      const sampleToken = typeof opts.sampleToken === "function"
+        ? (opts.sampleToken(source.anchor, elapsed, token) ?? token)
+        : token;
+      const head = shipEngineEmitterToCanvasPoint(sampleToken, source.anchor);
+      const angle = _degToRad(shipEngineFacingToCanvasDeg(sampleToken, source.anchor.facingDeg));
+      const vx = drift ? Math.cos(angle) * speed : 0;
+      const vy = drift ? Math.sin(angle) * speed : 0;
 
       // Drop evenly spaced nodes at the live emitter point while emitting.
       if (emitting && head) {
@@ -223,38 +229,10 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   canvas.app.ticker.add(tick);
   // Hard safety stop in case the ticker callback is starved.
   setTimeout(cleanup, emitDuration + life + 800);
-}
-
-/**
- * Decide impulse vs warp from move distance and fire the trail. Runs on every
- * client (token animation plays everywhere), so no socket broadcast is needed.
- */
-export function triggerEngineTrailForMovement(tokenOrDoc, fromCenter, toCenter) {
-  const token = _resolveToken(tokenOrDoc);
-  if (!token) return;
-  const settings = getShipEngineTrailSettings(token);
-  if (!settings?.enabled) return;
-
-  const gridSize = canvas?.grid?.size ?? 100;
-  const dx = (toCenter?.x ?? 0) - (fromCenter?.x ?? 0);
-  const dy = (toCenter?.y ?? 0) - (fromCenter?.y ?? 0);
-  const distPx = Math.hypot(dx, dy);
-  if (distPx < gridSize * 0.15) return; // ignore tiny nudges
-
-  const distSquares = distPx / gridSize;
-  const kind = distSquares >= settings.warpThreshold ? "warp" : "impulse";
-
-  // No emitters for this kind? Fall back to the other so a move still reads.
-  let useKind = kind;
-  if (!getShipEngineEmitters(token, kind).length) {
-    const other = kind === "warp" ? "impulse" : "warp";
-    if (getShipEngineEmitters(token, other).length) useKind = other;
-    else return;
-  }
-
-  // Emission time scales with the distance travelled, clamped to a sane range.
-  const emitDuration = Math.max(300, Math.min(2600, distSquares * 130));
-  spawnEngineTrail(token, useKind, { settings, emitDuration });
+  return {
+    stop() { forceStop = true; },
+    cleanup,
+  };
 }
 
 /**

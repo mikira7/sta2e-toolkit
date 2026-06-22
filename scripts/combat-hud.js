@@ -54,6 +54,7 @@ import {
   OFFICER_DISCIPLINES,
 } from "./crew-manifest.js";
 import { getLcTokens }  from "./lcars-theme.js";
+import { spawnEngineTrail } from "./engine-trail-vfx.js";
 
 import {
   COMBAT_CONDITIONS,
@@ -113,9 +114,20 @@ function _shipWeaponBlocksSalvo(weapon, config = null) {
     && config?.salvo === true;
 }
 
-function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null) {
+function _shipAttackPatternDifficultyReduction(targetToken) {
+  if (!targetToken || !hasCondition(targetToken, "attack-pattern")) return 0;
+  const targetActor = targetToken.actor ?? doc(targetToken)?.actor ?? null;
+  if (!targetActor) return 1;
+  const helmActor = getStationOfficers(targetActor, "helm")[0] ?? null;
+  return hasAttackRun(helmActor) ? 0 : 1;
+}
+
+function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null, options = {}) {
   const base = baseDifficulty ?? (_shipWeaponIsTorpedo(weapon, config) ? 3 : 2);
-  return base + (_weaponQualityFlag(weapon, "cumbersome") ? 1 : 0);
+  const attackPatternReduction = Number(options.attackPatternReduction
+    ?? _shipAttackPatternDifficultyReduction(options.defenderToken ?? options.targetToken)
+    ?? 0) || 0;
+  return Math.max(0, base + (_weaponQualityFlag(weapon, "cumbersome") ? 1 : 0) - attackPatternReduction);
 }
 
 function _shipWeaponConfigForRules(weapon, config = getWeaponConfig(weapon)) {
@@ -125,6 +137,11 @@ function _shipWeaponConfigForRules(weapon, config = getWeaponConfig(weapon)) {
     next.nativeVfxKey = next.nativeVfxKey.replace("-salvo", "");
   }
   return next;
+}
+
+function _playerTorpedoThreatAward(weapon, config = getWeaponConfig(weapon)) {
+  if (!_shipWeaponIsTorpedo(weapon, config)) return 0;
+  return config?.salvo === true && !_shipWeaponBlocksSalvo(weapon, config) ? 3 : 1;
 }
 
 // Helper: extract R/G/B channel from a 6-digit hex color string (e.g. "#ff3333")
@@ -1431,7 +1448,7 @@ export const BRIDGE_STATIONS = [
       {
         key:     null,
         label:   "Fire",
-        tooltip: "Select a single energy weapon or torpedo weapon, choose a target, and make an Attack (p.306). Use the weapon buttons above to fire. If attempting a torpedo attack, add 1 Threat.",
+        tooltip: "Select a single energy weapon or torpedo weapon, choose a target, and make an Attack (p.306). Use the weapon buttons above to fire. Player torpedo attacks add 1 Threat; torpedo salvos add 3 Threat.",
         isInfo:  true,
       },
       {
@@ -1704,7 +1721,7 @@ export async function checkOpposedTaskForTokens(weaponName, attackerToken, targe
     const defLabel   = defMode === "evasive-action" ? "Evasive Action" : defMode === "defensive-fire" ? "Defensive Fire" : "Cover";
     const defIcon    = defMode === "evasive-action" ? "↗️" : defMode === "defensive-fire" ? "🛡️" : "🪨";
     const defStation = defMode === "evasive-action" ? "Helm" : "Tactical";
-    const defAttr    = defMode === "evasive-action" ? "daring" : "control";
+    const defAttr    = "daring";
     const defDisc    = defMode === "evasive-action" ? "conn"   : "security";
 
     return { proceed: "pending", defMode, defenderTokenId: target.id };
@@ -3015,6 +3032,7 @@ export class CombatHUD {
                                     : opposed.defMode === "defensive-fire"  ? "Defensive Fire" : "Cover";
 
             const _defenderToken = canvas.tokens?.get(opposed.defenderTokenId);
+            const _attackPatternPenalty = _shipAttackPatternDifficultyReduction(_defenderToken);
             const _starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
             if (_starter && _defenderToken?.actor) {
               await _starter({
@@ -3033,6 +3051,7 @@ export class CombatHUD {
                 attackerOfficer: _tacticalOfficer,
                 attackerStationId: "tactical",
                 cumbersomePenalty: _weaponQualityFlag(weapon, "cumbersome") ? 1 : 0,
+                attackPatternPenalty: _attackPatternPenalty,
               });
               return;
             }
@@ -3045,6 +3064,7 @@ export class CombatHUD {
               isNpcAttacker:   isNpcShip,
               defMode:         opposed.defMode,
               weaponName:      weapon.name,
+              attackPatternPenalty: _attackPatternPenalty,
               rollerOpts: {
                 hasTargetingSolution: _hasTS,
                 hasRapidFireTorpedo:  _hasRFT && _isTorpedo,
@@ -3067,7 +3087,8 @@ export class CombatHUD {
           if (!opposed.proceed) return; // unexpected cancel path
 
           // Store opposed context for the roller and hit/miss flow
-          this._opposedDifficulty  = _shipAttackDifficulty(weapon, config, opposed.difficulty);
+          const _primaryShipTarget = Array.from(game.user.targets ?? [])[0] ?? null;
+          this._opposedDifficulty  = _shipAttackDifficulty(weapon, config, opposed.difficulty, { targetToken: _primaryShipTarget });
           this._opposedDefenseType = opposed.defenseType;
           this._defenderSuccesses  = opposed.defenderSuccesses;
 
@@ -3178,7 +3199,7 @@ export class CombatHUD {
                 opposedDifficulty:    this._opposedDifficulty,
                 opposedDefenseType:   this._opposedDefenseType,
                 defenderSuccesses:    this._defenderSuccesses,
-                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config) : null,
+                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: Array.from(game.user.targets ?? [])[0] ?? null }) : null,
                 hasAttackPattern,
                 helmOfficer:          helmOfficerStats,
                 attackRunActive,
@@ -3279,7 +3300,7 @@ export class CombatHUD {
                 opposedDifficulty:    this._opposedDifficulty,
                 opposedDefenseType:   this._opposedDefenseType,
                 defenderSuccesses:    this._defenderSuccesses,
-                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config) : null,
+                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: Array.from(game.user.targets ?? [])[0] ?? null }) : null,
                 hasAttackPattern,
                 helmOfficer:          helmOfficerStats,
                 attackRunActive,
@@ -3917,6 +3938,10 @@ export class CombatHUD {
     return null;
   }
 
+  static getAttackPatternDifficultyReduction(targetToken) {
+    return _shipAttackPatternDifficultyReduction(targetToken);
+  }
+
   static _shipTokenMatchesActor(token, actorId) {
     if (!token || !actorId) return false;
     return token.actor?.id === actorId || token.document?.actorId === actorId;
@@ -4251,6 +4276,12 @@ export class CombatHUD {
     });
 
     const config = _shipWeaponConfigForRules(weapon, getWeaponConfig(weapon));
+    const torpedoThreatAward = CombatHUD.isNpcShip(actor)
+      ? 0
+      : _playerTorpedoThreatAward(weapon, config);
+    if (torpedoThreatAward > 0) {
+      await CombatHUD._applyToPool("threat", torpedoThreatAward, token, { source: "torpedoAttack" });
+    }
 
     // ── Area / Spread mode — pre-declared in HUD before the roll ─────────
     // spreadDeclared is kept for backward-compat (counterattack path).
@@ -9009,6 +9040,7 @@ export class CombatHUD {
                         : opposed.defMode === "defensive-fire"  ? "Defensive Fire" : "Cover";
 
         const _defenderToken = canvas.tokens?.get(opposed.defenderTokenId);
+        const _attackPatternPenalty = _shipAttackPatternDifficultyReduction(_defenderToken);
         const _starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
         if (_starter && _defenderToken?.actor) {
           await _starter({
@@ -9019,6 +9051,7 @@ export class CombatHUD {
             defenderTokenId: _defenderToken.id,
             defenseType: opposed.defMode,
             overridePenalty: 1,
+            attackPatternPenalty: _attackPatternPenalty,
             weaponContext: weaponCtx,
             hasTargetingSolution: _hasTS,
             hasRapidFireTorpedo: _hasRFT && isTorpedo,
@@ -9037,6 +9070,7 @@ export class CombatHUD {
           defMode:         opposed.defMode,
           weaponName:      weapon.name,
           overridePenalty: true,   // flag so GM handler adds +1 to defender's successes
+          attackPatternPenalty: _attackPatternPenalty,
           rollerOpts: {
             hasTargetingSolution: _hasTS,
             hasRapidFireTorpedo:  _hasRFT && isTorpedo,
@@ -9056,7 +9090,11 @@ export class CombatHUD {
 
       const hasTS  = CombatHUD.hasTargetingSolution(token);
       const hasRFT = hasRapidFireTorpedoLauncher(actor);
-      const baseOppDiff = (opposed.difficulty ?? 0) + 1;  // +1 override on opposed difficulty too
+      const targetToken = Array.from(game.user.targets ?? [])[0] ?? null;
+      const baseOppDiff = _shipAttackDifficulty(weapon, getWeaponConfig(weapon), opposed.difficulty, {
+        targetToken,
+        attackPatternReduction: _shipAttackPatternDifficultyReduction(targetToken),
+      }) + 1;  // +1 override on opposed difficulty too
 
       const rollerOpts = {
         hasTargetingSolution: hasTS,
@@ -9068,7 +9106,7 @@ export class CombatHUD {
         opposedDifficulty:    opposed.difficulty !== null ? baseOppDiff : null,
         opposedDefenseType:   opposed.defenseType ?? null,
         defenderSuccesses:    opposed.defenderSuccesses ?? null,
-        difficulty:           opposed.difficulty !== null ? null : 3,   // base 2 +1 override
+        difficulty:           opposed.difficulty !== null ? null : _shipAttackDifficulty(weapon, getWeaponConfig(weapon), null, { targetToken }) + 1,
         taskLabel:            `Override — Fire ${weapon.name}`,
         taskContext:          overrideContext,
       };
@@ -11271,8 +11309,9 @@ export class CombatHUD {
    * settings as the shared source of truth. Momentum still posts an overflow
    * card for any amount above the cap.
    */
-  static async _applyToPool(pool, amount, speakerToken = null) {
+  static async _applyToPool(pool, amount, speakerToken = null, options = {}) {
     if (amount <= 0) return;
+    const source = options.source ?? "combat";
     try {
       if (pool === "momentum" || pool === "alliedNpcMomentum") {
         const poolLabel = pool === "alliedNpcMomentum" ? "Allied NPC Momentum" : "Momentum";
@@ -11282,7 +11321,7 @@ export class CombatHUD {
         const overflow = amount - canAdd;
 
         if (canAdd > 0) {
-          const updated = await writePool(pool, current + canAdd, { source: "combat", token: speakerToken });
+          const updated = await writePool(pool, current + canAdd, { source, token: speakerToken });
           if (!updated) ui.notifications?.warn(`STA2e Toolkit: ${poolLabel} pool update was blocked by permissions.`);
         }
 
@@ -11317,7 +11356,7 @@ export class CombatHUD {
       } else {
         // Threat — no cap enforced here; LimitOf returns 99
         const current = readPool("threat");
-        const updated = await writePool("threat", current + amount, { source: "combat", token: speakerToken });
+        const updated = await writePool("threat", current + amount, { source, token: speakerToken });
         if (!updated) ui.notifications?.warn("STA2e Toolkit: Threat pool update was blocked by STA permissions.");
       }
     } catch(e) {
@@ -14878,6 +14917,7 @@ export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer
   const hasTS           = CombatHUD.hasTargetingSolution(shipToken);
   const hasRFT          = hasRapidFireTorpedoLauncher(shipActor) && weaponCtx.isTorpedo;
   const hasAP           = shipToken ? hasCondition(shipToken, "attack-pattern") : false;
+  const targetToken     = Array.from(game.user.targets ?? [])[0] ?? null;
   const helmActors      = getStationOfficers(shipActor, "helm");
   const helmActor       = helmActors[0] ?? null;
   const helmOfficer     = helmActor ? readOfficerStats(helmActor) : null;
@@ -14887,7 +14927,7 @@ export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer
     stationId:            "tactical",
     officer,
     weaponContext:        weaponCtx,
-    difficulty:           _shipAttackDifficulty(weapon, getWeaponConfig(weapon)),
+    difficulty:           _shipAttackDifficulty(weapon, getWeaponConfig(weapon), null, { targetToken }),
     hasTargetingSolution: hasTS,
     hasRapidFireTorpedo:  hasRFT,
     hasAttackPattern:     hasAP,
@@ -17273,6 +17313,35 @@ function normalizeShipDestination(tok, point) {
   };
 }
 
+const ACTION_ENGINE_TRAIL_MAX_MS = 8000;
+const ACTION_TRAIL_STEP_MS = 24;
+const IMPULSE_BEZIER_STEP_MS = 10;
+
+function _clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+function _clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value) || 0));
+}
+
+function _canvasDistanceSquares(from, to) {
+  const gridSize = canvas?.grid?.size ?? 100;
+  const dx = (to?.x ?? 0) - (from?.x ?? 0);
+  const dy = (to?.y ?? 0) - (from?.y ?? 0);
+  return Math.hypot(dx, dy) / Math.max(1, gridSize);
+}
+
+function _distanceDurationMs(from, to, { base, perSquare, min, max }) {
+  const squares = _canvasDistanceSquares(from, to);
+  return Math.round(_clampNumber(base + squares * perSquare, min, max));
+}
+
+function _distanceTrailTailMs(from, to) {
+  const squares = _canvasDistanceSquares(from, to);
+  return Math.round(_clampNumber(squares * 45, 80, 450));
+}
+
 export async function runImpulseEngageCard(payload, destination) {
   const tok = getCardShipToken(payload);
   const impulseSound = game.settings.get("sta2e-toolkit", "sndImpulseEngage") ?? "";
@@ -17283,20 +17352,6 @@ export async function runImpulseEngageCard(payload, destination) {
   // Suppress per-frame zone log chat cards during the Bezier animation; one
   // card is posted manually after the final position update.
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
-
-  try {
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "glow", filterId: "impulseGlow",
-      outerStrength: 12, innerStrength: 4, color: 0xff3300,
-      quality: 0.5, padding: 10,
-      animated: { time: { active: true, speed: 0.02, animType: "move" } }
-    }, {
-      filterType: "bulgepinch", filterId: "impulseCharge",
-      padding: 20, strength: 0.1, radius: 150,
-      animated: { strength: { active: true, val1: 0.03, val2: 0.1, speed: 0.06, animType: "cosOscillation" } }
-    }]);
-  } catch(e) { console.warn("STA2e | impulse pre-glow:", e); }
-  await new Promise(r => setTimeout(r, 800));
 
   if (impulseSound && window.Sequence) {
     try { new window.Sequence().sound().file(impulseSound).volume(0.8).play(); } catch(e) {}
@@ -17312,29 +17367,46 @@ export async function runImpulseEngageCard(payload, destination) {
   const py   = my + (dx / dist) * arcAmount;
 
   const ease        = t => t * t * (3 - 2 * t);
-  const DURATION_MS = 700;
-  const STEP_MS     = 16;
+  const DURATION_MS = _distanceDurationMs(startPos, finalDestination, {
+    base: 520,
+    perSquare: 180,
+    min: 700,
+    max: 2800,
+  });
+  const STEP_MS     = IMPULSE_BEZIER_STEP_MS;
   const STEPS       = Math.round(DURATION_MS / STEP_MS);
 
-  for (let i = 1; i <= STEPS; i++) {
-    const raw = i / STEPS;
+  const sampleImpulsePath = (rawProgress) => {
+    const raw = _clamp01(rawProgress);
     const t   = ease(raw);
     const mt  = 1 - t;
-    const bx  = mt * mt * startPos.x + 2 * mt * t * px + t * t * finalDestination.x;
-    const by  = mt * mt * startPos.y + 2 * mt * t * py + t * t * finalDestination.y;
-
+    const x   = mt * mt * startPos.x + 2 * mt * t * px + t * t * finalDestination.x;
+    const y   = mt * mt * startPos.y + 2 * mt * t * py + t * t * finalDestination.y;
     const rt  = Math.max(0.01, Math.min(0.99, raw));
     const rmt = 1 - rt;
     const tdx = 2 * rmt * (px - startPos.x) + 2 * rt * (finalDestination.x - px);
     const tdy = 2 * rmt * (py - startPos.y) + 2 * rt * (finalDestination.y - py);
-    const tangentAngle = Math.atan2(tdy, tdx) * (180 / Math.PI) - 90;
+    const rotation = Math.atan2(tdy, tdx) * (180 / Math.PI) - 90;
+    return { x, y, rotation };
+  };
 
-    await tok.document.update({ x: bx, y: by, rotation: tangentAngle });
+  const trail = spawnEngineTrail(tok, "impulse", {
+    emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
+    drift: false,
+  });
+
+  for (let i = 1; i <= STEPS; i++) {
+    const nextProgress = i / STEPS;
+    const p = sampleImpulsePath(nextProgress);
+
+    await tok.document.update({ x: p.x, y: p.y, rotation: p.rotation });
     await new Promise(r => setTimeout(r, STEP_MS));
   }
 
   const finalAngle = Math.atan2(finalDestination.y - startPos.y, finalDestination.x - startPos.x) * (180 / Math.PI) - 90;
   await tok.document.update({ x: finalDestination.x, y: finalDestination.y, rotation: finalAngle });
+  await new Promise(r => setTimeout(r, _distanceTrailTailMs(startPos, finalDestination)));
+  trail?.stop?.();
 
   // Lift suppression and post a single zone movement log for the full move.
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
@@ -17343,17 +17415,6 @@ export async function runImpulseEngageCard(payload, destination) {
     { x: finalDestination.x, y: finalDestination.y }
   );
 
-  try {
-    await TokenMagic.deleteFilters(tok, "impulseGlow");
-    await TokenMagic.deleteFilters(tok, "impulseCharge");
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "glow", filterId: "impulseResidual",
-      outerStrength: 6, innerStrength: 2, color: 0xff3300,
-      quality: 0.5, padding: 10,
-      animated: { outerStrength: { active: true, val1: 6, val2: 0, loops: 1, loopDuration: 800 } }
-    }]);
-    setTimeout(() => { try { TokenMagic.deleteFilters(tok, "impulseResidual"); } catch {} }, 1000);
-  } catch(e) { console.warn("STA2e | impulse cleanup:", e); }
 }
 
 export async function runWarpEngageCard(payload, destination) {
@@ -17361,24 +17422,11 @@ export async function runWarpEngageCard(payload, destination) {
   const warpSound = game.settings.get("sta2e-toolkit", "sndWarpEngage") ?? "";
   const startPosition = { x: tok.x, y: tok.y };
   const finalDestination = normalizeShipDestination(tok, destination);
-
-  try {
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "glow", filterId: "warpGlow",
-      outerStrength: 15, innerStrength: 5, color: 0x00a6fb,
-      quality: 0.5, padding: 10,
-      animated: { time: { active: true, speed: 0.01, animType: "move" } }
-    }, {
-      filterType: "bulgepinch", filterId: "warpCharge",
-      padding: 30, strength: 0.15, radius: 200,
-      animated: { strength: { active: true, val1: 0.05, val2: 0.15, speed: 0.05, animType: "cosOscillation" } }
-    }]);
-  } catch(e) { console.warn("STA2e | warp pre-glow:", e); }
-  await new Promise(r => setTimeout(r, 1500));
+  let targetRotation = tok.document.rotation || 0;
 
   try {
     const angle = Math.atan2(finalDestination.y - startPosition.y, finalDestination.x - startPosition.x) * (180 / Math.PI);
-    const targetRotation = angle - 90;
+    targetRotation = angle - 90;
     const orig  = tok.document.rotation || 0;
     const delta = ((targetRotation - orig + 540) % 360) - 180;
     const steps = 15;
@@ -17390,10 +17438,6 @@ export async function runWarpEngageCard(payload, destination) {
   } catch(e) { console.warn("STA2e | warp rotate:", e); }
 
   try {
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "blur", filterId: "warpBlur", padding: 10, quality: 4, blur: 10,
-      animated: { blur: { active: true, val1: 0, val2: 20, speed: 0.1, animType: "ramp" } },
-    }]);
     if (window.Sequence) {
       new window.Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
       if (warpSound) new window.Sequence().sound().file(warpSound).volume(0.8).play();
@@ -17401,8 +17445,30 @@ export async function runWarpEngageCard(payload, destination) {
   } catch(e) { console.warn("STA2e | warp flash:", e); }
   await new Promise(r => setTimeout(r, 1000));
 
-  await tok.document.update({ alpha: 0 });
+  const trail = spawnEngineTrail(tok, "warp", {
+    emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
+    drift: false,
+  });
+  const warpTravelMs = _distanceDurationMs(startPosition, finalDestination, {
+    base: 700,
+    perSquare: 120,
+    min: 900,
+    max: 4200,
+  });
+  const warpSteps = Math.round(_clampNumber(warpTravelMs / ACTION_TRAIL_STEP_MS, 24, 120));
+  const warpStepMs = Math.max(16, Math.round(warpTravelMs / warpSteps));
+  for (let i = 1; i <= warpSteps; i++) {
+    const t = i / warpSteps;
+    await tok.document.update({
+      x: startPosition.x + (finalDestination.x - startPosition.x) * t,
+      y: startPosition.y + (finalDestination.y - startPosition.y) * t,
+      rotation: targetRotation,
+    });
+    await new Promise(r => setTimeout(r, warpStepMs));
+  }
   await tok.document.update({ x: finalDestination.x, y: finalDestination.y });
+  await new Promise(r => setTimeout(r, _distanceTrailTailMs(startPosition, finalDestination)));
+  trail?.stop?.();
 
   try {
     if (window.Sequence) {
@@ -17412,18 +17478,6 @@ export async function runWarpEngageCard(payload, destination) {
   await new Promise(r => setTimeout(r, 300));
   await tok.document.update({ alpha: 1 });
 
-  try {
-    await TokenMagic.deleteFilters(tok, "warpGlow");
-    await TokenMagic.deleteFilters(tok, "warpCharge");
-    await TokenMagic.deleteFilters(tok, "warpBlur");
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "glow", filterId: "warpResidualGlow",
-      outerStrength: 5, innerStrength: 2, color: 0x00a6fb,
-      quality: 0.5, padding: 10,
-      animated: { outerStrength: { active: true, val1: 5, val2: 0, loops: 1, loopDuration: 1000 } }
-    }]);
-    setTimeout(() => { try { TokenMagic.deleteFilters(tok); } catch {} }, 1500);
-  } catch(e) { console.warn("STA2e | warp cleanup:", e); }
 }
 
 export async function runWarpFleeCard(payload) {
@@ -17453,23 +17507,10 @@ export async function runWarpFleeCard(payload) {
   else if (minDist === distTop)   destY = sceneY - tokH - gridSize;
   else                            destY = sceneY + sceneH + gridSize;
 
-  try {
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "glow", filterId: "warpGlow",
-      outerStrength: 15, innerStrength: 5, color: 0x00a6fb,
-      quality: 0.5, padding: 10,
-      animated: { time: { active: true, speed: 0.01, animType: "move" } }
-    }, {
-      filterType: "bulgepinch", filterId: "warpCharge",
-      padding: 30, strength: 0.15, radius: 200,
-      animated: { strength: { active: true, val1: 0.05, val2: 0.15, speed: 0.05, animType: "cosOscillation" } }
-    }]);
-  } catch(e) { console.warn("STA2e | warp-flee pre-glow:", e); }
-  await new Promise(r => setTimeout(r, 1200));
-
+  let targetRotation = tok.document.rotation || 0;
   try {
     const angle = Math.atan2(destY - tok.y, destX - tok.x) * (180 / Math.PI);
-    const targetRotation = angle - 90;
+    targetRotation = angle - 90;
     const orig  = tok.document.rotation || 0;
     const delta = ((targetRotation - orig + 540) % 360) - 180;
     const steps = 12;
@@ -17481,10 +17522,6 @@ export async function runWarpFleeCard(payload) {
   } catch(e) { console.warn("STA2e | warp-flee rotate:", e); }
 
   try {
-    await TokenMagic.addUpdateFilters(tok, [{
-      filterType: "blur", filterId: "warpBlur", padding: 10, quality: 4, blur: 10,
-      animated: { blur: { active: true, val1: 0, val2: 20, speed: 0.1, animType: "ramp" } }
-    }]);
     if (warpSound && window.Sequence) {
       new window.Sequence().sound().file(warpSound).volume(0.8).play();
     }
@@ -17493,15 +17530,28 @@ export async function runWarpFleeCard(payload) {
 
   const startX = tok.x;
   const startY = tok.y;
-  const steps = 10;
+  const fleeTravelMs = _distanceDurationMs({ x: startX, y: startY }, { x: destX, y: destY }, {
+    base: 650,
+    perSquare: 100,
+    min: 700,
+    max: 3600,
+  });
+  const steps = Math.round(_clampNumber(fleeTravelMs / ACTION_TRAIL_STEP_MS, 12, 100));
+  const MOVE_STEP_MS = Math.max(16, Math.round(fleeTravelMs / steps));
   const dxStep = (destX - startX) / steps;
   const dyStep = (destY - startY) / steps;
+  const trail = spawnEngineTrail(tok, "warp", {
+    emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
+    drift: false,
+  });
   for (let i = 1; i <= steps; i++) {
     const alpha = Math.max(0, 1 - i / steps);
     await tok.document.update({ x: startX + dxStep * i, y: startY + dyStep * i, alpha });
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise(r => setTimeout(r, MOVE_STEP_MS));
   }
 
+  await new Promise(r => setTimeout(r, _distanceTrailTailMs({ x: startX, y: startY }, { x: destX, y: destY })));
+  trail?.stop?.();
   await tok.document.delete();
 }
 
@@ -17820,6 +17870,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const helmActor   = helmActors[0] ?? null;
         const helmOfficer = helmActor ? readOfficerStats(helmActor) : null;
         const attackRunActive = hasAP && hasAttackRun(helmActor);
+        const targetToken = Array.from(game.user.targets ?? [])[0] ?? null;
 
         // Inline quality string (mirrors _weaponQualityString — not available outside class)
         const _quals = (() => {
@@ -17857,6 +17908,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           weaponContext:        weaponCtx,
           hasTargetingSolution: hasTS,
           hasRapidFireTorpedo:  hasRFT,
+          difficulty:           _shipAttackDifficulty(weapon, config, null, { targetToken }),
           hasAttackPattern:     hasAP,
           helmOfficer,
           attackRunActive,
@@ -20661,135 +20713,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           await syncShipCardLock({ impulseEngageConsumed: true });
           return;
 
-          const impulseSound = game.settings.get("sta2e-toolkit", "sndImpulseEngage") ?? "";
-
-          // Step 1 — Pre-impulse red glow
-          try {
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "glow", filterId: "impulseGlow",
-              outerStrength: 12, innerStrength: 4, color: 0xff3300,
-              quality: 0.5, padding: 10,
-              animated: { time: { active: true, speed: 0.02, animType: "move" } }
-            }, {
-              filterType: "bulgepinch", filterId: "impulseCharge",
-              padding: 20, strength: 0.1, radius: 150,
-              animated: { strength: { active: true, val1: 0.03, val2: 0.1, speed: 0.06, animType: "cosOscillation" } }
-            }]);
-          } catch(e) { console.warn("STA2e | impulse pre-glow:", e); }
-          await new Promise(r => setTimeout(r, 800));
-
-          // Step 2 — Get destination via map click
-          const startPos = { x: tok.x, y: tok.y };
-          const destination = await new Promise(resolve => {
-            const overlay = document.createElement("div");
-            overlay.id    = "sta2e-impulse-overlay";
-            overlay.style.cssText = `position:fixed;top:10px;left:50%;transform:translateX(-50%);
-              background:rgba(0,0,0,0.75);color:#ff3300;border:1px solid #ff3300;
-              padding:6px 18px;border-radius:4px;z-index:10000;
-              font-family:'Arial Narrow',sans-serif;text-align:center;pointer-events:none;`;
-            overlay.innerHTML = `<div style="font-size:13px;font-weight:700;letter-spacing:0.1em;">
-              IMPULSE DESTINATION</div>
-              <div style="font-size:10px;margin-top:2px;">Click to set destination · ESC to cancel</div>`;
-            document.body.appendChild(overlay);
-            canvas.app.view.style.cursor = "crosshair";
-
-            const cleanup = () => {
-              document.getElementById("sta2e-impulse-overlay")?.remove();
-              canvas.stage.off("mousedown", clickHandler);
-              document.removeEventListener("keydown", escHandler);
-              canvas.app.view.style.cursor = "default";
-            };
-            const clickHandler = (event) => {
-              cleanup();
-              resolve({ x: event.interactionData.origin.x, y: event.interactionData.origin.y });
-            };
-            const escHandler = (event) => {
-              if (event.key !== "Escape") return;
-              cleanup();
-              resolve(null);
-            };
-            canvas.stage.on("mousedown", clickHandler);
-            document.addEventListener("keydown", escHandler);
-          });
-
-          if (!destination) {
-            // Remove pre-glow if cancelled
-            try { TokenMagic.deleteFilters(tok); } catch {}
-            btn.disabled      = false;
-            btn.textContent   = "🔴 ENGAGE IMPULSE";
-            btn.style.opacity = "1";
-            ui.notifications.info("STA2e Toolkit: Impulse aborted.");
-            return;
-          }
-
-          // Step 4 — Play sound and arc to destination along a quadratic bezier curve
-          if (impulseSound) {
-            try { new Sequence().sound().file(impulseSound).volume(0.8).play(); } catch(e) {}
-          }
-
-          // Compute a bezier arc — control point is perpendicular to the midpoint,
-          // offset by ~30% of the travel distance to give a natural banking curve
-          const dx   = destination.x - startPos.x;
-          const dy   = destination.y - startPos.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const mx   = startPos.x + dx * 0.5;
-          const my   = startPos.y + dy * 0.5;
-          // Perpendicular offset (banking direction — always curves to the left of travel)
-          const arcAmount = Math.min(dist * 0.3, 200);
-          const px   = mx - (dy / dist) * arcAmount;
-          const py   = my + (dx / dist) * arcAmount;
-
-          // Animate along bezier with ease-in-out and high step count for smoothness
-          // Ease function: smoothstep  s(t) = t²(3 - 2t)
-          const ease        = t => t * t * (3 - 2 * t);
-          const DURATION_MS = 700;   // total arc travel time
-          const STEP_MS     = 16;    // ~60fps
-          const STEPS       = Math.round(DURATION_MS / STEP_MS);
-
-          for (let i = 1; i <= STEPS; i++) {
-            const raw = i / STEPS;
-            const t   = ease(raw);   // eased progress along curve
-            const mt  = 1 - t;
-
-            // Position on curve
-            const bx = mt * mt * startPos.x + 2 * mt * t * px + t * t * destination.x;
-            const by = mt * mt * startPos.y + 2 * mt * t * py + t * t * destination.y;
-
-            // Tangent via derivative (use raw t for direction — avoids derivative going to 0 at ends)
-            const rt  = Math.max(0.01, Math.min(0.99, raw));
-            const rmt = 1 - rt;
-            const tdx = 2 * rmt * (px - startPos.x) + 2 * rt * (destination.x - px);
-            const tdy = 2 * rmt * (py - startPos.y) + 2 * rt * (destination.y - py);
-            const tangentAngle = Math.atan2(tdy, tdx) * (180 / Math.PI) - 90;
-
-            await tok.document.update({ x: bx, y: by, rotation: tangentAngle });
-            await new Promise(r => setTimeout(r, STEP_MS));
-          }
-          // Snap exactly to destination
-          const finalAngle = Math.atan2(destination.y - startPos.y, destination.x - startPos.x) * (180 / Math.PI) - 90;
-          await tok.document.update({ x: destination.x, y: destination.y, rotation: finalAngle });
-
-          // Step 5 — Clear glow, residual fade
-          try {
-            await TokenMagic.deleteFilters(tok, "impulseGlow");
-            await TokenMagic.deleteFilters(tok, "impulseCharge");
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "glow", filterId: "impulseResidual",
-              outerStrength: 6, innerStrength: 2, color: 0xff3300,
-              quality: 0.5, padding: 10,
-              animated: { outerStrength: { active: true, val1: 6, val2: 0, loops: 1, loopDuration: 800 } }
-            }]);
-            setTimeout(() => { try { TokenMagic.deleteFilters(tok, "impulseResidual"); } catch {} }, 1000);
-          } catch(e) { console.warn("STA2e | impulse cleanup:", e); }
-
-          btn.textContent   = "✓ ENGAGED";
-          btn.style.opacity = "0.5";
-
         } catch(err) {
           console.error("STA2e Toolkit | Impulse engage error:", err);
           ui.notifications.error("Impulse animation failed — see console.");
-          const tok2 = canvas.tokens?.get(JSON.parse(decodeURIComponent(btn.dataset.payload)).tokenId);
-          if (tok2) try { TokenMagic.deleteFilters(tok2); } catch {}
         }
       });
     });
@@ -20872,139 +20798,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           await syncShipCardLock({ warpEngageConsumedAction: "engage" });
           return;
 
-          // Read warp sound from settings
-          const warpSound = game.settings.get("sta2e-toolkit", "sndWarpEngage") ?? "";
-
-          // ── Run warp effect (adapted from warp speed macro) ───────────────
-          const startPosition = { x: tok.x, y: tok.y };
-
-          // Step 1 — Get destination via map click
-          const destination = await new Promise(resolve => {
-            const overlay = document.createElement("div");
-            overlay.id    = "sta2e-warp-overlay";
-            overlay.style.cssText = `position:fixed;top:10px;left:50%;transform:translateX(-50%);
-              background:rgba(0,0,0,0.75);color:#00a6fb;border:1px solid #00a6fb;
-              padding:6px 18px;border-radius:4px;z-index:10000;
-              font-family:'Arial Narrow',sans-serif;text-align:center;pointer-events:none;`;
-            overlay.innerHTML = `<div style="font-size:13px;font-weight:700;letter-spacing:0.1em;">
-              WARP DESTINATION</div>
-              <div style="font-size:10px;margin-top:2px;">Click to set destination · ESC to cancel</div>`;
-            document.body.appendChild(overlay);
-            canvas.app.view.style.cursor = "crosshair";
-
-            const clickHandler = (event) => {
-              cleanup();
-              resolve({ x: event.interactionData.origin.x, y: event.interactionData.origin.y });
-            };
-            const escHandler = (event) => {
-              if (event.key !== "Escape") return;
-              cleanup();
-              resolve(null);
-            };
-            const cleanup = () => {
-              document.getElementById("sta2e-warp-overlay")?.remove();
-              canvas.stage.off("mousedown", clickHandler);
-              document.removeEventListener("keydown", escHandler);
-              canvas.app.view.style.cursor = "default";
-            };
-            canvas.stage.on("mousedown", clickHandler);
-            document.addEventListener("keydown", escHandler);
-          });
-
-          if (!destination) {
-            btn.disabled    = false;
-            btn.textContent = "⚡ ENGAGE";
-            btn.style.opacity = "1";
-            ui.notifications.info("STA2e Toolkit: Warp sequence aborted.");
-            return;
-          }
-
-          // Step 2 — Pre-warp glow
-          try {
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "glow", filterId: "warpGlow",
-              outerStrength: 15, innerStrength: 5, color: 0x00a6fb,
-              quality: 0.5, padding: 10,
-              animated: { time: { active: true, speed: 0.01, animType: "move" } }
-            }, {
-              filterType: "bulgepinch", filterId: "warpCharge",
-              padding: 30, strength: 0.15, radius: 200,
-              animated: { strength: { active: true, val1: 0.05, val2: 0.15, speed: 0.05, animType: "cosOscillation" } }
-            }]);
-          } catch(e) { console.warn("STA2e | warp pre-glow:", e); }
-          await new Promise(r => setTimeout(r, 1500));
-
-          // Step 3 — Rotate toward destination
-          try {
-            const angle = Math.atan2(destination.y - startPosition.y, destination.x - startPosition.x) * (180 / Math.PI);
-            const targetRotation = angle - 90;
-            const orig   = tok.document.rotation || 0;
-            const delta  = ((targetRotation - orig + 540) % 360) - 180;
-            const steps  = 15;
-            for (let i = 1; i <= steps; i++) {
-              await tok.document.update({ rotation: orig + (delta / steps * i) });
-              await new Promise(r => setTimeout(r, 20));
-            }
-            await tok.document.update({ rotation: targetRotation });
-          } catch(e) { console.warn("STA2e | warp rotate:", e); }
-
-          // Step 4 — Warp-in flash + blur
-          try {
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "blur", filterId: "warpBlur", padding: 10, quality: 4, blur: 10,
-              animated: { blur: { active: true, val1: 0, val2: 20, speed: 0.1, animType: "ramp" } },
-            }]);
-            new Sequence()
-              .effect()
-              .atLocation(tok)
-              .scale(0.7)
-              .fadeIn(200).fadeOut(300)
-              .play();
-            if (warpSound) {
-              new Sequence().sound().file(warpSound).volume(0.8).play();
-            }
-          } catch(e) { console.warn("STA2e | warp flash:", e); }
-          await new Promise(r => setTimeout(r, 1000));
-
-          // Step 5 — Move token
-          await tok.document.update({ alpha: 0 });
-          await tok.document.update({ x: destination.x, y: destination.y });
-
-          // Step 6 — Warp-out at destination
-          try {
-            new Sequence()
-              .effect()
-              .atLocation(tok)
-              .scale(0.7)
-              .fadeIn(200).fadeOut(300)
-              .play();
-          } catch(e) { console.warn("STA2e | warp exit:", e); }
-          await new Promise(r => setTimeout(r, 300));
-          await tok.document.update({ alpha: 1 });
-
-          // Step 7 — Cleanup filters, residual glow
-          try {
-            await TokenMagic.deleteFilters(tok, "warpGlow");
-            await TokenMagic.deleteFilters(tok, "warpCharge");
-            await TokenMagic.deleteFilters(tok, "warpBlur");
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "glow", filterId: "warpResidualGlow",
-              outerStrength: 5, innerStrength: 2, color: 0x00a6fb,
-              quality: 0.5, padding: 10,
-              animated: { outerStrength: { active: true, val1: 5, val2: 0, loops: 1, loopDuration: 1000 } }
-            }]);
-            setTimeout(() => { try { TokenMagic.deleteFilters(tok); } catch {} }, 1500);
-          } catch(e) { console.warn("STA2e | warp cleanup:", e); }
-
-          btn.textContent  = "✓ ENGAGED";
-          btn.style.opacity = "0.5";
-
         } catch(err) {
           console.error("STA2e Toolkit | Warp engage error:", err);
           ui.notifications.error("Warp animation failed — see console.");
           // Ensure token is visible
           const tok2 = canvas.tokens?.get(JSON.parse(decodeURIComponent(btn.dataset.payload)).tokenId);
-          if (tok2) try { await tok2.document.update({ alpha: 1 }); TokenMagic.deleteFilters(tok2); } catch {}
+          if (tok2) try { await tok2.document.update({ alpha: 1 }); } catch {}
         }
       });
     });
@@ -21051,129 +20850,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           await syncShipCardLock({ warpEngageConsumedAction: "flee" });
           return;
 
-          const warpSound = game.settings.get("sta2e-toolkit", "sndWarpEngage") ?? "";
-
-          // ── Compute nearest canvas edge ──────────────────────────────────
-          const gridSize  = canvas.grid?.size ?? 100;
-          const tokW      = (tok.document.width  ?? 1) * gridSize;
-          const tokH      = (tok.document.height ?? 1) * gridSize;
-          const cx        = tok.x + tokW / 2;
-          const cy        = tok.y + tokH / 2;
-          const sceneX    = canvas.dimensions?.sceneX      ?? 0;
-          const sceneY    = canvas.dimensions?.sceneY      ?? 0;
-          const sceneW    = canvas.dimensions?.sceneWidth  ?? canvas.scene.width;
-          const sceneH    = canvas.dimensions?.sceneHeight ?? canvas.scene.height;
-
-          const distLeft   = cx - sceneX;
-          const distRight  = (sceneX + sceneW) - cx;
-          const distTop    = cy - sceneY;
-          const distBottom = (sceneY + sceneH) - cy;
-          const minDist    = Math.min(distLeft, distRight, distTop, distBottom);
-
-          // Direction target (far point for rotation angle) and off-canvas destination
-          let rotTarget, fleeX, fleeY;
-          const pad = tokW * 2 + 100;   // how far past the edge to place the "gone" position
-
-          if (minDist === distLeft) {
-            rotTarget = { x: sceneX - 500, y: tok.y };
-            fleeX = sceneX - pad;  fleeY = tok.y;
-          } else if (minDist === distRight) {
-            rotTarget = { x: sceneX + sceneW + 500, y: tok.y };
-            fleeX = sceneX + sceneW + pad;  fleeY = tok.y;
-          } else if (minDist === distTop) {
-            rotTarget = { x: tok.x, y: sceneY - 500 };
-            fleeX = tok.x;  fleeY = sceneY - pad;
-          } else {
-            rotTarget = { x: tok.x, y: sceneY + sceneH + 500 };
-            fleeX = tok.x;  fleeY = sceneY + sceneH + pad;
-          }
-
-          // Release tractor beam if this ship is involved in one
-          const tractorState = CombatHUD.getTractorBeamState(tok);
-          if (tractorState) {
-            if (tractorState.targetTokenId) {
-              // This ship is the tractoring source
-              const targetTok = canvas.tokens?.get(tractorState.targetTokenId);
-              await CombatHUD.releaseTractorBeam(tok, targetTok ?? null).catch(() => {});
-            } else if (tractorState.sourceTokenId) {
-              // This ship is being tractored — release from the source
-              const sourceTok = canvas.tokens?.get(tractorState.sourceTokenId);
-              if (sourceTok) await CombatHUD.releaseTractorBeam(sourceTok, tok).catch(() => {});
-            }
-          }
-
-          // ── Step 1: Pre-warp glow ────────────────────────────────────────
-          try {
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "glow", filterId: "warpGlow",
-              outerStrength: 15, innerStrength: 5, color: 0x00a6fb,
-              quality: 0.5, padding: 10,
-              animated: { time: { active: true, speed: 0.01, animType: "move" } },
-            }, {
-              filterType: "bulgepinch", filterId: "warpCharge",
-              padding: 30, strength: 0.15, radius: 200,
-              animated: { strength: { active: true, val1: 0.05, val2: 0.15, speed: 0.05, animType: "cosOscillation" } },
-            }]);
-          } catch(e) { console.warn("STA2e | warp-flee pre-glow:", e); }
-          await new Promise(r => setTimeout(r, 1500));
-
-          // ── Step 2: Rotate toward nearest edge ───────────────────────────
-          try {
-            const angle         = Math.atan2(rotTarget.y - tok.y, rotTarget.x - tok.x) * (180 / Math.PI);
-            const targetRotation = angle - 90;
-            const orig  = tok.document.rotation || 0;
-            const delta = ((targetRotation - orig + 540) % 360) - 180;
-            const steps = 15;
-            for (let i = 1; i <= steps; i++) {
-              await tok.document.update({ rotation: orig + (delta / steps * i) });
-              await new Promise(r => setTimeout(r, 20));
-            }
-            await tok.document.update({ rotation: targetRotation });
-          } catch(e) { console.warn("STA2e | warp-flee rotate:", e); }
-
-          // ── Step 3: Flash + blur + sound ─────────────────────────────────
-          try {
-            await TokenMagic.addUpdateFilters(tok, [{
-              filterType: "blur", filterId: "warpBlur", padding: 10, quality: 4, blur: 10,
-              animated: { blur: { active: true, val1: 0, val2: 20, speed: 0.1, animType: "ramp" } },
-            }]);
-            new Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
-            if (warpSound) new Sequence().sound().file(warpSound).volume(0.8).play();
-          } catch(e) { console.warn("STA2e | warp-flee flash:", e); }
-          await new Promise(r => setTimeout(r, 800));
-
-          // ── Step 4: Animate token flying off the edge with fade ──────────
-          const startX    = tok.x;
-          const startY    = tok.y;
-          const moveSteps = 20;
-          const dxStep    = (fleeX - startX) / moveSteps;
-          const dyStep    = (fleeY - startY) / moveSteps;
-          for (let i = 1; i <= moveSteps; i++) {
-            const alpha = Math.max(0, 1 - i / moveSteps);
-            await tok.document.update({ x: startX + dxStep * i, y: startY + dyStep * i, alpha });
-            await new Promise(r => setTimeout(r, 30));
-          }
-
-          // ── Step 5: Clean up filters then delete the token ───────────────
-          try { await TokenMagic.deleteFilters(tok); } catch {}
-          await tok.document.delete();
-
-          ChatMessage.create({
-            content: lcarsCard("🚀 FLED THE BATTLEFIELD", "#dc7800", `
-              <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-                margin-bottom:4px;font-family:${LC.font};">${payload.actorName}</div>
-              <div style="font-size:11px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
-                Has fled the battlefield and departed at warp speed.<br>
-                <span style="font-size:10px;color:#dc7800;">Token removed from scene.</span>
-              </div>`),
-            speaker: { alias: "STA2e Toolkit" },
-          });
-
         } catch(err) {
           console.error("STA2e Toolkit | Warp flee error:", err);
           ui.notifications.error("Warp flee failed — see console.");
           const tok2 = canvas.tokens?.get(JSON.parse(decodeURIComponent(btn.dataset.payload)).tokenId);
-          if (tok2) try { await tok2.document.update({ alpha: 1 }); TokenMagic.deleteFilters(tok2); } catch {}
+          if (tok2) try { await tok2.document.update({ alpha: 1 }); } catch {}
         }
       });
     });

@@ -21,10 +21,10 @@ const WEAPON_EMITTER_MAX_ARC_WIDTH_DEG = 180;
 const WEAPON_EMITTER_LAYERS = Object.freeze(["above", "below"]);
 
 // ── Engine trail emitters (impulse + warp nacelles) ─────────────────────────
-// Per-ship placed emitter points that stream a PIXI particle trail behind the
-// token while it moves. Facing is ship-local (0 fore, 90 starboard, 180 aft,
-// 270 port) and biases the exhaust cone; layer puts the trail above or below
-// the token sprite.
+// Per-ship placed emitter points that stream a PIXI particle trail during
+// impulse and warp action animations. Facing is ship-local (0 fore,
+// 90 starboard, 180 aft, 270 port) and biases the exhaust cone; layer puts the
+// trail above or below the token sprite.
 export const ENGINE_EMITTER_KINDS = Object.freeze(["impulse", "warp"]);
 const ENGINE_BLEND_OPTIONS = Object.freeze(["add", "normal"]);
 const ENGINE_COLOR_MODES = Object.freeze(["auto", "custom"]);
@@ -52,8 +52,8 @@ export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
     blendMode: "add",
   }),
 });
-// warpThreshold is measured in grid squares: a move of at least this many
-// squares fires the warp trail, anything shorter fires impulse.
+// Legacy setting retained for existing actor data; action handlers now choose
+// impulse vs warp directly instead of inferring it from movement distance.
 const DEFAULT_ENGINE_TRAIL_SHARED = Object.freeze({
   enabled: true,
   warpThreshold: 4,
@@ -1723,8 +1723,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     return [
       { key: "hitDuration", label: "Hit Duration", type: "number", min: 80, max: 5000, step: 20, value: c.hitDuration },
       { key: "missDuration", label: "Miss Duration", type: "number", min: 80, max: 5000, step: 20, value: c.missDuration },
-      { key: "colorOverride", label: "Color Override", type: "text", value: c.colorOverride, placeholder: "#ff9a33 or blank" },
-      { key: "coreColorOverride", label: "Core Override", type: "text", value: c.coreColorOverride, placeholder: "#fff2c0 or blank" },
+      { key: "colorOverride", label: "Color Override", type: "text", value: c.colorOverride, placeholder: "#ff9a33 or blank", isColor: true, pickerValue: c.colorOverride || "#ff9a33" },
+      { key: "coreColorOverride", label: "Core Override", type: "text", value: c.coreColorOverride, placeholder: "#fff2c0 or blank", isColor: true, pickerValue: c.coreColorOverride || "#fff2c0" },
       { key: "orbGlowRadius", label: "Orb Glow Radius", type: "number", min: 1, max: 120, step: 1, value: c.orbGlowRadius },
       { key: "orbGlowAlpha", label: "Orb Glow Alpha", type: "number", min: 0, max: 1, step: 0.01, value: c.orbGlowAlpha },
       { key: "orbInnerRadius", label: "Orb Inner Radius", type: "number", min: 1, max: 120, step: 1, value: c.orbInnerRadius },
@@ -2393,6 +2393,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       activeEngineTrailSettings,
       activeEngineModeSettings,
       resolvedEngineColor,
+      enginePickerColor: activeEngineModeSettings?.customColor || resolvedEngineColor || "#ffffff",
       engineColorModeOptions: isEngineTab ? ENGINE_COLOR_MODES.map(value => ({
         value,
         label: value === "custom" ? "Custom Hex" : "Auto by Faction",
@@ -2640,6 +2641,28 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         this.render({ force: true });
       });
     });
+
+    const syncHexPicker = picker => {
+      const scope = picker.dataset.hexColorScope;
+      const key = picker.dataset.hexColorKey;
+      if (!scope || !key) return;
+      const textInput = el.querySelector(`[data-${scope}-setting="${key}"][data-hex-color-text]`);
+      if (!textInput) return;
+      const updatePicker = () => {
+        const value = String(textInput.value ?? "").trim();
+        if (/^#[0-9a-f]{6}$/i.test(value)) picker.value = value.toLowerCase();
+      };
+      textInput.addEventListener("input", updatePicker);
+      textInput.addEventListener("change", updatePicker);
+      const updateText = () => {
+        textInput.value = picker.value;
+        textInput.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      picker.addEventListener("input", updateText);
+      picker.addEventListener("change", updateText);
+    };
+
+    el.querySelectorAll("[data-hex-color-picker]").forEach(syncHexPicker);
 
     el.querySelectorAll("[data-vfx-setting], [data-charge-setting], [data-shield-impact-setting]").forEach(input => {
       input.addEventListener("input", () => {

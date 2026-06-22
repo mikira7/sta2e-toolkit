@@ -42,6 +42,7 @@ function _sourceLabel(source) {
     zoneMovement: "Zone Movement",
     zoneHazard: "Zone Hazard",
     overflow: "Overflow",
+    torpedoAttack: "Torpedo Attack",
     toolkit: "Toolkit",
   };
   return labels[source] ?? source ?? "Toolkit";
@@ -256,7 +257,7 @@ function _notifyBlocked(pool, source) {
   const label = _label(pool);
   if (pool === "threat") {
     ui.notifications?.warn(
-      `STA2e Toolkit: Players can only add Threat through the toolkit dice roller. (${source})`
+      `STA2e Toolkit: Players can only add Threat through approved toolkit actions. (${source})`
     );
   } else {
     ui.notifications?.warn(`STA2e Toolkit: You do not have permission to update ${label}.`);
@@ -302,7 +303,7 @@ export function canUserAdjustPool(pool, source = "toolkit", delta = 0) {
   const key = _key(pool);
   if (game.user?.isGM) return true;
   if (key === "momentum" || key === "alliedNpcMomentum") return true;
-  return source === "diceRoller" && Number(delta) > 0;
+  return ["diceRoller", "torpedoAttack"].includes(source) && Number(delta) > 0;
 }
 
 export async function setPool(pool, value, options = {}) {

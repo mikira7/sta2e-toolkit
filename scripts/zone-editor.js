@@ -22,7 +22,7 @@ export class ZoneEditState {
     /** @type {import("./zone-layer.js").ZoneOverlay} */
     this.overlay = overlay;
 
-    /** Current tool: "select" | "draw" | "hex" | "square" | "delete" | null */
+    /** Current tool: "select" | "draw" | "hex" | "square" | "brush" | "delete" | null */
     this.activeTool = null;
 
     // ── Polygon draw state ────────────────────────────────────────────────
@@ -36,6 +36,14 @@ export class ZoneEditState {
     // ── Square stamp state ────────────────────────────────────────────────
     this._squareOverlay = null;
     this._squareSize = this._deriveSquareSizeFromGrid();
+
+    // ── Brush paint state ─────────────────────────────────────────────────
+    this._brushPreview = null;
+    this._brushStrokes = [];
+    this._brushCurrentStroke = null;
+    this._brushPainting = false;
+    this._brushLastPoint = null;
+    this._brushFreeformTileSize = null;
 
     // ── Drag state (select tool) ──────────────────────────────────────────
     this._dragging = null;
@@ -69,15 +77,28 @@ export class ZoneEditState {
       this._removeListeners();
     }
 
-    const cursors = { draw: "crosshair", hex: "cell", square: "cell", delete: "not-allowed", select: "default" };
+    const cursors = { draw: "crosshair", hex: "cell", square: "cell", brush: "crosshair", delete: "not-allowed", select: "default" };
     const _cv = _canvasEl();
     if (_cv) _cv.style.cursor = cursors[tool] ?? "default";
 
     if (tool === "hex")    this._showHexOverlay();
     if (tool === "square") this._showSquareOverlay();
+    if (tool === "brush")  this._refreshBrushPreview();
+    game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+  }
+
+  async requestTool(tool) {
+    if (this.activeTool === "brush" && tool !== "brush" && this.hasPendingBrushZone()) {
+      const confirmed = await this._confirmDiscardBrushZone();
+      if (!confirmed) return false;
+      this._cancelBrushZone({ silent: true });
+    }
+    this.setTool(tool);
+    return true;
   }
 
   deactivate() {
+    this._cancelBrushZone({ silent: true });
     this.setTool(null);
     this.overlay.setEditMode(false);
   }
@@ -86,6 +107,7 @@ export class ZoneEditState {
     this._cancelDraw();
     this._clearHexOverlay();
     this._clearSquareOverlay();
+    this._cancelBrushZone({ silent: true });
     this._removeListeners();
   }
 
@@ -123,6 +145,7 @@ export class ZoneEditState {
       case "draw":   this._drawAddVertex(pt); break;
       case "hex":    this._hexStamp(pt); break;
       case "square": this._squareStamp(pt); break;
+      case "brush":  this._brushStartStroke(pt); break;
       case "delete": this._deleteAtPoint(pt); break;
       case "select": this._selectOrStartDrag(pt, event); break;
     }
@@ -137,6 +160,10 @@ export class ZoneEditState {
       const pt = this._extractPoint(event);
       if (pt) this._updateHoneycombPreview(pt);
     }
+    if (this.activeTool === "brush" && this._brushPainting) {
+      const pt = this._extractPoint(event);
+      if (pt) this._brushContinueStroke(pt);
+    }
     if (this._dragging) {
       const pt = this._extractPoint(event);
       if (pt) this._dragMove(pt);
@@ -144,6 +171,7 @@ export class ZoneEditState {
   }
 
   _handlePointerUp(_event) {
+    if (this._brushPainting) this._brushEndStroke();
     if (this._dragging) this._dragEnd();
   }
 
@@ -259,6 +287,433 @@ export class ZoneEditState {
       }
     }
     return closest;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Brush paint tool
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  hasPendingBrushZone() {
+    return this._brushStrokes.length > 0 || !!this._brushCurrentStroke?.polygons?.length;
+  }
+
+  _getBrushSnap() {
+    try { return game.settings.get("sta2e-toolkit", "zoneBrushSnap") !== false; }
+    catch { return true; }
+  }
+
+  _getBrushCellRadius() {
+    try {
+      const value = Number(game.settings.get("sta2e-toolkit", "zoneBrushCellRadius") ?? 1);
+      if (Number.isFinite(value)) return Math.max(1, Math.min(10, Math.floor(value)));
+    } catch { /* setting may not be registered yet */ }
+    return 1;
+  }
+
+  _getBrushPixelDiameter() {
+    const gridSize = canvas?.scene?.grid?.size ?? 100;
+    try {
+      const value = Number(game.settings.get("sta2e-toolkit", "zoneBrushPixelDiameter") ?? 0);
+      if (value <= 0) return gridSize;
+      if (Number.isFinite(value)) return Math.max(10, Math.min(2000, Math.round(value)));
+    } catch { /* setting may not be registered yet */ }
+    return gridSize;
+  }
+
+  _useFoundrySquareGrid() {
+    try {
+      const type = canvas?.scene?.grid?.type ?? 0;
+      return type !== 0 && !canvas.grid?.isHexagonal;
+    } catch { return false; }
+  }
+
+  _brushStartStroke(pt) {
+    this._brushPainting = true;
+    this._brushLastPoint = null;
+    this._brushCurrentStroke = { polygons: [], keys: new Set(), samples: [] };
+    this._brushContinueStroke(pt);
+  }
+
+  _brushContinueStroke(pt) {
+    if (!this._brushPainting || !this._brushCurrentStroke) return;
+
+    if (!this._brushLastPoint) {
+      this._brushAddAtPoint(pt);
+      this._brushLastPoint = { x: pt.x, y: pt.y };
+      return;
+    }
+
+    const radius = this._getBrushPixelDiameter() / 2;
+    const step = this._isBrushSnapped() ? Math.max(8, (canvas?.scene?.grid?.size ?? 100) / 3) : Math.max(4, radius / 2);
+    const dx = pt.x - this._brushLastPoint.x;
+    const dy = pt.y - this._brushLastPoint.y;
+    const dist = Math.hypot(dx, dy);
+    const count = Math.max(1, Math.ceil(dist / step));
+    for (let i = 1; i <= count; i++) {
+      const t = i / count;
+      this._brushAddAtPoint({
+        x: this._brushLastPoint.x + dx * t,
+        y: this._brushLastPoint.y + dy * t,
+      });
+    }
+    this._brushLastPoint = { x: pt.x, y: pt.y };
+  }
+
+  _brushEndStroke() {
+    if (!this._brushPainting) return;
+    this._brushPainting = false;
+    this._brushLastPoint = null;
+
+    const stroke = this._brushCurrentStroke;
+    this._brushCurrentStroke = null;
+    if (!stroke?.polygons?.length) {
+      this._refreshBrushPreview();
+      game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+      return;
+    }
+
+    if (this._brushStrokes.length > 0 && !this._brushTouchesPending(stroke.polygons)) {
+      ui.notifications.warn("Brush stroke is disconnected from the pending zone.");
+      this._refreshBrushPreview();
+      game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+      return;
+    }
+
+    this._brushStrokes.push(stroke);
+    this._refreshBrushPreview();
+    game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+  }
+
+  _isBrushSnapped() {
+    return this._getBrushSnap() && (this._useFoundryHexGrid() || this._useFoundrySquareGrid());
+  }
+
+  _brushAddAtPoint(pt) {
+    if (this._isBrushSnapped()) this._brushAddGridCells(pt);
+    else this._brushAddFreeformSample(pt);
+    this._refreshBrushPreview();
+    game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+  }
+
+  _brushAddGridCells(pt) {
+    const cells = this._useFoundryHexGrid()
+      ? this._brushHexCellsAtPoint(pt)
+      : this._brushSquareCellsAtPoint(pt);
+    const zones = getSceneZones();
+    const dim = canvas.dimensions;
+    const candidates = [];
+
+    for (const cell of cells) {
+      if (!cell?.verts?.length) continue;
+      const key = cell.key;
+      if (this._brushHasKey(key)) continue;
+      if (getZoneAtPoint(cell.cx, cell.cy, zones)) continue;
+
+      const clipped = clipPolygonToRect(cell.verts, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+      if (clipped.length < 3) continue;
+      candidates.push({
+        key,
+        cx: cell.cx,
+        cy: cell.cy,
+        vertices: clipped.map(v => ({ x: Math.round(v.x), y: Math.round(v.y) })),
+      });
+    }
+
+    if (candidates.length === 0) return;
+    if (!this._brushCandidateTouchesCurrentZone(candidates)) return;
+    for (const candidate of candidates) {
+      this._brushCurrentStroke.keys.add(candidate.key);
+      this._brushCurrentStroke.polygons.push(candidate);
+    }
+  }
+
+  _brushHexCellsAtPoint(pt) {
+    const grid = canvas.grid;
+    const radius = this._getBrushCellRadius() - 1;
+    const offset = grid.getOffset(pt);
+    const center = grid.getCenterPoint(offset);
+    const centerCell = {
+      i: offset.i, j: offset.j,
+      cx: center.x, cy: center.y,
+      verts: grid.getVertices(offset),
+    };
+    const cells = radius <= 0 ? [centerCell] : this._foundryHoneycombCells(centerCell, radius);
+    return cells.map(c => ({
+      ...c,
+      key: `hex:${c.i},${c.j}`,
+      verts: c.verts ?? grid.getVertices({ i: c.i, j: c.j }),
+    })).filter(c => this._pointInScene(c.cx, c.cy));
+  }
+
+  _brushSquareCellsAtPoint(pt) {
+    const grid = canvas.grid;
+    const radius = this._getBrushCellRadius() - 1;
+    const offset = grid.getOffset(pt);
+    const cells = [];
+    for (let di = -radius; di <= radius; di++) {
+      for (let dj = -radius; dj <= radius; dj++) {
+        const cellOffset = { i: offset.i + di, j: offset.j + dj };
+        const center = grid.getCenterPoint(cellOffset);
+        if (!this._pointInScene(center.x, center.y)) continue;
+        cells.push({
+          i: cellOffset.i,
+          j: cellOffset.j,
+          cx: center.x,
+          cy: center.y,
+          key: `square:${cellOffset.i},${cellOffset.j}`,
+          verts: this._squareCellVertices(cellOffset, center),
+        });
+      }
+    }
+    return cells;
+  }
+
+  _squareCellVertices(offset, center) {
+    const grid = canvas.grid;
+    if (typeof grid.getVertices === "function") {
+      try {
+        const verts = grid.getVertices(offset);
+        if (verts?.length >= 3) return verts;
+      } catch { /* fall back to center/size */ }
+    }
+    const w = grid.sizeX ?? canvas?.scene?.grid?.size ?? 100;
+    const h = grid.sizeY ?? canvas?.scene?.grid?.size ?? 100;
+    const x0 = center.x - w / 2;
+    const y0 = center.y - h / 2;
+    return [
+      { x: x0,     y: y0 },
+      { x: x0 + w, y: y0 },
+      { x: x0 + w, y: y0 + h },
+      { x: x0,     y: y0 + h },
+    ];
+  }
+
+  _brushAddFreeformSample(pt) {
+    const radius = this._getBrushPixelDiameter() / 2;
+    const zones = getSceneZones();
+    if (zones.some(zone => _circleTouchesPolygon(pt, radius, zone.vertices))) return;
+
+    this._brushCurrentStroke.samples.push({ x: pt.x, y: pt.y, radius });
+    if (!this._brushFreeformTileSize) this._brushFreeformTileSize = Math.max(8, Math.round(radius / 2));
+    const tileSize = this._brushFreeformTileSize;
+    const dim = canvas.dimensions;
+    const minGX = Math.floor((pt.x - radius - dim.sceneX) / tileSize);
+    const maxGX = Math.ceil((pt.x + radius - dim.sceneX) / tileSize);
+    const minGY = Math.floor((pt.y - radius - dim.sceneY) / tileSize);
+    const maxGY = Math.ceil((pt.y + radius - dim.sceneY) / tileSize);
+    const candidates = [];
+
+    for (let gx = minGX; gx <= maxGX; gx++) {
+      for (let gy = minGY; gy <= maxGY; gy++) {
+        const x0 = dim.sceneX + gx * tileSize;
+        const y0 = dim.sceneY + gy * tileSize;
+        const cx = x0 + tileSize / 2;
+        const cy = y0 + tileSize / 2;
+        if (!this._pointInScene(cx, cy)) continue;
+        if (Math.hypot(cx - pt.x, cy - pt.y) > radius) continue;
+        const key = `free:${tileSize}:${gx},${gy}`;
+        if (this._brushHasKey(key)) continue;
+        if (getZoneAtPoint(cx, cy, zones)) continue;
+
+        const verts = [
+          { x: x0,            y: y0 },
+          { x: x0 + tileSize, y: y0 },
+          { x: x0 + tileSize, y: y0 + tileSize },
+          { x: x0,            y: y0 + tileSize },
+        ];
+        const clipped = clipPolygonToRect(verts, dim.sceneX, dim.sceneY, dim.sceneWidth, dim.sceneHeight);
+        if (clipped.length < 3) continue;
+        candidates.push({
+          key,
+          cx,
+          cy,
+          vertices: clipped.map(v => ({ x: Math.round(v.x), y: Math.round(v.y) })),
+        });
+      }
+    }
+
+    if (candidates.length === 0) return;
+    if (!this._brushCandidateTouchesCurrentZone(candidates)) return;
+    for (const candidate of candidates) {
+      this._brushCurrentStroke.keys.add(candidate.key);
+      this._brushCurrentStroke.polygons.push(candidate);
+    }
+  }
+
+  _brushCandidateTouchesCurrentZone(candidates) {
+    const existing = this._allBrushPolygons(true);
+    if (existing.length === 0) return true;
+    for (const candidate of candidates) {
+      for (const polygon of existing) {
+        if (_polygonsTouchOrOverlap(candidate.vertices, polygon.vertices, 2)) return true;
+      }
+    }
+    return false;
+  }
+
+  _brushHasKey(key) {
+    if (!key) return false;
+    if (this._brushCurrentStroke?.keys?.has(key)) return true;
+    return this._brushStrokes.some(stroke => stroke.keys?.has(key));
+  }
+
+  _pointInScene(x, y) {
+    const dim = canvas.dimensions;
+    return x >= dim.sceneX && x <= dim.sceneX + dim.sceneWidth &&
+           y >= dim.sceneY && y <= dim.sceneY + dim.sceneHeight;
+  }
+
+  _allBrushPolygons(includeCurrent = true) {
+    const polygons = this._brushStrokes.flatMap(stroke => stroke.polygons ?? []);
+    if (includeCurrent && this._brushCurrentStroke?.polygons?.length) {
+      polygons.push(...this._brushCurrentStroke.polygons);
+    }
+    return polygons;
+  }
+
+  _buildBrushOutline(includeCurrent = true) {
+    const polygons = this._allBrushPolygons(includeCurrent);
+    if (polygons.length === 0) return [];
+    const outline = polygons.length === 1
+      ? polygons[0].vertices
+      : polygonUnionOutline(polygons.map(p => p.vertices));
+    return _simplifyAlignedPolygonPoints(outline);
+  }
+
+  _brushTouchesPending(candidatePolygons) {
+    const existing = this._brushStrokes.flatMap(stroke => stroke.polygons ?? []);
+    if (existing.length === 0) return true;
+    for (const candidate of candidatePolygons) {
+      for (const polygon of existing) {
+        if (_polygonsTouchOrOverlap(candidate.vertices, polygon.vertices, 2)) return true;
+      }
+    }
+    return false;
+  }
+
+  _refreshBrushPreview() {
+    if (!this.hasPendingBrushZone()) {
+      this._clearBrushPreview();
+      return;
+    }
+
+    const outline = this._buildBrushOutline(true);
+    if (outline.length < 3) {
+      this._clearBrushPreview();
+      return;
+    }
+
+    let g = this._brushPreview;
+    if (!g || g.destroyed) {
+      g = new PIXI.Graphics();
+      g.name = "sta2eBrushPreview";
+      g.eventMode = "none";
+      this.overlay.editLayer.addChild(g);
+      this._brushPreview = g;
+    } else if (!g.parent) {
+      this.overlay.editLayer.addChild(g);
+    }
+
+    try {
+      g.clear();
+    } catch (err) {
+      console.warn("STA2e | Brush preview was already invalid; recreating it.", err);
+      this._brushPreview = null;
+      g = new PIXI.Graphics();
+      g.name = "sta2eBrushPreview";
+      g.eventMode = "none";
+      this.overlay.editLayer.addChild(g);
+      this._brushPreview = g;
+    }
+    g.lineStyle(2, 0x00ff88, 0.9);
+    g.beginFill(0x00ff88, 0.18);
+    g.moveTo(outline[0].x, outline[0].y);
+    for (let i = 1; i < outline.length; i++) g.lineTo(outline[i].x, outline[i].y);
+    g.closePath();
+    g.endFill();
+
+    const polygons = this._allBrushPolygons(true);
+    if (polygons.length > 1) {
+      g.lineStyle(1, 0xffffff, 0.16);
+      for (const poly of polygons) {
+        const verts = poly.vertices;
+        if (verts.length < 3) continue;
+        g.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath();
+      }
+    }
+  }
+
+  _clearBrushPreview() {
+    const preview = this._brushPreview;
+    this._brushPreview = null;
+    if (!preview) return;
+    try {
+      preview.parent?.removeChild(preview);
+    } catch (err) {
+      console.warn("STA2e | Brush preview was already removed.", err);
+    }
+  }
+
+  async finishBrushZone() {
+    if (this._brushPainting) this._brushEndStroke();
+    const verts = this._buildBrushOutline(false);
+    if (verts.length < 3) {
+      ui.notifications.warn("Paint some zone area before finishing.");
+      return;
+    }
+
+    const props = await this._promptZoneProperties({
+      name: "Painted Zone",
+      color: null,
+      momentumCost: 0,
+      tags: [],
+      borderStyle: game.settings.get("sta2e-toolkit", "zoneBorderStyleDefault") ?? "solid",
+      isDifficult: false,
+      opacity: 0.25,
+      hazards: [],
+    });
+    if (!props) return;
+
+    await addZone({ ...props, vertices: verts });
+    this._cancelBrushZone({ silent: true });
+    this.overlay.refresh();
+    game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+  }
+
+  async cancelBrushZone() {
+    if (!this.hasPendingBrushZone()) return;
+    this._cancelBrushZone({ silent: true });
+    game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+  }
+
+  undoBrushStroke() {
+    if (this._brushPainting) this._brushEndStroke();
+    if (this._brushStrokes.length === 0) return;
+    this._brushStrokes.pop();
+    if (this._brushStrokes.length === 0) this._brushFreeformTileSize = null;
+    this._refreshBrushPreview();
+    game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+  }
+
+  _cancelBrushZone({ silent = false } = {}) {
+    this._brushPainting = false;
+    this._brushLastPoint = null;
+    this._brushCurrentStroke = null;
+    this._brushStrokes = [];
+    this._brushFreeformTileSize = null;
+    this._clearBrushPreview();
+    if (!silent) ui.notifications.info("Pending painted zone cleared.");
+  }
+
+  async _confirmDiscardBrushZone() {
+    return foundry.applications.api.DialogV2.confirm({
+      window: { title: "Discard Painted Zone?" },
+      content: "<p>You have an unfinished painted zone. Discard it and switch tools?</p>",
+      yes: { label: "Discard", icon: "fas fa-trash" },
+      no:  { label: "Keep Painting" },
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1516,6 +1971,136 @@ function _wireOpacitySlider(html) {
   }
 }
 
+function _simplifyAlignedPolygonPoints(vertices, tolerance = 0.75) {
+  if (!vertices?.length || vertices.length <= 3) return vertices ?? [];
+
+  const deduped = [];
+  for (const raw of vertices) {
+    const p = { x: Math.round(raw.x), y: Math.round(raw.y) };
+    const prev = deduped[deduped.length - 1];
+    if (prev && Math.hypot(prev.x - p.x, prev.y - p.y) <= tolerance) continue;
+    deduped.push(p);
+  }
+
+  if (deduped.length > 1) {
+    const first = deduped[0];
+    const last = deduped[deduped.length - 1];
+    if (Math.hypot(first.x - last.x, first.y - last.y) <= tolerance) deduped.pop();
+  }
+  if (deduped.length <= 3) return deduped;
+
+  let simplified = deduped;
+  let changed = true;
+  while (changed && simplified.length > 3) {
+    changed = false;
+    const next = [];
+    for (let i = 0; i < simplified.length; i++) {
+      const prev = simplified[(i - 1 + simplified.length) % simplified.length];
+      const cur = simplified[i];
+      const after = simplified[(i + 1) % simplified.length];
+      if (_isAlignedMiddlePoint(prev, cur, after, tolerance)) {
+        changed = true;
+        continue;
+      }
+      next.push(cur);
+    }
+    simplified = next.length >= 3 ? next : simplified;
+  }
+
+  return simplified;
+}
+
+function _isAlignedMiddlePoint(a, b, c, tolerance = 0.75) {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const bcx = c.x - b.x;
+  const bcy = c.y - b.y;
+  const acx = c.x - a.x;
+  const acy = c.y - a.y;
+  const acLen = Math.hypot(acx, acy);
+  if (acLen <= tolerance) return true;
+
+  const cross = Math.abs(abx * bcy - aby * bcx);
+  if (cross / acLen > tolerance) return false;
+
+  const dot = (b.x - a.x) * (b.x - c.x) + (b.y - a.y) * (b.y - c.y);
+  return dot <= tolerance;
+}
+
+function _pointSegmentDistance(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 <= 1e-8) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+}
+
+function _orientation(a, b, c) {
+  const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+  if (Math.abs(value) < 1e-8) return 0;
+  return value > 0 ? 1 : 2;
+}
+
+function _onSegment(a, b, c) {
+  return b.x <= Math.max(a.x, c.x) + 1e-8 && b.x >= Math.min(a.x, c.x) - 1e-8 &&
+         b.y <= Math.max(a.y, c.y) + 1e-8 && b.y >= Math.min(a.y, c.y) - 1e-8;
+}
+
+function _segmentsIntersect(a, b, c, d) {
+  const o1 = _orientation(a, b, c);
+  const o2 = _orientation(a, b, d);
+  const o3 = _orientation(c, d, a);
+  const o4 = _orientation(c, d, b);
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && _onSegment(a, c, b)) return true;
+  if (o2 === 0 && _onSegment(a, d, b)) return true;
+  if (o3 === 0 && _onSegment(c, a, d)) return true;
+  if (o4 === 0 && _onSegment(c, b, d)) return true;
+  return false;
+}
+
+function _polygonsTouchOrOverlap(a, b, threshold = 0) {
+  if (!a?.length || !b?.length) return false;
+  if (a.some(p => pointInPolygon(p.x, p.y, b))) return true;
+  if (b.some(p => pointInPolygon(p.x, p.y, a))) return true;
+  for (let i = 0; i < a.length; i++) {
+    const a1 = a[i];
+    const a2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const b1 = b[j];
+      const b2 = b[(j + 1) % b.length];
+      if (_segmentsIntersect(a1, a2, b1, b2)) return true;
+      if (threshold > 0) {
+        if (_pointSegmentDistance(a1, b1, b2) <= threshold) return true;
+        if (_pointSegmentDistance(a2, b1, b2) <= threshold) return true;
+        if (_pointSegmentDistance(b1, a1, a2) <= threshold) return true;
+        if (_pointSegmentDistance(b2, a1, a2) <= threshold) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function _circleTouchesPolygon(center, radius, polygon) {
+  if (!polygon?.length) return false;
+  if (pointInPolygon(center.x, center.y, polygon)) return true;
+  if (polygon.some(p => Math.hypot(p.x - center.x, p.y - center.y) <= radius)) return true;
+  for (let i = 0; i < polygon.length; i++) {
+    if (_pointSegmentDistance(center, polygon[i], polygon[(i + 1) % polygon.length]) <= radius) return true;
+  }
+  const samples = 16;
+  for (let i = 0; i < samples; i++) {
+    const angle = (Math.PI * 2 * i) / samples;
+    const p = {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius,
+    };
+    if (pointInPolygon(p.x, p.y, polygon)) return true;
+  }
+  return false;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ZoneToolbar — floating toolbar for zone tools
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1528,9 +2113,9 @@ export class ZoneToolbar {
 
   get isOpen() { return this._open; }
 
-  toggle() {
+  async toggle() {
     console.log("STA2e | ZoneToolbar.toggle() called — _open:", this._open);
-    if (this._open) this.close();
+    if (this._open) await this.close();
     else this.open();
   }
 
@@ -1562,10 +2147,15 @@ export class ZoneToolbar {
     this._render();
   }
 
-  close() {
+  async close() {
     this._open = false;
     const overlay = game.sta2eToolkit?.zoneOverlay;
     const editor  = game.sta2eToolkit?.zoneEditor;
+    if (editor?.activeTool === "brush" && editor.hasPendingBrushZone?.()) {
+      const confirmed = await editor._confirmDiscardBrushZone();
+      if (!confirmed) { this._open = true; return; }
+      editor._cancelBrushZone({ silent: true });
+    }
     overlay?.setEditMode(false);
     editor?.setTool(null);
     this._el?.remove();
@@ -1587,9 +2177,29 @@ export class ZoneToolbar {
         <button data-zone-tool="draw"   title="Draw Zone Polygon"><i class="fas fa-draw-polygon"></i></button>
         <button data-zone-tool="hex"    title="Hex Stamp"><i class="fas fa-border-all"></i></button>
         <button data-zone-tool="square" title="Square Stamp"><i class="fas fa-square"></i></button>
+        <button data-zone-tool="brush"  title="Paint Zone Brush"><i class="fas fa-paintbrush"></i></button>
         <button data-zone-tool="delete" title="Delete Zone"><i class="fas fa-eraser"></i></button>
       </div>
       <div class="sta2e-zone-toolbar-actions">
+        <div class="sta2e-zone-brush-panel" style="display:none;">
+          <label class="sta2e-zone-checkbox-row" title="Snap the brush to Foundry square or hex grid cells.">
+            <input id="sta2e-brush-snap-input" type="checkbox"/>
+            <span>Snap to Grid</span>
+          </label>
+          <div class="sta2e-zone-toolbar-row">
+            <label>Cell r</label>
+            <input id="sta2e-brush-cell-radius-input" type="number" min="1" max="10" step="1"
+              title="Snapped brush radius in grid cells. 1 paints only the hovered cell."/>
+            <label>Free px</label>
+            <input id="sta2e-brush-pixel-input" type="number" min="10" max="2000" step="10"
+              title="Freeform brush diameter in canvas pixels."/>
+          </div>
+          <div class="sta2e-zone-brush-actions">
+            <button data-zone-action="finishBrush" title="Finish the painted zone and open Zone Properties"><i class="fas fa-check"></i> Finish Zone</button>
+            <button data-zone-action="undoBrush" title="Undo the last brush stroke"><i class="fas fa-undo"></i> Undo Stroke</button>
+            <button data-zone-action="cancelBrush" title="Cancel the pending painted zone"><i class="fas fa-ban"></i> Cancel Zone</button>
+          </div>
+        </div>
         <div class="sta2e-zone-toolbar-row" style="display:flex;align-items:center;gap:6px;padding:4px 2px 2px;">
           <label style="font-size:0.72em;color:#888;white-space:nowrap;flex-shrink:0;">Border px</label>
           <input id="sta2e-border-width-input" type="number" min="1" max="20" step="1"
@@ -1618,15 +2228,19 @@ export class ZoneToolbar {
       console.log("STA2e | ZoneToolbar click — target:", ev.target, "toolBtn:", toolBtn, "actionBtn:", actionBtn, "closeBtn:", closeBtn);
       console.log("STA2e | ZoneToolbar click — zoneEditor:", game.sta2eToolkit?.zoneEditor, "zoneOverlay:", game.sta2eToolkit?.zoneOverlay);
 
-      if (closeBtn) { this.close(); return; }
+      if (closeBtn) { await this.close(); return; }
 
       if (toolBtn) {
         const tool = toolBtn.dataset.zoneTool;
-        el.querySelectorAll("[data-zone-tool]").forEach(b => b.classList.remove("active"));
-        toolBtn.classList.add("active");
         const editor = _ensureZoneEditor();
         console.log("STA2e | ZoneToolbar — setTool:", tool, "editor:", editor);
-        editor?.setTool(tool);
+        if (!editor) return;
+        const changed = await editor?.requestTool?.(tool);
+        if (changed !== false) {
+          el.querySelectorAll("[data-zone-tool]").forEach(b => b.classList.remove("active"));
+          toolBtn.classList.add("active");
+          this.refreshBrushControls();
+        }
         return;
       }
 
@@ -1636,7 +2250,10 @@ export class ZoneToolbar {
         console.log("STA2e | ZoneToolbar — action:", action, "editor:", editor);
         if (!editor) return;
 
-        if      (action === "hexSize")        { await editor.promptHexSize(); }
+        if      (action === "finishBrush")    { await editor.finishBrushZone(); }
+        else if (action === "undoBrush")      { editor.undoBrushStroke(); }
+        else if (action === "cancelBrush")    { await editor.cancelBrushZone(); }
+        else if (action === "hexSize")        { await editor.promptHexSize(); }
         else if (action === "fill")           { await editor.fillScene("hex"); }
         else if (action === "fillHoneycomb")  { await editor.fillHoneycombs(); }
         else if (action === "fillSquare")     { await editor.fillScene("square"); }
@@ -1657,6 +2274,37 @@ export class ZoneToolbar {
         }
       }
     });
+
+    // ── Brush controls ────────────────────────────────────────────────────────
+    const snapInput = el.querySelector("#sta2e-brush-snap-input");
+    if (snapInput) {
+      try { snapInput.checked = game.settings.get("sta2e-toolkit", "zoneBrushSnap") !== false; } catch { snapInput.checked = true; }
+      snapInput.addEventListener("change", async () => {
+        await game.settings.set("sta2e-toolkit", "zoneBrushSnap", !!snapInput.checked);
+        game.sta2eToolkit?.zoneToolbar?.refreshBrushControls?.();
+      });
+    }
+    const cellInput = el.querySelector("#sta2e-brush-cell-radius-input");
+    if (cellInput) {
+      try { cellInput.value = game.settings.get("sta2e-toolkit", "zoneBrushCellRadius") ?? 1; } catch { cellInput.value = 1; }
+      cellInput.addEventListener("change", async () => {
+        const val = Math.max(1, Math.min(10, parseInt(cellInput.value) || 1));
+        cellInput.value = val;
+        await game.settings.set("sta2e-toolkit", "zoneBrushCellRadius", val);
+      });
+    }
+    const pixelInput = el.querySelector("#sta2e-brush-pixel-input");
+    if (pixelInput) {
+      try {
+        const configured = Number(game.settings.get("sta2e-toolkit", "zoneBrushPixelDiameter") ?? 0);
+        pixelInput.value = configured > 0 ? configured : (canvas?.scene?.grid?.size ?? 100);
+      } catch { pixelInput.value = canvas?.scene?.grid?.size ?? 100; }
+      pixelInput.addEventListener("change", async () => {
+        const val = Math.max(10, Math.min(2000, parseInt(pixelInput.value) || (canvas?.scene?.grid?.size ?? 100)));
+        pixelInput.value = val;
+        await game.settings.set("sta2e-toolkit", "zoneBrushPixelDiameter", val);
+      });
+    }
 
     // ── Border width input ────────────────────────────────────────────────────
     const bwInput = el.querySelector("#sta2e-border-width-input");
@@ -1703,6 +2351,28 @@ export class ZoneToolbar {
 
     document.body.appendChild(el);
     this._el = el;
+    this.refreshBrushControls();
+  }
+
+  refreshBrushControls() {
+    if (!this._el) return;
+    const editor = game.sta2eToolkit?.zoneEditor;
+    const isBrush = editor?.activeTool === "brush";
+    const panel = this._el.querySelector(".sta2e-zone-brush-panel");
+    if (panel) panel.style.display = isBrush ? "block" : "none";
+
+    const hasPending = !!editor?.hasPendingBrushZone?.();
+    const canUndo = (editor?._brushStrokes?.length ?? 0) > 0;
+    this._el.querySelector("[data-zone-action='finishBrush']")?.toggleAttribute("disabled", !hasPending);
+    this._el.querySelector("[data-zone-action='cancelBrush']")?.toggleAttribute("disabled", !hasPending);
+    this._el.querySelector("[data-zone-action='undoBrush']")?.toggleAttribute("disabled", !canUndo);
+
+    const snapInput = this._el.querySelector("#sta2e-brush-snap-input");
+    const cellInput = this._el.querySelector("#sta2e-brush-cell-radius-input");
+    const pixelInput = this._el.querySelector("#sta2e-brush-pixel-input");
+    const snap = snapInput?.checked ?? true;
+    if (cellInput) cellInput.disabled = !snap;
+    if (pixelInput) pixelInput.disabled = snap && (editor?._useFoundryHexGrid?.() || editor?._useFoundrySquareGrid?.());
   }
 }
 

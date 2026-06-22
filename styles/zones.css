@@ -118,6 +118,59 @@
   font-size: 0.9em;
 }
 
+#sta2e-zone-toolbar .sta2e-zone-brush-panel {
+  border: 1px solid #3f5f42;
+  border-radius: 4px;
+  background: #172117;
+  padding: 6px;
+  margin-bottom: 4px;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px 2px;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-row label,
+#sta2e-zone-toolbar .sta2e-zone-checkbox-row {
+  font-size: 0.72em;
+  color: #aaa;
+  white-space: nowrap;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 5px;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-toolbar-row input[type="number"] {
+  width: 52px;
+  padding: 2px 4px;
+  background: #111;
+  border: 1px solid #444;
+  border-radius: 3px;
+  color: #ddd;
+  font-size: 0.8em;
+  text-align: center;
+}
+
+#sta2e-zone-toolbar .sta2e-zone-brush-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+#sta2e-zone-toolbar button:disabled,
+#sta2e-zone-toolbar input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ── Zone Properties Dialog ────────────────────────────────────────────── */
 
 .sta2e-zone-properties .form-group {

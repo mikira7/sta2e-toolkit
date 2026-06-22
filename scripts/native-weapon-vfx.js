@@ -26,6 +26,7 @@ const VFX_Z_BASE = 920_000;
 const PHASER_PRIMARY = 0xff9a33;
 const PHASER_CORE = 0xfff2c0;
 const DISABLE_WEAPON_AUTO_ROTATE_FLAG = "disableWeaponAutoRotate";
+const ARRAY_CHARGE_WARNED = new Set();
 
 export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
   "weapon-phaser-bank": "current",
@@ -95,12 +96,16 @@ export async function playArrayCurveChargeVFX(sourceToken, weapon, targetPoint, 
   if (!globalThis.PIXI || !canvas?.ready) return null;
   const settings = getShipWeaponVfxSettings(sourceToken, weapon, options.vfxSettings);
   const charge = _chargeOptions(settings, options);
-  const curveMatch = getClosestShipArrayCurveMatch(sourceToken, weapon, targetPoint, undefined, settings, {
-    applySourceOffset: false,
-  });
-  if (!curveMatch) return null;
-  await _arrayCurveCharge(curveMatch, charge);
-  return curveMatch.point ?? null;
+  const curveMatch = _arrayCurveMatchForShot(sourceToken, weapon, targetPoint, settings);
+  if (curveMatch) {
+    const played = await _arrayCurveCharge(curveMatch, charge);
+    if (played) return curveMatch.point ?? null;
+  }
+
+  const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, options.shotIndex ?? 0, settings, options.selectedEmitter);
+  if (!sourcePoint) return null;
+  await _arrayChargeSourcePulse(sourcePoint, targetPoint, charge);
+  return sourcePoint;
 }
 
 export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, options = {}) {
@@ -254,7 +259,7 @@ function _tokenEdgePoint(token, towardPoint, mode = "source") {
 
 function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vfxSettings = null, selectedEmitter = null) {
   if (isShipArrayWeapon(weapon)) {
-    const curvePoint = getClosestShipArrayCurveMatch(sourceToken, weapon, targetPoint, undefined, vfxSettings)?.point;
+    const curvePoint = _arrayCurveMatchForShot(sourceToken, weapon, targetPoint, vfxSettings)?.point;
     if (curvePoint) return curvePoint;
   }
 
@@ -284,6 +289,15 @@ function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vf
     if (points.length) return points[Math.abs(shotIndex) % points.length];
   }
   return _tokenEdgePoint(sourceToken, targetPoint, "source");
+}
+
+function _arrayCurveMatchForShot(sourceToken, weapon, targetPoint, vfxSettings = null) {
+  try {
+    return getClosestShipArrayCurveMatch(sourceToken, weapon, targetPoint, undefined, vfxSettings);
+  } catch (err) {
+    _warnArrayChargeFailure("curve-match", err);
+    return null;
+  }
 }
 
 function _nearestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint, vfxSettings = null) {
@@ -423,6 +437,8 @@ async function _firePhaserArray(isHit, sourceToken, targets, opts) {
       await playArrayCurveChargeVFX(sourceToken, opts.weapon, targetPoint, {
         vfxSettings: settings,
         isHit,
+        shotIndex: i,
+        selectedEmitter: opts.selectedEmitter,
         color: colors.color,
         coreColor: colors.coreColor,
       });
@@ -450,59 +466,116 @@ async function _firePhaserArray(isHit, sourceToken, targets, opts) {
 
 function _arrayCurveCharge(curveMatch, opts = {}) {
   const layer = _effectLayer();
-  if (!layer || !curveMatch?.canvasCurve || !curveMatch?.point) return Promise.resolve();
+  if (!layer || !curveMatch?.canvasCurve || !curveMatch?.point) return Promise.resolve(false);
 
   const duration = Math.max(160, Number(opts.duration) || 420);
   const color = opts.color ?? PHASER_PRIMARY;
   const coreColor = opts.coreColor ?? PHASER_CORE;
   const curve = curveMatch.canvasCurve;
   const samples = curveMatch.samples?.length ? curveMatch.samples : [curve.start, curve.end].filter(Boolean);
-  if (samples.length < 2) return Promise.resolve();
+  if (samples.length < 2) return Promise.resolve(false);
   const meetT = Math.max(0.04, Math.min(0.96, Number(curveMatch.t) || 0.5));
-  const container = _sceneContainer(Math.max(...samples.map(point => point.y), curveMatch.point.y));
-  const trailA = new PIXI.Graphics();
-  const trailB = new PIXI.Graphics();
-  const orbA = _arrayOrb(color, coreColor, opts);
-  const orbB = _arrayOrb(color, coreColor, opts);
-  for (const child of [trailA, trailB, orbA, orbB]) child.blendMode = _blendMode(opts.blendMode);
-  container.addChild(trailA, trailB, orbA, orbB);
-  layer.addChild(container);
 
-  const ticker = canvas.app?.ticker;
-  const start = performance.now();
-  let finished = false;
+  try {
+    const container = _sceneContainer(Math.max(...samples.map(point => point.y), curveMatch.point.y));
+    const trailA = new PIXI.Graphics();
+    const trailB = new PIXI.Graphics();
+    const orbA = _arrayOrb(color, coreColor, opts);
+    const orbB = _arrayOrb(color, coreColor, opts);
+    for (const child of [trailA, trailB, orbA, orbB]) child.blendMode = _blendMode(opts.blendMode);
+    container.addChild(trailA, trailB, orbA, orbB);
+    layer.addChild(container);
 
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    try { ticker?.remove?.(tick); } catch { /* no-op */ }
-    _arrayCurveMeetingFlash(curveMatch.point, color, coreColor, opts);
-    _fadeContainer(container, opts.fadeDuration ?? 180, opts.cleanupDelay ?? 120);
-  };
+    const ticker = canvas.app?.ticker;
+    const start = performance.now();
+    let finished = false;
+    let resolveDone;
+    const done = new Promise(resolve => { resolveDone = resolve; });
 
-  const tick = () => {
-    const raw = Math.min(1, (performance.now() - start) / duration);
-    const progress = _easeProgress(raw, opts.easing);
-    const tA = meetT * progress;
-    const tB = 1 - ((1 - meetT) * progress);
-    const pointA = _sampledCurvePoint(samples, tA);
-    const pointB = _sampledCurvePoint(samples, tB);
-    orbA.x = pointA.x;
-    orbA.y = pointA.y;
-    orbB.x = pointB.x;
-    orbB.y = pointB.y;
-    const tail = Math.max(0.01, Math.min(1, Number(opts.trailLength) || 0.18));
-    _redrawSampledCurveTrail(trailA, samples, Math.max(0, tA - tail), tA, color, coreColor, opts);
-    _redrawSampledCurveTrail(trailB, samples, Math.min(1, tB + tail), tB, color, coreColor, opts);
-    container.alpha = raw < 0.9 ? 1 : Math.max(0.18, 1 - ((raw - 0.9) / 0.1));
-    if (raw >= 1) finish();
-  };
+    const cleanup = (played, flash) => {
+      if (finished) return;
+      finished = true;
+      try { ticker?.remove?.(tick); } catch { /* no-op */ }
+      if (flash) _arrayCurveMeetingFlash(curveMatch.point, color, coreColor, opts);
+      _fadeContainer(container, opts.fadeDuration ?? 180, opts.cleanupDelay ?? 120);
+      resolveDone?.(played);
+    };
 
-  tick();
-  if (ticker?.add) ticker.add(tick);
-  else setTimeout(finish, duration);
-  setTimeout(finish, duration + (Number(opts.cleanupDelay) || 120));
-  return _delay(duration);
+    const fail = err => {
+      _warnArrayChargeFailure("runtime", err);
+      cleanup(false, false);
+    };
+
+    const finish = () => cleanup(true, true);
+
+    const tick = () => {
+      try {
+        const raw = Math.min(1, (performance.now() - start) / duration);
+        const progress = _easeProgress(raw, opts.easing);
+        const tA = meetT * progress;
+        const tB = 1 - ((1 - meetT) * progress);
+        const pointA = _sampledCurvePoint(samples, tA);
+        const pointB = _sampledCurvePoint(samples, tB);
+        orbA.x = pointA.x;
+        orbA.y = pointA.y;
+        orbB.x = pointB.x;
+        orbB.y = pointB.y;
+        const tail = Math.max(0.01, Math.min(1, Number(opts.trailLength) || 0.18));
+        _redrawSampledCurveTrail(trailA, samples, Math.max(0, tA - tail), tA, color, coreColor, opts);
+        _redrawSampledCurveTrail(trailB, samples, Math.min(1, tB + tail), tB, color, coreColor, opts);
+        container.alpha = raw < 0.9 ? 1 : Math.max(0.18, 1 - ((raw - 0.9) / 0.1));
+        if (raw >= 1) finish();
+      } catch (err) {
+        fail(err);
+      }
+    };
+
+    tick();
+    if (!finished) {
+      if (ticker?.add) ticker.add(tick);
+      else setTimeout(finish, duration);
+      setTimeout(finish, duration + (Number(opts.cleanupDelay) || 120));
+    }
+    return done;
+  } catch (err) {
+    _warnArrayChargeFailure("runtime", err);
+    return Promise.resolve(false);
+  }
+}
+
+function _arrayChargeSourcePulse(sourcePoint, targetPoint, opts = {}) {
+  const layer = _effectLayer();
+  if (!layer || !sourcePoint) return Promise.resolve(false);
+
+  try {
+    const duration = Math.max(120, Math.min(520, Number(opts.duration) || 260));
+    const color = opts.color ?? PHASER_PRIMARY;
+    const coreColor = opts.coreColor ?? PHASER_CORE;
+    const container = _sceneContainer(sourcePoint.y, sourcePoint.layer);
+    const glow = new PIXI.Graphics();
+    const core = new PIXI.Graphics();
+    const ring = new PIXI.Graphics();
+    for (const child of [glow, core, ring]) child.blendMode = _blendMode(opts.blendMode);
+
+    const dx = targetPoint ? targetPoint.x - sourcePoint.x : 1;
+    const dy = targetPoint ? targetPoint.y - sourcePoint.y : 0;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const lead = { x: sourcePoint.x + (dx / len) * 18, y: sourcePoint.y + (dy / len) * 18 };
+
+    _fillCircle(glow, sourcePoint.x, sourcePoint.y, opts.flashRingRadius ?? 22, color, 0.18);
+    _fillCircle(core, sourcePoint.x, sourcePoint.y, opts.flashFillRadius ?? 10, coreColor, 0.72);
+    _strokeCircle(ring, sourcePoint.x, sourcePoint.y, opts.flashRingRadius ?? 22, opts.flashRingWidth ?? 2, color, 0.62);
+    _drawLine(glow, sourcePoint, lead, opts.trailGlowWidth ?? 16, color, 0.18);
+    _drawLine(core, sourcePoint, lead, opts.trailCoreWidth ?? 4, coreColor, 0.74);
+
+    container.addChild(glow, ring, core);
+    layer.addChild(container);
+    _fadeContainer(container, duration, opts.cleanupDelay ?? 120);
+    return _delay(duration).then(() => true);
+  } catch (err) {
+    _warnArrayChargeFailure("fallback", err);
+    return Promise.resolve(false);
+  }
 }
 
 function _arrayOrb(color, coreColor, opts = {}) {
@@ -771,6 +844,13 @@ function _tween(target, params, delayMs = 0) {
     }
     params.onComplete?.();
   }, delayMs + (Number(params.duration) || 0));
+}
+
+function _warnArrayChargeFailure(reason, err) {
+  const key = String(reason || "runtime");
+  if (ARRAY_CHARGE_WARNED.has(key)) return;
+  ARRAY_CHARGE_WARNED.add(key);
+  console.warn(`STA2e Toolkit | Array charge VFX failed; using source pulse fallback (${key}):`, err);
 }
 
 function _playSound(soundPath, volume = 1) {

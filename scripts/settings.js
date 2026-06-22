@@ -223,6 +223,30 @@ export function registerSettings() {
     default: 1,
   });
 
+  game.settings.register("sta2e-toolkit", "zoneBrushSnap", {
+    name:    "Zone Brush Snap",
+    scope:   "client",
+    config:  false,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "zoneBrushCellRadius", {
+    name:    "Zone Brush Cell Radius",
+    scope:   "client",
+    config:  false,
+    type:    Number,
+    default: 1,
+  });
+
+  game.settings.register("sta2e-toolkit", "zoneBrushPixelDiameter", {
+    name:    "Zone Brush Pixel Diameter",
+    scope:   "client",
+    config:  false,
+    type:    Number,
+    default: 0,
+  });
+
   game.settings.register("sta2e-toolkit", "elevationRuler", {
     name: "STA2E.Settings.ElevationRuler.Name",
     hint: "STA2E.Settings.ElevationRuler.Hint",

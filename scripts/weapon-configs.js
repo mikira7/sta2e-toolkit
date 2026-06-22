@@ -1141,23 +1141,21 @@ function torpedoTravelMs(config) {
   return slow ? Math.round(base * SHIP_PLASMA_TORPEDO_SPEED_FACTOR) : base;
 }
 
-function applyTorpedoTravel(s, config, source, target, { missed = false, finalDamage = 0 } = {}) {
-  const base = s.effect().file(config.effect);
+function usesToolkitTorpedoSprite(config) {
+  return isMovingTorpedoSprite(config?.effect);
+}
 
-  if (isMovingTorpedoSprite(config.effect)) {
+function applyTorpedoTravel(s, config, source, target, { missed = false, finalDamage = 0 } = {}) {
+  const effectPath = config.effect;
+  const base = s.effect().file(effectPath);
+
+  if (isMovingTorpedoSprite(effectPath)) {
     const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
     const px = Math.max(8, Math.round(gridSize * SHIP_TORPEDO_SPRITE_GRID_FRACTION));
     const travelMs = torpedoTravelMs(config);
-    // The flight path is driven entirely by hand: the effect is parked at the
-    // emitter and the spriteContainer is animated along sampled canvas-space
-    // waypoints (straight line + lateral bow). moveTowards/rotateTowards are
-    // deliberately NOT used — moveTowards fights the waypoint animation over
-    // position every frame, and rotateTowards re-anchors the sprite away from
-    // the effect's position, which made the torpedo appear to land beside the
-    // target. The bundled torpedo sprites spin in place, so they don't need
-    // to face the travel direction. The waypoint list ends exactly on the
-    // impact point (or a fanned-off point for misses), so the landing spot is
-    // correct by construction.
+    // The toolkit sprites spin in place, so Sequencer cannot stretch them like
+    // JB2A strips. Keep the effect parked at an absolute launch point and move
+    // the sprite container over a small, bounded set of arc segments.
     // The launch point is resolved to an ABSOLUTE canvas point rather than
     // handing Sequencer a token + offset: Sequencer's own offset processing
     // doesn't place the effect on the emitter, which made torpedoes appear to
@@ -1171,13 +1169,9 @@ function applyTorpedoTravel(s, config, source, target, { missed = false, finalDa
       .duration(travelMs);
     const arc = buildTorpedoArcOffsets(source, target, { gridSize, missed });
     if (arc) {
-      // One animateProperty per path segment, staggered by delay. loopProperty
-      // CANNOT be used here: Sequencer's animation engine treats its
-      // `duration` as the time for ONE step between consecutive values and
-      // then force-ends the animation after `duration` ms total — a
-      // multi-waypoint path only ever plays its first segment (the torpedo
-      // popped out of the hull and stalled). Chained absolute animateProperty
-      // segments are interpolated correctly.
+      // Keep this deliberately compact. Large salvos used to build dozens of
+      // delayed spriteContainer tweens in one Sequence, which could eventually
+      // leave only the start frame and impact visible during long combats.
       const segs = arc.x.length - 1;
       const segMs = travelMs / segs;
       for (let i = 0; i < segs; i++) {
@@ -1188,7 +1182,7 @@ function applyTorpedoTravel(s, config, source, target, { missed = false, finalDa
     } else {
       // Degenerate case (unresolvable points / zero distance): fall back to a
       // plain straight flight so the torpedo never just sits at the emitter.
-      effect = effect.moveTowards(target?.location ?? target, { ease: "linear" });
+      effect = effect.moveTowards(target?.location ?? target, { ease: "linear", duration: travelMs });
       if (missed && typeof effect.missed === "function") effect = effect.missed();
     }
     // Plasma torpedoes launch as a large bolt sized by the damage dealt, then
@@ -1242,14 +1236,12 @@ function resolveTravelPoint(loc) {
 const TORPEDO_LAUNCH_RUN_SQUARES = 2.5;
 const TORPEDO_LAUNCH_RUN_FRACTION = 0.35;
 const TORPEDO_APPROACH_FRACTION = 0.35;
+const TORPEDO_ARC_WAYPOINTS = 4;
 
-// Builds the full flight path of the torpedo as canvas-space waypoint offsets
-// from the launch point: a straight source→target line with a lateral bow
-// folded in, signed toward the firing ship's bow. Returned as {x, y} value
-// arrays for Sequencer's loopProperty on spriteContainer position. The effect
-// itself never moves or rotates, so these offsets are guaranteed to be
-// canvas-aligned and the last waypoint IS the landing point. Misses fly the
-// same path to an endpoint fanned past/beside the target.
+// Builds a compact flight path of canvas-space offsets from launch point to
+// impact. The effect itself never moves or rotates; only the spriteContainer is
+// tweened, and the last waypoint is the landing point. Keep the waypoint count
+// low because every segment becomes delayed Sequencer property tweens.
 function buildTorpedoArcOffsets(source, target, { gridSize = 100, missed = false } = {}) {
   const sp = resolveTravelPoint(source);
   let tp = resolveTravelPoint(target);
@@ -1300,9 +1292,7 @@ function buildTorpedoArcOffsets(source, target, { gridSize = 100, missed = false
   const c2x = dx - (adx / aLen) * approach;
   const c2y = dy - (ady / aLen) * approach;
 
-  // Each waypoint pair becomes one animateProperty segment (×2 axes), so keep
-  // the count modest — 16 points = 15 segments, plenty smooth for a Bézier.
-  const steps = 16;
+  const steps = TORPEDO_ARC_WAYPOINTS;
   const x = [];
   const y = [];
   for (let i = 0; i < steps; i++) {
@@ -1819,11 +1809,13 @@ function _hexColorForWeaponConfig(config, fallback = 0xff9a33) {
   return fallback;
 }
 
-async function playSequencerArrayCurveCharge(config, sourceToken, weapon, targetPoint, isHit) {
+async function playSequencerArrayCurveCharge(config, sourceToken, weapon, targetPoint, isHit, options = {}) {
   if (!isShipArrayWeapon(weapon) || !targetPoint) return null;
   try {
     return await playArrayCurveChargeVFX(sourceToken, weapon, targetPoint, {
       isHit,
+      shotIndex: options.shotIndex ?? 0,
+      selectedEmitter: options.selectedEmitter,
       color: _hexColorForWeaponConfig(config),
       coreColor: 0xfff2c0,
     });
@@ -1879,7 +1871,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
       if (isShipArrayWeapon(weapon)) {
         for (let i = 0; i < repeats; i++) {
           const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
-          await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true);
+          await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true, { shotIndex: i, selectedEmitter });
           let shot = seq();
           shot = withSound(shot, soundPath).wait(50);
           waitForBeamImpact(stretchToSequenceLocation(
@@ -1911,7 +1903,7 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
     } else {
       s = withSound(s, soundPath).wait(50);
       const missTarget = shipWeaponMissTargetLocation(target);
-      await playSequencerArrayCurveCharge(config, token, weapon, missTarget.location, false);
+      await playSequencerArrayCurveCharge(config, token, weapon, missTarget.location, false, { selectedEmitter });
       stretchToSequenceLocation(
         atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
         missTarget
@@ -1940,7 +1932,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
             selectedEmitter,
           });
           impactLocation = locations.impact;
-          await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true);
+          await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true, { shotIndex: i, selectedEmitter });
           let shot = seq();
           shot = withSound(shot, soundPath).wait(50);
           waitForBeamImpact(stretchToSequenceLocation(
@@ -1984,7 +1976,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
     } else {
       s = withSound(s, soundPath).wait(50);
       const missTarget = shipWeaponMissTargetLocation(target);
-      await playSequencerArrayCurveCharge(config, token, weapon, missTarget.location, false);
+      await playSequencerArrayCurveCharge(config, token, weapon, missTarget.location, false, { selectedEmitter });
       stretchToSequenceLocation(
         atSequenceLocation(shipTravelEffect(s.effect().file(config.effect), config), shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter)),
         missTarget
@@ -2061,6 +2053,43 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
   }
 }
 
+async function fireToolkitTorpedoAreaSalvo(config, token, target, salvoShots, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null, finalDamage = 0) {
+  const soundPath = config.sound;
+  const staggerMs = 180;
+  const travelMs = torpedoTravelMs(config);
+  const sequences = [];
+  let explosionLocation = sequenceLocation(target, null);
+  let explosionPoint = null;
+
+  for (let i = 0; i < salvoShots; i++) {
+    const locations = await shipShotLocations(token, target, {
+      sourceOptions: { randomOffset: 0.4 },
+      targetOptions: { randomOffset: 0.3 },
+      weapon,
+      shotIndex: i,
+      targetSystem,
+      selectedEmitter,
+      arcRestrict: true,
+    });
+    explosionLocation = locations.impact;
+    explosionPoint = locations.target?.location ?? explosionPoint;
+
+    const shot = seq();
+    if (i > 0) shot.wait(i * staggerMs);
+    if (soundPath && i < 4) shot.sound().file(soundPath).volume(i === 0 ? 1 : 0.6);
+    applyTorpedoTravel(shot, config, locations.source, locations.target, { finalDamage });
+    sequences.push(shot);
+  }
+
+  const impact = seq().wait(((salvoShots - 1) * staggerMs) + travelMs);
+  addShieldImpactStep(impact, token, target, explosionLocation?.location, shieldImpact, salvoShots - 1, salvoShots);
+  shipImpactEffect(atSequenceLocation(impact.effect().file(shipImpactFile(config, "explosion", hullImpact)), explosionLocation), target, 2.0, 0.9);
+  _stampHullDecalAt(impact, target, explosionPoint, hullImpact);
+  sequences.push(impact);
+
+  await Promise.all(sequences.map(sequence => sequence.play()));
+}
+
 async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null, finalDamage = 0) {
   // Number of torpedoes the salvo fires (base × damage tier, capped), per type.
   const salvoCount = isHit ? getTorpedoCount(config.torpedoType, "salvo", finalDamage) : 1;
@@ -2090,9 +2119,14 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
       await s.play();
     }
   } else {
-    // Area salvo uses damage-scaled shots, capped at three, with staggered
+    // Area salvo uses damage-scaled shots with staggered
     // timing and fanned launch offsets so each shot is visually distinct.
     for (const target of targets) {
+      if (isHit && usesToolkitTorpedoSprite(config)) {
+        await fireToolkitTorpedoAreaSalvo(config, token, target, salvoCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter, finalDamage);
+        continue;
+      }
+
       const soundPath = config.sound;
       const s = seq();
 

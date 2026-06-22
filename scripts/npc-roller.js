@@ -519,6 +519,58 @@ export const CREW_QUALITIES = [
   { key: "exceptional", label: "Exceptional", attr: 11, dept: 4 },
 ];
 
+function crewQualityForKey(key) {
+  return CREW_QUALITIES.find(q => q.key === key) ?? CREW_QUALITIES[1];
+}
+
+function resolveCrewRollScores(state = {}) {
+  if (state.isAssistRoll && !state.playerMode && !state.groundMode) {
+    const attr = Number(state.shipSystems ?? 8) || 8;
+    const dept = Number(state.shipDept ?? 2) || 2;
+    return {
+      attr,
+      dept,
+      target: attr + dept,
+      critThreshold: Math.max(1, dept),
+    };
+  }
+
+  if (state.officer) {
+    const attr = Number(state.officer.attributes?.[state.officerAttrKey] ?? state.crewAttr ?? 9) || 9;
+    const dept = Number(state.officer.disciplines?.[state.officerDiscKey] ?? state.crewDept ?? 2) || 2;
+    const critThreshold = state.hasDedicatedFocus
+      ? Math.min(20, Math.max(1, dept * 2))
+      : state.hasFocus
+        ? Math.max(1, dept)
+        : 1;
+    return {
+      attr,
+      dept,
+      target: attr + dept,
+      critThreshold,
+    };
+  }
+
+  const quality = crewQualityForKey(state.crewQuality);
+  const attr = Number(quality.attr ?? state.crewAttr ?? 9) || 9;
+  const dept = Number(quality.dept ?? state.crewDept ?? 2) || 2;
+  return {
+    attr,
+    dept,
+    target: attr + dept,
+    critThreshold: Math.max(1, dept),
+  };
+}
+
+function applyCrewRollScores(state = {}) {
+  const scores = resolveCrewRollScores(state);
+  state.crewAttr = scores.attr;
+  state.crewDept = scores.dept;
+  state.crewTarget = scores.target;
+  state.crewCritThresh = scores.critThreshold;
+  return scores;
+}
+
 // Complication threshold: range N means complications on (21 - N) to 20
 // e.g. range 1 → complications on 20; range 3 → complications on 18-20
 const COMPLICATION_RANGES = [1, 2, 3, 4, 5];
@@ -595,6 +647,12 @@ function _selectedCombatTargetToken(state) {
 
 function _smallCraftDifficultyMod(state) {
   return _actorHasSmallCraftTrait(_selectedCombatTargetToken(state)?.actor) ? 1 : 0;
+}
+
+function _attackPatternDifficultyReduction(state) {
+  if (state.groundMode || !state.weaponContext) return 0;
+  const CombatHUD = game.sta2eToolkit?.CombatHUD;
+  return CombatHUD?.getAttackPatternDifficultyReduction?.(_selectedCombatTargetToken(state)) ?? 0;
 }
 
 /**
@@ -1026,7 +1084,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
 
   // Officer mode: use real stats. Generic mode: use crew quality preset.
   const isOfficerMode = !!officer;
-  const quality = CREW_QUALITIES.find(q => q.key === crewQuality) ?? CREW_QUALITIES[0];
+  const quality = crewQualityForKey(crewQuality);
   const crewAttr = isOfficerMode
     ? (officer.attributes[officerAttrKey] ?? 9)
     : quality.attr;
@@ -1156,7 +1214,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           to match the character's Attribute + Discipline total.
         </div>
       </div>` : (() => {
-      const q = CREW_QUALITIES.find(q => q.key === crewQuality) ?? CREW_QUALITIES[1];
+      const q = crewQualityForKey(crewQuality);
       return `
         <div style="padding:5px 8px;margin-bottom:6px;
           background:rgba(255,153,0,0.06);border:1px solid ${LC.borderDim};border-radius:2px;">
@@ -2353,7 +2411,7 @@ function buildChatCard(actorName, state) {
     apAttrKey, apDiscKey, helmOfficer, hasActorAtHelm, helmActorName,
     sheetMode, availableShips, selectedShipIdx,
     complicationRange, shipSystemKey, shipDeptKey, noPoolButton } = state;
-  const quality = CREW_QUALITIES.find(q => q.key === crewQuality) ?? CREW_QUALITIES[0];
+  const quality = crewQualityForKey(crewQuality);
   const isOfficerMode = !!officer;
   const stationLabel = STATION_LABELS[stationId] ?? null;
   const crewTarget = crewAttr + crewDept;
@@ -2610,7 +2668,7 @@ export function buildPlayerRollCardHtml(rollData) {
     hasCalibratesensors, csRerollUsed,
     aimRerolls, aimRerollsUsed,
     weaponContext, groundMode, groundIsNpc, noPoolButton,
-    officerAttrKey, officerDiscKey, crewTarget,
+    officerAttrKey, officerDiscKey, crewTarget, crewQuality,
     complicationRange, shipName, shipSystemKey, shipDeptKey,
     hasAdvancedSensors, advancedSensorsActive, sheetMode,
     communicationsOfficerShipAssistActive, communicationsOfficerSource,
@@ -2693,6 +2751,15 @@ export function buildPlayerRollCardHtml(rollData) {
     }).join("")}
     </div>`;
   };
+
+  const isShipAssistCrewRoll = !!(isAssistRoll && !playerMode && !groundMode && shipSystemKey && shipDeptKey);
+  const hasOfficerRollLabel = !!(rawOfficerName && officerAttrKey && officerDiscKey);
+  const quality = crewQuality ? crewQualityForKey(crewQuality) : null;
+  const crewDiceHeading = isShipAssistCrewRoll
+    ? `${_systemLabel(shipSystemKey)} + ${_deptLabel(shipDeptKey)}${crewTarget != null ? ` (target: ${crewTarget})` : ""}`
+    : hasOfficerRollLabel
+      ? `${ATTR_LABELS[officerAttrKey] ?? officerAttrKey} + ${DISC_LABELS[officerDiscKey] ?? officerDiscKey}${crewTarget != null ? ` (target: ${crewTarget})` : ""}`
+      : `${quality && !playerMode ? `Crew · ${quality.label}` : "Crew Dice"}${crewTarget != null ? ` (target: ${crewTarget})` : ""}`;
 
   const p = encodeURIComponent(JSON.stringify(rollData));
   // Include the edit action in stored card HTML so the GM sees it even when a
@@ -2803,12 +2870,7 @@ export function buildPlayerRollCardHtml(rollData) {
           Crew scored 0 successes — no assists, no ship die rolled
         </div>`
       : !groundMode ? `<div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
-          letter-spacing:0.08em;margin-bottom:3px;text-align:center;">${(isAssistRoll && !playerMode && !groundMode && shipSystemKey && shipDeptKey)
-          ? `${_systemLabel(shipSystemKey)} + ${_deptLabel(shipDeptKey)}${crewTarget != null ? ` (target: ${crewTarget})` : ""}`
-          : (officerAttrKey && officerDiscKey)
-            ? `${ATTR_LABELS[officerAttrKey] ?? officerAttrKey} + ${DISC_LABELS[officerDiscKey] ?? officerDiscKey}${crewTarget != null ? ` (target: ${crewTarget})` : ""}`
-            : `Crew Dice${crewTarget != null ? ` (target: ${crewTarget})` : ""}`
-        }</div>` : ""}
+          letter-spacing:0.08em;margin-bottom:3px;text-align:center;">${crewDiceHeading}</div>` : ""}
     ${diceRow(crewDice ?? [])}
   </div>
 
@@ -3455,10 +3517,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             selectedTargetId: combatTaskContext?.preTargetId ?? null,
             combatTaskContext,
           });
+      const attackPatternReduction = opposedDifficulty !== null
+        ? 0
+        : _attackPatternDifficultyReduction({
+            selectedTargetId: combatTaskContext?.preTargetId ?? null,
+            combatTaskContext,
+            weaponContext,
+            groundMode,
+          });
       if (!breachPenalty.isDestroyed && breachPenalty.difficultyPenalty > 0) {
-        return base + breachPenalty.difficultyPenalty + smallCraftMod;
+        return Math.max(0, base + breachPenalty.difficultyPenalty + smallCraftMod - attackPatternReduction);
       }
-      return base + smallCraftMod;
+      return Math.max(0, base + smallCraftMod - attackPatternReduction);
     })(),
     _isNpc: (() => {
       const CombatHUD = game.sta2eToolkit?.CombatHUD;
@@ -3536,6 +3606,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     // True for any NPC ship roll that is not already player/ground/assist mode.
     npcShipMode: !playerMode && !groundMode && !isAssistRoll,
   };
+  applyCrewRollScores(state);
 
   // ── Player mode: post-roll chat card ──────────────────────────────────────────
   // Defined here (inside openNpcRoller) to capture the state/actor/token closure.
@@ -3660,6 +3731,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       availableShips: state.availableShips ?? [],
       selectedShipIdx: state.selectedShipIdx ?? -1,
       playerMode: state.playerMode ?? false,
+      crewQuality: state.crewQuality ?? null,
       isAlliedNpc: state.isAlliedNpc ?? false,
       alliedMomentumSource: state.alliedMomentumSource ?? "allied",
       alliedMomentumPool: state.alliedMomentumPool ?? "alliedNpcMomentum",
@@ -4319,6 +4391,8 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
 
   const defLabel = defMode === "evasive-action" ? "Evasive Action"
     : defMode === "defensive-fire" ? "Defensive Fire" : "Cover";
+  const attackPatternPenalty = game.sta2eToolkit?.CombatHUD
+    ?.getAttackPatternDifficultyReduction?.(targetToken) ?? 0;
 
   const starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
   if (starter && attackerToken?.actor && targetToken?.actor) {
@@ -4335,6 +4409,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       hasAttackPattern: state.hasAttackPattern ?? false,
       helmOfficer: state.helmOfficer ?? null,
       attackRunActive: state.attackRunActive ?? false,
+      attackPatternPenalty,
       attackerOfficer: state.officer ?? null,
       attackerStationId: state.stationId ?? "tactical",
       attackerCrewQuality: state._isNpc && !state.officer ? state.crewQuality : null,
@@ -4350,6 +4425,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
     isNpcAttacker:   state._isNpc ?? false,
     defMode,
     weaponName:      state.weaponContext?.name ?? "",
+    attackPatternPenalty,
     rollerOpts: {
       // Weapon & combat flags
       weaponContext:        state.weaponContext,
@@ -4507,6 +4583,8 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     if (focusCb !== null) ao.hasFocus = focusCb.checked;
     if (ao.hasDedicatedFocus) ao.hasFocus = false; // Dedicated Focus overrides focus
   });
+
+  applyCrewRollScores(state);
 }
 
 function _validateInteractivePaymentThreshold(state) {
@@ -4587,6 +4665,7 @@ async function _doRoll(state, speaker) {
     state.paymentCostDeducted = true;
   }
 
+  applyCrewRollScores(state);
   const shipTarget = state.shipSystems + state.shipDept;
   // For a ship-sheet assist roll there is no NPC crew — dice roll against the ship's own target.
   // Ground NPCs in assist mode roll against their own attr + disc, not ship target.
@@ -5346,7 +5425,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         }
         const base = Number(state._combatTaskDifficultyBase);
         if (!Number.isFinite(base)) return;
-        const finalDifficulty = Math.max(0, base + _smallCraftDifficultyMod(state));
+        const finalDifficulty = Math.max(0, base + _smallCraftDifficultyMod(state) - _attackPatternDifficultyReduction(state));
         diffInput.value = finalDifficulty;
         state.difficulty = finalDifficulty;
       };

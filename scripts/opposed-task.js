@@ -104,9 +104,10 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const pronePenalty = Number(options.pronePenalty ?? 0);
   const overridePenalty = Number(options.overridePenalty ?? 0);
   const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
+  const attackPatternPenalty = Number(options.attackPatternPenalty ?? 0);
   const traitDelta = _traitModifierDelta(options);
-  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + cumbersomePenalty + traitDelta);
-  return { base, guardPenalty, pronePenalty, overridePenalty, cumbersomePenalty, traitDelta, total };
+  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + cumbersomePenalty - attackPatternPenalty + traitDelta);
+  return { base, guardPenalty, pronePenalty, overridePenalty, cumbersomePenalty, attackPatternPenalty, traitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -858,7 +859,7 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
     : "Cover";
   const defStationId = opts.defenderStationId ?? (defenseType === "defensive-fire" ? "tactical" : "helm");
   const atkStationId = opts.attackerStationId ?? "tactical";
-  const defenderSuggestedAttr = opts.defenderSuggestedAttr ?? (defenseType === "defensive-fire" ? "control" : "daring");
+  const defenderSuggestedAttr = opts.defenderSuggestedAttr ?? "daring";
   const defenderSuggestedDisc = opts.defenderSuggestedDisc ?? (defenseType === "defensive-fire" ? "security" : "conn");
   const attackerSuggestedAttr = opts.attackerSuggestedAttr ?? "control";
   const attackerSuggestedDisc = opts.attackerSuggestedDisc ?? "security";
@@ -886,6 +887,7 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
       defenseType,
       overridePenalty: opts.overridePenalty ? 1 : Number(opts.overridePenalty ?? 0),
       cumbersomePenalty: Number(opts.cumbersomePenalty ?? 0),
+      attackPatternPenalty: opts.attackPatternPenalty ? 1 : Number(opts.attackPatternPenalty ?? 0),
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
       attackerComplicationRange: opts.attackerComplicationRange ?? 1,
       ...traitModifier,
@@ -1131,6 +1133,7 @@ function _renderCardHtml(d) {
       if (guardPenalty) breakdownParts.push(`Guard +${guardPenalty}`);
       if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
       if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
+      if (difficultyInfo.attackPatternPenalty) breakdownParts.push(`Attack Pattern -${difficultyInfo.attackPatternPenalty}`);
       if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
       if (d.options?.targetIsProne && passed) breakdownParts.push(`<span style="color:${LC.secondary ?? "#cc88ff"};">+2 Mom on prone target</span>`);
     } else {
@@ -1215,7 +1218,7 @@ function _renderCardHtml(d) {
 
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
-        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}.
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}.
       </div>`
     : "";
 
