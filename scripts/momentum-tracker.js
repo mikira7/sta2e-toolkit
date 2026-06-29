@@ -17,6 +17,7 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { readPool, writePool, poolLimit } from "./momentum-spend.js";
+import { actorHasPlanOfActionTalent } from "./trait-service.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -58,6 +59,15 @@ function buildTrackerCardHtml({ float, bonus, versatile = 0, pool, ownerActorNam
         letter-spacing:0.1em;text-transform:uppercase;">
       ✕ End Tracker (Forfeit Bonus)
     </button>`;
+  const createTraitBtnHtml = `
+    <button class="sta2e-tracker-create-trait"
+      data-message-id="${messageId ?? ""}"
+      style="margin-top:6px;width:100%;padding:4px 8px;background:rgba(255,153,0,0.10);
+        border:1px solid ${border};border-radius:2px;cursor:pointer;
+        font-family:${font};font-size:9px;font-weight:700;color:${border};
+        letter-spacing:0.1em;text-transform:uppercase;">
+      ✍ Create Trait (2 Momentum)
+    </button>`;
 
   return `
     <div class="sta2e-momentum-tracker" data-pool="${pool}"
@@ -79,9 +89,145 @@ function buildTrackerCardHtml({ float, bonus, versatile = 0, pool, ownerActorNam
           ${bonus > 0 ? `<br><span style="color:${tertiary};">Bonus</span> is non-bankable (e.g. Intense species ability) — spend or it expires.` : ""}
           ${versatile > 0 ? `<br><span style="color:${LC.primary ?? "#ff9900"};">Versatile</span>${weaponName ? ` (${weaponName})` : ""} — spend on Extra Damage, Devastating, or Trait Creation only.` : ""}
         </div>
+        ${createTraitBtnHtml}
         ${endBtnHtml}
       </div>
     </div>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+async function postTrackerTraitCard(message, tracker) {
+  const LC = getLC();
+  const actor = game.actors.get(tracker.ownerActorId) ?? null;
+  const token = message.speaker?.token ? canvas?.tokens?.get(message.speaker.token) : null;
+  const actorName = actor?.name ?? tracker.ownerActorName ?? "Actor";
+  const planTagOption = actorHasPlanOfActionTalent(actor)
+    ? `<label class="sta2e-trait-plan-option" style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;
+          background:rgba(0,150,255,0.08);border:1px solid ${LC.borderDim ?? "#664400"};border-radius:2px;">
+        <input class="sta2e-trait-plan-tag" type="checkbox" checked style="margin-top:2px;flex:0 0 auto;" />
+        <span style="display:flex;flex-direction:column;gap:2px;">
+          <strong style="font-size:10px;color:${LC.secondary ?? "#cc88ff"};letter-spacing:0.06em;text-transform:uppercase;">
+            Plan / Strategy
+          </strong>
+          <small style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};line-height:1.35;">
+            Adds the plan Source Tag for Plan of Action and Methodical Planning.
+          </small>
+        </span>
+      </label>`
+    : "";
+  const poolLabel = tracker.pool === "threat" ? "Threat"
+    : tracker.pool === "alliedNpcMomentum" ? "Allied NPC Momentum"
+      : "Momentum";
+  const payload = encodeURIComponent(JSON.stringify({
+    actorId: actor?.id ?? tracker.ownerActorId ?? null,
+    actorUuid: actor?.uuid ?? null,
+    tokenId: token?.id ?? null,
+    stationLabel: "Momentum",
+    isNpc: tracker.pool === "threat",
+    successes: 0,
+    spendPool: null,
+    spendAmount: 0,
+    traitBaseCost: 2,
+    trackerMessageId: message.id,
+    trackerOwnerActorId: tracker.ownerActorId ?? actor?.id ?? null,
+  }));
+
+  await ChatMessage.create({
+    flags: { [MODULE]: { traitResultCard: true } },
+    speaker: ChatMessage.getSpeaker({ token: token ?? null, alias: actorName }),
+    content: `
+      <div style="background:${LC.bg ?? "#050607"};border:1px solid ${LC.primary ?? "#ff9900"};border-left:4px solid ${LC.primary ?? "#ff9900"};
+        border-radius:3px;padding:8px 10px;font-family:${LC.font ?? "var(--font-primary)"};">
+        <div style="font-size:9px;color:${LC.primary ?? "#ff9900"};font-weight:800;letter-spacing:0.1em;text-transform:uppercase;">
+          Create Trait — Momentum Spend
+        </div>
+        <div style="font-size:12px;font-weight:700;color:${LC.tertiary ?? "#ffcc66"};margin:4px 0 6px;">
+          ${escapeHtml(actorName)}
+        </div>
+        <div style="font-size:10px;color:${LC.textDim ?? "#b9a37f"};margin-bottom:8px;">
+          Costs 2 ${poolLabel}. Overflow, bonus, and versatile momentum are spent before the pool.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+          <div>
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;display:block;margin-bottom:3px;">Trait Name</label>
+            <input class="sta2e-trait-name" type="text" placeholder="e.g. Created Advantage"
+              style="width:100%;padding:5px 8px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};
+              border-radius:2px;color:${LC.text ?? "#f1d8a8"};font-size:12px;font-family:${LC.font ?? "var(--font-primary)"};box-sizing:border-box;" />
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap;">Potency</label>
+            <input class="sta2e-trait-potency" type="number" min="1" max="5" value="1"
+              style="width:60px;padding:4px 8px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};
+              border-radius:2px;color:${LC.tertiary ?? "#ffcc66"};font-size:16px;font-weight:700;
+              font-family:${LC.font ?? "var(--font-primary)"};text-align:center;" />
+            <span class="sta2e-trait-cost" data-currency="${poolLabel}"
+              style="font-size:10px;color:${LC.textDim ?? "#b9a37f"};font-family:${LC.font ?? "var(--font-primary)"};">
+              (Potency 1 — no extra cost)
+            </span>
+          </div>
+          <div style="display:grid;grid-template-columns:80px 1fr;gap:6px;align-items:center;">
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;">Scope</label>
+            <select class="sta2e-trait-scope" style="padding:4px 6px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};color:${LC.text ?? "#f1d8a8"};">
+              <option value="actor">Actor</option>
+              ${game.user.isGM ? `<option value="scene">Scene</option>` : ""}
+            </select>
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;">Actor</label>
+            <div class="sta2e-trait-target-wrap" style="display:grid;grid-template-columns:1fr auto;gap:5px;align-items:center;">
+              <select class="sta2e-trait-target-actor" style="padding:4px 6px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};color:${LC.text ?? "#f1d8a8"};">
+                ${actor ? `<option value="${escapeHtml(actor.uuid ?? "")}" data-actor-id="${escapeHtml(actor.id ?? "")}" selected>${escapeHtml(actor.name)}</option>` : ""}
+              </select>
+              <button type="button" class="sta2e-trait-multi-actors"
+                title="Select multiple actor recipients"
+                style="padding:4px 7px;background:rgba(0,150,255,0.10);border:1px solid ${LC.secondary ?? "#cc88ff"};
+                  border-radius:2px;color:${LC.secondary ?? "#cc88ff"};font-size:9px;font-weight:700;
+                  letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;font-family:${LC.font ?? "var(--font-primary)"};">
+                Multi
+              </button>
+              <div class="sta2e-trait-target-summary"
+                style="grid-column:1 / -1;font-size:9px;color:${LC.textDim ?? "#b9a37f"};font-family:${LC.font ?? "var(--font-primary)"};display:none;"></div>
+            </div>
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;">Duration</label>
+            <select class="sta2e-trait-duration" style="padding:4px 6px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};color:${LC.text ?? "#f1d8a8"};">
+              <option value="scene">Scene</option>
+              <option value="single-task">Single Task</option>
+              <option value="persistent">Persistent</option>
+            </select>
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;">Effect</label>
+            <select class="sta2e-trait-effect-type" style="padding:4px 6px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};color:${LC.text ?? "#f1d8a8"};">
+              <option value="note">Notes Only</option>
+              <option value="difficulty">Difficulty</option>
+              <option value="reroll">One-Die Reroll</option>
+              <option value="bonusMomentum">Bonus Momentum</option>
+              <option value="bonusThreat">Bonus Threat</option>
+              <option value="complicationRange">Complication Range</option>
+              <option value="possible">Possible</option>
+              <option value="impossible">Impossible</option>
+            </select>
+          </div>
+          ${planTagOption}
+          <div>
+            <label style="font-size:9px;color:${LC.textDim ?? "#b9a37f"};text-transform:uppercase;letter-spacing:0.08em;display:block;margin-bottom:3px;">Description</label>
+            <textarea class="sta2e-trait-description" rows="2"
+              style="width:100%;padding:5px 8px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};
+              border-radius:2px;color:${LC.text ?? "#f1d8a8"};font-size:11px;font-family:${LC.font ?? "var(--font-primary)"};box-sizing:border-box;"></textarea>
+          </div>
+        </div>
+        <button class="sta2e-apply-trait" data-payload="${payload}"
+          style="width:100%;padding:5px;background:rgba(255,153,0,0.12);border:1px solid ${LC.primary ?? "#ff9900"};
+          border-radius:2px;color:${LC.primary ?? "#ff9900"};font-size:10px;font-weight:700;letter-spacing:0.08em;
+          text-transform:uppercase;cursor:pointer;font-family:${LC.font ?? "var(--font-primary)"};">
+          ✍ Apply Trait
+        </button>
+      </div>`,
+  });
 }
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
@@ -349,6 +495,27 @@ function wireTrackerCard(message, html) {
         endBtn.style.opacity = "0.5";
         try { await endTracker(message.id); }
         catch (err) { console.error("STA2e Toolkit | endTracker error:", err); }
+      });
+    }
+  }
+  const traitBtn = card.querySelector(".sta2e-tracker-create-trait");
+  if (traitBtn) {
+    traitBtn.dataset.messageId = message.id;
+    if (traitBtn.dataset.wired !== "1") {
+      traitBtn.dataset.wired = "1";
+      traitBtn.addEventListener("click", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        traitBtn.disabled = true;
+        traitBtn.style.opacity = "0.5";
+        try {
+          await postTrackerTraitCard(message, tracker);
+        } catch (err) {
+          console.error("STA2e Toolkit | tracker Create Trait error:", err);
+          ui.notifications.error("STA2e Toolkit: Could not open trait creation card.");
+          traitBtn.disabled = false;
+          traitBtn.style.opacity = "";
+        }
       });
     }
   }

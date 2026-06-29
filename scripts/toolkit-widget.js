@@ -216,6 +216,18 @@ export class ToolkitWidget {
     btnContainer.appendChild(sep2);
 
     btnContainer.appendChild(mkBtn(
+      "fas fa-tags",
+      game.i18n.localize("STA2E.Widget.Button.TraitManager.Label"),
+      game.i18n.localize("STA2E.Widget.Button.TraitManager.Hint"),
+      LC.tertiary ?? LC.secondary,
+      () => game.sta2eToolkit?.traitManager?.toggle(),
+    ));
+
+    const sepTraits = document.createElement("div");
+    sepTraits.style.cssText = `height: 1px; background: ${LC.borderDim}; margin: 2px 8px;`;
+    btnContainer.appendChild(sepTraits);
+
+    btnContainer.appendChild(mkBtn(
       "fas fa-user-astronaut",
       game.i18n.localize("STA2E.Widget.Button.CharacterCreator.Label"),
       game.i18n.localize("STA2E.Widget.Button.CharacterCreator.Hint"),
@@ -241,6 +253,18 @@ export class ToolkitWidget {
 
     // Social Opposed Task button — GM only (dialog is GM-gated anyway)
     if (game.user.isGM) {
+      btnContainer.appendChild(mkBtn(
+        "fas fa-clipboard-list",
+        game.i18n.localize("STA2E.Widget.Button.TaskMaker.Label"),
+        game.i18n.localize("STA2E.Widget.Button.TaskMaker.Hint"),
+        LC.primary,
+        () => game.sta2eToolkit?.openTaskMakerSetup?.(),
+      ));
+
+      const sepTask = document.createElement("div");
+      sepTask.style.cssText = `height: 1px; background: ${LC.borderDim}; margin: 2px 8px;`;
+      btnContainer.appendChild(sepTask);
+
       btnContainer.appendChild(mkBtn(
         "fas fa-people-arrows",
         "Social Opposed Task",

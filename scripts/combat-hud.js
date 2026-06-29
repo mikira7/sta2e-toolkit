@@ -42,7 +42,8 @@ import {
   PlayerRollCallbacks, rollPool, clearStationAssistFlag, buildPlayerRollCardHtml,
   diePipHtml, dsnShowPool,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
-  taskDifficulty, showOffBonusMomentum,
+  taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
+  callOutTargetsSourceForActor,
 } from "./npc-roller.js";
 import {
   STATION_SLOTS,
@@ -55,6 +56,17 @@ import {
 } from "./crew-manifest.js";
 import { getLcTokens }  from "./lcars-theme.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
+import { adjustPool } from "./pool-service.js";
+import {
+  createActorTrait,
+  createSceneTrait,
+  actorHasPlanOfActionTalent,
+  defaultAutomation,
+  planOfActionBonusMomentum,
+  resolveActorReference,
+  spendForTraitCreation,
+  traitSpendPool,
+} from "./trait-service.js";
 
 import {
   COMBAT_CONDITIONS,
@@ -4081,34 +4093,38 @@ export class CombatHUD {
     return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2 };
   }
 
-  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false } = {}) {
+  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false, attackerBonus = 0, defenderBonus = 0 } = {}) {
     if (!opposedDefenseType || attackerSuccesses === null || defenderSuccesses === null) return null;
     const atk = Number(attackerSuccesses);
     const def = Number(opposedDifficulty ?? defenderSuccesses);
     if (!Number.isFinite(atk) || !Number.isFinite(def)) return null;
+    const atkBonus = Math.max(0, Number(attackerBonus) || 0);
+    const defBonus = Math.max(0, Number(defenderBonus) || 0);
 
     const delta = atk - def;
     if (delta === 0) return { winner: "tie", amount: 0, pool: null };
 
     if (delta > 0) {
-      if (attackerAlreadyAwarded) return { winner: "attacker", amount: delta, pool: CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum", alreadyAwarded: true };
+      if (attackerAlreadyAwarded) return { winner: "attacker", amount: delta, bonus: atkBonus, pool: CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum", alreadyAwarded: true };
       const pool = CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum";
       await createTracker(attackerToken?.actor, {
         totalGenerated: delta,
+        bonus: atkBonus,
         pool,
         speakerToken: attackerToken,
       });
-      return { winner: "attacker", amount: delta, pool, alreadyAwarded: false };
+      return { winner: "attacker", amount: delta, bonus: atkBonus, pool, alreadyAwarded: false };
     }
 
     const amount = Math.abs(delta);
     const pool = CombatHUD.isNpcShip(defenderToken?.actor) ? "threat" : "momentum";
     await createTracker(defenderToken?.actor, {
       totalGenerated: amount,
+      bonus: defBonus,
       pool,
       speakerToken: defenderToken,
     });
-    return { winner: "defender", amount, pool, alreadyAwarded: false };
+    return { winner: "defender", amount, bonus: defBonus, pool, alreadyAwarded: false };
   }
 
   async _resolveWeapon(isHit) {
@@ -4249,7 +4265,7 @@ export class CombatHUD {
    * @param {number|null} opts.defenderSuccesses   - Successes from defender's opposed roll (if any)
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
     token = CombatHUD._resolveShipWeaponSourceToken({
       shipActorId: weapon?.parent?.id ?? token?.actor?.id ?? token?.document?.actorId ?? null,
     }, token);
@@ -4273,6 +4289,8 @@ export class CombatHUD {
       opposedDifficulty,
       opposedDefenseType,
       attackerAlreadyAwarded: opposedMomentumAwarded,
+      attackerBonus: intenseTalentBonus,
+      defenderBonus: opposedDefenderBonus,
     });
 
     const config = _shipWeaponConfigForRules(weapon, getWeaponConfig(weapon));
@@ -4410,6 +4428,7 @@ export class CombatHUD {
         defenderSuccesses,
         opposedDifficulty,
         attackerSuccesses,
+        opposedDefenderBonus,
         attackerTokenId:    token?.id ?? null,
         attackerActorId:    actor?.id ?? null,
         trackerMessageId:   trackerMessageId ?? null,
@@ -9145,6 +9164,44 @@ export class CombatHUD {
     const stationLabel = station?.label ?? "Bridge";
     const defaultAttr  = station?.defaultAttr ?? "reason";
     const defaultDisc  = station?.defaultDisc ?? "command";
+    const spendPoolLabel = traitSpendPool(actor, token) === "threat" ? "Threat" : "Momentum";
+
+    const method = await foundry.applications.api.DialogV2.wait({
+      window: { title: `Create Trait - ${stationLabel}` },
+      content: `
+        <div class="sta2e-trait-choice-prompt">
+          <div class="sta2e-trait-choice-kicker">Create Trait</div>
+          <h3>${stationLabel}</h3>
+          <p>
+            Attempt the task normally, or spend 2 ${spendPoolLabel} to open the trait creation card.
+          </p>
+          <div class="sta2e-trait-choice-grid">
+            <div>
+              <strong>Roll Task</strong>
+              <span>Difficulty 2. Success opens the trait creation card.</span>
+            </div>
+            <div>
+              <strong>Spend 2</strong>
+              <span>Spends ${spendPoolLabel}, then opens the same Apply Trait card.</span>
+            </div>
+          </div>
+        </div>`,
+      rejectClose: false,
+      buttons: [
+        { action: "roll", label: "Roll Task", icon: "fas fa-dice-d20", default: true },
+        { action: "spend", label: "Spend 2", icon: "fas fa-coins" },
+        { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+      ],
+    });
+    if (!method || method === "cancel") return;
+    const stationOfficers = station ? getStationOfficers(actor, station.id) : [];
+    const creatorActor = stationOfficers[0] ?? actor;
+    if (method === "spend") {
+      const spend = await spendForTraitCreation(actor, token, 2);
+      if (!spend) return;
+      await this._resolveTraitCreation(actor, stationLabel, station, true, null, token, { spend, creatorActor });
+      return;
+    }
 
     // ── Step 1: Roll ─────────────────────────────────────────────────────────
     // NPC ships: open the NPC roller; PC ships: open the player roller.
@@ -9154,7 +9211,6 @@ export class CombatHUD {
 
     if (isNpc && isGM) {
       // Resolve assigned officer for this station
-      const stationOfficers = station ? getStationOfficers(actor, station.id) : [];
       const officer = stationOfficers.length > 0 ? readOfficerStats(stationOfficers[0]) : null;
 
       // Roller posts result card directly via taskCallback — no second dialog
@@ -9167,14 +9223,13 @@ export class CombatHUD {
         taskLabel:           `Create Trait — ${stationLabel}`,
         taskContext:         "Difficulty 2 · Success creates a Trait with Potency 1",
         taskCallback:        ({ passed, successes }) => {
-          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token);
+          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token, { creatorActor });
         },
       });
       return; // continues in taskCallback
 
     } else {
       // Player ship — open the player roller pre-set to Difficulty 2
-      const stationOfficers = station ? getStationOfficers(actor, station.id) : [];
       const officer = stationOfficers.length > 0 ? readOfficerStats(stationOfficers[0]) : null;
 
       openPlayerRoller(actor, token, {
@@ -9185,7 +9240,7 @@ export class CombatHUD {
         taskLabel:           `Create Trait — ${stationLabel}`,
         taskContext:         "Difficulty 2 · Success creates a Trait with Potency 1",
         taskCallback:        ({ passed, successes }) => {
-          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token);
+          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token, { creatorActor });
         },
       });
       return; // continues in taskCallback
@@ -9196,14 +9251,16 @@ export class CombatHUD {
 
   // ── Create Trait — resolution (shared between NPC callback and PC path) ──
 
-  async _resolveTraitCreation(actor, stationLabel, station, succeeded, successes = null, token = null) {
+  async _resolveTraitCreation(actor, stationLabel, station, succeeded, successes = null, token = null, options = {}) {
     const isNpc = CombatHUD.isNpcShip(actor);
+    const spend = options?.spend ?? null;
+    const creatorActor = options?.creatorActor ?? actor;
 
     if (!succeeded) {
       ChatMessage.create({
         content: lcarsCard("✗ CREATE TRAIT FAILED", LC.red,
           `<div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-            ${actor.name} — ${stationLabel} task failed. No trait created.
+            ${creatorActor?.name ?? actor.name} — ${stationLabel} task failed. No trait created.
           </div>`),
         speaker: { alias: "STA2e Toolkit" },
       });
@@ -9215,19 +9272,69 @@ export class CombatHUD {
     // even if the dialog is long gone by the time the GM clicks Apply.
     const traitPayload = encodeURIComponent(JSON.stringify({
       actorId:      actor.id,
+      actorUuid:    actor.uuid ?? null,
       tokenId:      token?.id ?? null,
       stationLabel,
       isNpc,
       successes:    successes ?? 0,
+      spendPool:    spend?.pool ?? null,
+      spendAmount:  spend?.amount ?? 0,
+      creatorActorId:   creatorActor?.id ?? null,
+      creatorActorUuid: creatorActor?.uuid ?? null,
     }));
 
-    const currency = isNpc ? "Threat" : "Momentum";
+    const cardCostPool = spend?.pool ?? traitSpendPool(actor, token);
+    const currency = cardCostPool === "threat"
+      ? "Threat"
+      : cardCostPool === "alliedNpcMomentum"
+        ? "Allied NPC Momentum"
+        : "Momentum";
+    const traitTargetActors = (() => {
+      const seen = new Set();
+      return [
+        actor,
+        creatorActor,
+        ...STATION_SLOTS.flatMap(slot => getStationOfficers(actor, slot.id)),
+      ].filter(a => {
+        if (!a?.id || seen.has(a.id)) return false;
+        seen.add(a.id);
+        return true;
+      });
+    })();
+    const selectedTraitTarget = creatorActor ?? actor;
+    const traitTargetOptions = traitTargetActors
+      .map(a => `<option value="${escapeHtml(a.uuid ?? "")}" data-actor-id="${escapeHtml(a.id ?? "")}" ${a.uuid === selectedTraitTarget?.uuid ? "selected" : ""}>${escapeHtml(a.name)}</option>`)
+      .join("");
+    const planTagOption = actorHasPlanOfActionTalent(creatorActor)
+      ? `<label class="sta2e-trait-plan-option" style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;
+            background:rgba(0,150,255,0.08);border:1px solid ${LC.borderDim};border-radius:2px;
+            font-family:${LC.font};">
+          <input class="sta2e-trait-plan-tag" type="checkbox" checked
+            style="margin-top:2px;flex:0 0 auto;" />
+          <span style="display:flex;flex-direction:column;gap:2px;">
+            <strong style="font-size:10px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+              Plan / Strategy
+            </strong>
+            <small style="font-size:9px;color:${LC.textDim};line-height:1.35;">
+              Adds the plan Source Tag for Plan of Action and Methodical Planning.
+            </small>
+          </span>
+        </label>`
+      : "";
 
     ChatMessage.create({
       flags: { "sta2e-toolkit": { traitResultCard: true } },
-      content: lcarsCard("✍️ CREATE TRAIT — SUCCESS", LC.primary, `
+      content: lcarsCard(spend ? "✍️ CREATE TRAIT — SPEND 2" : "✍️ CREATE TRAIT — SUCCESS", LC.primary, `
         <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-          margin-bottom:6px;font-family:${LC.font};">${actor.name} — ${stationLabel}</div>
+          margin-bottom:6px;font-family:${LC.font};">${creatorActor?.name ?? actor.name} — ${stationLabel}</div>
+        ${creatorActor?.id && creatorActor.id !== actor.id ? `
+        <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};margin-bottom:6px;">
+          Acting from ${actor.name}
+        </div>` : ""}
+        ${spend ? `
+        <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};margin-bottom:8px;">
+          Spent ${spend.amount} ${currency}. Complete the trait details below, then apply it.
+        </div>` : ""}
         ${successes !== null ? `
         <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};margin-bottom:8px;">
           ${successes} success${successes !== 1 ? "es" : ""} — task passed.
@@ -9257,9 +9364,72 @@ export class CombatHUD {
                 color:${LC.tertiary};font-size:16px;font-weight:700;
                 font-family:${LC.font};text-align:center;" />
             <span class="sta2e-trait-cost"
+              data-currency="${currency}"
               style="font-size:10px;color:${LC.textDim};font-family:${LC.font};">
-              (base — no extra cost)
+              (Potency 1 — no extra cost)
             </span>
+          </div>
+          <div style="display:grid;grid-template-columns:80px 1fr;gap:6px;align-items:center;">
+            <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+              text-transform:uppercase;letter-spacing:0.08em;">Scope</label>
+            <select class="sta2e-trait-scope"
+              style="padding:4px 6px;background:${LC.bg};border:1px solid ${LC.border};
+                color:${LC.text};font-family:${LC.font};">
+              <option value="actor">Actor</option>
+              ${game.user.isGM ? `<option value="scene">Scene</option>` : ""}
+            </select>
+            <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+              text-transform:uppercase;letter-spacing:0.08em;">Actor</label>
+            <div class="sta2e-trait-target-wrap" style="display:grid;grid-template-columns:1fr auto;gap:5px;align-items:center;">
+              <select class="sta2e-trait-target-actor"
+                style="padding:4px 6px;background:${LC.bg};border:1px solid ${LC.border};
+                  color:${LC.text};font-family:${LC.font};">
+                ${traitTargetOptions}
+              </select>
+              <button type="button" class="sta2e-trait-multi-actors"
+                title="Select multiple actor recipients"
+                style="padding:4px 7px;background:rgba(0,150,255,0.10);border:1px solid ${LC.secondary};
+                  border-radius:2px;color:${LC.secondary};font-size:9px;font-weight:700;
+                  letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;font-family:${LC.font};">
+                Multi
+              </button>
+              <div class="sta2e-trait-target-summary"
+                style="grid-column:1 / -1;font-size:9px;color:${LC.textDim};font-family:${LC.font};display:none;"></div>
+            </div>
+            <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+              text-transform:uppercase;letter-spacing:0.08em;">Duration</label>
+            <select class="sta2e-trait-duration"
+              style="padding:4px 6px;background:${LC.bg};border:1px solid ${LC.border};
+                color:${LC.text};font-family:${LC.font};">
+              <option value="scene">Scene</option>
+              <option value="single-task">Single Task</option>
+              <option value="persistent">Persistent</option>
+            </select>
+            <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+              text-transform:uppercase;letter-spacing:0.08em;">Effect</label>
+            <select class="sta2e-trait-effect-type"
+              style="padding:4px 6px;background:${LC.bg};border:1px solid ${LC.border};
+                color:${LC.text};font-family:${LC.font};">
+              <option value="note">Notes Only</option>
+              <option value="difficulty">Difficulty</option>
+              <option value="reroll">One-Die Reroll</option>
+              <option value="bonusMomentum">Bonus Momentum</option>
+              <option value="bonusThreat">Bonus Threat</option>
+              <option value="complicationRange">Complication Range</option>
+              <option value="possible">Possible</option>
+              <option value="impossible">Impossible</option>
+            </select>
+          </div>
+          ${planTagOption}
+          <div>
+            <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+              text-transform:uppercase;letter-spacing:0.08em;display:block;margin-bottom:3px;">
+              Description
+            </label>
+            <textarea class="sta2e-trait-description" rows="2"
+              style="width:100%;padding:5px 8px;background:${LC.bg};
+                border:1px solid ${LC.border};border-radius:2px;color:${LC.text};
+                font-size:11px;font-family:${LC.font};box-sizing:border-box;"></textarea>
           </div>
         </div>
         <button class="sta2e-apply-trait"
@@ -10801,18 +10971,23 @@ export class CombatHUD {
             // Show opposed result on miss — defender always wins on a miss
             const oppDef = targetData[0]?.opposedDefenseType ?? null;
             const defSucc = targetData[0]?.defenderSuccesses ?? null;
+            const opposedDifficulty = targetData[0]?.opposedDifficulty ?? defSucc;
             const atkSucc = targetData[0]?.attackerSuccesses ?? null;
+            const defenderBonus = Math.max(0, Number(targetData[0]?.opposedDefenderBonus ?? 0) || 0);
             if (!oppDef || defSucc === null) return "";
             const defLabel = oppDef === "evasive-action" ? "Evasive Action" : oppDef === "defensive-fire" ? "Defensive Fire" : "Cover";
             const defIcon  = oppDef === "evasive-action" ? "↗️" : oppDef === "defensive-fire" ? "🛡️" : "🪨";
-            const defWinMargin = atkSucc !== null ? defSucc - atkSucc : null;
+            const defWinMargin = atkSucc !== null ? opposedDifficulty - atkSucc : null;
             // Pool button for defender (win margin = extra threat/momentum)
             const defenderActor = canvas.tokens?.get(targetData[0]?.tokenId)?.actor
               ?? game.actors?.get(targetData[0]?.actorId);
             const defenderIsNpcShip = CombatHUD.isNpcShip(defenderActor);
+            const defenderPoolLabel = defenderIsNpcShip ? "Threat" : "Momentum";
+            const defenderAward = Math.max(0, Number(defWinMargin ?? 0) || 0);
+            const defenderAwardText = `+${defenderAward}${defenderBonus > 0 ? ` +${defenderBonus} bonus` : ""} ${defenderPoolLabel}`;
             const deltaLine = defWinMargin !== null
               ? `<div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
-                  ✗ Defender wins — +${defWinMargin} ${defenderIsNpcShip ? "Threat" : "Momentum"} awarded automatically
+                  ✗ Defender wins — ${defenderAwardText} awarded automatically
                  </div>`
               : `<div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
                   ✗ Defender wins (attack missed)
@@ -10846,6 +11021,7 @@ export class CombatHUD {
                 <span style="color:${LC.textDim};">Defender: </span>
                 <strong style="color:${LC.tertiary};">${defSucc} success${defSucc !== 1 ? "es" : ""}</strong>
                 ${atkSucc !== null ? `&nbsp;·&nbsp;<span style="color:${LC.textDim};">Attacker: </span><strong style="color:${LC.tertiary};">${atkSucc} success${atkSucc !== 1 ? "es" : ""}</strong>` : ""}
+                ${opposedDifficulty !== defSucc ? `<div style="color:${LC.textDim};font-size:9px;">Final Difficulty ${opposedDifficulty}</div>` : ""}
               </div>
               ${deltaLine}
               ${counterBtn}
@@ -17989,6 +18165,35 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         // Look up assisting actor's stats for the attr/disc selectors
         const assistActor = ao.actorId ? game.actors.get(ao.actorId) : null;
         const aoStats     = assistActor ? readOfficerStats(assistActor) : null;
+        if (ao.type === "methodical-planning" && assistActor) {
+          const assistToken = canvas.tokens?.placeables.find(t => t.actor?.id === assistActor.id) ?? null;
+          const originalText = btn.textContent;
+          btn.disabled = true;
+          btn.style.opacity = "0.5";
+          btn.style.cursor = "default";
+          btn.textContent = "✓ Assist Roller Opened";
+          openNpcRoller(assistActor, assistToken, {
+            playerMode: true,
+            sheetMode: false,
+            isAssistRoll: true,
+            methodicalPlanningAssist: true,
+            officer: aoStats ?? readOfficerStats(assistActor),
+            defaultAttr: ao.attrKey ?? "control",
+            defaultDisc: ao.discKey ?? "command",
+            difficulty: 0,
+            noShipAssist: true,
+            noPoolButton: true,
+            taskLabel: "Methodical Planning Assist",
+            taskContext: `Assist for ${payload.taskLabel ?? "Task Roll"}`,
+          });
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.style.opacity = "";
+            btn.style.cursor = "";
+            btn.textContent = originalText || "🎲 Roll Assist Die";
+          }, 1200);
+          return;
+        }
 
         const attrOptions = OFFICER_ATTRIBUTES.map(({ key, label }) => {
           const val  = aoStats ? (aoStats.attributes[key]  ?? null) : null;
@@ -18090,10 +18295,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             {
               ...die,
               officerName: ao.name,
+              assistActorId: ao.actorId ?? null,
               attrKey: selected.attrKey,
               discKey: selected.discKey,
             },
           ],
+          callOutTargetsSources: (payload.weaponContext || payload.callOutTargetsEligible) && ao.callOutTargetsSource
+            ? [...(payload.callOutTargetsSources ?? []), ao.callOutTargetsSource]
+            : (payload.callOutTargetsSources ?? []),
           pendingAssists: pendingAssists.filter((_, i) => i !== assistIndex),
         };
 
@@ -18706,7 +18915,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const totalSuccesses = countSuc(allDice) + _rollResultAutoSuccesses(payload);
         const effectiveDifficulty = taskDifficulty(payload);
         const passed   = totalSuccesses >= effectiveDifficulty;
-        const momentum = Math.max(0, totalSuccesses - effectiveDifficulty);
 
         // When this is a defense roll, trigger the opposed task resolution so the
         // attacker's roller opens automatically with the defender's success count
@@ -18736,6 +18944,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         // Determine whether this roll generates Momentum (PC) or Threat (NPC)
         const isNpcRoll  = groundMode ? groundIsNpc : (playerMode ? false : CombatHUD.isNpcShip(shipActor));
         const generatedPool = payload.isAlliedNpc ? _rollEditMomentumPool(payload) : (isNpcRoll ? "threat" : "momentum");
+        const _traitPoolBonus = passed
+          ? Math.max(0, Number(generatedPool === "threat" ? payload.traitBonusThreat : payload.traitBonusMomentum) || 0)
+          : 0;
+        const momentum = Math.max(0, totalSuccesses - effectiveDifficulty) + _traitPoolBonus;
         const poolLabel  = generatedPool === "threat"
           ? "Threat"
           : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
@@ -18756,6 +18968,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const _trackerIntenseBonus = (passed && _trackerThreatBought > 0 && _trackerCharActor && actorHasIntenseTalent(_trackerCharActor))
           ? _trackerThreatBought : 0;
         const _trackerShowOffBonus = showOffBonusMomentum(payload, passed);
+        const _trackerCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
+        const _trackerPlanOfActionBonus = passed
+          ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _trackerCharActor ?? shipActor)
+          : 0;
         // Versatile X is per-weapon — only present on ship weapon attacks.
         // The damage-card spend panel + Devastating Attack button both pull
         // from the tracker, so we seed it here when the weapon has the quality.
@@ -18776,11 +18992,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         let _trackerMessageId = null;
         let _trackerFloat = 0;     // Unbanked overflow available for this action's spends.
         let _trackerBanked = 0;    // What auto-banked to the pool (for display).
-        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerVersatile > 0)) {
+        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerVersatile > 0)) {
           try {
             const trackerRes = await createTracker(_trackerOwner, {
               totalGenerated: momentum,
-              bonus:          _trackerIntenseBonus + _trackerShowOffBonus,
+              bonus:          _trackerIntenseBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus,
               versatile:      _trackerVersatile,
               weaponName:     _trackerWeaponName,
               pool:           _trackerPool,
@@ -18849,7 +19065,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           confirmedMomentum: momentum,
           confirmedPassed: passed,
           completionEffectsRun: true,
-          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && momentum > 0),
+          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerVersatile > 0)),
           trackerMessageId: _trackerMessageId,
           trackerBanked: _trackerBanked,
           trackerFloat:  _trackerFloat,
@@ -19009,6 +19225,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               ).length;
               const _intenseBonus = (passed && _threatBought > 0 && charActor && actorHasIntenseTalent(charActor))
                 ? _threatBought : 0;
+              const _callOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
+              const _planOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], charActor) : 0;
               const _spendCtx = passed ? makeSpendContext({
                 floatingMomentum: _floatingMomentum,
                 qualities: {
@@ -19022,7 +19240,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 attackerIsNpc: groundIsNpc,
                 attackerActorId: charActor?.id ?? null,
                 attackerTokenId: tokenId ?? null,
-                intenseTalentBonus: _intenseBonus + _trackerShowOffBonus,
+                intenseTalentBonus: _intenseBonus + _trackerShowOffBonus + _callOutTargetsBonus + _planOfActionBonus,
                 trackerMessageId: _trackerMessageId,
                 momentumPool: CombatHUD.alliedNpcMomentumPool(charActor),
               }) : null;
@@ -19078,6 +19296,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _shipIntenseBonus = (passed && _shipThreatBought > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
               ? _shipThreatBought : 0;
             const _shipShowOffBonus = showOffBonusMomentum(payload, passed);
+            const _shipCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
+            const _shipPlanOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _intenseSubject ?? shipActor) : 0;
             const _shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {
               salvoMode:            _shipModeInfo.needsMode ? (weaponContext.salvoMode ?? "area") : null,
@@ -19087,7 +19307,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               opposedDefenseType:   opposedDefenseType ?? null,
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
               floatingMomentum:     _shipFloating,
-              intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus,
+              intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus,
               trackerMessageId:     _trackerMessageId,
               complications:         totalComplications,
               opposedMomentumAwarded: opposedDefenseType !== null && (
@@ -19295,9 +19515,24 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             }
           }
         }
+        const callOutTargetsSource = (targetRd.weaponContext || targetRd.callOutTargetsEligible) && assistPayload.actorId
+          ? callOutTargetsSourceForActor(
+              game.actors.get(assistPayload.actorId),
+              assistPayload.assistOfficerName ?? assistPayload.officerName ?? "Assist"
+            )
+          : null;
 
         const newTargetRd = { ...targetRd, ...advisorGrant,
-          namedAssistDice: [...(targetRd.namedAssistDice ?? []), newEntry] };
+          namedAssistDice: [...(targetRd.namedAssistDice ?? []), newEntry],
+          pendingAssists: (targetRd.pendingAssists ?? []).filter(ao => {
+            const assistActorId = assistPayload.actorId ?? assistPayload.officerActorId ?? null;
+            if (!assistActorId || ao?.actorId !== assistActorId) return true;
+            return ao?.type !== "methodical-planning";
+          }),
+          callOutTargetsSources: callOutTargetsSource
+            ? [...(targetRd.callOutTargetsSources ?? []), callOutTargetsSource]
+            : (targetRd.callOutTargetsSources ?? []),
+        };
         const newTargetContent = buildPlayerRollCardHtml(newTargetRd);
 
         const canDirect = game.user.isGM || targetMessage.author?.id === game.user.id;
@@ -21046,50 +21281,265 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     // Wire potency live cost display update
     const potEl  = html.querySelector(".sta2e-trait-potency");
     const costEl = html.querySelector(".sta2e-trait-cost");
-    const isNpcFlag = (() => {
-      try {
-        const btn = html.querySelector(".sta2e-apply-trait");
-        const p = btn ? JSON.parse(decodeURIComponent(btn.dataset.payload)) : null;
-        return p?.isNpc ?? false;
-      } catch { return false; }
-    })();
-    const currency = isNpcFlag ? "Threat" : "Momentum";
-
     if (potEl && costEl) {
       const update = () => {
         const extra = Math.max(0, (parseInt(potEl.value) || 1) - 1);
+        const extraCost = extra * 2;
         costEl.textContent = extra === 0
-          ? "(base — no extra cost)"
-          : `(costs ${extra * 2} ${currency})`;
+          ? "(Potency 1 — no extra cost)"
+          : `(Potency ${extra + 1} — additional cost ${extraCost} ${costEl.dataset.currency ?? "Momentum"})`;
         costEl.style.color = extra > 0
           ? "var(--sta2e-tertiary, #ffcc66)"
           : "var(--sta2e-text-dim, #888)";
       };
       potEl.addEventListener("input", update);
       potEl.addEventListener("mousedown", e => e.stopPropagation());
+      update();
+    }
+    const scopeEl = html.querySelector(".sta2e-trait-scope");
+    const targetActorEl = html.querySelector(".sta2e-trait-target-actor");
+    if (scopeEl && targetActorEl) {
+      const syncTarget = () => {
+        const sceneScope = scopeEl.value === "scene";
+        targetActorEl.disabled = sceneScope;
+        targetActorEl.style.opacity = sceneScope ? "0.5" : "";
+        const multiBtn = html.querySelector(".sta2e-trait-multi-actors");
+        const summary = html.querySelector(".sta2e-trait-target-summary");
+        if (multiBtn) {
+          multiBtn.disabled = sceneScope;
+          multiBtn.style.opacity = sceneScope ? "0.5" : "";
+        }
+        if (sceneScope) {
+          targetActorEl.dataset.multiActors = "";
+          if (summary) {
+            summary.textContent = "";
+            summary.style.display = "none";
+          }
+        }
+      };
+      scopeEl.addEventListener("change", syncTarget);
+      syncTarget();
+    }
+    html.querySelectorAll(".sta2e-trait-multi-actors").forEach(btn => {
+      btn.addEventListener("click", async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const controls = btn.closest(".chat-message") ?? btn.closest("div");
+        const select = controls?.querySelector(".sta2e-trait-target-actor");
+        const scope = controls?.querySelector(".sta2e-trait-scope");
+        const summary = controls?.querySelector(".sta2e-trait-target-summary");
+        if (!select || scope?.value === "scene") return;
+        const options = Array.from(select.options).map(opt => ({
+          actorUuid: opt.value ?? "",
+          actorId: opt.dataset.actorId ?? "",
+          name: opt.textContent?.trim() ?? "Actor",
+        })).filter(opt => opt.actorUuid || opt.actorId);
+        if (!options.length) {
+          ui.notifications.warn("STA2e Toolkit: No actor recipients are available.");
+          return;
+        }
+        let selected = [];
+        try {
+          selected = JSON.parse(select.dataset.multiActors || "[]");
+        } catch {
+          selected = [];
+        }
+        if (!Array.isArray(selected) || !selected.length) {
+          selected = [{
+            actorUuid: select.value ?? "",
+            actorId: select.selectedOptions?.[0]?.dataset?.actorId ?? "",
+          }];
+        }
+        const selectedKeys = new Set(selected.map(ref => ref.actorUuid || ref.actorId).filter(Boolean));
+        const content = `
+          <form class="sta2e-trait-recipient-form" style="padding:8px 10px;display:flex;flex-direction:column;gap:6px;">
+            <div style="font-size:10px;color:#aaa;line-height:1.4;">
+              Select each actor that should receive this trait.
+            </div>
+            ${options.map((opt, idx) => {
+              const key = opt.actorUuid || opt.actorId;
+              return `<label style="display:flex;align-items:center;gap:7px;padding:5px 6px;
+                    border:1px solid rgba(255,153,0,0.25);border-radius:2px;background:rgba(0,0,0,0.16);">
+                  <input type="checkbox" name="actor" value="${idx}" ${selectedKeys.has(key) ? "checked" : ""} />
+                  <span style="font-size:11px;color:#f1d8a8;">${escapeHtml(opt.name)}</span>
+                </label>`;
+            }).join("")}
+          </form>`;
+        const picked = await foundry.applications.api.DialogV2.wait({
+          window: { title: "Select Trait Recipients" },
+          content,
+          rejectClose: false,
+          buttons: [
+            {
+              action: "apply",
+              label: "Apply Selection",
+              icon: "fas fa-check",
+              default: true,
+              callback: (_event, _button, dialog) => {
+                const checked = Array.from(dialog.element.querySelectorAll("input[name='actor']:checked"))
+                  .map(input => options[Number(input.value)])
+                  .filter(Boolean);
+                if (!checked.length) {
+                  ui.notifications.warn("STA2e Toolkit: Select at least one actor.");
+                  return false;
+                }
+                return checked;
+              },
+            },
+            { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+          ],
+        });
+        if (!Array.isArray(picked)) return;
+        select.dataset.multiActors = JSON.stringify(picked.map(ref => ({
+          actorUuid: ref.actorUuid,
+          actorId: ref.actorId,
+          name: ref.name,
+        })));
+        const first = picked[0];
+        if (first?.actorUuid || first?.actorId) {
+          const firstOpt = Array.from(select.options).find(opt =>
+            opt.value === first.actorUuid || opt.dataset.actorId === first.actorId);
+          if (firstOpt) select.value = firstOpt.value;
+        }
+        if (summary) {
+          summary.textContent = picked.length === 1
+            ? `Recipient: ${picked[0].name}`
+            : `Recipients: ${picked.map(ref => ref.name).join(", ")}`;
+          summary.style.display = "";
+        }
+      });
+    });
+    const planTagEl = html.querySelector(".sta2e-trait-plan-tag");
+    const effectTypeEl = html.querySelector(".sta2e-trait-effect-type");
+    if (planTagEl && effectTypeEl) {
+      const syncPlanEffect = () => {
+        if (planTagEl.checked) effectTypeEl.value = "difficulty";
+      };
+      planTagEl.addEventListener("change", syncPlanEffect);
+      syncPlanEffect();
     }
     html.querySelector(".sta2e-trait-name")
       ?.addEventListener("mousedown", e => e.stopPropagation());
   }
 
-  if (game.user.isGM) {
+  {
     html.querySelectorAll(".sta2e-apply-trait").forEach(btn => {
       btn.addEventListener("click", async () => {
+        let createdTrait = null;
+        let extraSpend = null;
         try {
           const payload  = JSON.parse(decodeURIComponent(btn.dataset.payload));
           const token    = canvas.tokens?.get(payload.tokenId);
-          const actor    = token?.actor ?? game.actors.get(payload.actorId);
+          const actor    = token?.actor ?? await resolveActorReference(payload);
           if (!actor) { ui.notifications.warn("STA2e Toolkit: Could not find actor for trait."); return; }
+          const creatorActor = await resolveActorReference({
+            actorUuid: payload.creatorActorUuid ?? "",
+            actorId: payload.creatorActorId ?? "",
+          }) ?? actor;
 
           const controls = btn.closest(".chat-message") ?? btn.closest("div");
           const nameEl   = controls?.querySelector(".sta2e-trait-name");
           const potEl    = controls?.querySelector(".sta2e-trait-potency");
+          const scopeEl  = controls?.querySelector(".sta2e-trait-scope");
+          const targetActorEl = controls?.querySelector(".sta2e-trait-target-actor");
+          const multiActorBtn = controls?.querySelector(".sta2e-trait-multi-actors");
+          const durationEl = controls?.querySelector(".sta2e-trait-duration");
+          const effectTypeEl = controls?.querySelector(".sta2e-trait-effect-type");
+          const planTagEl = controls?.querySelector(".sta2e-trait-plan-tag");
+          const descEl   = controls?.querySelector(".sta2e-trait-description");
           const traitName    = nameEl?.value?.trim() ?? "";
           const traitPotency = Math.max(1, parseInt(potEl?.value ?? "1") || 1);
+          const traitScope = scopeEl?.value === "scene" ? "scene" : "actor";
+          const targetActor = await resolveActorReference({
+            actorUuid: targetActorEl?.value ?? "",
+            actorId: targetActorEl?.selectedOptions?.[0]?.dataset?.actorId ?? "",
+          }) ?? actor;
+          let targetActors = [targetActor];
+          if (traitScope === "actor" && targetActorEl?.dataset?.multiActors) {
+            let multiRefs = [];
+            try {
+              multiRefs = JSON.parse(targetActorEl.dataset.multiActors || "[]");
+            } catch {
+              multiRefs = [];
+            }
+            if (Array.isArray(multiRefs) && multiRefs.length) {
+              const resolved = [];
+              const seen = new Set();
+              for (const ref of multiRefs) {
+                const resolvedActor = await resolveActorReference({
+                  actorUuid: ref?.actorUuid ?? "",
+                  actorId: ref?.actorId ?? "",
+                });
+                const key = resolvedActor?.uuid ?? resolvedActor?.id ?? null;
+                if (!resolvedActor || !key || seen.has(key)) continue;
+                seen.add(key);
+                resolved.push(resolvedActor);
+              }
+              if (resolved.length) targetActors = resolved;
+            }
+          }
+          const traitDuration = durationEl?.value ?? (traitScope === "scene" ? "scene" : "persistent");
+          const traitEffectType = effectTypeEl?.value ?? "note";
+          const sourceTags = planTagEl?.checked ? ["plan"] : [];
 
           if (!traitName) {
             ui.notifications.warn("STA2e Toolkit: Enter a trait name before applying.");
             return;
+          }
+          const extraPotency = Math.max(0, traitPotency - 1);
+          const extraCost = extraPotency * 2;
+          const baseCost = Math.max(0, Number(payload.traitBaseCost ?? 0) || 0);
+          const trackerForSpend = payload.trackerMessageId
+            ? readTrackerState(payload.trackerMessageId, payload.trackerOwnerActorId ?? payload.actorId ?? actor.id)
+            : extraCost > 0
+              ? readTrackerState(null, actor.id)
+              : { float: 0, bonus: 0, versatile: 0, pool: null, messageId: null };
+          const trackerFirstCost = (payload.trackerMessageId ? baseCost : 0) + extraCost;
+          const extraPool = payload.spendPool ?? traitSpendPool(actor, token);
+          let extraPoolLabel = extraPool === "threat"
+            ? "Threat"
+            : extraPool === "alliedNpcMomentum"
+              ? "Allied NPC Momentum"
+              : "Momentum";
+          let trackerSpend = null;
+          if (trackerFirstCost > 0) {
+            const tracker = trackerForSpend;
+            const hasTrackerBuckets = !!tracker.messageId
+              && (((tracker.float ?? 0) > 0) || ((tracker.bonus ?? 0) > 0) || ((tracker.versatile ?? 0) > 0));
+            const trackerPool = tracker.pool ?? extraPool;
+            extraPoolLabel = trackerPool === "threat"
+              ? "Threat"
+              : trackerPool === "alliedNpcMomentum"
+                ? "Allied NPC Momentum"
+                : "Momentum";
+            let remaining = trackerFirstCost;
+            const float = Math.min(tracker.float ?? 0, remaining);
+            remaining -= float;
+            const bonus = Math.min(tracker.bonus ?? 0, remaining);
+            remaining -= bonus;
+            const versatile = Math.min(tracker.versatile ?? 0, remaining);
+            remaining -= versatile;
+            const pool = Math.min(readPool(trackerPool), remaining);
+            remaining -= pool;
+            if (remaining > 0) {
+              ui.notifications.warn(`STA2e Toolkit: Not enough ${extraPoolLabel} to create this trait. Need ${trackerFirstCost}, short ${remaining}.`);
+              return;
+            }
+            trackerSpend = {
+              trackerMessageId: hasTrackerBuckets ? tracker.messageId : null,
+              pool: trackerPool,
+              float: hasTrackerBuckets ? float : 0,
+              bonus: hasTrackerBuckets ? bonus : 0,
+              versatile: hasTrackerBuckets ? versatile : 0,
+              poolAmount: pool,
+              total: trackerFirstCost,
+            };
+          } else if (extraCost > 0) {
+            const currentPool = readPool(extraPool);
+            if (currentPool < extraCost) {
+              ui.notifications.warn(`STA2e Toolkit: Not enough ${extraPoolLabel} to increase trait Potency. Need ${extraCost}, have ${currentPool}.`);
+              return;
+            }
           }
 
           btn.disabled      = true;
@@ -21097,26 +21547,82 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           btn.style.opacity = "0.5";
           if (nameEl) nameEl.disabled = true;
           if (potEl)  potEl.disabled  = true;
+          if (scopeEl) scopeEl.disabled = true;
+          if (targetActorEl) targetActorEl.disabled = true;
+          if (multiActorBtn) multiActorBtn.disabled = true;
+          if (durationEl) durationEl.disabled = true;
+          if (effectTypeEl) effectTypeEl.disabled = true;
+          if (planTagEl) planTagEl.disabled = true;
+          if (descEl) descEl.disabled = true;
 
-          const isNpc    = payload.isNpc ?? false;
-          const currency = isNpc ? "Threat" : "Momentum";
-          const extraCost = (traitPotency - 1) * 2;
-          const costNote  = extraCost > 0 ? ` (${extraCost} ${currency} spent)` : "";
-          const traitDesc = `[TRAIT — ${payload.stationLabel}] `
+          const fallbackDesc = `[TRAIT - ${payload.stationLabel}] `
             + (traitPotency > 1 ? `Potency ${traitPotency}. ` : "")
-            + `Invoke to assist tasks related to ${payload.stationLabel} station.`
-            + (costNote ? ` ${costNote}.` : "");
+            + `Invoke to assist tasks related to ${payload.stationLabel} station.`;
+          const traitDesc = descEl?.value?.trim() || fallbackDesc;
+          const automationEffects = traitEffectType === "note" ? [] : [{
+            id: "primary",
+            type: traitEffectType,
+            label: traitEffectType === "difficulty" ? "Difficulty"
+              : traitEffectType === "reroll" ? "One-Die Reroll"
+                : traitEffectType === "bonusMomentum" ? "Bonus Momentum"
+                  : traitEffectType === "bonusThreat" ? "Bonus Threat"
+                    : traitEffectType === "complicationRange" ? "Complication Range"
+                      : traitEffectType,
+            value: 0,
+            scalesWithQuantity: false,
+            match: {},
+          }];
+          const data = {
+            name: traitName,
+            description: traitDesc,
+            quantity: traitPotency,
+            duration: traitDuration,
+            automation: defaultAutomation({ duration: traitDuration, effects: automationEffects, sourceTags }),
+            creatorActor,
+          };
+          if (traitScope === "scene") {
+            createdTrait = await createSceneTrait(data);
+          } else {
+            const createdTraits = [];
+            for (const recipient of targetActors) {
+              createdTraits.push(await createActorTrait(recipient, data));
+            }
+            createdTrait = createdTraits[0] ?? null;
+          }
+          if (!createdTrait) throw new Error("Trait creation returned no document.");
 
-          await actor.createEmbeddedDocuments("Item", [{
-            name:   traitName,
-            type:   "trait",
-            system: { description: traitDesc, quantity: traitPotency },
-          }]);
+          if (trackerSpend) {
+            if (trackerSpend.poolAmount > 0) {
+              const paidPool = await adjustPool(trackerSpend.pool, -trackerSpend.poolAmount, {
+                source: "traitCreation",
+                actor,
+                token,
+              });
+              if (!paidPool) throw new Error("Trait created, but pool spend failed.");
+              extraSpend = { pool: trackerSpend.pool, amount: trackerSpend.poolAmount };
+            }
+            if (trackerSpend.trackerMessageId && (trackerSpend.float || trackerSpend.bonus || trackerSpend.versatile)) {
+              const mod = await import("./momentum-tracker.js");
+              await mod.decrementTracker(trackerSpend.trackerMessageId, {
+                float: trackerSpend.float,
+                bonus: trackerSpend.bonus,
+                versatile: trackerSpend.versatile,
+              });
+            }
+          } else if (extraCost > 0) {
+            const paidExtra = await adjustPool(extraPool, -extraCost, {
+              source: "traitCreation",
+              actor,
+              token,
+            });
+            if (!paidExtra) throw new Error("Trait created, but extra Potency spend failed.");
+            extraSpend = { pool: extraPool, amount: extraCost };
+          }
 
           ChatMessage.create({
             content: lcarsCard("✍️ TRAIT CREATED", LC.primary, `
               <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-                margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
+                margin-bottom:4px;font-family:${LC.font};">${traitScope === "scene" ? canvas?.scene?.name ?? "Scene" : targetActors.map(a => a.name).join(", ")}</div>
               <div style="font-size:14px;font-weight:700;color:${LC.text};
                 margin-bottom:4px;font-family:${LC.font};">"${traitName}"</div>
               <div style="display:flex;gap:12px;font-size:10px;font-family:${LC.font};">
@@ -21124,14 +21630,35 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   <strong style="color:${LC.text};">${payload.stationLabel}</strong></span>
                 <span style="color:${LC.textDim};">Potency:
                   <strong style="color:${LC.tertiary};">${traitPotency}</strong></span>
-                ${extraCost > 0 ? `<span style="color:${LC.textDim};">Cost:
-                  <strong style="color:${LC.orange};">${extraCost} ${currency}</strong></span>` : ""}
+                <span style="color:${LC.textDim};">Duration:
+                  <strong style="color:${LC.text};">${traitDuration}</strong></span>
+                <span style="color:${LC.textDim};">Effect:
+                  <strong style="color:${LC.text};">${traitEffectType}</strong></span>
+                ${extraSpend ? `<span style="color:${LC.textDim};">Extra Cost:
+                  <strong style="color:${LC.text};">${extraSpend.amount} ${extraPoolLabel}</strong></span>` : ""}
               </div>`),
             speaker: { alias: "STA2e Toolkit" },
           });
-          ui.notifications.info(`STA2e Toolkit: Trait "${traitName}" added to ${actor.name}.`);
+          ui.notifications.info(`STA2e Toolkit: Trait "${traitName}" created.`);
         } catch(err) {
           console.error("STA2e Toolkit | Apply trait error:", err);
+          try {
+            const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "%7B%7D"));
+            if (!createdTrait && payload.spendPool && Number(payload.spendAmount) > 0) {
+              await adjustPool(payload.spendPool, Number(payload.spendAmount), { source: "traitCreationRefund" });
+            }
+            if (!createdTrait && extraSpend?.amount > 0) {
+              await adjustPool(extraSpend.pool, extraSpend.amount, { source: "traitCreationRefund" });
+            }
+          } catch (refundErr) {
+            console.warn("STA2e Toolkit | Could not refund trait creation spend:", refundErr);
+          }
+          const controls = btn.closest(".chat-message") ?? btn.closest("div");
+          controls?.querySelectorAll(".sta2e-trait-name, .sta2e-trait-potency, .sta2e-trait-scope, .sta2e-trait-target-actor, .sta2e-trait-multi-actors, .sta2e-trait-duration, .sta2e-trait-effect-type, .sta2e-trait-plan-tag, .sta2e-trait-description")
+            .forEach(el => { el.disabled = false; });
+          btn.disabled = false;
+          btn.textContent = "✍️ APPLY TRAIT";
+          btn.style.opacity = "";
           ui.notifications.error("Failed to apply trait — see console.");
         }
       });

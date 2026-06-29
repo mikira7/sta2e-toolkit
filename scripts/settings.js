@@ -76,6 +76,23 @@ export function registerSettings() {
     default: false,
   });
 
+  // Remembers the last Task Maker configuration per user (normal + extended task).
+  game.settings.register("sta2e-toolkit", "taskMakerLastSettings", {
+    scope:   "client",
+    config:  false,
+    type:    Object,
+    default: {},
+  });
+
+  // Up to five recent extended-task setups, so the GM can reuse any of several
+  // concurrent extended tasks.
+  game.settings.register("sta2e-toolkit", "taskMakerRecentExtended", {
+    scope:   "client",
+    config:  false,
+    type:    Array,
+    default: [],
+  });
+
   game.settings.register("sta2e-toolkit", "alliedNpcMomentum", {
     name:    "Allied NPC Momentum",
     hint:    "Secondary Momentum pool used by allied NPCs. Maximum 6.",

@@ -24,10 +24,11 @@
  */
 
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
-import { openNpcRoller, openPlayerRoller } from "./npc-roller.js";
+import { callOutTargetsBonusMomentum, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { getStationOfficers, readOfficerStats } from "./crew-manifest.js";
 import { CombatHUD } from "./combat-hud.js";
 import { createTracker } from "./momentum-tracker.js";
+import { planOfActionBonusMomentum } from "./trait-service.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -97,6 +98,54 @@ function _traitModifierLabel(options = {}) {
   return `Trait ${sign}${Math.abs(delta)}${name}`;
 }
 
+function _opposedRollTraitDelta(sideData = {}) {
+  return Number(sideData?.traitDifficultyDelta ?? 0) || 0;
+}
+
+function _opposedRollTraitLabels(sideData = {}, multiplier = 1) {
+  const effects = Array.isArray(sideData?.appliedTraitEffects) ? sideData.appliedTraitEffects : [];
+  const labels = effects
+    .filter(e => e?.effectType === "difficulty" && Number(e?.value ?? 0))
+    .map(e => {
+      const value = (Number(e.value ?? 0) || 0) * multiplier;
+      const sign = value > 0 ? "+" : "-";
+      return `${e.traitName ?? "Trait"} ${sign}${Math.abs(value)}`;
+    });
+  if (labels.length) return labels.join(", ");
+  const delta = _opposedRollTraitDelta(sideData) * multiplier;
+  if (!delta) return "";
+  const sign = delta > 0 ? "+" : "-";
+  return `Trait ${sign}${Math.abs(delta)}`;
+}
+
+function _cloneAppliedTraitEffects(effects = []) {
+  if (!Array.isArray(effects)) return [];
+  return effects
+    .filter(e => e && typeof e === "object")
+    .map(e => ({
+      ...e,
+      sourceTags: Array.isArray(e?.sourceTags) ? [...e.sourceTags] : [],
+    }));
+}
+
+function _opposedSideRollingActor(sideData = {}) {
+  const rollData = sideData?.rollData ?? {};
+  const actorId = rollData.officerActorId ?? rollData.actorId ?? sideData.actorId ?? null;
+  return actorId ? game.actors.get(actorId) : null;
+}
+
+function _opposedSideBonusMomentum(sideData = {}, passed = false) {
+  if (!passed) return 0;
+  const rollData = sideData?.rollData ?? {};
+  const rollingActor = _opposedSideRollingActor(sideData);
+  const callOutTargetsBonus = callOutTargetsBonusMomentum(rollData, true);
+  const planOfActionBonus = planOfActionBonusMomentum(
+    sideData.appliedTraitEffects ?? rollData.appliedTraitEffects ?? [],
+    rollingActor
+  );
+  return Math.max(0, callOutTargetsBonus + planOfActionBonus);
+}
+
 function _calculateOpposedDifficulty(taskData = {}) {
   const options = taskData.options ?? {};
   const base = Number(taskData.defender?.successes ?? 0);
@@ -106,8 +155,12 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
   const attackPatternPenalty = Number(options.attackPatternPenalty ?? 0);
   const traitDelta = _traitModifierDelta(options);
-  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + cumbersomePenalty - attackPatternPenalty + traitDelta);
-  return { base, guardPenalty, pronePenalty, overridePenalty, cumbersomePenalty, attackPatternPenalty, traitDelta, total };
+  const defenderTraitDelta = -_opposedRollTraitDelta(taskData.defender);
+  const attackerTraitDelta = taskData.attacker?.rolled
+    ? _opposedRollTraitDelta(taskData.attacker)
+    : 0;
+  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + cumbersomePenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
+  return { base, guardPenalty, pronePenalty, overridePenalty, cumbersomePenalty, attackPatternPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -865,7 +918,7 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
   const attackerSuggestedDisc = opts.attackerSuggestedDisc ?? "security";
   const traitModifier = opts.traitModifierMode || opts.options?.traitModifierMode
     ? _normalizeTraitModifier(opts.options ?? opts)
-    : await _promptTraitModifier({ title: "Starship Opposed Task - Trait in Play", defaultValue: opts.options ?? opts });
+    : _normalizeTraitModifier({ traitModifierMode: "none" });
 
   const defenderOfficers = getStationOfficers(defenderActor, defStationId);
   const attackerOfficers = getStationOfficers(attackerActor, atkStationId);
@@ -1135,10 +1188,14 @@ function _renderCardHtml(d) {
       if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
       if (difficultyInfo.attackPatternPenalty) breakdownParts.push(`Attack Pattern -${difficultyInfo.attackPatternPenalty}`);
       if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
+      if (difficultyInfo.defenderTraitDelta) breakdownParts.push(`Defender Traits ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.defenderTraitDelta)} (${_esc(_opposedRollTraitLabels(d.defender, -1))})`);
+      if (difficultyInfo.attackerTraitDelta) breakdownParts.push(`Attacker Traits ${difficultyInfo.attackerTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.attackerTraitDelta)} (${_esc(_opposedRollTraitLabels(d.attacker, 1))})`);
       if (d.options?.targetIsProne && passed) breakdownParts.push(`<span style="color:${LC.secondary ?? "#cc88ff"};">+2 Mom on prone target</span>`);
     } else {
       breakdownParts.push(`${d.attacker.successes} succ vs Diff ${target}`);
       if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
+      if (difficultyInfo.defenderTraitDelta) breakdownParts.push(`Defender Traits ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.defenderTraitDelta)} (${_esc(_opposedRollTraitLabels(d.defender, -1))})`);
+      if (difficultyInfo.attackerTraitDelta) breakdownParts.push(`Attacker Traits ${difficultyInfo.attackerTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.attackerTraitDelta)} (${_esc(_opposedRollTraitLabels(d.attacker, 1))})`);
     }
     const compsTotal = (d.defender.complications ?? 0) + (d.attacker.complications ?? 0);
     if (compsTotal > 0) breakdownParts.push(`<span style="color:${LC.red ?? "#cc4444"};">${compsTotal} Complication${compsTotal === 1 ? "" : "s"}</span>`);
@@ -1218,7 +1275,7 @@ function _renderCardHtml(d) {
 
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
-        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}.
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
       </div>`
     : "";
 
@@ -1439,10 +1496,20 @@ function _launchRoller(message, taskData, side, actor) {
   const starshipOfficer = isStarshipCombat
     ? (side === "defender" ? taskData.combat?.defenderOfficer : taskData.combat?.attackerOfficer)
     : null;
-  const starshipOfficerActor = starshipOfficer?.id ? game.actors.get(starshipOfficer.id) : null;
-  const starshipUsesPlayerPayment = isStarshipCombat && !!(starshipOfficerActor?.hasPlayerOwner || profile.isPlayerOwned);
+  const starshipUsesPlayerPayment = isStarshipCombat && !!profile.isPlayerOwned;
   const stats = starshipOfficer ?? readOfficerStats(actor);
   const sideData = side === "defender" ? taskData.defender : taskData.attacker;
+  const oppositeSideData = side === "defender" ? taskData.attacker : taskData.defender;
+  const oppositeTokenId = side === "defender"
+    ? taskData.combat?.attackerTokenId
+    : taskData.combat?.defenderTokenId;
+  const opposedTraitTarget = oppositeSideData?.actorId
+    ? {
+        actorId: oppositeSideData.actorId,
+        tokenId: oppositeTokenId ?? null,
+        name: oppositeSideData.actorName ?? "Opponent",
+      }
+    : null;
   const suggestedAttr = sideData?.suggestedAttr ?? taskData.suggestedAttr ?? null;
   const suggestedDisc = sideData?.suggestedDisc ?? taskData.suggestedDisc ?? null;
   const complicationRange = side === "defender"
@@ -1450,6 +1517,10 @@ function _launchRoller(message, taskData, side, actor) {
     : (taskData.options?.attackerComplicationRange ?? taskData.options?.complicationRange ?? 1);
   const hasAttr = stats && Object.keys(stats.attributes ?? {}).includes(suggestedAttr);
   const hasDisc = stats && Object.keys(stats.disciplines ?? {}).includes(suggestedDisc);
+  const starshipWeaponAssist = isStarshipCombat && (
+    (side === "attacker" && !!taskData.combat?.weaponContext)
+    || (side === "defender" && taskData.options?.defenseType === "defensive-fire")
+  );
   const starshipRollerOpts = isStarshipCombat
     ? {
         stationId: side === "defender" ? taskData.combat?.defenderStationId : taskData.combat?.attackerStationId,
@@ -1467,6 +1538,11 @@ function _launchRoller(message, taskData, side, actor) {
         defenderSuccesses: side === "attacker" ? (taskData.defender.successes ?? 0) : null,
         playerMode: starshipUsesPlayerPayment,
         usesPlayerPayment: starshipUsesPlayerPayment,
+        callOutTargetsEligible: starshipWeaponAssist,
+        shipAssist: starshipWeaponAssist ? true : undefined,
+        shipSystemKey: starshipWeaponAssist ? "weapons" : undefined,
+        shipDeptKey: starshipWeaponAssist ? "security" : undefined,
+        noShipAssist: starshipWeaponAssist ? false : undefined,
         suppressWeaponResolution: side === "attacker",
       }
     : {};
@@ -1480,6 +1556,7 @@ function _launchRoller(message, taskData, side, actor) {
       taskId: taskData.taskId,
       side,
     },
+    opposedTraitTarget,
     ...starshipRollerOpts,
     taskLabel: isGroundCombat
       ? (side === "defender" ? "Melee Defender" : taskData.taskName)
@@ -1514,6 +1591,19 @@ function _launchRoller(message, taskData, side, actor) {
         crit: !!x?.crit,
         complication: !!x?.complication,
       }));
+      const sideRollData = rollData ?? {
+        actorId: state?.actorId ?? actor?.id ?? null,
+        officerActorId: state?.officer?.id ?? null,
+        weaponContext: state?.weaponContext ?? null,
+        callOutTargetsEligible: state?.callOutTargetsEligible ?? false,
+        callOutTargetsSources: Array.isArray(state?.callOutTargetsSources)
+          ? state.callOutTargetsSources.map(s => ({ ...s }))
+          : [],
+        appliedTraitEffects: _cloneAppliedTraitEffects(state?.appliedTraitEffects ?? []),
+        traitDifficultyDelta: Number(state?.traitDifficultyDelta ?? 0) || 0,
+      };
+      const traitDifficultyDelta = Number(state?.traitDifficultyDelta ?? sideRollData?.traitDifficultyDelta ?? 0) || 0;
+      const appliedTraitEffects = _cloneAppliedTraitEffects(state?.appliedTraitEffects ?? sideRollData?.appliedTraitEffects ?? []);
 
       if (game.user.isGM) {
         await applyOpposedRollResult({
@@ -1523,7 +1613,9 @@ function _launchRoller(message, taskData, side, actor) {
           successes,
           complications,
           dice,
-          rollData,
+          rollData: sideRollData,
+          traitDifficultyDelta,
+          appliedTraitEffects,
           trackerMessageId,
           trackerFloat,
           trackerBanked,
@@ -1537,7 +1629,9 @@ function _launchRoller(message, taskData, side, actor) {
           successes,
           complications,
           dice,
-          rollData,
+          rollData: sideRollData,
+          traitDifficultyDelta,
+          appliedTraitEffects,
           trackerMessageId,
           trackerFloat,
           trackerBanked,
@@ -1547,7 +1641,7 @@ function _launchRoller(message, taskData, side, actor) {
   };
 
   if (profile.isShip) {
-    const launcher = (isStarshipCombat ? starshipUsesPlayerPayment : profile.isPlayerOwned) ? openPlayerRoller : openNpcRoller;
+    const launcher = profile.isPlayerOwned ? openPlayerRoller : openNpcRoller;
     launcher(actor, token, rollerOpts);
     return;
   }
@@ -1574,12 +1668,20 @@ function _isOpposedGroundNpcActor(actor, tokenDoc = null) {
 }
 
 function _getOpposedActorProfile(actor, tokenDoc = null) {
-  const fallbackShip = actor?.type === "starship" || actor?.type === "spacecraft2e";
+  const fallbackShip = actor?.type === "starship" || actor?.type === "spacecraft2e"
+    || actor?.items?.some(i => i.type === "starshipweapon2e");
   if (!actor) {
     return { isShip: false, isPlayerOwned: false, npcType: "minor" };
   }
 
   try {
+    if (fallbackShip) {
+      return {
+        isShip: true,
+        isPlayerOwned: !CombatHUD.isNpcShip(actor),
+        npcType: null,
+      };
+    }
     return CombatHUD.getGroundCombatProfile(actor, tokenDoc);
   } catch (err) {
     console.warn("STA2e Toolkit | opposed-task actor profiling fallback:", err);
@@ -1649,7 +1751,7 @@ function _renderOpposedPoolReward(taskData, side, amount) {
  * Must run on the GM's client (only the GM can update arbitrary ChatMessages
  * and flip state across all users).
  */
-export async function applyOpposedRollResult({ messageId, taskId, side, successes, complications, dice, rollData = null, trackerMessageId = null, trackerFloat = 0, trackerBanked = 0 }) {
+export async function applyOpposedRollResult({ messageId, taskId, side, successes, complications, dice, rollData = null, traitDifficultyDelta = null, appliedTraitEffects = null, trackerMessageId = null, trackerFloat = 0, trackerBanked = 0 }) {
   if (!game.user.isGM) return;
   const message = game.messages.get(messageId);
   if (!message) {
@@ -1670,6 +1772,8 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
   sideData.complications = Math.max(0, complications ?? 0);
   sideData.dice = Array.isArray(dice) ? dice : [];
   sideData.rollData = rollData ?? null;
+  sideData.traitDifficultyDelta = Number(traitDifficultyDelta ?? rollData?.traitDifficultyDelta ?? 0) || 0;
+  sideData.appliedTraitEffects = _cloneAppliedTraitEffects(appliedTraitEffects ?? rollData?.appliedTraitEffects ?? []);
   if (trackerMessageId || trackerFloat || trackerBanked) {
     sideData.tracker = {
       messageId: trackerMessageId ?? null,
@@ -1846,6 +1950,8 @@ async function _resolveStarshipOpposedAttack(taskData, { rollData = null, tracke
 
   const calibrateWeaponsBonus = combat.hasCalibrateWeapons ? 1 : 0;
   const attackerTracker = taskData.attacker?.tracker ?? {};
+  const attackerBonusMomentum = _opposedSideBonusMomentum(taskData.attacker, isHit);
+  const defenderBonusMomentum = _opposedSideBonusMomentum(taskData.defender, !isHit);
   await CombatHUD.resolveShipAttack(attackerToken, weapon, isHit, {
     salvoMode: weaponContext.salvoMode ?? "area",
     rapidFireBonus: combat.hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
@@ -1856,6 +1962,8 @@ async function _resolveStarshipOpposedAttack(taskData, { rollData = null, tracke
     attackerSuccesses: taskData.attacker?.successes ?? null,
     overrideTargets: [defenderToken],
     floatingMomentum: Number(trackerFloat ?? attackerTracker.float ?? 0),
+    intenseTalentBonus: attackerBonusMomentum,
+    opposedDefenderBonus: defenderBonusMomentum,
     trackerMessageId: trackerMessageId ?? attackerTracker.messageId ?? null,
     complications: taskData.attacker?.complications ?? 0,
     opposedMomentumAwarded: !!(trackerMessageId ?? attackerTracker.messageId)

@@ -22,6 +22,8 @@ import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
 import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
+import { TraitManager } from "./trait-manager.js";
+import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
 import { getLcTokens } from "./lcars-theme.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
@@ -49,6 +51,7 @@ import {
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
+import { applyExtendedTaskExtraWork, applyExtendedTaskIntervalExhaust, applyExtendedTaskIntervalSpend, applyExtendedTaskResult, openTaskMakerSetup, wireTaskRequestCard } from "./task-maker.js";
 import { clearTokenLocalHullDecals, registerHullDecals } from "./hull-decals.js";
 import { registerMomentumSpend } from "./momentum-spend.js";
 import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker, setTrackerBucket } from "./momentum-tracker.js";
@@ -277,6 +280,7 @@ Hooks.once("init", () => {
   registerMomentumTracker();
   registerZoneTokenConfig();
   registerHullDecals();
+  registerTraitItemSheetFields();
 
   // ── Keybinding: toggle Combat HUD on selected token ───────────────────────
   game.keybindings.register("sta2e-toolkit", "toggleCombatHud", {
@@ -300,6 +304,14 @@ Hooks.once("init", () => {
     hint:       "STA2E.Keybinding.OpenSocialOpposedTask.Hint",
     editable:   [{ key: "KeyO", modifiers: ["Shift"] }],
     onDown:     () => { if (game.user.isGM) openOpposedTaskSetup({ kind: "social" }); },
+    restricted: true,
+  });
+
+  game.keybindings.register("sta2e-toolkit", "openTaskMaker", {
+    name:       "STA2E.Keybinding.OpenTaskMaker.Name",
+    hint:       "STA2E.Keybinding.OpenTaskMaker.Hint",
+    editable:   [{ key: "KeyM", modifiers: ["Shift"] }],
+    onDown:     () => { if (game.user.isGM) openTaskMakerSetup(); },
     restricted: true,
   });
 
@@ -607,6 +619,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
   ZoneHazard.wireTerrainCard(message, html);
   // Wire opposed-task card buttons (Defender / Attacker)
   wireOpposedTaskCard(message, html);
+  // Wire GM task-maker request cards
+  wireTaskRequestCard(message, html);
 });
 
 // ---------------------------------------------------------------------------
@@ -628,6 +642,7 @@ Hooks.once("ready", async () => {
   const combatHud       = new CombatHUD();
   const toolkitWidget   = new ToolkitWidget();
   const poolTracker     = new ToolkitPoolTracker();
+  const traitManager    = new TraitManager();
 
   game.sta2eToolkit = new ToolkitAPI({ campaignStore, hud, dateEditor, campaignManager });
   game.sta2eToolkit.openWarpCalc    = openWarpCalc;
@@ -712,6 +727,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openTransporter = openTransporter;
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
   game.sta2eToolkit.poolTracker     = poolTracker;
+  game.sta2eToolkit.traitManager    = traitManager;
   game.sta2eToolkit.openCharacterCreator = openCharacterCreator;
   game.sta2eToolkit.openTextFormatter = openTextFormatter;
   game.sta2eToolkit.openVfxTestPanel = _openVfxTestPanel;
@@ -724,6 +740,7 @@ Hooks.once("ready", async () => {
 
   // Expose Opposed Task entry points
   game.sta2eToolkit.openOpposedTaskSetup = openOpposedTaskSetup;
+  game.sta2eToolkit.openTaskMakerSetup = openTaskMakerSetup;
   game.sta2eToolkit.startOpposedTask     = startOpposedTask;
   game.sta2eToolkit.applyOpposedRollResult = applyOpposedRollResult;
   game.sta2eToolkit.startGroundCombatOpposedTask = startGroundCombatOpposedTask;
@@ -1125,6 +1142,55 @@ Hooks.once("ready", async () => {
         console.error("STA2e Toolkit | applyMakeYourOwnLuckTaskRoll update failed:", e));
     }
 
+    else if (msg.action === "applyExtendedTaskResult" && _isResponsibleGM()) {
+      try {
+        await applyExtendedTaskResult({
+          taskData: msg.taskData,
+          result: msg.result,
+          momentumWork: msg.momentumWork,
+          requesterUserId: msg.requesterUserId,
+        });
+      } catch (e) {
+        console.error("STA2e Toolkit | applyExtendedTaskResult via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "applyExtendedTaskExtraWork" && _isResponsibleGM()) {
+      try {
+        await applyExtendedTaskExtraWork({
+          messageId: msg.messageId,
+          extendedTaskActorId: msg.extendedTaskActorId,
+          requesterUserId: msg.requesterUserId,
+        });
+      } catch (e) {
+        console.error("STA2e Toolkit | applyExtendedTaskExtraWork via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "applyExtendedTaskIntervalSpend" && _isResponsibleGM()) {
+      try {
+        await applyExtendedTaskIntervalSpend({
+          messageId: msg.messageId,
+          extendedTaskActorId: msg.extendedTaskActorId,
+          requesterUserId: msg.requesterUserId,
+        });
+      } catch (e) {
+        console.error("STA2e Toolkit | applyExtendedTaskIntervalSpend via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "applyExtendedTaskIntervalExhaust" && _isResponsibleGM()) {
+      try {
+        await applyExtendedTaskIntervalExhaust({
+          messageId: msg.messageId,
+          extendedTaskActorId: msg.extendedTaskActorId,
+          requesterUserId: msg.requesterUserId,
+        });
+      } catch (e) {
+        console.error("STA2e Toolkit | applyExtendedTaskIntervalExhaust via socket failed:", e);
+      }
+    }
+
     else if (msg.action === "applyScanForWeakness" && _isResponsibleGM()) {
       // Player confirmed a Scan for Weakness roll — apply conditions/flags to the target token.
       const { sourceTokenId, targetTokenId, sourceName, rollOwnerUserId } = msg;
@@ -1231,6 +1297,8 @@ Hooks.once("ready", async () => {
           complications: msg.complications,
           dice:          msg.dice,
           rollData:      msg.rollData,
+          traitDifficultyDelta: msg.traitDifficultyDelta,
+          appliedTraitEffects: msg.appliedTraitEffects,
           trackerMessageId: msg.trackerMessageId,
           trackerFloat:  msg.trackerFloat,
           trackerBanked: msg.trackerBanked,

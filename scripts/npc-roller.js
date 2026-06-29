@@ -19,6 +19,15 @@ import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { actorHasIntenseTalent } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
 import { adjustPool, readPool } from "./pool-service.js";
+import {
+  applyTraitSelectionsToState,
+  consumeSingleTaskTraits,
+  methodicalPlanningAssistActors,
+  planOfActionBonusMomentum,
+  renderTraitSuggestionPanel,
+  rollTraitSuggestions,
+  traitSummaryHtml,
+} from "./trait-service.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -64,11 +73,42 @@ function autoComplications(source) {
 
 export function taskDifficulty(source) {
   const base = Math.max(0, Number(source?.difficulty ?? 0) || 0);
-  return base + (source?.showOffSelected ? 1 : 0);
+  const traitDelta = Number(source?.traitDifficultyDelta ?? 0) || 0;
+  return Math.max(0, base + traitDelta + (source?.showOffSelected ? 1 : 0));
 }
 
 export function showOffBonusMomentum(source, passed) {
   return passed && source?.showOffSelected ? 2 : 0;
+}
+
+function normalizeTalentName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+export function actorHasCallOutTargetsTalent(actor) {
+  if (!actor?.items) return false;
+  return actor.items.some(i => normalizeTalentName(i.name) === "call out targets");
+}
+
+export function callOutTargetsSourceForActor(actor, name = null) {
+  if (!actor?.items) return null;
+  const found = actor.items.find(i => normalizeTalentName(i.name) === "call out targets");
+  if (!found) return null;
+  return {
+    actorId: actor.id ?? null,
+    name: name ?? actor.name ?? "Assist",
+    source: found.name,
+  };
+}
+
+export function callOutTargetsBonusMomentum(source, passed) {
+  if (!passed || (!source?.weaponContext && !source?.callOutTargetsEligible)) return 0;
+  const sources = Array.isArray(source?.callOutTargetsSources) ? source.callOutTargetsSources : [];
+  return sources.length * 2;
 }
 
 // When Reserve Power is active, each ship die complication counts as 2.
@@ -152,6 +192,30 @@ function detectSystemRerollTalent(actor, systemKey) {
   return found ? { hasReroll: true, source: found.name } : { hasReroll: false, source: null };
 }
 
+function syncMethodicalPlanningAssists(state, rollingActor = null) {
+  const baseAssists = (state.assistOfficers ?? [])
+    .filter(ao => ao?.type !== "methodical-planning");
+  const existing = new Set(baseAssists.map(ao => ao?.actorId).filter(Boolean));
+  const rolling = state.officer?.id ? game.actors.get(state.officer.id) : rollingActor;
+  const methodicalActors = methodicalPlanningAssistActors(state.appliedTraitEffects ?? [], rolling);
+  const methodicalAssists = [];
+  for (const actor of methodicalActors) {
+    if (!actor?.id || existing.has(actor.id)) continue;
+    existing.add(actor.id);
+    methodicalAssists.push({
+      name: actor.name ?? "Methodical Planner",
+      actorId: actor.id,
+      stats: readOfficerStats(actor),
+      attrKey: "control",
+      discKey: "command",
+      type: "methodical-planning",
+      hasFocus: false,
+      hasDedicatedFocus: false,
+    });
+  }
+  state.assistOfficers = [...baseAssists, ...methodicalAssists];
+}
+
 // ── Batch-2 Talent Detection ─────────────────────────────────────────────────
 
 /**
@@ -189,8 +253,8 @@ function detectPiercingSalvo(actor, weaponContext) {
  * each assisting character may re-roll their assistance die.
  * Detected on any assisting officer — returns first match.
  */
-function detectChiefOfStaff(assistOfficerStates, stationId) {
-  if (stationId !== "medical") return { hasReroll: false, source: null };
+function detectChiefOfStaff(assistOfficerStates, stationId, discKey = null) {
+  if (stationId !== "medical" && discKey !== "medicine") return { hasReroll: false, source: null };
   for (const ao of (assistOfficerStates ?? [])) {
     if (!ao.actorId) continue;
     const aoActor = game.actors.get(ao.actorId);
@@ -267,6 +331,13 @@ function detectShowOffTalent(actor) {
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ");
   const found = actor.items.find(i => normalize(i.name) === "show off");
+  return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
+}
+
+function detectNamedTalent(actor, talentName) {
+  if (!actor?.items) return { hasTalent: false, source: null };
+  const target = normalizeTalentName(talentName);
+  const found = actor.items.find(i => normalizeTalentName(i.name) === target);
   return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
 }
 
@@ -437,14 +508,19 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
 // ── Result summary row ─────────────────────────────────────────────────────────
 
 function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarget, reservePower = false, resultMods = null) {
-  const effectiveDifficulty = taskDifficulty({ difficulty, showOffSelected: resultMods?.showOffSelected });
+  const effectiveDifficulty = taskDifficulty({
+    difficulty,
+    showOffSelected: resultMods?.showOffSelected,
+    traitDifficultyDelta: resultMods?.traitDifficultyDelta,
+  });
   const crewSucc = countSuccesses(crewDice);
   const shipSucc = countSuccesses(shipDice);
   const total = crewSucc + shipSucc + autoSuccesses(resultMods);
   // Reserve Power: ship complications count as 2 each
   const compls = countComplicationsTotal(crewDice, [], shipDice, reservePower) + autoComplications(resultMods);
   const passed = total >= effectiveDifficulty;
-  const momentum = Math.max(0, total - effectiveDifficulty);
+  const traitBonus = passed ? Math.max(0, Number(resultMods?.traitBonusMomentum ?? 0) || 0) : 0;
+  const momentum = Math.max(0, total - effectiveDifficulty) + traitBonus;
 
   const passColor = passed ? LC.green : LC.red;
   const passText = passed ? "SUCCESS" : "FAILURE";
@@ -1080,6 +1156,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
   // True when a player ship opens the roller directly from its sheet as an assist roll
   // Ground NPCs are excluded — they use character attr/disc, not ship system/dept
   const isShipAssistMode = isAssistRoll && !playerMode && !state.groundMode;
+  const isMethodicalPlanningAssist = !!state.methodicalPlanningAssist;
   const apAssistDice = state.apAssistDice ?? [];
 
   // Officer mode: use real stats. Generic mode: use crew quality preset.
@@ -1259,8 +1336,17 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       label: `${_deptLabel(k)} (${d.value})`,
     }));
 
-    const compThreshold = 21 - complicationRange;
-    const compDesc = complicationRange === 1
+    // A complication trait forces the slider to base+delta. An increasing trait
+    // locks the floor (can still rise to 5); a reducing trait subtracts from the
+    // current range and locks the ceiling (can still drop to 1).
+    const compDelta = Number(state.traitComplicationDelta ?? 0) || 0;
+    const compBase = Math.max(1, Math.min(5, Number(state.baseComplicationRange ?? complicationRange) || 1));
+    const compForced = Math.max(1, Math.min(5, compBase + compDelta));
+    const compMin = compDelta > 0 ? compForced : 1;
+    const compMax = 5;
+    const effComplicationRange = Math.max(compMin, Math.min(compMax, Number(complicationRange) || 1));
+    const compThreshold = 21 - effComplicationRange;
+    const compDesc = effComplicationRange === 1
       ? "Complications on: 20"
       : `Complications on: ${compThreshold}–20`;
 
@@ -1350,6 +1436,26 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
                 text-transform:uppercase;letter-spacing:0.06em;">
                 ${state.showOffSource ?? "Show-Off"} - +1 Difficulty, +2 bonus Momentum on success
+              </span>
+            </label>` : ""}
+            ${state.extendedTaskContext && state.hasMeticulous && !state.isAssistRoll ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="has-meticulous" type="checkbox"
+                ${state.meticulousSelected ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.meticulousSource ?? "Meticulous"} - one die is a 1, +1 interval
+              </span>
+            </label>` : ""}
+            ${state.extendedTaskContext && state.hasPercussiveMaintenance && !state.isAssistRoll && officerAttrKey === "control" && officerDiscKey === "engineering" ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="has-percussive-maintenance" type="checkbox"
+                ${state.percussiveMaintenanceSelected ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.percussiveMaintenanceSource ?? "Percussive Maintenance"} - +1 Threat, use Daring, reduce interval on success
               </span>
             </label>` : ""}
             ${isOfficerMode ? `
@@ -1537,6 +1643,12 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           ${(assistOfficers?.length > 0 && !state.playerMode) ? assistOfficers.map((ao, idx) => {
             // Each assisting officer gets a mini-section showing their name, attr/disc
             // selects, and focus checkboxes for their individual assist die.
+            const aoKind = ao.type === "direct" ? "Direct"
+              : ao.type === "methodical-planning" ? "Methodical Planning"
+                : "Assisting";
+            const aoIcon = ao.type === "direct" ? "🎖️"
+              : ao.type === "methodical-planning" ? "📋"
+                : "🤝";
             const aoAttrKey = ao.attrKey;
             const aoDiscKey = ao.discKey;
             const aoAttrVal = ao.stats ? (ao.stats.attributes[aoAttrKey] ?? null) : null;
@@ -1549,7 +1661,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               border:1px solid ${LC.border};border-radius:2px;">
               <div style="font-size:9px;font-weight:700;color:${LC.primary};font-family:${LC.font};
                 text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">
-                ${ao.type === "direct" ? "🎖️" : "🤝"} ${ao.name} (${ao.type === "direct" ? "Direct" : "Assisting"})
+                ${aoIcon} ${ao.name} (${aoKind})
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px;">
                 <div>
@@ -1620,7 +1732,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         </div>
 
         <!-- NPC Ship Pool — hidden for ground character rolls or assist rolls -->
-        ${(!state.groundMode || state.groundIsNpc) ? `
+        ${(!isMethodicalPlanningAssist && (!state.groundMode || state.groundIsNpc)) ? `
         <div id="sta2e-ship-pool-section">
         ${state.sheetMode ? `
         <div style="display:flex;align-items:center;justify-content:space-between;
@@ -1895,7 +2007,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 Defender rolled <strong style="color:${LC.tertiary};">${state.defenderSuccesses}</strong> success${state.defenderSuccesses !== 1 ? "es" : ""} — Difficulty locked to <strong style="color:${LC.tertiary};">${state.difficulty}</strong>
               </div>
             </div>` : ""}
-          <div id="sta2e-difficulty-row" style="${(isShipAssistMode || (state.isAssistRoll && state.groundMode)) ? 'display:none;' : 'display:flex;'}align-items:center;gap:8px;">
+          <div id="sta2e-difficulty-row" style="${(isMethodicalPlanningAssist || isShipAssistMode || (state.isAssistRoll && state.groundMode)) ? 'display:none;' : 'display:flex;'}align-items:center;gap:8px;">
             <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
               text-transform:uppercase;letter-spacing:0.08em;min-width:100px;">Difficulty</span>
             <input id="difficulty" type="number" min="0" value="${difficulty}"
@@ -1905,6 +2017,9 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 color:${LC.tertiary};font-size:13px;font-weight:700;
                 font-family:${LC.font};text-align:center;
                 ${state.opposedDefenseType ? "opacity:0.7;cursor:not-allowed;" : ""}" />
+            <span id="difficulty-final" title="Final Difficulty after trait effects"
+              style="display:none;font-size:13px;font-weight:700;color:${LC.secondary};
+              font-family:${LC.font};white-space:nowrap;"></span>
             <span style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
               (0 = routine, no limit)
             </span>
@@ -1914,17 +2029,17 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               text-transform:uppercase;letter-spacing:0.08em;min-width:100px;">
               Complication
             </span>
-            <input id="complication-range" type="range" min="1" max="5"
-              value="${complicationRange}"
+            <input id="complication-range" type="range" min="${compMin}" max="${compMax}"
+              value="${effComplicationRange}"
               style="flex:1;accent-color:${LC.red};" />
             <span id="complication-range-val" style="font-size:12px;font-weight:700;
               color:${LC.red};font-family:${LC.font};min-width:16px;text-align:right;">
-              ${complicationRange}
+              ${effComplicationRange}
             </span>
           </div>
           <div id="complication-desc" style="font-size:9px;color:${LC.textDim};
             font-family:${LC.font};padding-left:108px;">${compDesc}</div>
-          ${!state.groundMode && !isShipAssistMode ? `
+          ${!isMethodicalPlanningAssist && !state.groundMode && !isShipAssistMode ? `
           <div id="targeting-solution-label" style="${state.sheetMode && state.selectedShipIdx < 0 ? "display:none;" : "display:flex;flex-direction:column;gap:4px;"}">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
               <input id="targeting-solution" type="checkbox"
@@ -1998,7 +2113,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             </span>
           </label>` : ""}
           ` : ""}
-        ${(state.sheetMode && state.playerMode && !isShipAssistMode) || (state.groundMode && state.groundIsNpc) ? `
+        ${!isMethodicalPlanningAssist && ((state.sheetMode && state.playerMode && !isShipAssistMode) || (state.groundMode && state.groundIsNpc)) ? `
         <label id="assist-roll-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;
           margin-top:4px;padding:5px 7px;border-radius:2px;
           background:${state.isAssistRoll ? 'rgba(0,150,255,0.10)' : 'transparent'};
@@ -2014,6 +2129,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         </label>` : ""}
         </div>
         </div><!-- /sta2e-task-options-section -->
+        ${isMethodicalPlanningAssist ? "" : renderTraitSuggestionPanel(state.traitSuggestions ?? [], state.traitSelectedIds ?? [], state.traitDifficultyDirections ?? {})}
 
       </div>
       `;  // end setup phase roller content
@@ -2261,7 +2377,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           state.hasShipTalentReroll, state.shipTalentRerollUsed),
         mkDet("detReroll", "Spend Determination — Reroll Dice", state.detRerollUsed),
         // Generic reroll — always available once per roll for any talent/trait not listed above
-        mkTalent("genericReroll", "Talent / Trait Reroll", true, state.genericRerollUsed),
+        mkTalent("genericReroll", state.traitRerollSource ?? "Talent / Trait Reroll", true, state.genericRerollUsed),
       ].filter(Boolean).join("");
       if (!buttons) return "";
       return `
@@ -2429,13 +2545,18 @@ function buildChatCard(actorName, state) {
   const compls = countComplicationsTotal(crewDice, assistDice, shipDice, crewFailed ? false : state.reservePower) + autoComplications(state);
   const effectiveDifficulty = taskDifficulty(state);
   const passed = total >= effectiveDifficulty;
-  const momentum = Math.max(0, total - effectiveDifficulty);
   const resourceProfile = _rollResourceProfile(state);
+  const traitPoolBonus = passed
+    ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
+    : 0;
+  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus;
   const generatedPoolLabel = resourceProfile.generatedPool === "threat"
     ? "Threat"
     : resourceProfile.momentumLabel;
   const passColor = passed ? LC.green : LC.red;
   const passText = passed ? "✓ SUCCESS" : "✗ FAILURE";
+  const callOutTargetsPotential = callOutTargetsBonusMomentum(state, true);
+  const planOfActionPotential = planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : null);
 
   const diceRow = (dice, target) => `
     <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px;">
@@ -2515,6 +2636,10 @@ function buildChatCard(actorName, state) {
         state.hasAutoSuccessTrade ? "Auto-Success Trade (−1 die, +1 success)" : null,
         state.persistentUsed ? "Persistent (+1 success, +1 complication)" : null,
         state.showOffSelected ? `${state.showOffSource ?? "Show-Off"} (+1 Difficulty, +2 bonus Momentum on success)` : null,
+        state.meticulousUsed ? `${state.meticulousSource ?? "Meticulous"} (die set to 1, +1 interval)` : null,
+        state.percussiveMaintenanceUsed ? `${state.percussiveMaintenanceSource ?? "Percussive Maintenance"} (+1 Threat, Daring for Control, -1 interval on success)` : null,
+        callOutTargetsPotential > 0 ? `Call Out Targets (+${callOutTargetsPotential} bonus Momentum on success)` : null,
+        planOfActionPotential > 0 ? `Plan of Action (+${planOfActionPotential} bonus Momentum on success)` : null,
         state.hasChiefOfStaff ? (state.chiefOfStaffSource ?? "Chief of Staff") : null,
         state.shipTalentRerollUsed ? (state.shipTalentRerollSource ?? "Ship Talent Reroll") : null,
         state.hasPiercingSalvo ? "Piercing Salvo (spend 2 Momentum)" : null,
@@ -2533,6 +2658,12 @@ function buildChatCard(actorName, state) {
       ${(assistOfficers ?? []).map((ao, idx) => {
       const die = (namedAssistDice ?? [])[idx];
       if (!die) return "";
+      const aoKind = ao.type === "direct" ? "Direct"
+        : ao.type === "methodical-planning" ? "Methodical Planning"
+          : "Assisting";
+      const aoIcon = ao.type === "direct" ? "🎖️"
+        : ao.type === "methodical-planning" ? "📋"
+          : "🤝";
       const aoAttrVal = ao.stats ? (ao.stats.attributes[ao.attrKey] ?? null) : null;
       const aoDiscVal = ao.stats ? (ao.stats.disciplines[ao.discKey] ?? null) : null;
       const aoTarget = (aoAttrVal !== null && aoDiscVal !== null) ? aoAttrVal + aoDiscVal : crewTarget;
@@ -2540,7 +2671,7 @@ function buildChatCard(actorName, state) {
       <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
         <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
           letter-spacing:0.08em;margin-bottom:3px;">
-          ${ao.type === "direct" ? "🎖️" : "🤝"} ${ao.name} (${ao.type === "direct" ? "Direct" : "Assisting"})${ao.stats
+          ${aoIcon} ${ao.name} (${aoKind})${ao.stats
           ? ` · ${ATTR_LABELS[ao.attrKey] ?? ao.attrKey}+${DISC_LABELS[ao.discKey] ?? ao.discKey} (target: ${aoTarget})`
           : ""}
         </div>
@@ -2696,11 +2827,18 @@ export function buildPlayerRollCardHtml(rollData) {
     : null;
   const displaySuccesses = confirmed ? (confirmedSuccesses ?? totalSuccesses) : totalSuccesses;
   const effectiveDifficulty = taskDifficulty(rollData);
-  const displayMomentum = confirmed ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty)) : Math.max(0, totalSuccesses - effectiveDifficulty);
   const passed = confirmed ? !!confirmedPassed : (totalSuccesses >= effectiveDifficulty);
+  const resourceProfile = _rollResourceProfile(rollData);
+  const traitPoolBonus = passed
+    ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? rollData.traitBonusThreat : rollData.traitBonusMomentum) || 0)
+    : 0;
+  const displayMomentum = confirmed
+    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus)
+    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus;
   const passColor = passed ? LC.green : LC.red;
   const finalResultLabel = passed ? "Success" : "Failed";
-  const resourceProfile = _rollResourceProfile(rollData);
+  const callOutTargetsPotential = callOutTargetsBonusMomentum(rollData, true);
+  const planOfActionPotential = planOfActionBonusMomentum(rollData.appliedTraitEffects ?? [], game.actors.get(rollData.officerActorId ?? rollData.actorId));
   const generatedPool = resourceProfile.generatedPool;
   const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
@@ -2929,6 +3067,32 @@ export function buildPlayerRollCardHtml(rollData) {
     ${rollData.showOffSource ?? "Show-Off"}: +1 Difficulty, +2 bonus Momentum on success
   </div>` : ""}
 
+  ${rollData.meticulousUsed ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.meticulousSource ?? "Meticulous"}: one die set to 1, +1 interval
+  </div>` : ""}
+
+  ${rollData.percussiveMaintenanceUsed ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.percussiveMaintenanceSource ?? "Percussive Maintenance"}: +1 Threat, Daring for Control, -1 interval on success
+  </div>` : ""}
+
+  ${traitSummaryHtml(rollData.appliedTraitEffects ?? [])}
+
+  ${callOutTargetsPotential > 0 ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    Call Out Targets: +${callOutTargetsPotential} bonus Momentum on success
+  </div>` : ""}
+
+  ${planOfActionPotential > 0 ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    Plan of Action: +${planOfActionPotential} bonus Momentum on success
+  </div>` : ""}
+
   ${!isAssistRoll ? `<div style="display:grid;grid-template-columns:repeat(${totalComplications > 0 ? 5 : 4},1fr);gap:4px;
     padding:6px 10px;border-top:1px solid ${LC.borderDim};">
     ${[
@@ -2971,7 +3135,7 @@ export function buildPlayerRollCardHtml(rollData) {
           border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
           font-family:${LC.font};font-size:10px;font-weight:700;
           color:${LC.primary};letter-spacing:0.04em;text-align:left;">
-        🎲 Roll Assist Die — ${ao.type === "direct" ? "🎖️ " : "🤝 "}${ao.name}
+        🎲 Roll Assist Die — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 " : "🤝 "}${ao.name}${ao.type === "methodical-planning" ? " (Methodical Planning)" : ""}
       </button>`).join("")}
     </div>
   </div>` : ""}
@@ -3079,7 +3243,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, onAssignShips = null, combatTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -3349,7 +3513,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _hasPiercingSalvo = _officerActorFull
     ? detectPiercingSalvo(_officerActorFull, weaponContext)
     : false;
-  const _cosReroll = detectChiefOfStaff(_assistOfficerStates, stationId);
+  const _cosReroll = detectChiefOfStaff(_assistOfficerStates, stationId, defaultOfficerDisc);
   const _hasFastTargeting = detectFastTargetingSystems(actor);   // ship actor
   const _shipTalentReroll = detectShipTalentCrewReroll(actor, stationId);   // DC-only ship talent
   const _hasMultiTasking = _officerActorFull
@@ -3367,6 +3531,30 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _showOffTalent = _officerActorFull
     ? detectShowOffTalent(_officerActorFull)
     : { hasTalent: false, source: null };
+  const _meticulousTalent = _officerActorFull
+    ? detectNamedTalent(_officerActorFull, "Meticulous")
+    : { hasTalent: false, source: null };
+  const _percussiveTalent = _officerActorFull
+    ? detectNamedTalent(_officerActorFull, "Percussive Maintenance")
+    : { hasTalent: false, source: null };
+  const _callOutTargetsEligible = !!weaponContext || !!callOutTargetsEligible;
+  const _namedCallOutTargetsSources = _callOutTargetsEligible
+    ? _assistOfficerStates
+        .map(ao => ao.actorId ? callOutTargetsSourceForActor(game.actors.get(ao.actorId), ao.name) : null)
+        .filter(Boolean)
+    : [];
+  const _helmCallOutTargetsSource = (() => {
+    if (!_callOutTargetsEligible || !hasAttackPattern) return null;
+    const helmActorId = helmOfficer?.id ?? (_hasActorAtHelm ? _helmActorIds[0] : null);
+    const helmActor = helmActorId ? game.actors.get(helmActorId) : null;
+    return helmActor ? callOutTargetsSourceForActor(helmActor, helmOfficer?.name ?? _helmActorName ?? helmActor.name) : null;
+  })();
+  const _initialCallOutTargetsSources = _callOutTargetsEligible
+    ? [
+        ...(!playerMode ? _namedCallOutTargetsSources : []),
+        ...(_helmCallOutTargetsSource ? [_helmCallOutTargetsSource] : []),
+      ]
+    : [];
 
   // Mutable roller state — lives outside the dialog so button callbacks can mutate it
   const _autoShipAssist = !!(
@@ -3401,7 +3589,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     groundNpcType: groundIsNpc ? (actor.system?.npcType ?? "minor") : null,
 
     // Crew
-    crewNumDice: isAssistRoll && !playerMode && !groundMode ? 1 : 2,   // ship-sheet assist → 1 die
+    crewNumDice: isAssistRoll ? 1 : 2,
     crewQuality: overrideCrewQuality ?? "proficient",
     playerMode,           // true = player-ship task roll (no NPC crew concepts)
     groundMode,           // true = ground character roll — hides ship pool entirely
@@ -3439,6 +3627,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     hasShowOff: _showOffTalent.hasTalent,
     showOffSource: _showOffTalent.source,
     showOffSelected: false,
+    extendedTaskContext,
+    hasMeticulous: _meticulousTalent.hasTalent,
+    meticulousSource: _meticulousTalent.source,
+    meticulousSelected: false,
+    meticulousUsed: false,
+    hasPercussiveMaintenance: _percussiveTalent.hasTalent,
+    percussiveMaintenanceSource: _percussiveTalent.source,
+    percussiveMaintenanceSelected: false,
+    percussiveMaintenanceUsed: false,
+    percussiveMaintenanceThreatPaid: false,
+    callOutTargetsSources: _initialCallOutTargetsSources,
+    callOutTargetsEligible: _callOutTargetsEligible,
     shipSystemKey: defaultSysKey,
     shipDeptKey: defaultDeptKey,
     // Task
@@ -3450,6 +3650,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       const deptStrain = CombatHUD ? CombatHUD.getDeptStrainRange(actor, defaultOfficerDisc) : 0;
       return 1 + sysStrain + deptStrain;
     })(),
+    baseComplicationRange: startComplicationRange ?? null,
     opposedDifficulty,
     opposedDefenseType,
     defenderSuccesses,
@@ -3473,6 +3674,17 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     shipDept: initialShipDepts[overrideShipDeptKey ?? weaponContextDeptKey]?.value ?? 2,
     // Roll state
     phase: "setup",
+    traitSuggestions: [],
+    traitSelectedIds: Array.isArray(initialTraitSelectedIds) ? [...initialTraitSelectedIds] : [],
+    traitDifficultyDirections: foundry.utils.deepClone(initialTraitDifficultyDirections ?? {}),
+    appliedTraitEffects: [],
+    traitDifficultyDelta: 0,
+    traitComplicationDelta: 0,
+    traitBonusMomentum: 0,
+    traitBonusThreat: 0,
+    hasTraitReroll: false,
+    traitRerollSource: null,
+    hasGenericTraitReroll: false,
     crewFailed: false,
     weaponContext,
     stationId,
@@ -3503,6 +3715,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     taskContext,          // optional longer description shown in chat card subheader
     taskCallback,         // optional fn({ successes, passed, state, actor, token }) called after post
     opposedTaskRef,       // optional serializable link back to an opposed-task chat card
+    opposedTraitTarget,   // optional opponent reference for deterministic target trait collection
     suppressWeaponResolution,
     breachPenalty,        // { breaches, destroyThreshold, difficultyPenalty, isDestroyed, penaltyNote }
     // Apply breach difficulty penalty to starting difficulty
@@ -3538,6 +3751,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     officerDiscKey: defaultOfficerDisc,
     sheetMode,        // true = opened from character sheet — attr/disc fixed, no selectors shown
     isAssistRoll: isAssistRoll,  // true = this roll assists another player's task
+    methodicalPlanningAssist: !!methodicalPlanningAssist,
     availableShips,   // serialized ship list for sheet-mode ship selector
     onAssignShips,    // callback: opens assign dialog, returns updated ship list
     selectedShipIdx: initialShipIdx,   // restored from pending task or starts unselected
@@ -3646,6 +3860,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           deadlyCostsThreat: state.weaponContext.deadlyCostsThreat ?? false,
         }
         : null,
+      callOutTargetsEligible: state.callOutTargetsEligible ?? false,
       rallyContext: state.rallyContext ?? false,
 
       difficulty: state.difficulty,
@@ -3694,6 +3909,13 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       techExpertiseSource: state.techExpertiseSource ?? null,
       aimRerolls: state.aimRerolls ?? 0,
       aimRerollsUsed: state.aimRerollsUsed ?? 0,
+      appliedTraitEffects: state.appliedTraitEffects ?? [],
+      traitDifficultyDelta: state.traitDifficultyDelta ?? 0,
+      traitComplicationDelta: state.traitComplicationDelta ?? 0,
+      traitBonusMomentum: state.traitBonusMomentum ?? 0,
+      traitBonusThreat: state.traitBonusThreat ?? 0,
+      hasTraitReroll: state.hasTraitReroll ?? false,
+      traitRerollSource: state.traitRerollSource ?? null,
 
       officerName: state.officer?.name ?? null,
       officerActorId: state.officer?.id ?? null,
@@ -3727,6 +3949,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       hasShowOff: state.hasShowOff ?? false,
       showOffSource: state.showOffSource ?? null,
       showOffSelected: state.showOffSelected ?? false,
+      extendedTaskContext: state.extendedTaskContext ?? null,
+      hasMeticulous: state.hasMeticulous ?? false,
+      meticulousSource: state.meticulousSource ?? null,
+      meticulousSelected: state.meticulousSelected ?? false,
+      meticulousUsed: state.meticulousUsed ?? false,
+      hasPercussiveMaintenance: state.hasPercussiveMaintenance ?? false,
+      percussiveMaintenanceSource: state.percussiveMaintenanceSource ?? null,
+      percussiveMaintenanceSelected: state.percussiveMaintenanceSelected ?? false,
+      percussiveMaintenanceUsed: state.percussiveMaintenanceUsed ?? false,
       sheetMode: state.sheetMode ?? false,
       availableShips: state.availableShips ?? [],
       selectedShipIdx: state.selectedShipIdx ?? -1,
@@ -3749,6 +3980,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
         type: ao.type ?? null,
         hasFocus: ao.hasFocus,
         hasDedicatedFocus: ao.hasDedicatedFocus,
+        callOutTargetsSource: state.callOutTargetsEligible && ao.actorId
+          ? callOutTargetsSourceForActor(game.actors.get(ao.actorId), ao.name)
+          : null,
         // Pre-compute target values so handler doesn't need live actor lookups
         attrVal: ao.stats ? (ao.stats.attributes[ao.attrKey] ?? 9) : 9,
         discVal: ao.stats ? (ao.stats.disciplines[ao.discKey] ?? 2) : 2,
@@ -3765,6 +3999,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       // Snapshot of payment slots — used by downstream consumers (e.g. damage
       // card spend panel) to detect Threat-purchased d20s for Andorian Intense.
       paymentSlots: Array.isArray(state.paymentSlots) ? [...state.paymentSlots] : [],
+      callOutTargetsSources: state.callOutTargetsSources ?? [],
     };
 
     ChatMessage.create({
@@ -3780,6 +4015,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
         },
       },
     });
+    consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
+      console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
   };
 
   // ── Render setup dialog ──────────────────────────────────────────────────────
@@ -3818,6 +4055,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     }
 
     const isRolled = state.phase === "rolled";
+    if (!isRolled) {
+      state.traitSuggestions = rollTraitSuggestions(actor, token, state);
+      if (!state.traitSelectedIds?.length) {
+        state.traitSelectedIds = state.traitSuggestions
+          .filter(s => s.checked && !s.noteOnly)
+          .map(s => s.id);
+      }
+      state.traitDifficultyDirections ??= {};
+    }
 
     dialog = new foundry.applications.api.DialogV2({
       window: {
@@ -3881,14 +4127,19 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _hitIntenseBonus = (isHit && _hitThreatBought > 0 && _hitIntenseSubject && actorHasIntenseTalent(_hitIntenseSubject))
                 ? _hitThreatBought : 0;
               const _hitShowOffBonus = showOffBonusMomentum(state, isHit);
+              const _hitCallOutTargetsBonus = callOutTargetsBonusMomentum(state, isHit);
+              const _hitPlanOfActionBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _hitPool = _rollResourceProfile(state, actor).generatedPool;
+              const _hitTraitBonus = isHit
+                ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
+                : 0;
               const _hitWQ = weapon?.system?.qualities ?? {};
               const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
-              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitVersatile > 0)) {
+              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
                 try {
                   const _hitTrackerRes = await createTracker(actor, {
                     totalGenerated: _hitMomentum,
-                    bonus: _hitIntenseBonus + _hitShowOffBonus,
+                    bonus: _hitIntenseBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitTraitBonus,
                     versatile: _hitVersatile,
                     weaponName: weapon?.name ?? null,
                     pool:  _hitPool,
@@ -3906,6 +4157,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
               });
+              consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
+                console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
 
               // Clear any pending assist flag for this station (same as the non-weapon path)
               (async () => { await _clearAssistFlag(); })();
@@ -3973,6 +4226,11 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _intenseTalentBonus = (isHit && _threatBoughtDice > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
                 ? _threatBoughtDice : 0;
               const _showOffTalentBonus = showOffBonusMomentum(state, isHit);
+              const _callOutTargetsTalentBonus = callOutTargetsBonusMomentum(state, isHit);
+              const _planOfActionTalentBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
+              const _traitTalentBonus = isHit
+                ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
+                : 0;
               await CombatHUD.resolveShipAttack(resolveToken, weapon, isHit, {
                 salvoMode: state.weaponContext.salvoMode ?? "area",
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
@@ -3981,7 +4239,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 opposedDefenseType: state.opposedDefenseType,
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
                 floatingMomentum: _floatingMomentum,
-                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus,
+                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _traitTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
                 complications: attackComplications,
                 opposedMomentumAwarded: state.opposedDefenseType !== null && (
@@ -4018,12 +4276,17 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prIntenseBonus = (_prPassed && _prThreatBought > 0 && _prIntenseSubject && actorHasIntenseTalent(_prIntenseSubject))
                 ? _prThreatBought : 0;
               const _prShowOffBonus = showOffBonusMomentum(state, _prPassed);
+              const _prCallOutTargetsBonus = callOutTargetsBonusMomentum(state, _prPassed);
+              const _prPlanOfActionBonus = _prPassed ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _prPool = _rollResourceProfile(state, actor).generatedPool;
-              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0)) {
+              const _prTraitBonus = _prPassed
+                ? Math.max(0, Number(_prPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
+                : 0;
+              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prTraitBonus > 0)) {
                 try {
                   const _prTrackerRes = await createTracker(actor, {
                     totalGenerated: _prMomentum,
-                    bonus: _prIntenseBonus + _prShowOffBonus,
+                    bonus: _prIntenseBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prTraitBonus,
                     pool:  _prPool,
                     speakerToken: token,
                   });
@@ -4039,6 +4302,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
               });
+              consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
+                console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
 
               // Clear any pending assist flag for this station now that the task is posted
               (async () => { await _clearAssistFlag(); })();
@@ -4104,6 +4369,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
               });
+              consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
+                console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
               // Clear any pending assist flag for this station now that the task is posted
               (async () => { await _clearAssistFlag(); })();
             },
@@ -4483,6 +4750,11 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
   state.shipDeptKey = vs("ship-dept-key", state.shipDeptKey);
   state.shipSystems = actorSystems[state.shipSystemKey]?.value ?? state.shipSystems;
   state.shipDept = actorDepts[state.shipDeptKey]?.value ?? state.shipDept;
+  if (state.methodicalPlanningAssist) {
+    state.shipAssist = false;
+    state.selectedShipIdx = -1;
+    state.shipDice = [];
+  }
 
   // Re-evaluate Advanced Sensors activation based on current system selection
   const isSensors = state.shipSystemKey === "sensors";
@@ -4512,7 +4784,26 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
   if (state.opposedDefenseType && state.opposedDifficulty !== null) {
     state.difficulty = state.opposedDifficulty;
   }
-  state.complicationRange = vi("complication-range", state.complicationRange);
+  const sliderComplicationRange = vi("complication-range", state.complicationRange);
+  const selectedTraitIds = Array.from(el.querySelectorAll(".sta2e-trait-effect-cb:checked"))
+    .map(cb => cb.value);
+  const traitDifficultyDirections = {};
+  el.querySelectorAll(".sta2e-trait-difficulty-direction").forEach(input => {
+    const id = input.dataset.traitEffectId;
+    if (id) traitDifficultyDirections[id] = input.checked ? "increase" : "reduce";
+  });
+  state.traitSelectedIds = selectedTraitIds;
+  state.traitDifficultyDirections = traitDifficultyDirections;
+  state.traitSuggestions = rollTraitSuggestions(game.actors.get(state.actorId), state._tokenDoc, state);
+  applyTraitSelectionsToState(state, state.traitSuggestions, selectedTraitIds, traitDifficultyDirections);
+  syncMethodicalPlanningAssists(state, game.actors.get(state.actorId));
+  const compDelta = Number(state.traitComplicationDelta ?? 0) || 0;
+  if (compDelta === 0) state.baseComplicationRange = sliderComplicationRange;
+  const compBase = Math.max(1, Math.min(5, Number(state.baseComplicationRange ?? sliderComplicationRange) || 1));
+  const compForced = Math.max(1, Math.min(5, compBase + compDelta));
+  const compMin = compDelta > 0 ? compForced : 1;
+  const compMax = 5;
+  state.complicationRange = Math.max(compMin, Math.min(compMax, sliderComplicationRange));
   state.hasTargetingSolution = el.querySelector("#targeting-solution")?.checked
     ?? state.hasTargetingSolution;
   if (state.hasTargetingSolution) {
@@ -4527,12 +4818,19 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     ?? state.hasCalibratesensors;
   state.hasCalibrateWeapons = el.querySelector("#calibrate-weapons")?.checked
     ?? state.hasCalibrateWeapons;
+  if (state.methodicalPlanningAssist) {
+    state.hasTargetingSolution = false;
+    state.tsChoice = null;
+    state.tsSystem = null;
+    state.hasCalibratesensors = false;
+    state.hasCalibrateWeapons = false;
+  }
   state.crewAssist = el.querySelector("#crew-assist")?.checked
     ?? state.crewAssist;
   if ((state.sheetMode && state.playerMode) || (state.groundMode && state.groundIsNpc)) {
     state.isAssistRoll = el.querySelector("#is-assist-roll")?.checked ?? false;
-    if (state.isAssistRoll) state.crewNumDice = 1;
   }
+  if (state.isAssistRoll) state.crewNumDice = 1;
 
   // Attack Pattern: read Helm attr/disc and focus selections.
   // Attr/disc selects only exist when a named helm officer is assigned;
@@ -4558,6 +4856,8 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     const determCb = el.querySelector("#has-determination");
     const persistentCb = el.querySelector("#has-persistent");
     const showOffCb = el.querySelector("#has-show-off");
+    const meticulousCb = el.querySelector("#has-meticulous");
+    const percussiveCb = el.querySelector("#has-percussive-maintenance");
     if (attrSel?.value) state.officerAttrKey = attrSel.value;
     if (discSel?.value) state.officerDiscKey = discSel.value;
     if (focusCb !== null) state.hasFocus = focusCb.checked;
@@ -4567,6 +4867,14 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     if (determCb !== null) state.hasDetermination = determCb.checked;
     state.persistentSelected = !!(persistentCb?.checked && state.hasPersistentTalent && !state.isAssistRoll);
     state.showOffSelected = !!(showOffCb?.checked && state.hasShowOff && !state.isAssistRoll);
+    state.meticulousSelected = !!(meticulousCb?.checked && state.extendedTaskContext && state.hasMeticulous && !state.isAssistRoll);
+    const percussiveEligible = state.extendedTaskContext
+      && state.hasPercussiveMaintenance
+      && !state.isAssistRoll
+      && state.officerAttrKey === "control"
+      && state.officerDiscKey === "engineering";
+    state.percussiveMaintenanceSelected = !!(percussiveCb?.checked && percussiveEligible);
+    if (state.percussiveMaintenanceSelected) state.officerAttrKey = "daring";
     state.crewAttr = state.officer.attributes[state.officerAttrKey] ?? state.crewAttr;
     state.crewDept = state.officer.disciplines[state.officerDiscKey] ?? state.crewDept;
   }
@@ -4665,6 +4973,19 @@ async function _doRoll(state, speaker) {
     state.paymentCostDeducted = true;
   }
 
+  if (state.percussiveMaintenanceSelected && !state.percussiveMaintenanceThreatPaid) {
+    const paid = await adjustPool("threat", 1, {
+      source: "diceRoller",
+      actor: game.actors.get(state.actorId),
+      token: canvas.tokens?.placeables.find(t => t.actor?.id === state.actorId) ?? null,
+    });
+    if (!paid) return false;
+    state.percussiveMaintenanceThreatPaid = true;
+    state.percussiveMaintenanceUsed = true;
+  } else {
+    state.percussiveMaintenanceUsed = !!state.percussiveMaintenanceSelected;
+  }
+
   applyCrewRollScores(state);
   const shipTarget = state.shipSystems + state.shipDept;
   // For a ship-sheet assist roll there is no NPC crew — dice roll against the ship's own target.
@@ -4742,6 +5063,28 @@ async function _doRoll(state, speaker) {
     state.crewDice = [autoSuccessDie, ...rollPool(Math.max(0, state.crewNumDice - 1), crewTarget, compThresh, crewCritThresh)];
   }
 
+  if (state.officer && state.meticulousSelected && !state.meticulousUsed) {
+    const meticulousDie = {
+      value: 1,
+      success: true,
+      crit: 1 <= crewCritThresh,
+      complication: false,
+      critThreshold: crewCritThresh,
+      meticulousForced: true,
+    };
+    if (state.crewDice.length > 0) {
+      const replaceIdx = state.crewDice.findIndex(d =>
+        !d.determinationForced && !d.proceduralForced && !d.autoSuccessTradeForced
+      );
+      state.crewDice[replaceIdx >= 0 ? replaceIdx : state.crewDice.length - 1] = meticulousDie;
+    } else {
+      state.crewDice = [meticulousDie];
+    }
+    state.meticulousUsed = true;
+  } else {
+    state.meticulousUsed = false;
+  }
+
   state.persistentUsed = !!(state.officer && state.hasPersistentTalent && state.persistentSelected && !state.isAssistRoll);
   state.persistentAutoSuccesses = state.persistentUsed ? 1 : 0;
   state.persistentAutoComplications = state.persistentUsed ? 1 : 0;
@@ -4756,6 +5099,7 @@ async function _doRoll(state, speaker) {
     state.namedAssistDice = [];
     state.apAssistDice = [];  // AP assist also doesn't roll if crew failed
     state.shipDice = [];
+    state.callOutTargetsSources = [];
   } else {
     // Generic crew assist die (ASSIST FROM CREW checkbox)
     state.crewAssistDice = state.crewAssist
@@ -4781,7 +5125,13 @@ async function _doRoll(state, speaker) {
         } else {
           aoCrit = 1; // only natural 1 crits without focus
         }
-        return rollPool(1, aoTarget, compThresh, aoCrit);
+        return rollPool(1, aoTarget, compThresh, aoCrit).map(d => ({
+          ...d,
+          officerName: ao.name,
+          assistActorId: ao.actorId ?? null,
+          attrKey: ao.attrKey,
+          discKey: ao.discKey,
+        }));
       });
       // Chief of Staff: initialise per-assist-die reroll flags (one bool per named die)
       state.assistRerollsUsed = state.namedAssistDice.map(() => false);
@@ -4877,6 +5227,60 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         slider.addEventListener("input", () => { output.textContent = slider.value; });
       }
     });
+
+    // Show the trait-adjusted final Difficulty and Complication range next to their inputs.
+    const _diffInputEl = el.querySelector("#difficulty");
+    const _diffFinalEl = el.querySelector("#difficulty-final");
+    const _compSliderEl = el.querySelector("#complication-range");
+    const updateTraitModifierDisplays = () => {
+      const selectedTraitIds = Array.from(el.querySelectorAll(".sta2e-trait-effect-cb:checked")).map(cb => cb.value);
+      const dirs = {};
+      el.querySelectorAll(".sta2e-trait-difficulty-direction").forEach(input => {
+        const id = input.dataset.traitEffectId;
+        if (id) dirs[id] = input.checked ? "increase" : "reduce";
+      });
+      applyTraitSelectionsToState(state, state.traitSuggestions ?? [], selectedTraitIds, dirs);
+      if (_diffFinalEl && _diffInputEl) {
+        const delta = Number(state.traitDifficultyDelta ?? 0) || 0;
+        if (state.opposedDefenseType || delta === 0) {
+          _diffFinalEl.style.display = "none";
+        } else {
+          const base = Math.max(0, Number(_diffInputEl.value ?? state.difficulty) || 0);
+          _diffFinalEl.textContent = `= ${taskDifficulty({ ...state, difficulty: base })}`;
+          _diffFinalEl.style.color = delta < 0 ? (LC.green ?? LC.secondary) : (LC.red ?? LC.tertiary);
+          _diffFinalEl.style.display = "";
+        }
+      }
+      if (_compSliderEl) {
+        const compDelta = Number(state.traitComplicationDelta ?? 0) || 0;
+        const base = Math.max(1, Math.min(5, Number(state.baseComplicationRange ?? _compSliderEl.value) || 1));
+        state.baseComplicationRange = base;
+        const forced = Math.max(1, Math.min(5, base + compDelta));
+        _compSliderEl.min = String(compDelta > 0 ? forced : 1);
+        _compSliderEl.max = "5";
+        _compSliderEl.value = String(forced);
+        state.complicationRange = forced;
+        const valEl = el.querySelector("#complication-range-val");
+        if (valEl) valEl.textContent = String(forced);
+        const descEl = el.querySelector("#complication-desc");
+        if (descEl) descEl.textContent = forced === 1 ? "Complications on: 20" : `Complications on: ${21 - forced}–20`;
+      }
+    };
+    _diffInputEl?.addEventListener("input", updateTraitModifierDisplays);
+
+    el.querySelectorAll(".sta2e-trait-effect-cb").forEach(cb => {
+      const row = cb.closest("label");
+      const directions = row?.querySelectorAll(".sta2e-trait-difficulty-direction");
+      cb.addEventListener("change", updateTraitModifierDisplays);
+      if (!directions?.length) return;
+      const sync = () => directions.forEach(direction => { direction.disabled = !cb.checked; });
+      cb.addEventListener("change", sync);
+      sync();
+    });
+    el.querySelectorAll(".sta2e-trait-difficulty-direction").forEach(direction => {
+      direction.addEventListener("change", updateTraitModifierDisplays);
+    });
+    updateTraitModifierDisplays();
 
     // ── Interactive Dice Payment UI ──────────────────────────────────────────
     const freeExtraDieCb = el.querySelector("#sta2e-free-extra-die");
@@ -5109,7 +5513,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
     const compDescEl = el.querySelector("#complication-desc");
     if (compSlider) {
       compSlider.addEventListener("input", () => {
-        const n = parseInt(compSlider.value);
+        const n = Math.max(1, Math.min(5, parseInt(compSlider.value) || 1));
+        // With no complication trait active, the slider sets the base range.
+        // While a trait is forcing it, dragging only adjusts within the locked window.
+        const compDelta = Number(state.traitComplicationDelta ?? 0) || 0;
+        if (compDelta === 0) state.baseComplicationRange = n;
+        state.complicationRange = n;
         if (compValEl) compValEl.textContent = n;
         if (compDescEl) compDescEl.textContent = n === 1
           ? "Complications on: 20"
@@ -6370,8 +6779,15 @@ function _wireDiePips(state, dialog, openDialog) {
         if (ao?.hasDedicatedFocus) aoCrit = Math.min(20, Math.max(1, aoDisc * 2));
         else if (ao?.hasFocus) aoCrit = Math.max(1, aoDisc);
 
+        const previous = state.namedAssistDice[idx] ?? {};
         const [newDie] = rollPool(1, aoTgt, state.compThresh ?? 20, aoCrit);
-        state.namedAssistDice[idx] = newDie;
+        state.namedAssistDice[idx] = {
+          ...newDie,
+          officerName: previous.officerName ?? ao?.name ?? null,
+          assistActorId: previous.assistActorId ?? ao?.actorId ?? null,
+          attrKey: previous.attrKey ?? ao?.attrKey ?? null,
+          discKey: previous.discKey ?? ao?.discKey ?? null,
+        };
         state.assistRerollsUsed[idx] = true;
 
         await dsnShowPool([newDie]);
