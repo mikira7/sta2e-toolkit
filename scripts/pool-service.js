@@ -43,6 +43,7 @@ function _sourceLabel(source) {
     zoneHazard: "Zone Hazard",
     overflow: "Overflow",
     torpedoAttack: "Torpedo Attack",
+    regenShields: "Regen Shields",
     traitCreation: "Trait Creation",
     traitCreationRefund: "Trait Creation Refund",
     toolkit: "Toolkit",

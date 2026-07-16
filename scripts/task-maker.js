@@ -9,7 +9,7 @@ import { decrementTracker } from "./momentum-tracker.js";
 import { readTrackerState } from "./momentum-spend.js";
 import { openNpcRoller } from "./npc-roller.js";
 import { adjustPool, readPool } from "./pool-service.js";
-import { getActorTraitRecords, getSceneTraitRecords, traitDescriptionText } from "./trait-service.js";
+import { getActorTraitRecords, getSceneTraitRecords, traitDescriptionText, traitSpendPool } from "./trait-service.js";
 
 const MODULE = "sta2e-toolkit";
 const EXTENDED_TASK_FOLDER = "Extended Tasks";
@@ -80,6 +80,7 @@ async function saveLastSettings(state) {
     shipActorId: state.shipActorId ?? null,
     shipSystemKey: state.shipSystemKey ?? null,
     shipDeptKey: state.shipDeptKey ?? null,
+    reactorAction: state.reactorAction ?? null,
     extendedTask: {
       actorId: ext.actorId ?? null,
       workMax: ext.workMax,
@@ -225,6 +226,40 @@ function isExtendedTaskActor(actor) {
     || !!(actor?.system?.workprogress && actor?.system?.breakthroughs);
 }
 
+function normalizeSpendPool(pool) {
+  return pool === "threat" || pool === "alliedNpcMomentum" ? pool : "momentum";
+}
+
+function spendPoolLabel(pool) {
+  if (pool === "threat") return "Threat";
+  if (pool === "alliedNpcMomentum") return "Allied Momentum";
+  return "Momentum";
+}
+
+function spendPoolShortLabel(pool) {
+  if (pool === "threat") return "Threat";
+  if (pool === "alliedNpcMomentum") return "Allied";
+  return "Momentum";
+}
+
+function extendedTaskExtraWorkPool(actor, token = null) {
+  return normalizeSpendPool(traitSpendPool(actor, token));
+}
+
+function progressDataExtraWorkPool(progressData = {}) {
+  if (progressData.extraWorkPool) return normalizeSpendPool(progressData.extraWorkPool);
+  const token = progressData.tokenId ? canvas.tokens?.get(progressData.tokenId) ?? null : null;
+  const actor = token?.actor ?? (progressData.actorId ? game.actors.get(progressData.actorId) : null);
+  return actor ? extendedTaskExtraWorkPool(actor, token) : "momentum";
+}
+
+function spendPoolAvailable(pool, { trackerMessageId = null, actorId = null } = {}) {
+  pool = normalizeSpendPool(pool);
+  if (pool === "threat") return Math.max(0, Number(readPool("threat")) || 0);
+  const tracker = readTrackerState(trackerMessageId, actorId);
+  return (Number(tracker.float) || 0) + (Number(tracker.bonus) || 0) + (Number(readPool(pool)) || 0);
+}
+
 function worldShips() {
   return game.actors
     .filter(isShipActor)
@@ -364,6 +399,7 @@ function defaultState(prefill = {}) {
     shipSystemKey: defaultSystem,
     shipDeptKey: defaultDept,
     traits: Array.isArray(prefill.traits) ? prefill.traits : [],
+    reactorAction: prefill.reactorAction ?? null,
     mode: prefill.mode === "extended" ? "extended" : "task",
     extendedTask: defaultExtendedConfig(prefill.extendedTask ?? prefill),
   };
@@ -623,6 +659,7 @@ function extendedTaskFlagPayload(actor, updates = {}) {
     breakpoints: updates.breakpoints ?? current.breakpoints ?? [],
     nextImpactBonus: clampInt(updates.nextImpactBonus ?? current.nextImpactBonus, 0, 99, 0),
     intervals: normalizeIntervalsConfig(updates.intervals ?? current.intervals ?? {}),
+    reactorAction: updates.reactorAction !== undefined ? updates.reactorAction : current.reactorAction ?? null,
   };
 }
 
@@ -723,6 +760,7 @@ async function ensureExtendedTaskActor(config) {
       breakpoints: defaultBreakthroughEffects(config.workMax, config.breakthroughMax, config.breakpoints),
       nextImpactBonus: clampInt(config.nextImpactBonus, 0, 99, 0),
       intervals: normalizeIntervalsConfig(config.intervals ?? {}),
+      reactorAction: config.reactorAction ?? null,
     });
     return existing;
   }
@@ -752,6 +790,7 @@ async function ensureExtendedTaskActor(config) {
     breakpoints: defaultBreakthroughEffects(config.workMax, config.breakthroughMax, config.breakpoints),
     nextImpactBonus: clampInt(config.nextImpactBonus, 0, 99, 0),
     intervals: normalizeIntervalsConfig(config.intervals ?? {}),
+    reactorAction: config.reactorAction ?? null,
   });
   return actor;
 }
@@ -1457,6 +1496,12 @@ export async function postTaskRequestCard(snapshot) {
   let extendedSnapshot = null;
   if (snapshot.mode === "extended") {
     try {
+      if (snapshot.reactorAction) {
+        snapshot.extendedTask = {
+          ...(snapshot.extendedTask ?? defaultExtendedConfig()),
+          reactorAction: snapshot.reactorAction,
+        };
+      }
       const extendedActor = await ensureExtendedTaskActor(snapshot.extendedTask ?? defaultExtendedConfig());
       const cfg = extendedConfigFromActor(extendedActor, snapshot.extendedTask);
       extendedSnapshot = extendedProgressSnapshot(extendedActor, cfg);
@@ -1485,6 +1530,11 @@ export async function postTaskRequestCard(snapshot) {
     shipActorId: snapshot.shipAssist ? snapshot.shipActorId ?? null : null,
     shipSystemKey: snapshot.shipAssist ? snapshot.shipSystemKey ?? null : null,
     shipDeptKey: snapshot.shipAssist ? snapshot.shipDeptKey ?? null : null,
+    stationId: snapshot.stationId ?? null,
+    crewQuality: snapshot.crewQuality ?? null,
+    noShipAssist: !!snapshot.noShipAssist,
+    ignoreBreachPenalty: !!snapshot.ignoreBreachPenalty,
+    reactorAction: snapshot.reactorAction ?? null,
     extendedTask: extendedSnapshot ? {
       actorId: extendedSnapshot.actorId,
       actorName: extendedSnapshot.actorName,
@@ -1521,6 +1571,9 @@ function renderTaskCardHtml(data) {
   const shipLine = data.shipAssist && ship
     ? `<div style="margin-top:5px;font-size:10px;color:${LC.textDim};">Ship Assist: <span style="color:${LC.text};font-weight:700;">${esc(ship.name)}</span> - ${esc(labelFromKey(data.shipSystemKey))} + ${esc(labelFromKey(data.shipDeptKey))}</div>`
     : "";
+  const reactorLine = data.reactorAction
+    ? `<div style="margin-top:5px;font-size:10px;color:${LC.yellow ?? LC.tertiary};">Ops/Eng Reactor Action: <span style="color:${LC.text};font-weight:700;">${esc(data.reactorAction.kind === "eject" ? "Eject Reactor" : "Stabilize Reactor")}</span></div>`
+    : "";
   const extendedLine = data.mode === "extended" && data.extendedTask
     ? extendedTaskSummaryHtml(data.extendedTask)
     : "";
@@ -1544,6 +1597,7 @@ function renderTaskCardHtml(data) {
       <div style="font-size:10px;color:${LC.text};font-weight:700;">${esc(attrLabel(data.attrKey))} + ${esc(discLabel(data.discKey))}</div>
       <div style="margin-top:2px;font-size:10px;color:${LC.textDim};">Difficulty ${data.difficulty} - Complications on ${compText}</div>
       ${shipLine}
+      ${reactorLine}
       ${traitRows}
     </div>
     ${extendedLine}
@@ -1656,7 +1710,7 @@ function extendedTalentImpactBenefits(actor, taskData, passed, result = {}) {
   }
 
   const extraWorkCost = actorHasTalent(actor, "Miracle Worker") && discKey === "engineering" ? 1 : 2;
-  if (extraWorkCost === 1) notes.push({ name: "Miracle Worker", text: "Extra Work costs 1 Momentum" });
+  if (extraWorkCost === 1) notes.push({ name: "Miracle Worker", text: "Extra Work cost reduced to 1" });
 
   return { impactBonus, ignoreResistance, extraWorkCost, notes };
 }
@@ -1790,6 +1844,32 @@ async function handleExtendedTaskRollResult(taskData, result = {}) {
   }
 }
 
+async function dispatchReactorActionSuccess(taskData, result = {}, resolution = {}) {
+  const reactorAction = taskData?.reactorAction ?? null;
+  if (!reactorAction?.kind) return;
+  const payload = {
+    reactorAction,
+    taskData,
+    result: {
+      passed: !!result.passed,
+      successes: Math.max(0, Number(result.successes) || 0),
+      momentum: Math.max(0, Number(result.momentum) || 0),
+      actorId: result.actor?.id ?? result.actorId ?? taskData.actorId ?? null,
+      tokenId: result.token?.id ?? result.tokenId ?? taskData.tokenId ?? null,
+    },
+    resolution,
+    requesterUserId: game.user.id,
+  };
+  if (game.user.isGM) {
+    await game.sta2eToolkit?.resolveReactorAction?.(payload);
+  } else {
+    game.socket.emit(`module.${MODULE}`, {
+      action: "resolveReactorAction",
+      ...payload,
+    });
+  }
+}
+
 export async function applyExtendedTaskResult({ taskData, result = {}, momentumWork = 0 } = {}) {
   if (!game.user.isGM) return;
   const actor = taskData?.extendedTask?.actorId ? game.actors.get(taskData.extendedTask.actorId) : null;
@@ -1797,7 +1877,10 @@ export async function applyExtendedTaskResult({ taskData, result = {}, momentumW
     ui.notifications.warn("STA2e Toolkit: Extended task actor not found.");
     return;
   }
-  const taskActor = result.actorId ? game.actors.get(result.actorId) : game.actors.get(taskData.actorId);
+  const taskActor = result.actor ?? (result.actorId ? game.actors.get(result.actorId) : game.actors.get(taskData.actorId));
+  const taskTokenId = result.token?.id ?? result.tokenId ?? taskData.tokenId ?? null;
+  const taskToken = result.token ?? (taskTokenId ? canvas.tokens?.get(taskTokenId) ?? null : null);
+  const extraWorkPool = extendedTaskExtraWorkPool(taskActor, taskToken);
   const cfg = extendedConfigFromActor(actor, taskData.extendedTask);
   const before = extendedProgressSnapshot(actor, cfg);
   const passed = !!result.passed;
@@ -1843,6 +1926,7 @@ export async function applyExtendedTaskResult({ taskData, result = {}, momentumW
     triggered: applied.triggered,
     canSpendExtraWork: passed,
     extraWorkCost: talentBenefits.extraWorkCost,
+    extraWorkPool,
     intervals: intervalResult,
   };
   await ChatMessage.create({
@@ -1862,6 +1946,7 @@ export async function applyExtendedTaskResult({ taskData, result = {}, momentumW
           tokenId: result.tokenId ?? taskData.tokenId ?? null,
           trackerMessageId: result.trackerMessageId ?? null,
           extraWorkCost: talentBenefits.extraWorkCost,
+          extraWorkPool,
           canSpendExtraWork: passed,
           intervals: intervalResult,
           cardData,
@@ -1869,6 +1954,14 @@ export async function applyExtendedTaskResult({ taskData, result = {}, momentumW
       },
     },
   });
+
+  if (taskData?.reactorAction?.kind === "stabilize" && after.workValue >= after.workMax) {
+    await dispatchReactorActionSuccess(taskData, result, {
+      kind: "extendedComplete",
+      workValue: after.workValue,
+      workMax: after.workMax,
+    });
+  }
 }
 
 async function applyExtendedTaskWorkUpdate(actor, before, cfg, afterWork, { consumePendingBonus = false, triggerBreakthroughs = true } = {}) {
@@ -1938,12 +2031,15 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
   }
   const message = messageId ? game.messages.get(messageId) : null;
   const progressData = message?.getFlag(MODULE, "progressData") ?? {};
-  const paid = await payMomentumCost({
+  const extraWorkCost = clampInt(progressData.extraWorkCost, 1, 2, 2);
+  const extraWorkPool = progressDataExtraWorkPool(progressData);
+  const paid = await payResourceCost({
+    pool: extraWorkPool,
     trackerMessageId: progressData.trackerMessageId ?? null,
     actorId: progressData.actorId ?? null,
     actor,
     requesterUserId,
-    cost: clampInt(progressData.extraWorkCost, 1, 2, 2),
+    cost: extraWorkCost,
     label: "extra work",
   });
   if (!paid) return;
@@ -1955,7 +2051,7 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
   });
   const cardData = {
     taskName: progressData.taskName ?? "Extra Work",
-    actorName: progressData.actorName ?? game.users.get(requesterUserId)?.name ?? "Momentum Spend",
+    actorName: progressData.actorName ?? game.users.get(requesterUserId)?.name ?? `${spendPoolLabel(extraWorkPool)} Spend`,
     passed: true,
     successes: null,
     momentum: null,
@@ -1970,7 +2066,8 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
     after: applied.after,
     triggered: applied.triggered,
     canSpendExtraWork: true,
-    extraWorkCost: clampInt(progressData.extraWorkCost, 1, 2, 2),
+    extraWorkCost,
+    extraWorkPool,
     extraWorkOnly: true,
     intervals: progressData.intervals ?? null,
   };
@@ -1980,6 +2077,7 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
     await message.update({
       content,
       "flags.sta2e-toolkit.progressData.lastExtraWorkBy": requesterUserId ?? null,
+      "flags.sta2e-toolkit.progressData.extraWorkPool": extraWorkPool,
       "flags.sta2e-toolkit.progressData.cardData": cardData,
     });
   } else {
@@ -1992,10 +2090,12 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
           extendedTaskActorId: actor.id,
           progressData: {
             taskName: progressData.taskName ?? "Extra Work",
-            actorName: progressData.actorName ?? "Momentum Spend",
+            actorName: progressData.actorName ?? `${spendPoolLabel(extraWorkPool)} Spend`,
             actorId: progressData.actorId ?? null,
+            tokenId: progressData.tokenId ?? null,
             trackerMessageId: progressData.trackerMessageId ?? null,
-            extraWorkCost: clampInt(progressData.extraWorkCost, 1, 2, 2),
+            extraWorkCost,
+            extraWorkPool,
             canSpendExtraWork: true,
             cardData,
           },
@@ -2003,16 +2103,63 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
       },
     });
   }
+
+  const reactorAction = actor.getFlag(MODULE, EXTENDED_TASK_FLAG)?.reactorAction ?? null;
+  if (reactorAction?.kind === "stabilize" && applied.after.workValue >= applied.after.workMax) {
+    await dispatchReactorActionSuccess({
+      mode: "extended",
+      taskName: progressData.taskName ?? "Stabilize the Reactor",
+      actorId: progressData.actorId ?? null,
+      tokenId: progressData.tokenId ?? null,
+      reactorAction,
+      extendedTask: { actorId: actor.id },
+    }, {
+      passed: true,
+      actorId: progressData.actorId ?? null,
+      tokenId: progressData.tokenId ?? null,
+    }, {
+      kind: "extraWorkComplete",
+      workValue: applied.after.workValue,
+      workMax: applied.after.workMax,
+    });
+  }
 }
 
 async function payMomentumCost({ trackerMessageId = null, actorId = null, actor = null, requesterUserId = null, cost = 2, label = "spend" } = {}) {
+  return payResourceCost({
+    pool: "momentum",
+    trackerMessageId,
+    actorId,
+    actor,
+    requesterUserId,
+    cost,
+    label,
+  });
+}
+
+async function payResourceCost({ pool = "momentum", trackerMessageId = null, actorId = null, actor = null, requesterUserId = null, cost = 2, label = "spend" } = {}) {
+  pool = normalizeSpendPool(pool);
+  cost = clampInt(cost, 1, 999, 2);
+  const poolLabel = spendPoolLabel(pool);
+
+  if (pool === "threat") {
+    if (Math.max(0, Number(readPool("threat")) || 0) < cost) {
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${poolLabel} for ${label}.`);
+      return false;
+    }
+    return adjustPool("threat", -cost, {
+      source: "toolkit",
+      userId: requesterUserId ?? null,
+      actor,
+    });
+  }
+
   const tracker = readTrackerState(trackerMessageId, actorId);
   const floatAvailable = Math.max(0, Number(tracker.float) || 0);
   const bonusAvailable = Math.max(0, Number(tracker.bonus) || 0);
-  const poolAvailable = Math.max(0, Number(readPool("momentum")) || 0);
-  cost = clampInt(cost, 1, 999, 2);
+  const poolAvailable = Math.max(0, Number(readPool(pool)) || 0);
   if (floatAvailable + bonusAvailable + poolAvailable < cost) {
-    ui.notifications.warn(`STA2e Toolkit: Not enough Momentum for ${label}.`);
+    ui.notifications.warn(`STA2e Toolkit: Not enough ${poolLabel} for ${label}.`);
     return false;
   }
 
@@ -2030,7 +2177,7 @@ async function payMomentumCost({ trackerMessageId = null, actorId = null, actor 
     });
   }
   if (poolUsed > 0) {
-    const paidPool = await adjustPool("momentum", -poolUsed, {
+    const paidPool = await adjustPool(pool, -poolUsed, {
       source: "toolkit",
       userId: requesterUserId ?? null,
       actor,
@@ -2147,6 +2294,7 @@ export async function applyExtendedTaskIntervalSpend({ messageId = null, extende
     triggered: [],
     canSpendExtraWork: false,
     extraWorkCost: clampInt(progressData.extraWorkCost, 1, 2, 2),
+    extraWorkPool: progressDataExtraWorkPool(progressData),
   };
   const cardData = {
     ...fallbackCardData,
@@ -2219,6 +2367,7 @@ export async function applyExtendedTaskIntervalExhaust({ messageId = null, exten
     triggered: [],
     canSpendExtraWork: false,
     extraWorkCost: clampInt(progressData.extraWorkCost, 1, 2, 2),
+    extraWorkPool: progressDataExtraWorkPool(progressData),
   };
   const cardData = {
     ...fallbackCardData,
@@ -2261,13 +2410,15 @@ function renderExtendedTaskResultCard(data, messageId = null) {
     : "";
   const canSpendExtraWork = !!data.canSpendExtraWork && after.workValue < after.workMax;
   const extraWorkCost = clampInt(data.extraWorkCost, 1, 2, 2);
+  const extraWorkPool = normalizeSpendPool(data.extraWorkPool);
+  const extraWorkPoolLabel = spendPoolLabel(extraWorkPool);
   const extraWorkButton = canSpendExtraWork
     ? `<div style="margin-top:8px;">
         <button type="button" class="sta2e-extended-extra-work" data-message-id="${esc(messageId ?? "")}" data-actor-id="${esc(after.actorId ?? "")}"
           style="width:100%;padding:7px 10px;background:rgba(0,150,255,0.10);border:1px solid ${LC.secondary};
           border-radius:2px;color:${LC.secondary};font-family:${LC.font};font-size:10px;font-weight:700;
           letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;">
-          Spend ${extraWorkCost} Momentum - Add +1 Work
+          Spend ${extraWorkCost} ${esc(extraWorkPoolLabel)} - Add +1 Work
         </button>
       </div>`
     : "";
@@ -2347,7 +2498,7 @@ function renderExtendedTaskResultCard(data, messageId = null) {
     <div style="font-size:10px;color:${LC.textDim};margin-top:2px;">${esc(data.taskName ?? "Task")} - ${esc(data.actorName ?? "")}</div>
     <div style="margin-top:8px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
       ${statChip(data.extraWorkOnly ? "Base" : "Impact", data.departmentScore, LC.tertiary)}
-      ${statChip(data.extraWorkOnly ? "Cost" : "Resist", data.extraWorkOnly ? `${extraWorkCost}M` : data.resistance, LC.orange ?? LC.primary)}
+      ${statChip(data.extraWorkOnly ? "Cost" : "Resist", data.extraWorkOnly ? `${extraWorkCost} ${spendPoolShortLabel(extraWorkPool)}` : data.resistance, LC.orange ?? LC.primary)}
       ${statChip(data.extraWorkOnly ? "Extra" : "Talent", data.extraWorkOnly ? data.momentumWork : data.talentImpact ?? 0, LC.secondary)}
       ${statChip("Applied", data.workApplied, data.workApplied > 0 ? LC.green ?? LC.secondary : LC.textDim)}
     </div>
@@ -2475,11 +2626,14 @@ function wireExtendedTaskResultCard(message, html, flags) {
     btn.style.opacity = "0.55";
     try {
       const progressData = flags.progressData ?? {};
-      const tracker = readTrackerState(progressData.trackerMessageId ?? null, progressData.actorId ?? null);
-      const available = (Number(tracker.float) || 0) + (Number(tracker.bonus) || 0) + (Number(readPool("momentum")) || 0);
+      const extraWorkPool = progressDataExtraWorkPool(progressData);
+      const available = spendPoolAvailable(extraWorkPool, {
+        trackerMessageId: progressData.trackerMessageId ?? null,
+        actorId: progressData.actorId ?? null,
+      });
       const cost = clampInt(progressData.extraWorkCost, 1, 2, 2);
       if (available < cost) {
-        ui.notifications.warn("STA2e Toolkit: Not enough Momentum for extra work.");
+        ui.notifications.warn(`STA2e Toolkit: Not enough ${spendPoolLabel(extraWorkPool)} for extra work.`);
         btn.disabled = false;
         btn.style.opacity = "";
         return;
@@ -2526,7 +2680,9 @@ function launchTaskRoller(taskData) {
   const selectedShipIdx = taskData.shipAssist && taskData.shipActorId
     ? serializedShips.findIndex(s => s.actorId === taskData.shipActorId)
     : -1;
-  const isPlayerOwned = actor.hasPlayerOwner || actor.testUserPermission?.(game.user, "OWNER") || actor.isOwner;
+  const reactorAction = taskData.reactorAction ?? null;
+  const stationCrew = !!reactorAction?.stationCrew;
+  const isPlayerOwned = !stationCrew && (actor.hasPlayerOwner || actor.testUserPermission?.(game.user, "OWNER") || actor.isOwner);
   const extendedActor = taskData.mode === "extended" && taskData.extendedTask?.actorId
     ? game.actors.get(taskData.extendedTask.actorId)
     : null;
@@ -2543,28 +2699,36 @@ function launchTaskRoller(taskData) {
   }
   openNpcRoller(actor, token, {
     playerMode: isPlayerOwned,
-    groundMode: serializedShips.length === 0,
-    groundIsNpc: !isPlayerOwned,
+    groundMode: stationCrew ? false : serializedShips.length === 0,
+    groundIsNpc: stationCrew ? false : !isPlayerOwned,
     usesPlayerPayment: isPlayerOwned ? true : undefined,
-    crewQuality: null,
-    officer: stats ?? undefined,
+    stationId: taskData.stationId ?? reactorAction?.stationId ?? undefined,
+    crewQuality: stationCrew ? taskData.crewQuality ?? reactorAction?.crewQuality ?? null : null,
+    officer: stationCrew ? null : stats ?? undefined,
     defaultAttr: taskData.attrKey,
     defaultDisc: taskData.discKey,
     sheetMode: true,
     availableShips: serializedShips,
-    shipAssist: !!taskData.shipAssist,
+    shipAssist: !!taskData.shipAssist && !taskData.noShipAssist,
     selectedShipIdx: selectedShipIdx >= 0 ? selectedShipIdx : -1,
     shipSystemKey: taskData.shipSystemKey ?? undefined,
     shipDeptKey: taskData.shipDeptKey ?? undefined,
     difficulty: taskData.difficulty,
     complicationRange: taskData.complicationRange,
+    ignoreBreachPenalty: !!taskData.ignoreBreachPenalty,
+    noShipAssist: !!taskData.noShipAssist,
     taskLabel: taskData.taskName,
     taskContext: taskData.mode === "extended" && taskData.extendedTask
       ? `${taskData.flavor || "Extended Task"} - ${taskData.extendedTask.actorName} (${taskData.extendedTask.workValue}/${taskData.extendedTask.workMax} Work, Resistance ${taskData.extendedTask.resistance})`
       : taskData.flavor || "Task Maker",
     taskCallback: taskData.mode === "extended"
       ? result => handleExtendedTaskRollResult(taskData, result)
-      : null,
+      : taskData.reactorAction?.kind === "eject"
+        ? result => {
+          if (result?.passed) return dispatchReactorActionSuccess(taskData, result, { kind: "taskSuccess" });
+          return null;
+        }
+        : null,
     extendedTaskContext: taskData.mode === "extended"
       ? {
         actorId: taskData.extendedTask?.actorId ?? null,

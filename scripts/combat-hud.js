@@ -84,6 +84,7 @@ import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "./weapon-range.js";
 import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit, readTrackerState } from "./momentum-spend.js";
 import { createTracker, getActiveTracker } from "./momentum-tracker.js";
 import { clearHullDecals, hasHullDecals } from "./hull-decals.js";
+import { postTaskRequestCard } from "./task-maker.js";
 
 const MODULE      = "sta2e-toolkit";
 const HUD_ID      = "sta2e-combat-hud";
@@ -3903,6 +3904,97 @@ export class CombatHUD {
       || actor?.items?.some(i => i.type === "starshipweapon2e");
   }
 
+  static _isWarpCoreBlastShipTarget(token) {
+    const actor = token?.actor;
+    if (!actor) return false;
+    if (token.document?.getFlag?.(MODULE, "ejectedWarpCore")) return false;
+    return actor.type === "starship"
+      || actor.type === "spacecraft2e"
+      || actor.type === "smallcraft"
+      || actor.system?.systems !== undefined
+      || actor.items?.some(i => i.type === "starshipweapon2e");
+  }
+
+  static _warpCoreBlastTargets(originToken, sourceTokenId = null, { excludeSource = false } = {}) {
+    if (!originToken) return { targets: [], usingZones: false, zoneNames: [] };
+    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
+    const zones = zonesEnabled ? getSceneZones() : [];
+    const originZones = zones.length ? getZonesForToken(originToken, zones) : [];
+    const originZoneIds = new Set(originZones.map(z => z.id));
+    if (!originZoneIds.size) {
+      return { targets: [], usingZones: false, zoneNames: [] };
+    }
+
+    const targets = (canvas.tokens?.placeables ?? []).filter(t => {
+      if (!t || t.id === originToken.id) return false;
+      if (excludeSource && sourceTokenId && t.id === sourceTokenId) return false;
+      if (!CombatHUD._isWarpCoreBlastShipTarget(t)) return false;
+      return getZonesForToken(t, zones).some(z => originZoneIds.has(z.id));
+    });
+
+    return {
+      targets,
+      usingZones: true,
+      zoneNames: originZones.map(z => z.name ?? z.label ?? z.id).filter(Boolean),
+    };
+  }
+
+  static async _applyWarpCoreBlastDamage(originToken, data = {}) {
+    if (!game.user.isGM || !originToken) return { targets: [], damage: 0, zoneNames: [] };
+    const scale = Number(data.scale ?? originToken.actor?.system?.scale ?? 0) || 0;
+    const damage = Math.max(0, Number(data.damage ?? (scale + 1)) || 0);
+    if (damage <= 0) return { targets: [], damage, zoneNames: [] };
+
+    const result = CombatHUD._warpCoreBlastTargets(originToken, data.sourceTokenId ?? null, {
+      excludeSource: data.excludeSource === true,
+    });
+    if (!result.targets.length) return { ...result, damage };
+
+    const damagedNames = [];
+    for (const target of result.targets) {
+      try {
+        const isSourceShip = !!data.sourceTokenId && target.id === data.sourceTokenId;
+        await CombatHUD.applyDamage({
+          tokenId: target.id,
+          actorId: target.actor?.id ?? null,
+          finalDamage: damage,
+          highYield: false,
+          noDevastating: true,
+          persistent: false,
+          persistentRounds: 0,
+          persistentDamage: 0,
+          piercing: true,
+          area: false,
+          areaAvailable: false,
+          attackerTokenId: originToken.id,
+          attackerActorId: originToken.actor?.id ?? null,
+          weaponImg: "modules/sta2e-toolkit/assets/warp-core.svg",
+          weaponName: data.label ?? "Warp Core Detonation",
+          suppressCriticalDestruction: data.sourceSurvivesCriticalBreach === true && isSourceShip,
+          suppressCriticalDestructionReason: "This ship is struck by its own ejected warp core. It takes the damage and breach, but this rare case does not destroy a critical ship outright.",
+        });
+        damagedNames.push(target.name);
+      } catch (err) {
+        console.error("STA2e Toolkit | Warp core blast damage failed:", err);
+      }
+    }
+
+    if (damagedNames.length) {
+      const zoneText = result.zoneNames.length ? result.zoneNames.join(", ") : "the same zone";
+      ChatMessage.create({
+        content: lcarsCard("☢ WARP CORE BLAST DAMAGE", LC.orange, `
+          <div style="font-size:11px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
+            Applied <strong>${damage} damage with Piercing</strong> to
+            <strong>${damagedNames.join(", ")}</strong> in
+            <strong>${zoneText}</strong>.
+          </div>`),
+        speaker: { alias: "STA2e Toolkit" },
+      });
+    }
+
+    return { ...result, damage, damagedNames };
+  }
+
   static _getAreaSecondaryTargets(primaryTokenId, attackerTokenId) {
     const primaryToken = canvas.tokens?.get(primaryTokenId);
     if (!primaryToken) return { targets: [], usingZones: false, zoneName: null };
@@ -4312,12 +4404,8 @@ export class CombatHUD {
     const scanStatesByTargetId = new Map();
     for (const t of targets) {
       if (!hasCondition(t, "scan-for-weakness")) continue;
-      const srcId = doc(t).getFlag(MODULE, "scanForWeaknessSourceId") ?? null;
-      if (srcId !== null && srcId !== attackerTokenId) continue;
-      const pending = normalizeScanForWeaknessState(doc(t).getFlag(MODULE, "scanForWeaknessPending") ?? {});
-      if (pending.consumed) continue;
-      if (pending.sourceTokenId && pending.sourceTokenId !== attackerTokenId) continue;
-      scanStatesByTargetId.set(t.id, pending);
+      const pending = getScanForWeaknessStateForAttacker(t, attackerTokenId);
+      if (pending) scanStatesByTargetId.set(t.id, pending);
     }
 
     // ── Targeting Solution ─────────────────────────────────────────────────
@@ -6167,6 +6255,8 @@ export class CombatHUD {
 
     const isNpc = CombatHUD.isNpcShip(actor);
     const isGM  = game.user.isGM;
+    const spendPool  = CombatHUD.regenShieldSpendPool(actor);
+    const spendLabel = CombatHUD.poolDisplayName(spendPool);
 
     // ── Reserve Power check — required to use this action ────────────────
     if (!CombatHUD.hasReservePower(actor)) {
@@ -6226,10 +6316,10 @@ export class CombatHUD {
             });
             return;
           }
-          // Post a chat card with Threat input + Apply button
+          // Post a chat card with the correct resource input + Apply button.
           const shieldPayload = encodeURIComponent(JSON.stringify({
             actorId: actor.id, tokenId: token?.id ?? null,
-            baseRestore: engDept, maxShield, actorName: actor.name,
+            baseRestore: engDept, maxShield, actorName: actor.name, spendPool,
           }));
           ChatMessage.create({
             flags: { "sta2e-toolkit": { regenShieldCard: true } },
@@ -6238,12 +6328,12 @@ export class CombatHUD {
                 margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
               <div style="font-size:11px;color:${LC.text};font-family:${LC.font};margin-bottom:8px;">
                 Restores <strong style="color:${LC.green};">${engDept}</strong> shields
-                (Engineering dept). Spend 1 Threat for +2 more (Repeatable).
+                (Engineering dept). Spend 1 ${spendLabel} for +2 more (Repeatable).
               </div>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
                 <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
                   text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap;">
-                  Threat Spent
+                  ${spendLabel} Spent
                 </label>
                 <input class="sta2e-shield-threat" type="number" min="0" value="0"
                   style="width:60px;padding:3px 6px;background:${LC.bg};
@@ -6294,7 +6384,7 @@ export class CombatHUD {
           }
           const shieldPayload = encodeURIComponent(JSON.stringify({
             actorId: actor.id, tokenId: token?.id ?? null,
-            baseRestore: engDept, maxShield, actorName: actor.name,
+            baseRestore: engDept, maxShield, actorName: actor.name, spendPool,
           }));
           ChatMessage.create({
             flags: { "sta2e-toolkit": { regenShieldCard: true } },
@@ -6303,12 +6393,12 @@ export class CombatHUD {
                 margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
               <div style="font-size:11px;color:${LC.text};font-family:${LC.font};margin-bottom:8px;">
                 Restores <strong style="color:${LC.green};">${engDept}</strong> shields
-                (Engineering dept). Spend 1 Momentum for +2 more (Repeatable).
+                (Engineering dept). Spend 1 ${spendLabel} for +2 more (Repeatable).
               </div>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
                 <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
                   text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap;">
-                  Momentum Spent
+                  ${spendLabel} Spent
                 </label>
                 <input class="sta2e-shield-threat" type="number" min="0" value="0"
                   style="width:60px;padding:3px 6px;background:${LC.bg};
@@ -9138,14 +9228,36 @@ export class CombatHUD {
     // ── Step 3 (generic): open roller with base difficulty + 1 ────────────
     const baseDiff    = TASK_BASE_DIFF[taskPick];
     const difficulty  = baseDiff !== null && baseDiff !== undefined ? baseDiff + 1 : null;
+    const scanTargetToken = taskPick === "scan-for-weakness"
+      ? (Array.from(game.user.targets ?? [])[0] ?? null)
+      : null;
+
+    if (taskPick === "scan-for-weakness" && !scanTargetToken) {
+      ui.notifications.warn("Select a target token for Scan for Weakness.");
+      return;
+    }
 
     const rollerOpts = {
       stationId:   station.id,
       officer:     resolvedOfficer,
       crewQuality: isNpc && !resolvedOfficer ? CombatHUD.getCrewQuality(actor) : null,
       difficulty,
-      taskLabel:   `Override — ${chosenTask.label}`,
-      taskContext: overrideContext + (difficulty !== null ? ` (Difficulty ${difficulty})` : ""),
+      taskLabel:   taskPick === "scan-for-weakness"
+        ? `Override — Scan for Weakness — ${scanTargetToken.name}`
+        : `Override — ${chosenTask.label}`,
+      taskContext: overrideContext
+        + (taskPick === "scan-for-weakness" ? ` · Target: ${scanTargetToken.name}` : "")
+        + (difficulty !== null ? ` (Difficulty ${difficulty})` : ""),
+      ...(taskPick === "scan-for-weakness" ? {
+        ignoreBreachPenalty: true,
+        shipSystemKey:       "sensors",
+        shipDeptKey:         "security",
+        taskCallback: async ({ passed }) => {
+          if (!passed) return;
+          const cardData = await applyScanForWeakness(token, scanTargetToken, token.name ?? actor.name);
+          ChatMessage.create({ ...cardData, speaker: ChatMessage.getSpeaker({ token }) });
+        },
+      } : {}),
     };
 
     if (isNpc) openNpcRoller(actor, token, rollerOpts);
@@ -10126,9 +10238,12 @@ export class CombatHUD {
   }
 
   _buildBreachPanel(actor) {
-    const section   = this._buildSection("☢ WARP CORE BREACH IMMINENT");
-    const engRating = actor.system?.systems?.engines?.value ?? 0;
-    const scale     = actor.system?.scale ?? 0;
+    const section           = this._buildSection("☢ WARP CORE BREACH IMMINENT");
+    const enginesRating     = actor.system?.systems?.engines?.value ?? 0;
+    const engineeringRating = actor.system?.departments?.engineering?.value
+      ?? actor.system?.departments?.engineering
+      ?? 0;
+    const scale             = actor.system?.scale ?? 0;
 
     const body = document.createElement("div");
     body.style.cssText = `padding:8px 10px;`;
@@ -10138,7 +10253,7 @@ export class CombatHUD {
     info.style.cssText = `font-size:10px;color:${LC.text};font-family:${LC.font};margin-bottom:6px;line-height:1.5;`;
     info.innerHTML = `
       Roll <strong>d20</strong> at the start of each round.<br>
-      If result <strong>&gt; Engineering ${engRating}</strong> → reactor explodes.<br>
+      If result <strong>&gt; Engineering ${engineeringRating}</strong> → reactor explodes.<br>
       Explosion: <strong style="color:${LC.red};">Scale+1 (${scale+1}) damage, Piercing</strong> to all ships at Close range.
     `;
     body.appendChild(info);
@@ -10162,12 +10277,45 @@ export class CombatHUD {
       });
       body.appendChild(rollBtn);
 
+      const actionRow = document.createElement("div");
+      actionRow.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:5px;";
+      const makeActionBtn = (label, color, title, kind) => {
+        const btn = document.createElement("button");
+        btn.style.cssText = `
+          padding:5px 4px;background:rgba(255,153,0,0.08);
+          border:1px solid ${color};border-radius:2px;color:${color};
+          font-size:9px;font-weight:700;letter-spacing:0.06em;
+          text-transform:uppercase;cursor:pointer;font-family:${LC.font};
+        `;
+        btn.textContent = label;
+        btn.title = title;
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await CombatHUD.postReactorTask(actor, this._token, kind);
+          this._refresh();
+        });
+        return btn;
+      };
+      actionRow.appendChild(makeActionBtn(
+        "Stabilize",
+        LC.green,
+        "Post an Ops/Eng extended task to stabilize the reactor",
+        "stabilize"
+      ));
+      actionRow.appendChild(makeActionBtn(
+        "Eject",
+        LC.orange,
+        "Post an Ops/Eng task to eject the reactor",
+        "eject"
+      ));
+      body.appendChild(actionRow);
+
       // Containment options info row
       const opts = document.createElement("div");
       opts.style.cssText = `font-size:9px;color:${LC.textDim};font-family:${LC.font};
         margin-top:4px;line-height:1.6;letter-spacing:0.03em;`;
       opts.innerHTML = `
-        <span style="color:${LC.yellow};">▶ Stabilize:</span> Extended Task — Progress: Engines (${engRating}), Diff 3, Daring/Control+Engineering<br>
+        <span style="color:${LC.yellow};">▶ Stabilize:</span> Extended Task — Progress: Engines (${enginesRating}), Diff 3, Daring/Control+Engineering<br>
         <span style="color:${LC.yellow};">▶ Eject:</span> Task — Diff 2, Daring+Engineering (still rolls but won't destroy ship)
       `;
       body.appendChild(opts);
@@ -10292,16 +10440,20 @@ export class CombatHUD {
 
       let badgeLabel = def.label;
       if (key === "scan-for-weakness") {
-        const tokenDoc = token?.document ?? token;
-        const srcName = tokenDoc?.getFlag(MODULE, "scanForWeaknessSource") ?? null;
-        if (srcName) badgeLabel = `${def.label} (from ${srcName})`;
+        const scanStates = getScanForWeaknessStatesFromTarget(token);
+        if (scanStates.length === 1) {
+          badgeLabel = `${def.label} (from ${scanStates[0].sourceName})`;
+        } else if (scanStates.length > 1) {
+          const names = Array.from(new Set(scanStates.map(state => state.sourceName).filter(Boolean)));
+          const summary = names.length <= 2 ? names.join(", ") : `${names[0]} + ${names.length - 1} more`;
+          badgeLabel = `${def.label} (${scanStates.length} sources: ${summary})`;
+        }
       }
       row.appendChild(this._statusBadge(null, badgeLabel, def.description, false, async () => {
-        await removeCondition(token, key);
         if (key === "scan-for-weakness") {
-          const tokenDoc = token?.document ?? token;
-          await tokenDoc.unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
-          await tokenDoc.unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+          await clearScanForWeaknessStatesFromTarget(token);
+        } else {
+          await removeCondition(token, key);
         }
         this._refresh();
       }));
@@ -11197,6 +11349,18 @@ export class CombatHUD {
     return source === "player" ? null : "alliedNpcMomentum";
   }
 
+  static regenShieldSpendPool(actor) {
+    const hostileNpcShip = CombatHUD.isNpcShip(actor) && !CombatHUD.isAlliedNpcActor(actor);
+    if (hostileNpcShip) return "threat";
+    return CombatHUD.alliedNpcMomentumPool(actor) ?? "momentum";
+  }
+
+  static poolDisplayName(pool) {
+    if (pool === "threat") return "Threat";
+    if (pool === "alliedNpcMomentum") return "Allied Momentum";
+    return "Momentum";
+  }
+
   /**
    * Returns true when the actor is a ground-combat NPC (not a PC or supporting character).
    * PCs (STACharacterSheet2e) and supporting characters (STASupportingSheet2e) generate
@@ -11561,6 +11725,453 @@ export class CombatHUD {
     }
   }
 
+  static _engineeringRating(actor, fallback = 0) {
+    return actor?.system?.departments?.engineering?.value
+      ?? actor?.system?.departments?.engineering
+      ?? fallback;
+  }
+
+  static _enginesRating(actor, fallback = 0) {
+    return actor?.system?.systems?.engines?.value
+      ?? actor?.system?.systems?.engines
+      ?? fallback;
+  }
+
+  static _reactorShipToken(actor, token = null) {
+    if (token) return token;
+    const td = CombatHUD._tokenDocFor(actor);
+    if (!td) return null;
+    return canvas.tokens?.get(td.id) ?? canvas.tokens?.placeables.find(t => t.document?.id === td.id) ?? null;
+  }
+
+  static _activeEjectedCoreForSource(sourceTokenId) {
+    if (!sourceTokenId) return null;
+    return canvas.tokens?.placeables.find(t => {
+      const data = t.document?.getFlag(MODULE, "ejectedWarpCore");
+      return data?.active === true && data.sourceShipTokenId === sourceTokenId;
+    }) ?? null;
+  }
+
+  static _ejectedCorePlacement(shipToken, sourceDoc, coreGridSize = 0.25) {
+    const gridSize = canvas.grid?.size ?? 100;
+    const srcX = sourceDoc?.x ?? shipToken?.x ?? 0;
+    const srcY = sourceDoc?.y ?? shipToken?.y ?? 0;
+    const shipW = (sourceDoc?.width ?? shipToken?.document?.width ?? 1) * gridSize;
+    const shipH = (sourceDoc?.height ?? shipToken?.document?.height ?? 1) * gridSize;
+    const corePx = coreGridSize * gridSize;
+    const shipCenter = { x: srcX + shipW / 2, y: srcY + shipH / 2 };
+    const zones = getSceneZones();
+    const occupiedZones = shipToken ? getZonesForToken(shipToken, zones) : [];
+    const centerZone = getZoneAtPoint(shipCenter.x, shipCenter.y, zones);
+    const sourceZone = centerZone ?? occupiedZones[0] ?? null;
+    const gap = Math.max(shipW, shipH) * 0.1;
+    const baseDistance = Math.max(shipW, shipH) / 2 + corePx / 2;
+    const distances = [baseDistance + gap, baseDistance + Math.max(2, gap * 0.5), baseDistance + 2];
+    const centerToTopLeft = center => ({
+      x: center.x - corePx / 2,
+      y: center.y - corePx / 2,
+      zoneId: sourceZone?.id ?? null,
+    });
+    const sameZone = center => {
+      if (!sourceZone) return true;
+      return getZoneAtPoint(center.x, center.y, zones)?.id === sourceZone.id;
+    };
+    const directions = [
+      { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
+      { x: 0.707, y: 0.707 }, { x: -0.707, y: 0.707 },
+      { x: 0.707, y: -0.707 }, { x: -0.707, y: -0.707 },
+    ];
+    if (sourceZone?.vertices?.length) {
+      const avg = sourceZone.vertices.reduce((sum, v) => ({ x: sum.x + v.x, y: sum.y + v.y }), { x: 0, y: 0 });
+      const centroid = { x: avg.x / sourceZone.vertices.length, y: avg.y / sourceZone.vertices.length };
+      const dx = centroid.x - shipCenter.x;
+      const dy = centroid.y - shipCenter.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0) directions.unshift({ x: dx / len, y: dy / len });
+    }
+    for (const distance of distances) {
+      for (const dir of directions) {
+        const center = {
+          x: shipCenter.x + dir.x * distance,
+          y: shipCenter.y + dir.y * distance,
+        };
+        if (sameZone(center)) return centerToTopLeft(center);
+      }
+    }
+    return centerToTopLeft({
+      x: srcX + shipW + corePx / 2 + gap,
+      y: shipCenter.y,
+    });
+  }
+
+  static async postReactorTask(actor, token, kind) {
+    if (!game.user.isGM) {
+      ui.notifications.warn("STA2e Toolkit: Only the GM can post reactor tasks.");
+      return null;
+    }
+    if (!["stabilize", "eject"].includes(kind)) return null;
+    if (!CombatHUD._requiresPlayerOfficer(actor, "operations", "Ops/Eng")) return null;
+
+    const shipToken = CombatHUD._reactorShipToken(actor, token);
+    const opsActor = getStationOfficers(actor, "operations")[0] ?? null;
+    const isNpc = CombatHUD.isNpcShip(actor);
+    const stationCrew = isNpc && !opsActor;
+    const taskActor = opsActor ?? (stationCrew ? actor : null);
+    if (!taskActor) {
+      ui.notifications.warn(`${actor.name}: No Ops/Eng officer assigned.`);
+      return null;
+    }
+
+    const enginesRating = CombatHUD._enginesRating(actor, 0);
+    const engineeringRating = CombatHUD._engineeringRating(actor, 0);
+    const scale = actor.system?.scale ?? 0;
+    const crewQuality = stationCrew ? CombatHUD.getCrewQuality(actor) : null;
+    const taskActorToken = stationCrew
+      ? shipToken
+      : (taskActor.getActiveTokens?.(true)?.[0] ?? canvas.tokens?.placeables.find(t => t.actor?.id === taskActor.id) ?? null);
+    const reactorAction = {
+      kind,
+      stationId: "operations",
+      stationCrew,
+      crewQuality,
+      shipActorId: actor.id,
+      shipTokenId: shipToken?.id ?? shipToken?.document?.id ?? null,
+      shipName: actor.name,
+      engineeringRating,
+      enginesRating,
+      scale,
+    };
+
+    const snapshot = kind === "stabilize"
+      ? {
+        mode: "extended",
+        taskName: "Stabilize the Reactor",
+        flavor: `${actor.name} - Ops/Eng reactor stabilization. Common approaches: Control or Daring + Engineering.`,
+        actorId: taskActor.id,
+        tokenId: taskActorToken?.id ?? null,
+        attrKey: "control",
+        discKey: "engineering",
+        difficulty: 3,
+        complicationRange: 1,
+        shipAssist: false,
+        noShipAssist: true,
+        ignoreBreachPenalty: true,
+        stationId: "operations",
+        crewQuality,
+        reactorAction,
+        extendedTask: {
+          name: `${actor.name} - Stabilize the Reactor`,
+          workMax: Math.max(1, Number(enginesRating) || 1),
+          difficulty: 3,
+          resistance: 0,
+          magnitude: 1,
+          breakthroughMax: 1,
+          breakpoints: [{ threshold: Math.max(1, Number(enginesRating) || 1), difficultyDelta: 0, resistanceDelta: 0, nextImpactBonus: 0, note: "Reactor stabilized" }],
+          intervals: {},
+          reactorAction,
+        },
+      }
+      : {
+        mode: "task",
+        taskName: "Eject the Reactor",
+        flavor: `${actor.name} - Ops/Eng reactor ejection. Success ejects the core; it may still detonate at Close range.`,
+        actorId: taskActor.id,
+        tokenId: taskActorToken?.id ?? null,
+        attrKey: "daring",
+        discKey: "engineering",
+        difficulty: 2,
+        complicationRange: 1,
+        shipAssist: false,
+        noShipAssist: true,
+        ignoreBreachPenalty: true,
+        stationId: "operations",
+        crewQuality,
+        reactorAction,
+      };
+
+    return postTaskRequestCard(snapshot);
+  }
+
+  static async resolveReactorAction({ reactorAction = null, result = {}, resolution = {} } = {}) {
+    if (!game.user.isGM || !reactorAction?.kind) return false;
+    const shipToken = reactorAction.shipTokenId ? canvas.tokens?.get(reactorAction.shipTokenId) : null;
+    const shipActor = shipToken?.actor ?? (reactorAction.shipActorId ? game.actors.get(reactorAction.shipActorId) : null);
+    if (!shipActor) {
+      ui.notifications.warn("STA2e Toolkit: Reactor action ship not found.");
+      return false;
+    }
+
+    if (reactorAction.kind === "stabilize") {
+      if (!CombatHUD.getWarpBreachState(shipActor)) return true;
+      await CombatHUD.setWarpBreachState(shipActor, false);
+      ChatMessage.create({
+        content: lcarsCard("✅ REACTOR STABILIZED", LC.green, `
+          <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
+            margin-bottom:4px;font-family:${LC.font};">${reactorAction.shipName ?? shipActor.name}</div>
+          <div style="font-size:11px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
+            The warp core containment failure has been stabilized.
+            ${resolution?.workValue != null ? `<br>Extended Task Progress: <strong>${resolution.workValue}/${resolution.workMax}</strong>` : ""}
+          </div>`),
+        speaker: { alias: "STA2e Toolkit" },
+      });
+      game.sta2eToolkit?.combatHud?.refresh?.();
+      return true;
+    }
+
+    if (reactorAction.kind === "eject") {
+      const td = shipToken?.document ?? CombatHUD._tokenDocFor(shipActor);
+      if (CombatHUD._activeEjectedCoreForSource(td?.id ?? reactorAction.shipTokenId ?? null)) return true;
+      if (td) await td.setFlag(MODULE, "reactorEjected", true).catch(() => {});
+      await CombatHUD.setWarpBreachState(shipActor, false);
+      try {
+        await CombatHUD._spawnEjectedWarpCore(shipActor, shipToken, reactorAction);
+      } catch (err) {
+        if (td) await td.unsetFlag(MODULE, "reactorEjected").catch(() => {});
+        console.error("STA2e Toolkit | Warp core ejection spawn failed:", err);
+        ui.notifications.error("STA2e Toolkit: Could not spawn the ejected warp core. See console.");
+        return false;
+      }
+      game.sta2eToolkit?.combatHud?.refresh?.();
+      return true;
+    }
+    return false;
+  }
+
+  static async _spawnEjectedWarpCore(shipActor, shipToken, reactorAction) {
+    const sourceDoc = shipToken?.document ?? CombatHUD._tokenDocFor(shipActor);
+    const coreName = `${reactorAction.shipName ?? shipActor.name}'s Warp Core`;
+    const actorData = {
+      name: coreName,
+      type: "smallcraft",
+      img: "modules/sta2e-toolkit/assets/warp-core.svg",
+      system: {
+        departmentorder: ["command", "conn", "security", "engineering", "science", "medicine"],
+        departmentorder2e: ["command", "conn", "engineering", "security", "medicine", "science"],
+        departments: {
+          command:     { label: "sta.actor.starship.department.command",     value: 0, selected: true },
+          conn:        { label: "sta.actor.starship.department.conn",        value: 0, selected: false },
+          engineering: { label: "sta.actor.starship.department.engineering", value: 0, selected: false },
+          medicine:    { label: "sta.actor.starship.department.medicine",    value: 0, selected: false },
+          science:     { label: "sta.actor.starship.department.science",     value: 0, selected: false },
+          security:    { label: "sta.actor.starship.department.security",    value: 0, selected: false },
+        },
+        systems: {
+          communications: { label: "sta.actor.starship.system.communications", value: 7, selected: true,  breaches: 0 },
+          computers:      { label: "sta.actor.starship.system.computers",      value: 7, selected: false, breaches: 0 },
+          engines:        { label: "sta.actor.starship.system.engines",        value: 7, selected: false, breaches: 0 },
+          sensors:        { label: "sta.actor.starship.system.sensors",        value: 7, selected: false, breaches: 0 },
+          structure:      { label: "sta.actor.starship.system.structure",      value: 7, selected: false, breaches: 0 },
+          weapons:        { label: "sta.actor.starship.system.weapons",        value: 7, selected: false, breaches: 0 },
+        },
+        power: { value: 0, max: 0 },
+        shields: { value: 0, max: 8 },
+        refit: "",
+        missionprofile: "",
+        parentShip: "",
+        resistance: 1,
+        scale: 1,
+        reservepower: true,
+        shaken: false,
+        shieldmod: 0,
+        spaceframe: "",
+        servicedate: "",
+        designation: "",
+        notes: "",
+        traits: "",
+      },
+      ownership: { default: 0 },
+      flags: {
+        [MODULE]: {
+          ejectedWarpCoreActor: true,
+          sourceShipActorId: reactorAction.shipActorId ?? shipActor.id,
+          sourceShipTokenId: reactorAction.shipTokenId ?? sourceDoc?.id ?? null,
+        },
+      },
+      prototypeToken: {
+        name: coreName,
+        displayName: 30,
+        actorLink: false,
+        width: 0.25,
+        height: 0.25,
+        depth: 0.25,
+        texture: {
+          src: "modules/sta2e-toolkit/assets/warp-core.svg",
+          anchorX: 0.5,
+          anchorY: 0.5,
+          fit: "contain",
+          scaleX: 1,
+          scaleY: 1,
+          tint: "#ffffff",
+          alphaThreshold: 0.75,
+        },
+        lockRotation: false,
+        rotation: 0,
+        alpha: 1,
+        disposition: 0,
+        displayBars: 0,
+        bar1: { attribute: null },
+        bar2: { attribute: null },
+        light: {
+          negative: false,
+          priority: 0,
+          alpha: 0.5,
+          angle: 360,
+          bright: 0,
+          color: null,
+          coloration: 1,
+          dim: 0,
+          attenuation: 0.5,
+          luminosity: 0.5,
+          saturation: 0,
+          contrast: 0,
+          shadows: 0,
+          animation: { type: null, speed: 5, intensity: 5, reverse: false },
+          darkness: { min: 0, max: 1 },
+        },
+        sight: {
+          enabled: false,
+          range: 0,
+          angle: 360,
+          visionMode: "basic",
+          color: null,
+          attenuation: 0.1,
+          brightness: 0,
+          saturation: 0,
+          contrast: 0,
+        },
+        detectionModes: {},
+        occludable: { radius: 0 },
+        ring: {
+          enabled: false,
+          colors: { ring: null, background: null },
+          effects: 0,
+          subject: { scale: 1, texture: null },
+        },
+        turnMarker: {
+          mode: 1,
+          animation: null,
+          src: null,
+          disposition: false,
+        },
+        movementAction: null,
+        flags: {
+          "monks-tokenbar": { include: "default" },
+          [MODULE]: {
+            multiZone: false,
+            disableWeaponAutoRotate: false,
+          },
+        },
+        randomImg: false,
+        appendNumber: false,
+        prependAdjective: false,
+      },
+    };
+    const actor = await Actor.create(actorData, { renderSheet: false });
+    if (!actor) throw new Error("Warp core actor creation returned no document.");
+
+    const placement = CombatHUD._ejectedCorePlacement(shipToken, sourceDoc, 0.25);
+    const flagData = {
+      active: true,
+      sourceShipActorId: reactorAction.shipActorId ?? shipActor.id,
+      sourceShipTokenId: reactorAction.shipTokenId ?? sourceDoc?.id ?? null,
+      sourceShipName: reactorAction.shipName ?? shipActor.name,
+      sourceZoneId: placement.zoneId ?? null,
+      engineeringRating: reactorAction.engineeringRating ?? CombatHUD._engineeringRating(shipActor, 0),
+      scale: reactorAction.scale ?? shipActor.system?.scale ?? 0,
+      damage: (reactorAction.scale ?? shipActor.system?.scale ?? 0) + 1,
+      tempActorId: actor.id,
+    };
+    const tokenData = foundry.utils.mergeObject(actor.prototypeToken.toObject(), {
+      name: coreName,
+      actorId: actor.id,
+      actorLink: false,
+      x: placement.x,
+      y: placement.y,
+      width: 0.25,
+      height: 0.25,
+      texture: { src: "modules/sta2e-toolkit/assets/warp-core.svg" },
+      flags: { [MODULE]: { ejectedWarpCore: flagData } },
+    });
+    const [created] = await canvas.scene.createEmbeddedDocuments("Token", [tokenData]);
+    ChatMessage.create({
+      content: lcarsCard("☢ REACTOR EJECTED", LC.orange, `
+        <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
+          margin-bottom:4px;font-family:${LC.font};">${reactorAction.shipName ?? shipActor.name}</div>
+        <div style="font-size:11px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
+          The warp core has been ejected. Continue breach checks for
+          <strong>${coreName}</strong>; if it detonates, all ships within Close range
+          suffer <strong>${flagData.damage} damage with Piercing</strong>.
+        </div>`),
+      speaker: { alias: "STA2e Toolkit" },
+    });
+    return created;
+  }
+
+  static async rollEjectedCoreCheck(token) {
+    if (!game.user.isGM || !token?.document) return "safe";
+    const data = token.document.getFlag(MODULE, "ejectedWarpCore");
+    if (!data?.active) return "safe";
+    const engineeringRating = data.engineeringRating ?? 0;
+    const roll = Math.ceil(Math.random() * 20);
+    const explodes = roll > engineeringRating;
+
+    if (!explodes) {
+      ChatMessage.create({
+        content: lcarsCard("☢ EJECTED CORE — CONTAINED", LC.yellow, `
+          <div style="font-size:12px;font-weight:700;color:${LC.textBright};
+            font-family:${LC.font};margin-bottom:4px;">${token.name}</div>
+          <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
+            Breach roll: <strong style="font-size:16px;color:${LC.green};">${roll}</strong>
+            vs Engineering ${engineeringRating} — <strong style="color:${LC.green};">CONTAINED</strong>
+          </div>
+          <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};margin-top:3px;">
+            The ejected core is still unstable. Roll again next round.
+          </div>`),
+        speaker: { alias: "STA2e Toolkit" },
+      });
+      return "safe";
+    }
+
+    await token.document.setFlag(MODULE, "ejectedWarpCore", { ...data, active: false }).catch(() => {});
+    ChatMessage.create({
+      content: lcarsCard("💥 EJECTED WARP CORE DETONATION", LC.red, `
+        <div style="font-size:16px;font-weight:700;color:${LC.red};
+          font-family:${LC.font};margin-bottom:6px;letter-spacing:0.08em;">
+          ${token.name.toUpperCase()}
+        </div>
+        <div style="font-size:11px;color:${LC.textBright};font-family:${LC.font};margin-bottom:6px;">
+          Breach roll: <strong style="font-size:16px;color:${LC.red};">${roll}</strong>
+          vs Engineering ${engineeringRating} — <strong style="color:${LC.red};">DETONATION</strong>
+        </div>
+        <div style="font-size:10px;color:${LC.orange};font-family:${LC.font};">
+          The ejected core explodes. All ships within Close range, including
+          <strong>${data.sourceShipName ?? "the ship that ejected it"}</strong> if within range,
+          suffer <strong>${data.damage ?? ((data.scale ?? 0) + 1)} damage with Piercing</strong>.
+          Same-zone damage is applied automatically when ships are found.
+        </div>`),
+      speaker: { alias: "STA2e Toolkit" },
+    });
+    const actor = data.tempActorId ? game.actors.get(data.tempActorId) : token.actor;
+    const sourceToken = data.sourceShipTokenId ? canvas.tokens?.get(data.sourceShipTokenId) : null;
+    await CombatHUD._applyWarpCoreBlastDamage(token, {
+      sourceTokenId: data.sourceShipTokenId ?? null,
+      sourceActorId: data.sourceShipActorId ?? null,
+      sourceName: data.sourceShipName ?? null,
+      scale: data.scale ?? 0,
+      damage: data.damage ?? ((data.scale ?? 0) + 1),
+      excludeSource: false,
+      sourceSurvivesCriticalBreach: true,
+      label: "Ejected Warp Core Detonation",
+    });
+    await CombatHUD.fireDestructionEffect(token);
+    await sourceToken?.document?.unsetFlag(MODULE, "reactorEjected").catch(() => {});
+    if (canvas.tokens?.get(token.id)) await token.document.delete().catch(() => {});
+    if (actor?.getFlag?.(MODULE, "ejectedWarpCoreActor")) {
+      await actor.delete().catch(() => {});
+    }
+    return "exploded";
+  }
+
   // ── Persistent warp core breach smoke trail ────────────────────────────────
   // Uses Sequencer .persist() + .attachTo() so the effect follows the token
   // as it moves. Named with the token id so it can be stopped precisely.
@@ -11650,10 +12261,12 @@ export class CombatHUD {
   static async rollBreachCheck(actor, token) {
     if (!CombatHUD.getWarpBreachState(actor)) return "safe";
 
-    const engRating = actor.system?.systems?.engines?.value ?? 0;
-    const scale     = actor.system?.scale ?? 0;
-    const roll      = Math.ceil(Math.random() * 20);
-    const explodes  = roll > engRating;
+    const engineeringRating = actor.system?.departments?.engineering?.value
+      ?? actor.system?.departments?.engineering
+      ?? 0;
+    const scale             = actor.system?.scale ?? 0;
+    const roll              = Math.ceil(Math.random() * 20);
+    const explodes          = roll > engineeringRating;
 
     if (explodes) {
       // ── BREACH — reactor detonation → death-throes destruction sequence ──
@@ -11667,14 +12280,15 @@ export class CombatHUD {
           </div>
           <div style="font-size:11px;color:${LC.textBright};font-family:${LC.font};margin-bottom:6px;">
             Breach roll: <strong style="font-size:16px;color:${LC.red};">${roll}</strong>
-            vs Engineering ${engRating} — <strong style="color:${LC.red};">BREACH</strong>
+            vs Engineering ${engineeringRating} — <strong style="color:${LC.red};">BREACH</strong>
           </div>
           <div style="font-size:10px;color:${LC.text};font-family:${LC.font};margin-bottom:4px;">
             The reactor explodes. <strong>All crew aboard are killed.</strong>
           </div>
           <div style="font-size:10px;color:${LC.orange};font-family:${LC.font};">
             All ships within Close range suffer
-            <strong>${scale + 1} damage with Piercing</strong>.
+            <strong>${scale + 1} damage with Piercing</strong>;
+            same-zone damage is applied automatically when ships are found.
           </div>
         `),
         speaker: { alias: "STA2e Toolkit" },
@@ -11686,6 +12300,15 @@ export class CombatHUD {
         vaporize:   true,
         reason:     `Warp core breach — reactor detonation. ${actor.name} is destroyed.`,
         autoThroes: true,
+        warpCoreBlast: {
+          sourceActorId: actor.id,
+          sourceTokenId: token?.id ?? null,
+          sourceName: actor.name,
+          scale,
+          damage: scale + 1,
+          excludeSource: true,
+          label: "Warp Core Breach Detonation",
+        },
       };
       if (!CombatHUD._startAutoShipDestructionIfEnabled(actor, token, opts)) {
         await CombatHUD._postDestructionControlCard(actor, token, opts);
@@ -11699,7 +12322,7 @@ export class CombatHUD {
             font-family:${LC.font};margin-bottom:4px;">${actor.name}</div>
           <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
             Breach roll: <strong style="font-size:16px;color:${LC.green};">${roll}</strong>
-            vs Engineering ${engRating} — <strong style="color:${LC.green};">CONTAINED</strong>
+            vs Engineering ${engineeringRating} — <strong style="color:${LC.green};">CONTAINED</strong>
           </div>
           <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};margin-top:3px;">
             Reactor holding — for now. Roll again next round.
@@ -12683,7 +13306,7 @@ export class CombatHUD {
   // Called ONCE per attack after all its breaches are applied.
   // High Yield's two breaches are one attack; Devastating Attack is a separate one.
 
-  static async _resolveAttackOutcome(actor, token, totalBreaches) {
+  static async _resolveAttackOutcome(actor, token, totalBreaches, { suppressCriticalDestruction = false } = {}) {
     const scale         = actor.system?.scale ?? 1;
     const currentStatus = CombatHUD.getShipStatus(actor);
     const isNpc         = CombatHUD.isNpcShip(actor);
@@ -12707,6 +13330,8 @@ export class CombatHUD {
       await CombatHUD._postAbandonShipCard(actor, token);
 
     } else if (currentStatus === "disabled") {
+      if (suppressCriticalDestruction) return;
+
       // Ship was already critical — this attack would destroy it. Hand off to the
       // GM-gated death-throes sequence rather than killing it instantly.
       const vaporize = CombatHUD._isEnginesDestroyed(actor)
@@ -12803,8 +13428,9 @@ export class CombatHUD {
    * @param {boolean} opts.vaporize   Apply the vaporize TMFX before the final explosion.
    * @param {string}  opts.reason     Shown on the card / final destruction message.
    * @param {boolean} opts.autoThroes Skip the confirm step and go straight to death throes.
+   * @param {object}  opts.warpCoreBlast Optional same-zone warp-core blast payload.
    */
-  static async _postDestructionControlCard(actor, token, { vaporize = false, reason = "", autoThroes = false } = {}) {
+  static async _postDestructionControlCard(actor, token, { vaporize = false, reason = "", autoThroes = false, warpCoreBlast = null } = {}) {
     const tokenId = token?.id ?? CombatHUD._tokenDocFor(actor)?.id ?? null;
     const data = {
       actorId:  actor.id,
@@ -12812,6 +13438,7 @@ export class CombatHUD {
       vaporize: !!vaporize,
       reason,
       shipName: actor.name,
+      warpCoreBlast,
     };
     const stage = autoThroes ? "throes" : "confirm";
     const gmIds = game.users.filter(u => u.isGM).map(u => u.id);
@@ -12898,7 +13525,7 @@ export class CombatHUD {
     return true;
   }
 
-  static async _startAutoShipDestruction(actor, token, { vaporize = false, reason = "" } = {}) {
+  static async _startAutoShipDestruction(actor, token, { vaporize = false, reason = "", warpCoreBlast = null } = {}) {
     const destroyToken = token
       ?? canvas.tokens?.placeables.find(t => t.actor === actor || t.document?.actorId === actor.id)
       ?? null;
@@ -12917,6 +13544,7 @@ export class CombatHUD {
         vaporize: !!vaporize,
         reason,
         shipName: actor.name,
+        warpCoreBlast,
       }, { postChat: false });
     } finally {
       if (key) map.delete(key);
@@ -13106,6 +13734,15 @@ export class CombatHUD {
     if (token) {
       await CombatHUD._clearHullDecalsForDestruction(token);
       if (vaporize) await CombatHUD._applyVaporizeFX(token, "orange", 1000);
+      if (data.warpCoreBlast) {
+        await CombatHUD._applyWarpCoreBlastDamage(token, {
+          ...data.warpCoreBlast,
+          sourceTokenId: data.warpCoreBlast.sourceTokenId ?? token.id,
+          sourceActorId: data.warpCoreBlast.sourceActorId ?? actor?.id ?? actorId ?? null,
+          sourceName: data.warpCoreBlast.sourceName ?? actor?.name ?? data.shipName ?? null,
+          excludeSource: data.warpCoreBlast.excludeSource !== false,
+        });
+      }
       await CombatHUD.fireDestructionEffect(token);
     }
   }
@@ -13269,7 +13906,10 @@ export class CombatHUD {
 
       if (shipIsCritical && engDestroyed && !alreadyFlagged && shipNotDestroyed) {
         await CombatHUD.setWarpBreachState(actor, true);
-        const engRating = actor.system?.systems?.engines?.value ?? "?";
+        const enginesRating     = actor.system?.systems?.engines?.value ?? "?";
+        const engineeringRating = actor.system?.departments?.engineering?.value
+          ?? actor.system?.departments?.engineering
+          ?? "?";
         ChatMessage.create({
           content: lcarsCard("☢ WARP CORE BREACH IMMINENT", LC.red, `
             <div style="font-size:13px;font-weight:700;color:${LC.red};
@@ -13279,7 +13919,7 @@ export class CombatHUD {
             <div style="font-size:10px;color:${LC.text};font-family:${LC.font};margin-bottom:6px;">
               Engines destroyed at critical damage — the reactor has lost containment.<br>
               At the start of each new round, roll a d20. If the result exceeds the ship's
-              Engineering rating <strong>(${engRating})</strong>, the reactor explodes.
+              Engineering department <strong>(${engineeringRating})</strong>, the reactor explodes.
             </div>
             <div style="font-size:10px;color:${LC.text};font-family:${LC.font};margin-bottom:4px;">
               <strong>Explosion:</strong> Destroys the ship, kills all aboard, inflicts
@@ -13287,7 +13927,7 @@ export class CombatHUD {
               to all ships within Close range.
             </div>
             <div style="font-size:9px;color:${LC.yellow};font-family:${LC.font};margin-top:4px;">
-              ▶ Stabilize the Reactor — Extended Task (Progress: Engines ${engRating}, Difficulty 3, Daring/Control + Engineering)<br>
+              ▶ Stabilize the Reactor — Extended Task (Progress: Engines ${enginesRating}, Difficulty 3, Daring/Control + Engineering)<br>
               ▶ Eject the Reactor — Task (Difficulty 2, Daring + Engineering)
             </div>
           `),
@@ -13376,6 +14016,7 @@ export class CombatHUD {
 
   static async applyDamage(payload) {
     const { tokenId, actorId, finalDamage, highYield, _isDevastating, targetingSystem, noDevastating } = payload;
+    const suppressCriticalDestruction = payload.suppressCriticalDestruction === true;
 
     const token = canvas.tokens.get(tokenId);
     const actor = token?.actor ?? game.actors.get(actorId);
@@ -13488,6 +14129,7 @@ export class CombatHUD {
     // High Yield adds one extra breach to the SAME system as the first breach only.
     const breachSystems    = [];
     let finalTotalBreaches = 0;
+    let criticalDestructionSuppressed = false;
     if (breachCount > 0) {
       for (let bIdx = 0; bIdx < breachCount; bIdx++) {
         const sys = (bIdx === 0 && targetingSystem) ? targetingSystem : CombatHUD.rollSystemHit();
@@ -13507,7 +14149,8 @@ export class CombatHUD {
       // Critical damage and ship destruction are per-attack, not per-breach.
       const willDestroyTarget = finalTotalBreaches > (actor.system?.scale ?? 1)
         && CombatHUD.getShipStatus(actor) === "disabled";
-      if (willDestroyTarget) {
+      criticalDestructionSuppressed = willDestroyTarget && suppressCriticalDestruction;
+      if (willDestroyTarget && !criticalDestructionSuppressed) {
         await CombatHUD._playShipAttackAnimation({
           ...payload,
           hitLocationSystem: breachSystems[0] ?? targetingSystem ?? null,
@@ -13516,7 +14159,7 @@ export class CombatHUD {
         });
         shipAttackAnimationPlayed = true;
       }
-      await CombatHUD._resolveAttackOutcome(actor, token, finalTotalBreaches);
+      await CombatHUD._resolveAttackOutcome(actor, token, finalTotalBreaches, { suppressCriticalDestruction: criticalDestructionSuppressed });
     }
 
     // ── Build result chat card ─────────────────────────────────────────────────
@@ -13616,6 +14259,12 @@ export class CombatHUD {
       <div style="margin-top:5px;padding:3px 6px;border-left:3px solid ${LC.primary};
         font-size:10px;color:${LC.primary};letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};">
         PERSISTENT DAMAGE - ${payload.weaponName ?? "Weapon"}
+      </div>` : "";
+
+    const criticalSurvivalHtml = criticalDestructionSuppressed ? `
+      <div style="margin-top:5px;padding:3px 6px;border-left:3px solid ${LC.orange};
+        font-size:10px;color:${LC.orange};letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};">
+        EJECTED CORE EXCEPTION - ${payload.suppressCriticalDestructionReason ?? "The source ship takes this damage and breach but is not destroyed by this critical hit."}
       </div>` : "";
 
     let opposedResultHtml = "";
@@ -13759,6 +14408,7 @@ export class CombatHUD {
         ${dampeningHtml}
         ${persistentHtml}
         ${persistentTickHtml}
+        ${criticalSurvivalHtml}
         ${opposedResultHtml}
         ${devastatingBtn}
         ${areaBtn}
@@ -15189,6 +15839,128 @@ function scanForWeaknessStateFromTokens(sourceToken, targetToken, sourceName, op
   });
 }
 
+const SCAN_FOR_WEAKNESS_MULTI_FLAG = "scanForWeaknessPendingBySource";
+
+function scanForWeaknessStateIsMeaningful(raw) {
+  return !!raw && typeof raw === "object" && (
+    raw.sourceTokenId || raw.sourceActorId || raw.targetTokenId || raw.targetActorId || raw.sourceName
+  );
+}
+
+function scanForWeaknessStateKey(rawState) {
+  const state = normalizeScanForWeaknessState(rawState);
+  return String(state.sourceTokenId ?? state.sourceActorId ?? state.sourceName ?? "unknown");
+}
+
+function normalizeScanForWeaknessStateList(raw) {
+  if (!raw || typeof raw !== "object") return [];
+  const candidates = Array.isArray(raw)
+    ? raw
+    : scanForWeaknessStateIsMeaningful(raw)
+      ? [raw]
+      : Object.values(raw);
+  return candidates
+    .filter(scanForWeaknessStateIsMeaningful)
+    .map(state => normalizeScanForWeaknessState(state));
+}
+
+function scanForWeaknessCollectionObject(states) {
+  return Object.fromEntries(
+    states
+      .filter(state => !state.consumed)
+      .map(state => [scanForWeaknessStateKey(state), normalizeScanForWeaknessState(state)])
+  );
+}
+
+function getScanForWeaknessStatesFromTarget(targetToken) {
+  const tokenDoc = doc(targetToken);
+  if (!tokenDoc) return [];
+  const targetId = tokenDoc.id ?? targetToken?.id ?? null;
+  const bySource = new Map();
+  const addState = (raw) => {
+    if (!scanForWeaknessStateIsMeaningful(raw)) return;
+    const state = normalizeScanForWeaknessState(raw);
+    if (state.consumed) return;
+    if (targetId && state.targetTokenId && state.targetTokenId !== targetId) return;
+    bySource.set(scanForWeaknessStateKey(state), state);
+  };
+
+  for (const state of normalizeScanForWeaknessStateList(tokenDoc.getFlag(MODULE, SCAN_FOR_WEAKNESS_MULTI_FLAG))) {
+    addState(state);
+  }
+
+  const legacyPending = tokenDoc.getFlag(MODULE, "scanForWeaknessPending");
+  if (scanForWeaknessStateIsMeaningful(legacyPending)) {
+    addState({
+      ...legacyPending,
+      sourceTokenId: legacyPending.sourceTokenId ?? tokenDoc.getFlag(MODULE, "scanForWeaknessSourceId") ?? null,
+      sourceName: legacyPending.sourceName ?? tokenDoc.getFlag(MODULE, "scanForWeaknessSource") ?? "Unknown",
+    });
+  }
+
+  return Array.from(bySource.values());
+}
+
+function getScanForWeaknessStateForAttacker(targetToken, attackerTokenId) {
+  const states = getScanForWeaknessStatesFromTarget(targetToken);
+  if (attackerTokenId) {
+    const match = states.find(state => state.sourceTokenId === attackerTokenId);
+    if (match) return match;
+  }
+  return states.find(state => !state.sourceTokenId) ?? null;
+}
+
+function getScanForWeaknessStateForMessage(targetToken, rawState) {
+  const state = normalizeScanForWeaknessState(rawState);
+  const key = scanForWeaknessStateKey(state);
+  return getScanForWeaknessStatesFromTarget(targetToken)
+    .find(candidate => scanForWeaknessStateKey(candidate) === key) ?? null;
+}
+
+async function syncScanForWeaknessTargetFlags(targetToken, states) {
+  const tokenDoc = doc(targetToken);
+  if (!tokenDoc) return false;
+  const active = states
+    .map(state => normalizeScanForWeaknessState(state))
+    .filter(state => !state.consumed);
+
+  if (active.length === 0) {
+    await removeCondition(targetToken, "scan-for-weakness");
+    await tokenDoc.unsetFlag(MODULE, SCAN_FOR_WEAKNESS_MULTI_FLAG).catch(() => {});
+    await tokenDoc.unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
+    await tokenDoc.unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+    await tokenDoc.unsetFlag(MODULE, "scanForWeaknessPending").catch(() => {});
+    return true;
+  }
+
+  await addCondition(targetToken, "scan-for-weakness");
+  await tokenDoc.setFlag(MODULE, SCAN_FOR_WEAKNESS_MULTI_FLAG, scanForWeaknessCollectionObject(active));
+
+  const names = Array.from(new Set(active.map(state => state.sourceName).filter(Boolean)));
+  const summary = names.length <= 2 ? names.join(", ") : `${names[0]} + ${names.length - 1} more`;
+  await tokenDoc.setFlag(MODULE, "scanForWeaknessSource", summary || "Unknown");
+  if (active.length === 1) {
+    if (active[0].sourceTokenId) await tokenDoc.setFlag(MODULE, "scanForWeaknessSourceId", active[0].sourceTokenId);
+    else await tokenDoc.unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+    await tokenDoc.setFlag(MODULE, "scanForWeaknessPending", active[0]);
+  } else {
+    await tokenDoc.unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
+    await tokenDoc.unsetFlag(MODULE, "scanForWeaknessPending").catch(() => {});
+  }
+  return true;
+}
+
+async function removeScanForWeaknessStateFromTarget(targetToken, rawState) {
+  const key = scanForWeaknessStateKey(rawState);
+  const states = getScanForWeaknessStatesFromTarget(targetToken)
+    .filter(state => scanForWeaknessStateKey(state) !== key);
+  return syncScanForWeaknessTargetFlags(targetToken, states);
+}
+
+async function clearScanForWeaknessStatesFromTarget(targetToken) {
+  return syncScanForWeaknessTargetFlags(targetToken, []);
+}
+
 function scanForWeaknessEffectLabel(state) {
   if (state.effect === "both") return `+${state.damageBonus} Damage + Piercing ${state.piercingPercent}%`;
   if (state.effect === "piercing") return `Piercing ${state.piercingPercent}%`;
@@ -15283,20 +16055,19 @@ function scanForWeaknessCardHtml(rawState) {
 async function writeScanForWeaknessStateToTarget(state) {
   const targetToken = getTokenById(state.targetTokenId);
   if (!targetToken) return false;
-  await addCondition(targetToken, "scan-for-weakness");
-  await doc(targetToken).setFlag(MODULE, "scanForWeaknessSource", state.sourceName);
-  await doc(targetToken).setFlag(MODULE, "scanForWeaknessSourceId", state.sourceTokenId);
-  await doc(targetToken).setFlag(MODULE, "scanForWeaknessPending", state);
-  return true;
+  const next = normalizeScanForWeaknessState(state);
+  const nextKey = scanForWeaknessStateKey(next);
+  const states = getScanForWeaknessStatesFromTarget(targetToken)
+    .filter(existing => scanForWeaknessStateKey(existing) !== nextKey);
+  states.push(next);
+  return syncScanForWeaknessTargetFlags(targetToken, states);
 }
 
 export async function updateScanForWeaknessCard(message, updates = {}, requesterUserId = game.userId) {
   if (!message) return false;
   const flagged = normalizeScanForWeaknessState(message.getFlag(MODULE, "scanForWeakness") ?? {});
   const targetToken = getTokenById(flagged.targetTokenId);
-  const tokenState = normalizeScanForWeaknessState(
-    targetToken ? (doc(targetToken).getFlag(MODULE, "scanForWeaknessPending") ?? flagged) : flagged
-  );
+  const tokenState = targetToken ? (getScanForWeaknessStateForMessage(targetToken, flagged) ?? flagged) : flagged;
   const current = normalizeScanForWeaknessState({ ...flagged, ...tokenState, messageId: message.id });
   const requester = game.users.get(requesterUserId);
   const requesterIsGM = !!requester?.isGM;
@@ -15322,10 +16093,7 @@ export async function updateScanForWeaknessCard(message, updates = {}, requester
       if (newTarget?.actor) {
         const oldTarget = getTokenById(next.targetTokenId);
         if (oldTarget && oldTarget.id !== newTarget.id) {
-          await removeCondition(oldTarget, "scan-for-weakness");
-          await doc(oldTarget).unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
-          await doc(oldTarget).unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
-          await doc(oldTarget).unsetFlag(MODULE, "scanForWeaknessPending").catch(() => {});
+          await removeScanForWeaknessStateFromTarget(oldTarget, next);
         }
         next.targetTokenId = newTarget.id;
         next.targetActorId = newTarget.actor.id;
@@ -15353,10 +16121,7 @@ async function consumeScanForWeaknessState(targetToken, rawState, { hit = false,
     consumedBy: attackerName,
     consumedOnHit: !!hit,
   });
-  await removeCondition(targetToken, "scan-for-weakness");
-  await doc(targetToken).unsetFlag(MODULE, "scanForWeaknessSource").catch(() => {});
-  await doc(targetToken).unsetFlag(MODULE, "scanForWeaknessSourceId").catch(() => {});
-  await doc(targetToken).unsetFlag(MODULE, "scanForWeaknessPending").catch(() => {});
+  await removeScanForWeaknessStateFromTarget(targetToken, state);
 
   const messages = game.messages?.contents ?? Array.from(game.messages ?? []);
   const related = messages.filter(m => {
@@ -16945,6 +17710,8 @@ export async function handleOfficerTaskResult(taskKey, shipActor, shipToken, off
     const maxShield  = shipActor.system?.shields?.max ?? 0;
     const rawEngDisc = officerActor?.system?.disciplines?.engineering;
     const engDept    = rawEngDisc?.value ?? rawEngDisc ?? 2;
+    const spendPool  = CombatHUD.regenShieldSpendPool(shipActor);
+    const spendLabel = CombatHUD.poolDisplayName(spendPool);
     if (!passed) {
       ChatMessage.create({
         content: lcarsCard("🛡️ REGEN SHIELDS FAILED", LC.red, `
@@ -16959,7 +17726,7 @@ export async function handleOfficerTaskResult(taskKey, shipActor, shipToken, off
     }
     const shieldPayload = encodeURIComponent(JSON.stringify({
       actorId: shipActor.id, tokenId: shipToken?.id ?? null,
-      baseRestore: engDept, maxShield, actorName: shipActor.name,
+      baseRestore: engDept, maxShield, actorName: shipActor.name, spendPool,
     }));
     ChatMessage.create({
       flags: { "sta2e-toolkit": { regenShieldCard: true } },
@@ -16968,12 +17735,12 @@ export async function handleOfficerTaskResult(taskKey, shipActor, shipToken, off
           margin-bottom:4px;font-family:${LC.font};">${shipActor.name}</div>
         <div style="font-size:11px;color:${LC.text};font-family:${LC.font};margin-bottom:8px;">
           Restores <strong style="color:${LC.green};">${engDept}</strong> shields
-          (Engineering dept). Spend 1 Momentum for +2 more (Repeatable).
+          (Engineering dept). Spend 1 ${spendLabel} for +2 more (Repeatable).
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
           <label style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
             text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap;">
-            Momentum Spent
+            ${spendLabel} Spent
           </label>
           <input class="sta2e-shield-threat" type="number" min="0" value="0"
             style="width:60px;padding:3px 6px;background:${LC.bg};
@@ -20589,12 +21356,30 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           const actor     = tok?.actor ?? game.actors.get(payload.actorId);
           if (!actor) { ui.notifications.warn("Could not find actor."); return; }
           const threatEl  = btn.closest(".chat-message")?.querySelector(".sta2e-shield-threat");
-          const threat    = Math.max(0, parseInt(threatEl?.value ?? "0") || 0);
-          const restore   = (payload.baseRestore ?? 0) + (threat * 2);
+          const spend     = Math.max(0, parseInt(threatEl?.value ?? "0") || 0);
+          const spendPool = payload.spendPool ?? CombatHUD.regenShieldSpendPool(actor);
+          const spendLabel = CombatHUD.poolDisplayName(spendPool);
+          const restore   = (payload.baseRestore ?? 0) + (spend * 2);
           const current   = actor.system?.shields?.value ?? 0;
           const newVal    = Math.min(payload.maxShield ?? actor.system?.shields?.max ?? 0, current + restore);
+          if (spend > 0) {
+            const available = readPool(spendPool);
+            if (available < spend) {
+              ui.notifications.warn(`STA2e Toolkit: Not enough ${spendLabel} to regenerate shields (need ${spend}; have ${available}).`);
+              return;
+            }
+          }
           btn.disabled = true; btn.textContent = "✓ Applied"; btn.style.opacity = "0.5";
           if (threatEl) threatEl.disabled = true;
+          if (spend > 0) {
+            const spent = await adjustPool(spendPool, -spend, { source: "regenShields", token: tok });
+            if (!spent) {
+              btn.disabled = false; btn.textContent = "🛡️ APPLY SHIELDS"; btn.style.opacity = "1";
+              if (threatEl) threatEl.disabled = false;
+              ui.notifications.warn(`STA2e Toolkit: Could not spend ${spendLabel}; shields were not changed.`);
+              return;
+            }
+          }
           // Consume Reserve Power — Regen Shields spends it
           await CombatHUD.clearReservePower(actor);
           await actor.update({ "system.shields.value": newVal });
@@ -20602,7 +21387,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             content: lcarsCard("🛡️ SHIELDS REGENERATED", LC.green, `
               <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
                 margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
-              <div style="display:grid;grid-template-columns:repeat(${threat > 0 ? 3 : 2},1fr);gap:3px;text-align:center;">
+              <div style="display:grid;grid-template-columns:repeat(${spend > 0 ? 3 : 2},1fr);gap:3px;text-align:center;">
                 <div style="background:rgba(0,200,100,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
                   <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Restored</div>
                   <div style="font-size:18px;font-weight:700;color:${LC.green};">+${restore}</div>
@@ -20611,9 +21396,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Shields</div>
                   <div style="font-size:18px;font-weight:700;color:${LC.green};">${newVal}/${payload.maxShield}</div>
                 </div>
-                ${threat > 0 ? `<div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
-                  <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Threat</div>
-                  <div style="font-size:18px;font-weight:700;color:${LC.tertiary};">${threat}</div>
+                ${spend > 0 ? `<div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
+                  <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">${spendLabel}</div>
+                  <div style="font-size:18px;font-weight:700;color:${LC.tertiary};">${spend}</div>
                 </div>` : ""}
               </div>`),
             speaker: { alias: "STA2e Toolkit" },
@@ -21701,5 +22486,14 @@ Hooks.on("updateCombat", async (combat, changes, options, userId) => {
   for (const token of breachTokens) {
     await new Promise(r => setTimeout(r, 600));
     await CombatHUD.rollBreachCheck(token.actor, token);
+  }
+
+  const ejectedCores = canvas.tokens?.placeables.filter(t =>
+    t.document?.getFlag("sta2e-toolkit", "ejectedWarpCore")?.active === true
+  ) ?? [];
+
+  for (const token of ejectedCores) {
+    await new Promise(r => setTimeout(r, 600));
+    await CombatHUD.rollEjectedCoreCheck(token);
   }
 });

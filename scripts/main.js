@@ -722,6 +722,7 @@ Hooks.once("ready", async () => {
     }
   };
   game.sta2eToolkit.CombatHUD                = CombatHUD;                 // class ref for static methods
+  game.sta2eToolkit.resolveReactorAction     = payload => CombatHUD.resolveReactorAction(payload);
   game.sta2eToolkit.checkOpposedTaskForTokens = checkOpposedTaskForTokens; // standalone opposed-task check (used by npc-roller side-panel path)
   game.sta2eToolkit.EffectConfigMenu = EffectConfigMenu; // class ref for external access
   game.sta2eToolkit.openTransporter = openTransporter;
@@ -1188,6 +1189,20 @@ Hooks.once("ready", async () => {
         });
       } catch (e) {
         console.error("STA2e Toolkit | applyExtendedTaskIntervalExhaust via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "resolveReactorAction" && _isResponsibleGM()) {
+      try {
+        await CombatHUD.resolveReactorAction({
+          reactorAction: msg.reactorAction,
+          taskData: msg.taskData,
+          result: msg.result,
+          resolution: msg.resolution,
+          requesterUserId: msg.requesterUserId,
+        });
+      } catch (e) {
+        console.error("STA2e Toolkit | resolveReactorAction via socket failed:", e);
       }
     }
 
