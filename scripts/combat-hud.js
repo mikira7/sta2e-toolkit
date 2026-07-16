@@ -1170,7 +1170,7 @@ export function hasCloakingDevice(actor) {
   );
 }
 
-function hasFastTargetingSystems(actor) {
+export function hasFastTargetingSystems(actor) {
   if (!actor) return false;
   return actor.items.some(i =>
     i.name.toLowerCase().includes("fast targeting systems")
@@ -1207,6 +1207,17 @@ function hasGlancingImpact(actor) {
 // Each station has minor and major actions drawn from STA 2e Core.
 // Actions with a handler key are interactive (toggle conditions, fire FX, etc.).
 // Info-only actions (no key) display in the tab for reference.
+export const STATION_SVG = {
+  command:    "modules/sta2e-toolkit/assets/station-command.svg",
+  comms:      "modules/sta2e-toolkit/assets/station-comms.svg",
+  helm:       "modules/sta2e-toolkit/assets/station-helm.svg",
+  navigator:  "modules/sta2e-toolkit/assets/station-navigation.svg",
+  operations: "modules/sta2e-toolkit/assets/station-operations.svg",
+  sensors:    "modules/sta2e-toolkit/assets/station-science.svg",
+  tactical:   "modules/sta2e-toolkit/assets/station-tactical.svg",
+  medical:    "modules/sta2e-toolkit/assets/station-medical.svg",
+};
+
 export const BRIDGE_STATIONS = [
   // ── Command ──────────────────────────────────────────────────────────────
   {
@@ -5215,18 +5226,6 @@ export class CombatHUD {
       }
     };
 
-    // Station id → custom SVG icon path
-    const STATION_SVG = {
-      command:    "modules/sta2e-toolkit/assets/station-command.svg",
-      comms:      "modules/sta2e-toolkit/assets/station-comms.svg",
-      helm:       "modules/sta2e-toolkit/assets/station-helm.svg",
-      navigator:  "modules/sta2e-toolkit/assets/station-navigation.svg",
-      operations: "modules/sta2e-toolkit/assets/station-operations.svg",
-      sensors:    "modules/sta2e-toolkit/assets/station-science.svg",
-      tactical:   "modules/sta2e-toolkit/assets/station-tactical.svg",
-      medical:    "modules/sta2e-toolkit/assets/station-medical.svg",
-    };
-
     // Determine active theme era for department colors
     let _themeKey = "lcars-tng";
     try {
@@ -5655,12 +5654,16 @@ export class CombatHUD {
         const systemKey = action.key.slice("ts-system-".length);
         const system    = systemKey === "random" ? null : systemKey;
         const hasFTS    = hasFastTargetingSystems(actor);
-        const benefit   = hasFTS ? "both" : "system";
+        const requested = action.targetingBenefit;
+        const benefit   = requested === "system"
+          ? "system"
+          : requested === "both" && hasFTS ? "both"
+          : hasFTS ? "both" : "system";
         await CombatHUD.setTargetingSolution(token, { active: true, benefit, system });
         const sysLabel  = system ? CombatHUD.systemLabel(system) : "random roll";
         ChatMessage.create({
           content: this._conditionChatCard(token.name, null, "Targeting Solution", "🎯",
-            hasFTS
+            benefit === "both"
               ? `Fast Targeting Systems: targeting ${sysLabel} on next hit + free d20 reroll.`
               : `Next hit will target the ${sysLabel} system.`)
         });

@@ -149,6 +149,8 @@
   "STA2E.Settings.LcarsRingHiddenForStreaming.Hint": "Hide the LCARS bottom action ring on this client. Use this for streaming or Common Display clients.",
   "STA2E.Settings.LcarsRingSize.Name": "LCARS Action Ring Size",
   "STA2E.Settings.LcarsRingSize.Hint": "Scale the LCARS bottom action ring on this client.",
+  "STA2E.Settings.LcarsRingGmAutoSwitch.Name": "Auto-switch to Selected Character",
+  "STA2E.Settings.LcarsRingGmAutoSwitch.Hint": "GM only: when exactly one character token is selected, make it the action ring's active character. Multi-token selections are ignored.",
   "STA2E.LcarsRing.Toggle.Hide": "Hide action ring",
   "STA2E.LcarsRing.Toggle.Show": "Show action ring",
   "STA2E.Settings.ShowMinutes.Name": "Show Minutes on HUD",

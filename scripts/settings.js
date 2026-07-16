@@ -345,6 +345,16 @@ export function registerSettings() {
     onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
   });
 
+  game.settings.register("sta2e-toolkit", "lcarsRingGmAutoSwitch", {
+    name:    "STA2E.Settings.LcarsRingGmAutoSwitch.Name",
+    hint:    "STA2E.Settings.LcarsRingGmAutoSwitch.Hint",
+    scope:   "client",
+    config:  false,
+    type:    Boolean,
+    default: false,
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
   game.settings.register("sta2e-toolkit", "lcarsRingShipByActor", {
     name:    "LCARS Ring Ships By Actor",
     scope:   "client",

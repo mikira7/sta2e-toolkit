@@ -1388,20 +1388,28 @@ function _refreshLcarsRing() {
 
 [
   "canvasReady",
-  "controlToken",
   "createToken",
   "updateToken",
   "deleteToken",
+  "createActor",
+  "updateActor",
+  "deleteActor",
+].forEach(hookName => Hooks.on(hookName, _refreshLcarsRing));
+
+Hooks.on("controlToken", () => {
+  game.sta2eToolkit?.lcarsRing?.handleTokenControl?.();
+});
+
+[
   "createCombat",
   "updateCombat",
   "deleteCombat",
   "createCombatant",
   "updateCombatant",
   "deleteCombatant",
-  "createActor",
-  "updateActor",
-  "deleteActor",
-].forEach(hookName => Hooks.on(hookName, _refreshLcarsRing));
+].forEach(hookName => Hooks.on(hookName, () => {
+  game.sta2eToolkit?.lcarsRing?.handleCombatStateChange?.();
+}));
 
 // Live-update alert sound volume when the user adjusts the slider
 Hooks.on("settingChanged", (namespace, key, value) => {

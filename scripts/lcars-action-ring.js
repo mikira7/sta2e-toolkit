@@ -5,7 +5,7 @@
 
 import { COMMAND_SEATS, getCrewManifest, readOfficerStats, setCrewManifest, STATION_SLOTS } from "./crew-manifest.js";
 import { openNpcRoller } from "./npc-roller.js";
-import { BRIDGE_STATIONS, CombatHUD, GROUND_ACTIONS, openWeaponAttackForOfficer } from "./combat-hud.js";
+import { BRIDGE_STATIONS, CombatHUD, GROUND_ACTIONS, hasFastTargetingSystems, openWeaponAttackForOfficer, STATION_SVG } from "./combat-hud.js";
 import { getActiveLcThemeKey, getLcCssVars, getLcTokens } from "./lcars-theme.js";
 
 const MODULE = "sta2e-toolkit";
@@ -22,7 +22,7 @@ const EXCLUDED_CENTER_TYPES = new Set([
   "extended-tasks",
   "scenetraits",
 ]);
-const SHIP_TYPES = new Set(["starship", "smallcraft"]);
+const SHIP_TYPES = new Set(["starship", "smallcraft", "spacecraft2e"]);
 const COMBAT_CATEGORY_META = {
   weapons: { title: "Weapons", icon: "fas fa-crosshairs" },
   minor:   { title: "Minor Actions", icon: "fas fa-stopwatch" },
@@ -38,19 +38,38 @@ const COMBAT_ACTION_ICONS = {
   "ground-direct": "fas fa-bullhorn",
   "ground-guard": "fas fa-shield-halved",
   "ground-sprint": "fas fa-person-running",
+  "assist-command": "fas fa-handshake",
+  "create-trait": "fas fa-plus-circle",
+  "direct": "fas fa-bullhorn",
+  "rally": "fas fa-flag",
+  "task-roll": "fas fa-dice-d20",
+  "impulse": "fas fa-forward",
+  "thrusters": "fas fa-arrows-alt",
+  "prepare-warp": "fas fa-hourglass-half",
   "attack-pattern": "fas fa-route",
   "evasive-action": "fas fa-arrows-turn-to-dots",
+  "maneuver": "fas fa-compass",
   "ram": "fas fa-explosion",
   "warp": "fas fa-forward-fast",
+  "assist": "fas fa-hands-helping",
   "calibrate-weapons": "fas fa-screwdriver-wrench",
   "targeting-solution": "fas fa-bullseye",
   "prepare": "fas fa-shield-halved",
   "defensive-fire": "fas fa-shield",
+  "transport": "fas fa-atom",
+  "regain-power": "fas fa-battery-half",
+  "regen-shields": "fas fa-shield-alt",
+  "reroute-power": "fas fa-random",
+  "modulate-shields": "fas fa-shield-alt",
+  "tractor-beam": "fas fa-link",
+  "calibrate-sensors": "fas fa-sliders-h",
+  "launch-probe": "fas fa-satellite",
   "scan-for-weakness": "fas fa-magnifying-glass",
   "sensor-sweep": "fas fa-satellite-dish",
   "reveal": "fas fa-eye",
   "damage-control": "fas fa-screwdriver-wrench",
   "first-aid": "fas fa-kit-medical",
+  "override": "fas fa-keyboard",
   "pass": "fas fa-forward",
   "ready": "fas fa-bolt",
 };
@@ -67,6 +86,7 @@ function escapeHtml(value) {
 
 function ownerByUserOrDefault(document, user = game.user) {
   if (!document || !user) return false;
+  if (user.isGM) return true;
   const ownership = document.ownership ?? {};
   return Number(ownership[user.id] ?? 0) >= OWNER
     || Number(ownership.default ?? 0) >= OWNER;
@@ -76,13 +96,20 @@ function actorHasStaStats(actor) {
   return !!(actor?.system?.attributes && actor?.system?.disciplines);
 }
 
+function isShipLikeActor(actor) {
+  if (!actor) return false;
+  return SHIP_TYPES.has(actor.type)
+    || actor.items?.some(item => item.type === "starshipweapon2e")
+    || !!(actor.system?.systems && actor.system?.departments);
+}
+
 function isValidCenterActor(actor) {
-  if (!actor || EXCLUDED_CENTER_TYPES.has(actor.type)) return false;
+  if (!actor || EXCLUDED_CENTER_TYPES.has(actor.type) || isShipLikeActor(actor)) return false;
   return actorHasStaStats(actor) && ownerByUserOrDefault(actor);
 }
 
 function isOwnedShipActor(actor) {
-  return !!actor && SHIP_TYPES.has(actor.type) && ownerByUserOrDefault(actor);
+  return isShipLikeActor(actor) && ownerByUserOrDefault(actor);
 }
 
 function actorSort(a, b) {
@@ -184,6 +211,16 @@ function combatActionIcon(entry) {
   return COMBAT_ACTION_ICONS[entry?.action?.key] ?? "fas fa-dice-d20";
 }
 
+function stationDepartmentColor(stationId) {
+  const { key, tokens } = ringThemeContext();
+  const tngColors = ["lcars-tng", "lcars-tng-blue"].includes(key);
+  if (["sensors", "medical"].includes(stationId)) return "#33bbcc";
+  if (["command", "helm", "navigator"].includes(stationId)) {
+    return tngColors ? tokens.red : tokens.yellow;
+  }
+  return tngColors ? tokens.yellow : tokens.red;
+}
+
 function serializeShip(actor) {
   return {
     label: actor.name,
@@ -226,6 +263,105 @@ function ringSegmentLabelPosition(startAngle, endAngle, { cx = 120, cy = 120, ra
   return polarToCartesian(cx, cy, radius, (startAngle + endAngle) / 2);
 }
 
+const LCARS_ARC_SPAN_PATTERN = [1.35, 0.72, 1.08, 0.82, 1.28, 0.76, 1.12, 1.38, 0.70, 1.20];
+
+function lcarsPackedArcAngles(count, index, baseSpan, {
+  gap = 2.5,
+  center = 360,
+  maxArc = 250,
+  patternOffset = 0,
+} = {}) {
+  const rawSpans = Array.from({ length: count }, (_, itemIndex) =>
+    baseSpan * LCARS_ARC_SPAN_PATTERN[(itemIndex + patternOffset) % LCARS_ARC_SPAN_PATTERN.length]
+  );
+  const gapsTotal = Math.max(0, count - 1) * gap;
+  const rawTotal = rawSpans.reduce((total, span) => total + span, 0);
+  const scale = rawTotal > Math.max(1, maxArc - gapsTotal)
+    ? Math.max(1, maxArc - gapsTotal) / rawTotal
+    : 1;
+  const spans = rawSpans.map(span => span * scale);
+  const total = spans.reduce((sum, span) => sum + span, 0) + gapsTotal;
+  const clusterStart = center - (total / 2);
+  const start = clusterStart
+    + spans.slice(0, index).reduce((sum, span) => sum + span, 0)
+    + (index * gap);
+  return { start, end: start + spans[index] };
+}
+
+function lcarsBranchLayout(items, { fillerEvery = 0 } = {}) {
+  const layout = [{ filler: true }];
+  items.forEach((item, index) => {
+    layout.push({ item, itemIndex: index });
+    if (fillerEvery > 0 && (index + 1) % fillerEvery === 0 && index < items.length - 1) {
+      layout.push({ filler: true });
+    }
+  });
+  layout.push({ filler: true });
+  return layout;
+}
+
+function npcFillerSegment(angles, { outer, inner, colorIndex = 0 } = {}) {
+  const { tokens } = ringThemeContext();
+  const colors = [tokens.secondary, tokens.tertiary, tokens.primary];
+  return {
+    action: null,
+    cls: "npc-filler",
+    npcBranch: true,
+    decorative: true,
+    hideLabel: true,
+    title: "",
+    color: colors[colorIndex % colors.length],
+    ...angles,
+    outer,
+    inner,
+  };
+}
+
+function npcSegmentGapAngles(segments) {
+  const sorted = [...segments]
+    .filter(segment => Number.isFinite(segment.start) && Number.isFinite(segment.end))
+    .sort((a, b) => a.start - b.start);
+  const gaps = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (sorted[index].start <= sorted[index - 1].end) continue;
+    gaps.push((sorted[index - 1].end + sorted[index].start) / 2);
+  }
+  return gaps;
+}
+
+function uniqueGapAngles(angles, tolerance = 0.75) {
+  return [...angles]
+    .sort((a, b) => a - b)
+    .filter((angle, index, sorted) => index === 0 || Math.abs(angle - sorted[index - 1]) > tolerance);
+}
+
+function npcInheritedGapSegments(gapAngles, targetSegments, { outer, inner, width = 2.5 } = {}) {
+  const starts = targetSegments.map(segment => segment.start).filter(Number.isFinite);
+  const ends = targetSegments.map(segment => segment.end).filter(Number.isFinite);
+  if (!starts.length || !ends.length) return [];
+  const min = Math.min(...starts);
+  const max = Math.max(...ends);
+  const protectedLabelAngles = targetSegments
+    .filter(segment => !segment.hideLabel)
+    .map(segment => (segment.start + segment.end) / 2);
+  return uniqueGapAngles(gapAngles)
+    .filter(angle => angle > min + (width / 2) && angle < max - (width / 2))
+    .filter(angle => protectedLabelAngles.every(labelAngle => Math.abs(angle - labelAngle) >= 5))
+    .map(angle => ({
+      action: null,
+      cls: "npc-gap",
+      npcBranch: true,
+      decorative: true,
+      hideLabel: true,
+      gapAngle: angle,
+      title: "",
+      start: angle - (width / 2),
+      end: angle + (width / 2),
+      outer,
+      inner,
+    }));
+}
+
 function userDisplayFlaggedForMonksCommonDisplay() {
   const candidates = ["monks-common-display", "monks-common-display2"];
   const moduleActive = candidates.some(id => game.modules.get(id)?.active);
@@ -254,8 +390,11 @@ export class LcarsActionRing {
   constructor() {
     this._el = null;
     this._activeActor = null;
+    this._npcShipToken = null;
+    this._subjectKey = null;
     this._combatBranch = null;
     this._combatBranchEntries = [];
+    this._controlDebounce = null;
     this._resizeHandler = () => this.refresh();
     this._outsideClickHandler = event => {
       if (this._combatBranch && this._el && !this._el.contains(event.target)) {
@@ -280,6 +419,10 @@ export class LcarsActionRing {
   destroy() {
     this._el?.remove();
     this._el = null;
+    if (this._controlDebounce) clearTimeout(this._controlDebounce);
+    this._controlDebounce = null;
+    this._npcShipToken = null;
+    this._subjectKey = null;
     this._combatBranch = null;
     this._combatBranchEntries = [];
   }
@@ -290,8 +433,64 @@ export class LcarsActionRing {
       return;
     }
     const actor = this._resolveActiveActor();
+    const npcShipToken = this._controlledNpcShipToken();
+    const subjectKey = npcShipToken
+      ? `npc-starship:${canvas.scene?.id ?? "scene"}:${npcShipToken.id}`
+      : actor ? `character:${actor.id}` : "none";
+    if (this._subjectKey !== subjectKey) {
+      this._combatBranch = null;
+      this._combatBranchEntries = [];
+    }
     this._activeActor = actor;
-    this._render(actor);
+    this._npcShipToken = npcShipToken;
+    this._subjectKey = subjectKey;
+    this._render(actor, npcShipToken);
+  }
+
+  handleTokenControl() {
+    if (this._controlDebounce) clearTimeout(this._controlDebounce);
+    this._controlDebounce = setTimeout(async () => {
+      this._controlDebounce = null;
+      try {
+        const controlled = canvas.tokens?.controlled ?? [];
+        if (!game.user?.isGM || controlled.length !== 1) {
+          this.refresh();
+          return;
+        }
+
+        const token = controlled[0];
+        const actor = token?.actor;
+        if (!actor || this._isNpcShipToken(token)
+            || !setting("lcarsRingGmAutoSwitch", false)
+            || !actorHasStaStats(actor)
+            || isShipLikeActor(actor)
+            || EXCLUDED_CENTER_TYPES.has(actor.type)) {
+          this.refresh();
+          return;
+        }
+
+        const worldActor = game.actors.get(actor.id) ?? actor;
+        if (!isValidCenterActor(worldActor)) {
+          this.refresh();
+          return;
+        }
+
+        if (setting("lcarsRingActiveActorId", "") !== worldActor.id) {
+          await game.settings.set(MODULE, "lcarsRingActiveActorId", worldActor.id);
+        } else {
+          this.refresh();
+        }
+      } catch (err) {
+        console.error("STA2e Toolkit | LCARS ring token selection failed:", err);
+        this.refresh();
+      }
+    }, 30);
+  }
+
+  handleCombatStateChange() {
+    this._combatBranch = null;
+    this._combatBranchEntries = [];
+    this.refresh();
   }
 
   debugState() {
@@ -300,8 +499,10 @@ export class LcarsActionRing {
       hiddenForStreaming: setting("lcarsRingHiddenForStreaming", false),
       collapsed: setting("lcarsRingCollapsed", false),
       size: setting("lcarsRingSize", 100),
+      gmAutoSwitch: setting("lcarsRingGmAutoSwitch", false),
       monksDisplayClient: userDisplayFlaggedForMonksCommonDisplay(),
       activeActorId: setting("lcarsRingActiveActorId", ""),
+      npcShipTokenId: this._npcShipToken?.id ?? null,
       validCenterActors: this._validCenterActors().map(actor => ({
         id: actor.id,
         name: actor.name,
@@ -331,6 +532,19 @@ export class LcarsActionRing {
 
   _ownedShips() {
     return game.actors.filter(isOwnedShipActor).sort(actorSort);
+  }
+
+  _isNpcShipToken(token) {
+    return !!(game.user?.isGM
+      && token?.actor
+      && isShipLikeActor(token.actor)
+      && CombatHUD.isNpcShip(token.actor));
+  }
+
+  _controlledNpcShipToken() {
+    const controlled = canvas.tokens?.controlled ?? [];
+    if (controlled.length !== 1) return null;
+    return this._isNpcShipToken(controlled[0]) ? controlled[0] : null;
   }
 
   _favoriteIds(kind) {
@@ -475,8 +689,25 @@ export class LcarsActionRing {
     ].map(serializeShip);
   }
 
-  _combatContext(actor) {
+  _combatContext(actor, npcShipToken = this._npcShipToken) {
     if (!game.combat?.active) return { valid: false, reason: "Combat tracker is not active." };
+
+    if (npcShipToken) {
+      const combatant = (game.combat.combatants ?? []).find(entry => entry.tokenId === npcShipToken.id);
+      if (!combatant) {
+        return { valid: false, reason: "The selected NPC ship is not in the active combat tracker." };
+      }
+      return {
+        valid: true,
+        kind: "npc-starship",
+        actor: npcShipToken.actor,
+        ship: npcShipToken.actor,
+        token: npcShipToken,
+        stationIds: BRIDGE_STATIONS.map(station => station.id),
+        key: `npc-starship:${canvas.scene?.id ?? "scene"}:${npcShipToken.id}`,
+      };
+    }
+
     if (!actor) return { valid: false, reason: "Select an active character first." };
 
     const selectedShip = this._selectedShip(actor);
@@ -570,8 +801,219 @@ export class LcarsActionRing {
     ];
   }
 
+  _npcShipStationCategories(context, station) {
+    if (context?.kind !== "npc-starship" || !station) return [];
+    const actionEntries = type => (station[type] ?? [])
+      .filter(action => !!action.key && !action.isInfo)
+      .map(action => ({ kind: "action", action, station }));
+    const weapons = context.ship.items
+      .filter(item => item.type === "starshipweapon2e")
+      .map(weapon => ({
+        kind: "weapon",
+        weapon,
+        station,
+        title: `Fire: ${weapon.name}`,
+      }));
+    const categories = [
+      { id: "minor", entries: actionEntries("minor") },
+      { id: "major", entries: actionEntries("major") },
+    ];
+    if (station.id === "tactical") categories.push({ id: "weapons", entries: weapons });
+    return categories;
+  }
+
   _branchSegments(context) {
     if (!this._combatBranch || this._combatBranch.key !== context.key) return [];
+
+    if (context.kind === "npc-starship") {
+      // The ring is docked against the bottom of the viewport. Keep nested
+      // controls on an open upper arc so none land behind the hotbar or edge.
+      const stationLayout = lcarsBranchLayout(BRIDGE_STATIONS);
+      const stationSegments = stationLayout.map((layoutItem, layoutIndex) => {
+        const angles = lcarsPackedArcAngles(stationLayout.length, layoutIndex, 16);
+        if (layoutItem.filler) {
+          return npcFillerSegment(angles, { outer: 150, inner: 120, colorIndex: layoutIndex });
+        }
+        const station = layoutItem.item;
+        return {
+          action: "combat-station",
+          stationId: station.id,
+          cls: this._combatBranch.stationId === station.id ? "combat-station-active" : "combat-station",
+          svgSrc: STATION_SVG[station.id] ?? null,
+          color: stationDepartmentColor(station.id),
+          npcBranch: true,
+          title: station.label,
+          ...angles,
+          outer: 150,
+          inner: 120,
+          labelRadius: 135,
+        };
+      });
+
+      if (this._combatBranch.level === "stations") {
+        this._combatBranchEntries = [];
+        return stationSegments;
+      }
+
+      const station = BRIDGE_STATIONS.find(entry => entry.id === this._combatBranch.stationId);
+      const categories = this._npcShipStationCategories(context, station);
+      const categoryLayout = lcarsBranchLayout(categories, { fillerEvery: 1 });
+      const categorySegments = categoryLayout.map((layoutItem, layoutIndex) => {
+        const angles = lcarsPackedArcAngles(categoryLayout.length, layoutIndex, 18, { patternOffset: 2 });
+        if (layoutItem.filler) {
+          return npcFillerSegment(angles, { outer: 182, inner: 152, colorIndex: layoutIndex + 1 });
+        }
+        const category = layoutItem.item;
+        return {
+          action: category.entries.length ? "combat-npc-category" : null,
+          categoryId: category.id,
+          cls: this._combatBranch.categoryId === category.id
+            ? "combat-category-active"
+            : "combat-category",
+          icon: COMBAT_CATEGORY_META[category.id].icon,
+          npcBranch: true,
+          title: category.entries.length
+            ? COMBAT_CATEGORY_META[category.id].title
+            : `${COMBAT_CATEGORY_META[category.id].title} (none available at ${station?.label ?? "this station"})`,
+          disabled: category.entries.length === 0,
+          ...angles,
+          outer: 182,
+          inner: 152,
+          labelRadius: 167,
+        };
+      });
+      const categoryInheritedGaps = npcInheritedGapSegments(
+        npcSegmentGapAngles(stationSegments),
+        categorySegments,
+        { outer: 182, inner: 152 },
+      );
+      const categoryVisibleGapAngles = uniqueGapAngles([
+        ...npcSegmentGapAngles(categorySegments),
+        ...categoryInheritedGaps.map(segment => segment.gapAngle),
+      ]);
+      const categoryBranchSegments = [
+        ...stationSegments,
+        ...categorySegments,
+        ...categoryInheritedGaps,
+      ];
+      const expandOuterBranch = outerSegments => [
+        ...categoryBranchSegments,
+        ...outerSegments,
+        ...npcInheritedGapSegments(categoryVisibleGapAngles, outerSegments, { outer: 214, inner: 184 }),
+      ];
+
+      if (this._combatBranch.level === "npc-categories") {
+        this._combatBranchEntries = [];
+        return categoryBranchSegments;
+      }
+
+      const npcChoiceSegments = choices => {
+        const choiceLayout = lcarsBranchLayout(choices, { fillerEvery: 3 });
+        return choiceLayout.map((layoutItem, layoutIndex) => {
+          const angles = lcarsPackedArcAngles(choiceLayout.length, layoutIndex, 16, { patternOffset: 5 });
+          if (layoutItem.filler) {
+            return npcFillerSegment(angles, { outer: 214, inner: 184, colorIndex: layoutIndex + 2 });
+          }
+          return {
+            ...layoutItem.item,
+            npcBranch: true,
+            ...angles,
+            outer: 214,
+            inner: 184,
+            labelRadius: 199,
+          };
+        });
+      };
+
+      if (["targeting-choice", "targeting-systems"].includes(this._combatBranch.level)) {
+        if (!CombatHUD.hasTargetingSolution(context.token)) return categoryBranchSegments;
+        const targeting = CombatHUD.getTargetingSolution(context.token) ?? {};
+        if (this._combatBranch.level === "targeting-choice") {
+          const choices = [
+            {
+              action: "combat-targeting-reroll",
+              cls: targeting.benefit === "reroll" ? "combat-targeting-active" : "combat-targeting",
+              icon: "fas fa-rotate-left",
+              title: "Targeting Solution: reroll one d20 on the next attack",
+            },
+            {
+              action: "combat-targeting-systems",
+              cls: targeting.benefit === "system" ? "combat-targeting-active" : "combat-targeting",
+              icon: "fas fa-microchip",
+              title: "Targeting Solution: pick the system hit by the next attack",
+            },
+          ];
+          if (hasFastTargetingSystems(context.ship)) {
+            choices.push({
+              action: "combat-targeting-both",
+              cls: targeting.benefit === "both" ? "combat-targeting-active" : "combat-targeting",
+              icon: "fas fa-layer-group",
+              title: "Fast Targeting Systems: reroll one d20 and pick the system hit",
+            });
+          }
+          return expandOuterBranch(npcChoiceSegments(choices));
+        }
+
+        const systems = ["communications", "computers", "engines", "sensors", "structure", "weapons"];
+        const benefit = this._combatBranch.targetingBenefit === "both" ? "both" : "system";
+        const choices = systems.map(system => ({
+          action: "combat-targeting-system",
+          system,
+          cls: targeting.system === system ? "combat-targeting-active" : "combat-targeting",
+          icon: "fas fa-microchip",
+          title: benefit === "both"
+            ? `Fast Targeting Systems: target ${CombatHUD.systemLabel(system)} and reroll one d20`
+            : `Targeting Solution: target ${CombatHUD.systemLabel(system)}`,
+        }));
+        return expandOuterBranch(npcChoiceSegments(choices));
+      }
+
+      if (this._combatBranch.level === "sensor-choice") {
+        if (!CombatHUD.hasCalibratesensors(context.token)) return categoryBranchSegments;
+        return expandOuterBranch(npcChoiceSegments([
+          {
+            action: "combat-sensor-reroll",
+            cls: "combat-sensor",
+            icon: "fas fa-rotate-left",
+            title: "Calibrate Sensors: reroll one d20 on the next Sensor Operations task",
+          },
+          {
+            action: "combat-sensor-ignore-trait",
+            cls: "combat-sensor",
+            icon: "fas fa-ban",
+            title: "Calibrate Sensors: ignore one trait affecting the next Sensor Operations task",
+          },
+        ]));
+      }
+
+      const category = categories.find(entry => entry.id === this._combatBranch.categoryId);
+      const entries = category?.entries ?? [];
+      this._combatBranchEntries = entries;
+      if (!entries.length) return categoryBranchSegments;
+
+      const actionLayout = lcarsBranchLayout(entries, { fillerEvery: 3 });
+      const actionSegments = actionLayout.map((layoutItem, layoutIndex) => {
+        const angles = lcarsPackedArcAngles(actionLayout.length, layoutIndex, 15, { patternOffset: 4 });
+        if (layoutItem.filler) {
+          return npcFillerSegment(angles, { outer: 214, inner: 184, colorIndex: layoutIndex });
+        }
+        const entry = layoutItem.item;
+        return {
+          action: "combat-entry",
+          entryIndex: layoutItem.itemIndex,
+          cls: entry.kind === "weapon" ? "combat-weapon" : "combat-action",
+          icon: combatActionIcon(entry),
+          npcBranch: true,
+          title: entry.title ?? `${station.label}: ${entry.action.label}${entry.action.tooltip ? ` — ${entry.action.tooltip}` : ""}`,
+          ...angles,
+          outer: 214,
+          inner: 184,
+          labelRadius: 199,
+        };
+      });
+      return expandOuterBranch(actionSegments);
+    }
+
     const categories = this._combatCategories(context);
     const categorySegments = categories.map((category, index) => ({
       action: "combat-category",
@@ -704,6 +1146,8 @@ export class LcarsActionRing {
     if (entry.kind === "weapon") {
       if (context.kind === "ground") {
         combatHud.triggerRingWeapon(context.token, entry.weapon.id);
+      } else if (context.kind === "npc-starship") {
+        combatHud.triggerRingWeapon(context.token, entry.weapon.id);
       } else {
         await openWeaponAttackForOfficer(
           context.ship,
@@ -718,7 +1162,7 @@ export class LcarsActionRing {
     await combatHud.triggerRingAction(context.token, entry.action, entry.station);
   }
 
-  _render(actor) {
+  _render(actor, npcShipToken = null) {
     if (!this._el) {
       document.getElementById(RING_ID)?.remove();
       this._el = document.createElement("div");
@@ -728,30 +1172,48 @@ export class LcarsActionRing {
       document.body.appendChild(this._el);
     }
 
-    const token = this._findTokenForActor(actor);
-    const img = token?.document?.texture?.src ?? token?.actor?.img ?? actor?.img ?? "icons/svg/mystery-man.svg";
-    const portraitTitle = actor ? `Open ${actor.name}` : "No owned character found";
-    const noActorClass = actor ? "" : " sta2e-lcars-ring--empty";
+    const displayActor = npcShipToken?.actor ?? actor;
+    const token = npcShipToken ?? this._findTokenForActor(actor);
+    const img = token?.document?.texture?.src ?? token?.actor?.img ?? displayActor?.img ?? "icons/svg/mystery-man.svg";
+    const portraitTitle = displayActor ? `Open ${displayActor.name}` : "No owned character found";
+    const noActorClass = displayActor ? "" : " sta2e-lcars-ring--empty";
+    const npcShipClass = npcShipToken ? " sta2e-lcars-ring--npc-ship" : "";
     const collapsed = setting("lcarsRingCollapsed", false) === true;
     const toggleLabel = localize(
       collapsed ? "STA2E.LcarsRing.Toggle.Show" : "STA2E.LcarsRing.Toggle.Hide",
       collapsed ? "Show action ring" : "Hide action ring",
     );
-    const combatContext = this._combatContext(actor);
+    const combatContext = this._combatContext(actor, npcShipToken);
     if (this._combatBranch && this._combatBranch.key !== combatContext.key) {
       this._combatBranch = null;
       this._combatBranchEntries = [];
     }
-    const segments = [
-      { action: "pick-character", cls: "character", icon: "fas fa-user-astronaut", title: "Change active character", start: 276, end: 318 },
-      { action: "task-roll", cls: "roll", icon: "fas fa-dice-d20", title: "Open task roller", start: 322, end: 364 },
-      { action: "pick-ship", cls: "ship", icon: "fas fa-rocket", title: "Select current ship", start: 54, end: 96 },
-      { action: "assign-station", cls: "station", icon: "fas fa-chair", title: "Assign station", start: 100, end: 142 },
-    ];
-    const blankSegments = [
-      { cls: "blank", start: 146, end: 272 },
-    ];
-    if (game.combat?.active) {
+    const segments = npcShipToken
+      ? [
+          { action: "pick-character", cls: "character", icon: "fas fa-user-astronaut", title: "Change active character", start: 276, end: 318 },
+          {
+            action: combatContext.valid ? "combat-tasks" : null,
+            cls: combatContext.valid ? "combat" : "combat-disabled",
+            icon: "fas fa-crosshairs",
+            title: combatContext.valid ? "NPC ship combat stations" : combatContext.reason,
+            disabled: !combatContext.valid,
+            start: 8,
+            end: 50,
+          },
+        ]
+      : [
+          { action: "pick-character", cls: "character", icon: "fas fa-user-astronaut", title: "Change active character", start: 276, end: 318 },
+          { action: "task-roll", cls: "roll", icon: "fas fa-dice-d20", title: "Open task roller", start: 322, end: 364 },
+          { action: "pick-ship", cls: "ship", icon: "fas fa-rocket", title: "Select current ship", start: 54, end: 96 },
+          { action: "assign-station", cls: "station", icon: "fas fa-chair", title: "Assign station", start: 100, end: 142 },
+        ];
+    const blankSegments = npcShipToken
+      ? [
+          { cls: "blank", start: 54, end: 272 },
+          { cls: "blank", start: 322, end: 364 },
+        ]
+      : [{ cls: "blank", start: 146, end: 272 }];
+    if (!npcShipToken && game.combat?.active) {
       segments.push({
         action: combatContext.valid ? "combat-tasks" : null,
         cls: combatContext.valid ? "combat" : "combat-disabled",
@@ -761,7 +1223,7 @@ export class LcarsActionRing {
         start: 8,
         end: 50,
       });
-    } else {
+    } else if (!npcShipToken) {
       segments.push({
         action: "create-trait",
         cls: "trait",
@@ -775,21 +1237,22 @@ export class LcarsActionRing {
     const renderPath = segment => {
       const interactive = !!segment.action && !segment.disabled;
       const data = interactive
-        ? `data-action="${segment.action}"${segment.categoryId ? ` data-category-id="${segment.categoryId}"` : ""}${segment.system ? ` data-system="${segment.system}"` : ""}${Number.isInteger(segment.entryIndex) ? ` data-entry-index="${segment.entryIndex}"` : ""}`
+        ? `data-action="${segment.action}"${segment.categoryId ? ` data-category-id="${segment.categoryId}"` : ""}${segment.stationId ? ` data-station-id="${segment.stationId}"` : ""}${segment.system ? ` data-system="${segment.system}"` : ""}${Number.isInteger(segment.entryIndex) ? ` data-entry-index="${segment.entryIndex}"` : ""}`
         : "";
       return `
-        <path class="sta2e-lcars-ring__segment sta2e-lcars-ring__segment--${segment.cls}${segment.disabled ? " sta2e-lcars-ring__segment--disabled" : ""}"
+        <path class="sta2e-lcars-ring__segment sta2e-lcars-ring__segment--${segment.cls}${segment.npcBranch ? " sta2e-lcars-ring__segment--npc-branch" : ""}${segment.disabled ? " sta2e-lcars-ring__segment--disabled" : ""}"
               ${data}
-              ${interactive ? "tabindex=\"0\" role=\"button\"" : "aria-disabled=\"true\""}
+              ${segment.color ? `style="--sta2e-ring-segment-color:${escapeHtml(segment.color)};"` : ""}
+              ${interactive ? "tabindex=\"0\" role=\"button\"" : segment.decorative ? "aria-hidden=\"true\"" : "aria-disabled=\"true\""}
               title="${escapeHtml(segment.title)}"
               aria-label="${escapeHtml(segment.title)}"
               d="${ringSegmentPath(segment.start, segment.end, { outer: segment.outer ?? 116, inner: segment.inner ?? 80 })}">
           <title>${escapeHtml(segment.title)}</title>
         </path>`;
     };
-    const labelSegments = [...segments, ...branchSegments];
+    const labelSegments = [...segments, ...branchSegments].filter(segment => !segment.hideLabel);
 
-    this._el.className = `${noActorClass}${collapsed ? " sta2e-lcars-ring--collapsed" : ""}`.trim();
+    this._el.className = `${noActorClass}${npcShipClass}${collapsed ? " sta2e-lcars-ring--collapsed" : ""}`.trim();
     applyRingTheme(this._el);
     this._el.style.setProperty("--sta2e-ring-scale", String(actionRingVisualScale()));
     this._el.innerHTML = `
@@ -806,9 +1269,11 @@ export class LcarsActionRing {
         ${labelSegments.map(segment => {
           const pos = ringSegmentLabelPosition(segment.start, segment.end, { radius: segment.labelRadius ?? 98 });
           return `
-          <div class="sta2e-lcars-ring__segment-label sta2e-lcars-ring__segment-label--${segment.cls}${segment.outer ? " sta2e-lcars-ring__segment-label--branch" : ""}${segment.disabled ? " sta2e-lcars-ring__segment-label--disabled" : ""}"
+          <div class="sta2e-lcars-ring__segment-label sta2e-lcars-ring__segment-label--${segment.cls}${segment.outer ? " sta2e-lcars-ring__segment-label--branch" : ""}${segment.npcBranch ? " sta2e-lcars-ring__segment-label--npc-branch" : ""}${segment.disabled ? " sta2e-lcars-ring__segment-label--disabled" : ""}"
                style="left:${pos.x.toFixed(1)}px;top:${pos.y.toFixed(1)}px;">
-            <i class="${segment.icon}"></i>
+            ${segment.svgSrc
+              ? `<span class="sta2e-lcars-ring__station-icon" aria-hidden="true" style="-webkit-mask-image:url(${escapeHtml(segment.svgSrc)});mask-image:url(${escapeHtml(segment.svgSrc)});"></span>`
+              : `<i class="${segment.icon ?? "fas fa-circle"}"></i>`}
           </div>
         `;
         }).join("")}
@@ -856,7 +1321,8 @@ export class LcarsActionRing {
         await game.settings.set(MODULE, "lcarsRingCollapsed", !setting("lcarsRingCollapsed", false));
         this.refresh();
       } else if (action === "open-actor") {
-        if (this._activeActor) this._activeActor.sheet?.render?.(true);
+        const subjectActor = this._npcShipToken?.actor ?? this._activeActor;
+        if (subjectActor) subjectActor.sheet?.render?.(true);
         else ui.notifications.warn("STA2e Toolkit: No owned character actors found for this user.");
       } else if (action === "pick-character") {
         await this._pickCharacter();
@@ -876,7 +1342,38 @@ export class LcarsActionRing {
         }
         this._combatBranch = this._combatBranch
           ? null
-          : { key: context.key, level: "categories", categoryId: null };
+          : {
+              key: context.key,
+              level: context.kind === "npc-starship" ? "stations" : "categories",
+              categoryId: null,
+              stationId: null,
+            };
+        this.refresh();
+      } else if (action === "combat-station") {
+        const context = this._combatContext(this._activeActor);
+        const stationId = button.dataset.stationId;
+        if (context.kind !== "npc-starship" || !BRIDGE_STATIONS.some(station => station.id === stationId)) return;
+        this._combatBranch = {
+          key: context.key,
+          level: "npc-categories",
+          categoryId: null,
+          stationId,
+        };
+        this.refresh();
+      } else if (action === "combat-npc-category") {
+        const context = this._combatContext(this._activeActor);
+        const stationId = this._combatBranch?.stationId;
+        const categoryId = button.dataset.categoryId;
+        const station = BRIDGE_STATIONS.find(entry => entry.id === stationId);
+        const category = this._npcShipStationCategories(context, station)
+          .find(entry => entry.id === categoryId);
+        if (context.kind !== "npc-starship" || !category?.entries.length) return;
+        this._combatBranch = {
+          key: context.key,
+          level: "npc-actions",
+          categoryId,
+          stationId,
+        };
         this.refresh();
       } else if (action === "combat-category") {
         const context = this._combatContext(this._activeActor);
@@ -888,62 +1385,98 @@ export class LcarsActionRing {
       } else if (action === "combat-entry") {
         const entry = this._combatBranchEntries[Number(button.dataset.entryIndex)];
         const context = this._combatContext(this._activeActor);
-        const isTargetingSolution = entry?.action?.key === "targeting-solution" && context.kind === "starship";
-        const isCalibrateSensors = entry?.action?.key === "calibrate-sensors" && context.kind === "starship";
+        const originBranch = this._combatBranch;
+        const isStarshipContext = ["starship", "npc-starship"].includes(context.kind);
+        const isTargetingSolution = entry?.action?.key === "targeting-solution" && isStarshipContext;
+        const isCalibrateSensors = entry?.action?.key === "calibrate-sensors" && isStarshipContext;
         this._combatBranch = null;
         this.refresh();
         await this._runCombatEntry(entry, context);
         if (isTargetingSolution && CombatHUD.hasTargetingSolution(context.token)) {
-          this._combatBranch = { key: context.key, level: "targeting-choice", categoryId: "minor" };
+          this._combatBranch = {
+            key: context.key,
+            level: "targeting-choice",
+            categoryId: "minor",
+            stationId: originBranch?.stationId ?? "tactical",
+          };
           this.refresh();
         } else if (isCalibrateSensors && CombatHUD.hasCalibratesensors(context.token)) {
-          this._combatBranch = { key: context.key, level: "sensor-choice", categoryId: "minor" };
+          this._combatBranch = {
+            key: context.key,
+            level: "sensor-choice",
+            categoryId: "minor",
+            stationId: originBranch?.stationId ?? "sensors",
+          };
           this.refresh();
         }
       } else if (action === "combat-targeting-reroll") {
         const context = this._combatContext(this._activeActor);
-        if (context.kind !== "starship") return;
+        if (!["starship", "npc-starship"].includes(context.kind)) return;
+        const stationId = this._combatBranch?.stationId;
         await game.sta2eToolkit?.combatHud?.triggerRingAction(
           context.token,
           { key: "ts-reroll" },
           BRIDGE_STATIONS.find(station => station.id === "tactical") ?? null,
         );
-        this._combatBranch = { key: context.key, level: "targeting-choice", categoryId: "minor" };
+        this._combatBranch = { key: context.key, level: "targeting-choice", categoryId: "minor", stationId };
         this.refresh();
       } else if (action === "combat-targeting-systems") {
         const context = this._combatContext(this._activeActor);
-        if (context.kind !== "starship") return;
-        this._combatBranch = { key: context.key, level: "targeting-systems", categoryId: "minor" };
+        if (!["starship", "npc-starship"].includes(context.kind)) return;
+        this._combatBranch = {
+          key: context.key,
+          level: "targeting-systems",
+          categoryId: "minor",
+          stationId: this._combatBranch?.stationId,
+          targetingBenefit: "system",
+        };
+        this.refresh();
+      } else if (action === "combat-targeting-both") {
+        const context = this._combatContext(this._activeActor);
+        if (context.kind !== "npc-starship" || !hasFastTargetingSystems(context.ship)) return;
+        this._combatBranch = {
+          key: context.key,
+          level: "targeting-systems",
+          categoryId: "minor",
+          stationId: this._combatBranch?.stationId,
+          targetingBenefit: "both",
+        };
         this.refresh();
       } else if (action === "combat-targeting-system") {
         const context = this._combatContext(this._activeActor);
-        if (context.kind !== "starship") return;
+        if (!["starship", "npc-starship"].includes(context.kind)) return;
+        const stationId = this._combatBranch?.stationId;
+        const targetingBenefit = this._combatBranch?.targetingBenefit;
         await game.sta2eToolkit?.combatHud?.triggerRingAction(
           context.token,
-          { key: `ts-system-${button.dataset.system}` },
+          { key: `ts-system-${button.dataset.system}`, targetingBenefit },
           BRIDGE_STATIONS.find(station => station.id === "tactical") ?? null,
         );
-        this._combatBranch = { key: context.key, level: "targeting-choice", categoryId: "minor" };
+        this._combatBranch = { key: context.key, level: "targeting-choice", categoryId: "minor", stationId };
         this.refresh();
       } else if (action === "combat-sensor-reroll") {
         const context = this._combatContext(this._activeActor);
-        if (context.kind !== "starship") return;
+        if (!["starship", "npc-starship"].includes(context.kind)) return;
+        const stationId = this._combatBranch?.stationId;
         await game.sta2eToolkit?.combatHud?.triggerRingAction(
           context.token,
           { key: "cs-reroll" },
           BRIDGE_STATIONS.find(station => station.id === "sensors") ?? null,
         );
-        this._combatBranch = { key: context.key, level: "sensor-choice", categoryId: "minor" };
+        this._combatBranch = { key: context.key, level: "sensor-choice", categoryId: "minor", stationId };
         this.refresh();
       } else if (action === "combat-sensor-ignore-trait") {
         const context = this._combatContext(this._activeActor);
-        if (context.kind !== "starship") return;
+        if (!["starship", "npc-starship"].includes(context.kind)) return;
+        const stationId = this._combatBranch?.stationId;
         await game.sta2eToolkit?.combatHud?.triggerRingAction(
           context.token,
           { key: "cs-ignore-trait" },
           BRIDGE_STATIONS.find(station => station.id === "sensors") ?? null,
         );
-        this._combatBranch = { key: context.key, level: "actions", categoryId: "minor" };
+        this._combatBranch = context.kind === "npc-starship"
+          ? { key: context.key, level: "npc-actions", categoryId: "minor", stationId }
+          : { key: context.key, level: "actions", categoryId: "minor" };
         this.refresh();
       }
     } catch (err) {
@@ -975,11 +1508,20 @@ export class LcarsActionRing {
 
     const currentId = this._activeActor?.id ?? "";
     let selectedId = currentId || actors[0].id;
+    const gmAutoSwitchHtml = game.user.isGM ? `
+      <label class="sta2e-lcars-ring-dialog__auto-switch">
+        <input type="checkbox" data-lcars-gm-auto-switch${setting("lcarsRingGmAutoSwitch", false) ? " checked" : ""} />
+        <span>
+          <strong>${escapeHtml(localize("STA2E.Settings.LcarsRingGmAutoSwitch.Name", "Auto-switch to Selected Character"))}</strong>
+          <small>${escapeHtml(localize("STA2E.Settings.LcarsRingGmAutoSwitch.Hint", "When exactly one character token is selected, make it the ring's active character."))}</small>
+        </span>
+      </label>` : "";
     const result = await foundry.applications.api.DialogV2.wait({
       window: { title: "LCARS Ring - Active Character" },
       content: `
         <div class="sta2e-lcars-ring-dialog" ${ringDialogThemeAttributes()}>
           <p class="sta2e-lcars-ring-dialog__hint">Choose the active character. Favorites stay at the top of this list.</p>
+          ${gmAutoSwitchHtml}
           <div class="sta2e-lcars-ring-dialog__filters">
             <input type="search" data-lcars-picker-filter placeholder="Filter by name" aria-label="Filter characters by name" />
             <label><input type="checkbox" data-lcars-picker-scene /> In current scene</label>
@@ -991,6 +1533,14 @@ export class LcarsActionRing {
       rejectClose: false,
       render: (_event, dialog) => {
         applyRingTheme(dialog.element);
+        dialog.element.querySelector("[data-lcars-gm-auto-switch]")?.addEventListener("change", async event => {
+          try {
+            await game.settings.set(MODULE, "lcarsRingGmAutoSwitch", event.currentTarget.checked);
+          } catch (err) {
+            console.error("STA2e Toolkit | Failed to update GM character auto-switch:", err);
+            ui.notifications.error("STA2e Toolkit: Could not update character auto-switch.");
+          }
+        });
         this._bindPickerFavorites(dialog, actors, {
           kind: "characters", inputName: "actorId", selectedId,
         });
