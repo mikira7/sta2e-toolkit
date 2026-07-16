@@ -25,6 +25,15 @@ function trackerLayout() {
   catch { return "docked"; }
 }
 
+function trackerSize() {
+  try {
+    const value = Number(game.settings.get(MODULE, "poolTrackerSize") ?? 100);
+    return Math.min(1.5, Math.max(0.5, Number.isFinite(value) ? value / 100 : 1));
+  } catch {
+    return 1;
+  }
+}
+
 function showAlliedNpcMomentumTracker() {
   try { return game.settings.get(MODULE, "showAlliedNpcMomentumTracker") !== false; }
   catch { return true; }
@@ -69,6 +78,7 @@ export class ToolkitPoolTracker {
             || setting.key === `${MODULE}.showAlliedNpcMomentumTracker`
             || setting.key === `${MODULE}.poolTrackerMode`
             || setting.key === `${MODULE}.poolTrackerLayout`
+            || setting.key === `${MODULE}.poolTrackerSize`
           ) {
             try {
               this.applyMode();
@@ -383,14 +393,17 @@ export class ToolkitPoolTracker {
   _applyCollapsed() {
     if (!this._el) return;
     this._el.classList.toggle("sta2e-pool-tracker--collapsed", this._collapsed);
-    const icon = this._el.querySelector(".sta2e-pool-tracker__collapse i");
+    const collapse = this._el.querySelector(".sta2e-pool-tracker__collapse");
+    const icon = collapse?.querySelector("i");
     if (icon) icon.className = this._collapsed ? "fas fa-plus" : "fas fa-minus";
+    if (collapse) collapse.title = this._collapsed ? "Show tracker" : "Hide tracker";
   }
 
   _applyLayout() {
     if (!this._el) return;
     const layout = trackerLayout() === "floating" ? "floating" : "docked";
     this._ensureAttached();
+    this._el.style.setProperty("--sta2e-pool-scale", String(trackerSize()));
 
     this._el.classList.toggle("sta2e-pool-tracker--docked", layout === "docked");
     this._el.classList.toggle("sta2e-pool-tracker--floating", layout === "floating");
@@ -458,7 +471,7 @@ export class ToolkitPoolTracker {
       right = Math.max(12, Math.ceil(window.innerWidth - rect.left + 72));
     }
 
-    const trackerWidth = this._el.offsetWidth || 188;
+    const trackerWidth = (this._el.offsetWidth || 188) * trackerSize();
     right = Math.min(right, Math.max(12, window.innerWidth - trackerWidth - 8));
     this._el.style.setProperty("--sta2e-pool-dock-right", `${right}px`);
   }

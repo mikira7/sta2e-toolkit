@@ -35,6 +35,8 @@ export class ToolkitAPI {
     game.sta2eToolkit?.alertHud?._refreshTheme();
     // Re-render the combat HUD so it picks up any theme change immediately
     game.sta2eToolkit?.combatHud?._refresh?.();
+    // Re-render the action ring so it follows the active campaign theme.
+    game.sta2eToolkit?.lcarsRing?.refresh?.();
     // Re-inject sheet CSS on the local (GM) client immediately
     game.sta2eToolkit?.refreshSheetTheme?.();
     // Socket message re-applies sheet CSS on all player clients too (see main.js renderHUD handler)

@@ -461,7 +461,7 @@ export function visibleTraitActors(user = game.user) {
 function manifestActorsForShip(actor) {
   if (!actor?.system?.systems) return [];
   const manifest = getCrewManifest(actor);
-  const ids = Object.values(manifest ?? {}).flat();
+  const ids = Object.values(manifest ?? {}).flat().filter(Boolean);
   return ids
     .map(id => game.actors.get(id))
     .filter(Boolean);

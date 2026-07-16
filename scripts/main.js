@@ -23,6 +23,7 @@ import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
 import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
 import { TraitManager } from "./trait-manager.js";
+import { LcarsActionRing } from "./lcars-action-ring.js";
 import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
 import { getLcTokens } from "./lcars-theme.js";
@@ -643,6 +644,7 @@ Hooks.once("ready", async () => {
   const toolkitWidget   = new ToolkitWidget();
   const poolTracker     = new ToolkitPoolTracker();
   const traitManager    = new TraitManager();
+  const lcarsRing       = new LcarsActionRing();
 
   game.sta2eToolkit = new ToolkitAPI({ campaignStore, hud, dateEditor, campaignManager });
   game.sta2eToolkit.openWarpCalc    = openWarpCalc;
@@ -729,6 +731,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
   game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.traitManager    = traitManager;
+  game.sta2eToolkit.lcarsRing       = lcarsRing;
   game.sta2eToolkit.openCharacterCreator = openCharacterCreator;
   game.sta2eToolkit.openTextFormatter = openTextFormatter;
   game.sta2eToolkit.openVfxTestPanel = _openVfxTestPanel;
@@ -753,6 +756,11 @@ Hooks.once("ready", async () => {
     poolTracker.init();
   } catch (err) {
     console.error("STA2e Toolkit | Pool tracker init failed:", err);
+  }
+  try {
+    lcarsRing.init();
+  } catch (err) {
+    console.error("STA2e Toolkit | LCARS action ring init failed:", err);
   }
 
   // Zone toolbar has no canvas dependency — create it now so it is always available.
@@ -979,6 +987,7 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.hud?.render();
       game.sta2eToolkit?.alertHud?._refreshTheme();
       game.sta2eToolkit?.combatHud?._refresh?.();
+      game.sta2eToolkit?.lcarsRing?.refresh?.();
       _applySheetTheme();   // re-inject sheet CSS on every client when theme changes
     }
 
@@ -1372,6 +1381,27 @@ Hooks.once("ready", async () => {
 // ---------------------------------------------------------------------------
 // Settings change hooks
 // ---------------------------------------------------------------------------
+
+function _refreshLcarsRing() {
+  game.sta2eToolkit?.lcarsRing?.refresh?.();
+}
+
+[
+  "canvasReady",
+  "controlToken",
+  "createToken",
+  "updateToken",
+  "deleteToken",
+  "createCombat",
+  "updateCombat",
+  "deleteCombat",
+  "createCombatant",
+  "updateCombatant",
+  "deleteCombatant",
+  "createActor",
+  "updateActor",
+  "deleteActor",
+].forEach(hookName => Hooks.on(hookName, _refreshLcarsRing));
 
 // Live-update alert sound volume when the user adjusts the slider
 Hooks.on("settingChanged", (namespace, key, value) => {
@@ -2986,6 +3016,10 @@ function _applySheetRollerOverride(app, html) {
             weaponsArmed:      CombatHUD.getWeaponsArmed(combatCtx.shipActor),
             shieldsLowered:    CombatHUD.getShieldsLowered(combatCtx.shipActor),
           } : null,
+          // Preserve the declared Targeting Solution benefit and system. The
+          // dice roller is opened with the character token, while this state
+          // lives on the combat ship token.
+          targetingSolution: CombatHUD.getTargetingSolution(_shipToken),
           // Helm minor actions (Impulse + Thrusters are info-only, no persistent state)
           helmMinorStates: _isHelm ? {} : null,
           // Sensor minor actions (Calibrate Sensors is a toggle, Launch Probe is info-only)
@@ -3448,6 +3482,7 @@ Hooks.on("createCombatant", async (combatant, _options, userId) => {
   for (const slot of STATION_SLOTS) {
     const ids = manifest[slot.id] ?? [];
     for (const actorId of ids) {
+      if (!actorId) continue;
       if (seen.has(actorId)) continue;
       seen.add(actorId);
       const officerActor = game.actors.get(actorId);

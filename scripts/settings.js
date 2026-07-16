@@ -136,6 +136,20 @@ export function registerSettings() {
     },
   });
 
+  game.settings.register("sta2e-toolkit", "poolTrackerSize", {
+    name:    "STA2E.Settings.PoolTrackerSize.Name",
+    hint:    "STA2E.Settings.PoolTrackerSize.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Number,
+    range:   { min: 50, max: 150, step: 5 },
+    default: 100,
+    onChange: () => {
+      game.sta2eToolkit?.poolTracker?.applyMode?.();
+      game.sta2eToolkit?.poolTracker?.refresh?.();
+    },
+  });
+
   // ── Sounds & Animations config menu button ─────────────────────────────
   game.settings.registerMenu("sta2e-toolkit", "effectConfigMenu", {
     name:       "STA2E.Settings.EffectConfig.Name",
@@ -280,6 +294,72 @@ export function registerSettings() {
     config:  true,
     type:    Boolean,
     default: false,
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingEnabled", {
+    name:    "STA2E.Settings.LcarsRingEnabled.Name",
+    hint:    "STA2E.Settings.LcarsRingEnabled.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingHiddenForStreaming", {
+    name:    "STA2E.Settings.LcarsRingHiddenForStreaming.Name",
+    hint:    "STA2E.Settings.LcarsRingHiddenForStreaming.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Boolean,
+    default: false,
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingSize", {
+    name:    "STA2E.Settings.LcarsRingSize.Name",
+    hint:    "STA2E.Settings.LcarsRingSize.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Number,
+    range:   { min: 50, max: 150, step: 5 },
+    default: 100,
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingCollapsed", {
+    name:    "LCARS Ring Collapsed",
+    scope:   "client",
+    config:  false,
+    type:    Boolean,
+    default: false,
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingActiveActorId", {
+    name:    "LCARS Ring Active Actor",
+    scope:   "client",
+    config:  false,
+    type:    String,
+    default: "",
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingShipByActor", {
+    name:    "LCARS Ring Ships By Actor",
+    scope:   "client",
+    config:  false,
+    type:    Object,
+    default: {},
+    onChange: () => game.sta2eToolkit?.lcarsRing?.refresh?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "lcarsRingFavorites", {
+    name:    "LCARS Ring Favorites",
+    scope:   "client",
+    config:  false,
+    type:    Object,
+    default: { characters: [], ships: [] },
   });
 
   game.settings.register("sta2e-toolkit", "showMinutes", {

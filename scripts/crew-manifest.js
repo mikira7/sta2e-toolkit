@@ -35,6 +35,14 @@ export const STATION_SLOTS = [
   { id: "medical",    label: "Medical",   icon: "⚕️", maxOfficers: 1, defaultAttr: "insight",  defaultDisc: "medicine"    },
 ];
 
+// Command is the only station with named positions. Its manifest array keeps
+// these seats at their matching indexes, including a null placeholder when one
+// is vacant, so an Executive Officer can be assigned before a Captain.
+export const COMMAND_SEATS = [
+  { id: "captain", label: "Captain", index: 0 },
+  { id: "executiveOfficer", label: "First Officer (Executive Officer)", index: 1 },
+];
+
 // ── STA 2e character attribute + discipline keys ──────────────────────────────
 export const OFFICER_ATTRIBUTES = [
   { key: "control",  label: "Control"  },
@@ -83,19 +91,39 @@ function _manifestStore(actor) {
 export function getCrewManifest(actor) {
   const { doc } = _manifestStore(actor);
   if (!doc) return _emptyManifest();
-  return doc.getFlag(MODULE, FLAG) ?? _emptyManifest();
+  return _normalizeManifest(doc.getFlag(MODULE, FLAG));
 }
 
 export async function setCrewManifest(actor, manifest) {
   const { doc } = _manifestStore(actor);
   if (!doc) return;
-  await doc.setFlag(MODULE, FLAG, manifest);
+  await doc.setFlag(MODULE, FLAG, _normalizeManifest(manifest));
 }
 
 function _emptyManifest() {
   const m = {};
   STATION_SLOTS.forEach(s => { m[s.id] = []; });
+  m.command = [null, null];
   return m;
+}
+
+function _normalizeManifest(manifest) {
+  const source = manifest && typeof manifest === "object" ? manifest : {};
+  const normalized = _emptyManifest();
+  for (const slot of STATION_SLOTS) {
+    const ids = Array.isArray(source[slot.id]) ? source[slot.id] : [];
+    if (slot.id === "command") {
+      normalized.command = COMMAND_SEATS.map(({ index }) => {
+        const id = ids[index];
+        return typeof id === "string" && id ? id : null;
+      });
+    } else {
+      normalized[slot.id] = ids
+        .filter(id => typeof id === "string" && id)
+        .slice(0, slot.maxOfficers);
+    }
+  }
+  return normalized;
 }
 
 // ── Officer resolution ────────────────────────────────────────────────────────
@@ -103,7 +131,7 @@ function _emptyManifest() {
 export function getStationOfficers(shipActor, stationId) {
   const manifest = getCrewManifest(shipActor);
   const ids      = manifest[stationId] ?? [];
-  return ids.map(id => game.actors.get(id)).filter(Boolean);
+  return ids.filter(Boolean).map(id => game.actors.get(id)).filter(Boolean);
 }
 
 export function readOfficerStats(actor) {
@@ -186,13 +214,16 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
   const buildContent = () => {
     const rows = STATION_SLOTS.map(slot => {
       const assigned = (manifest[slot.id] ?? [])
-        .map(id => game.actors.get(id))
-        .filter(Boolean);
+        .map((id, index) => ({ actor: game.actors.get(id), index }))
+        .filter(({ actor }) => Boolean(actor));
 
       // Assigned officer rows
-      const officerRows = assigned.map((officer, idx) => {
+      const officerRows = assigned.map(({ actor: officer, index }) => {
         const stats    = readOfficerStats(officer);
         const img      = officer.img ?? "icons/svg/mystery-man.svg";
+        const commandSeat = slot.id === "command"
+          ? COMMAND_SEATS.find(seat => seat.index === index)
+          : null;
         const attrLine = stats
           ? OFFICER_ATTRIBUTES
               .filter(a => stats.attributes[a.key] !== null)
@@ -217,6 +248,9 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
               <div style="font-size:10px;font-weight:700;color:${LC.text};
                 font-family:${LC.font};white-space:nowrap;overflow:hidden;
                 text-overflow:ellipsis;">${officer.name}</div>
+              ${commandSeat ? `
+                <div style="font-size:8px;color:${LC.primary};font-family:${LC.font};
+                  letter-spacing:0.06em;text-transform:uppercase;">${commandSeat.label}</div>` : ""}
               ${stats ? `
                 <div style="font-size:8px;color:${LC.textDim};font-family:${LC.font};
                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -228,7 +262,7 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
                 </div>` : ""}
             </div>
             <button class="sta2e-crew-remove"
-              data-station="${slot.id}" data-index="${idx}"
+              data-station="${slot.id}" data-index="${index}"
               style="padding:2px 6px;background:rgba(180,0,0,0.15);
                 border:1px solid ${LC.red};border-radius:2px;
                 color:${LC.red};font-size:9px;cursor:pointer;
@@ -237,9 +271,8 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
       }).join("");
 
       // Drop zone — only if slot has room
-      const canAddMore = assigned.length < slot.maxOfficers;
-      const dropZone   = canAddMore ? `
-        <div class="sta2e-drop-zone" data-station="${slot.id}"
+      const buildDropZone = (label, commandSeatIndex = null) => `
+        <div class="sta2e-drop-zone" data-station="${slot.id}"${commandSeatIndex === null ? "" : ` data-command-seat="${commandSeatIndex}"`}
           style="display:flex;align-items:center;justify-content:center;gap:6px;
             padding:8px;min-height:38px;
             border:2px dashed ${LC.borderDim};border-radius:3px;
@@ -248,8 +281,22 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
             transition:border-color 0.15s,color 0.15s,background 0.15s;
             cursor:copy;">
           <span style="font-size:14px;opacity:0.45;">⬇</span>
-          Drop token here
-        </div>` : "";
+          ${label}
+        </div>`;
+      const commandDropZones = slot.id === "command"
+        ? COMMAND_SEATS
+            .filter(({ index }) => !manifest.command[index])
+            .map(seat => buildDropZone(`Drop ${seat.label}`, seat.index))
+            .join("")
+        : "";
+      const dropZone = slot.id === "command"
+        ? commandDropZones
+        : assigned.length < slot.maxOfficers
+          ? buildDropZone("Drop token here")
+          : "";
+      const canAddMore = slot.id === "command"
+        ? COMMAND_SEATS.some(({ index }) => !manifest.command[index])
+        : assigned.length < slot.maxOfficers;
 
       return `
         <div style="margin-bottom:8px;padding:6px 8px;
@@ -329,9 +376,16 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
         const stationId = zone.dataset.station;
         const slot      = STATION_SLOTS.find(s => s.id === stationId);
         const current   = manifest[stationId] ?? [];
+        const commandSeatIndex = zone.dataset.commandSeat === undefined
+          ? null
+          : Number(zone.dataset.commandSeat);
 
-        if (current.length >= slot.maxOfficers) {
+        if (current.filter(Boolean).length >= slot.maxOfficers && commandSeatIndex === null) {
           ui.notifications.warn(`STA2e Toolkit: ${slot.label} is full.`);
+          return;
+        }
+        if (commandSeatIndex !== null && current[commandSeatIndex]) {
+          ui.notifications.warn(`STA2e Toolkit: The selected Command seat is occupied.`);
           return;
         }
         if (current.includes(actor.id)) {
@@ -348,7 +402,13 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
           return;
         }
 
-        manifest[stationId] = [...current, actor.id];
+        if (stationId === "command") {
+          const nextCommand = [current[0] ?? null, current[1] ?? null];
+          nextCommand[commandSeatIndex ?? nextCommand.findIndex(id => !id)] = actor.id;
+          manifest.command = nextCommand;
+        } else {
+          manifest[stationId] = [...current, actor.id];
+        }
         await setCrewManifest(shipActor, manifest);
 
         const body = el.querySelector(".dialog-content") ?? el.querySelector(".window-content");
@@ -364,7 +424,11 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
       btn.addEventListener("click", async () => {
         const stationId = btn.dataset.station;
         const idx       = parseInt(btn.dataset.index);
-        manifest[stationId] = (manifest[stationId] ?? []).filter((_, i) => i !== idx);
+        if (stationId === "command") {
+          manifest.command = (manifest.command ?? []).map((id, i) => i === idx ? null : id);
+        } else {
+          manifest[stationId] = (manifest[stationId] ?? []).filter((_, i) => i !== idx);
+        }
         await setCrewManifest(shipActor, manifest);
 
         const body = el.querySelector(".dialog-content") ?? el.querySelector(".window-content");

@@ -1592,7 +1592,7 @@ for (const station of BRIDGE_STATIONS) {
 
 // ── Ground Combat Actions ──────────────────────────────────────────────────────
 // Minor/major actions for non-starship (character) ground combat.
-const GROUND_ACTIONS = {
+export const GROUND_ACTIONS = {
   minor: [
     {
       key:      "ground-aim",
@@ -1916,6 +1916,34 @@ export class CombatHUD {
   /** Re-render HUD contents for the current token (e.g. after flag update). */
   refresh() {
     if (this._el && this._token) this._refresh();
+  }
+
+  /**
+   * Execute one existing Combat HUD action from the LCARS action ring.
+   * The ring intentionally delegates here so action effects, dialogs, and
+   * chat cards remain identical to their Combat HUD counterparts.
+   */
+  async triggerRingAction(token, action, station = null) {
+    if (!token?.actor || !action?.key) return;
+    this._token = token;
+    await this._handleQuickAction(action, station);
+  }
+
+  /**
+   * Trigger an existing weapon button from a detached HUD section. This reuses
+   * the full weapon handler without rendering or opening the Combat HUD.
+   */
+  triggerRingWeapon(token, weaponId) {
+    if (!token?.actor || !weaponId) return;
+    this._token = token;
+    const weapons = this._buildWeapons(token.actor);
+    const button = [...weapons.querySelectorAll("[data-sta2e-weapon-id]")]
+      .find(el => el.dataset.sta2eWeaponId === weaponId);
+    if (!button) {
+      ui.notifications.warn("STA2e Toolkit: Weapon not found.");
+      return;
+    }
+    button.click();
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -2385,6 +2413,7 @@ export class CombatHUD {
     } else {
       weapons.forEach(weapon => {
         const btn = document.createElement("button");
+        btn.dataset.sta2eWeaponId = weapon.id;
         btn.style.cssText = `
           width: 44px; height: 44px;
           background: ${LC.panel} url("${weapon.img}") center/contain no-repeat;
@@ -2977,11 +3006,22 @@ export class CombatHUD {
             return; // skip ship weapon logic below
           }
 
+          const targetResolution = await CombatHUD.resolveStarshipActionTarget(this._token, {
+            weapon,
+            actionLabel: "Fire Weapons",
+          });
+          if (targetResolution.cancelled) return;
+          const selectedTargetToken = targetResolution.token;
+          this._pendingExplicitTargetTokenId = targetResolution.explicit ? selectedTargetToken?.id ?? null : null;
+
           // ── Opposed task intercept — check BEFORE opening any roller or hit/miss ──
           // If the target has Evasive Action or Defensive Fire active, post the
           // defender card and store a pending task in world settings so the
           // attacker's roller opens automatically once the defender confirms.
-          const opposed = await this._checkOpposedTask(weapon.name);
+          const opposed = await this._checkOpposedTask(
+            weapon.name,
+            selectedTargetToken ? [selectedTargetToken] : Array.from(game.user.targets ?? []),
+          );
           if (opposed.proceed === "pending") {
             // Build base roller opts now — opposedDifficulty will be injected
             // by the GM socket handler when the defender's successes arrive.
@@ -3026,6 +3066,7 @@ export class CombatHUD {
               weaponId:  weapon.id ?? null,
               shipActorId: actor.id ?? null,
               shipTokenId: this._token?.id ?? null,
+              primaryTargetTokenId: this._pendingExplicitTargetTokenId,
               isTorpedo: _isTorpedo,
               isArray:   _modeInfo_op.isArray,
               isSalvo:   _modeInfo_op.isSalvo,
@@ -3100,7 +3141,7 @@ export class CombatHUD {
           if (!opposed.proceed) return; // unexpected cancel path
 
           // Store opposed context for the roller and hit/miss flow
-          const _primaryShipTarget = Array.from(game.user.targets ?? [])[0] ?? null;
+          const _primaryShipTarget = selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null;
           this._opposedDifficulty  = _shipAttackDifficulty(weapon, config, opposed.difficulty, { targetToken: _primaryShipTarget });
           this._opposedDefenseType = opposed.defenseType;
           this._defenderSuccesses  = opposed.defenderSuccesses;
@@ -3115,6 +3156,7 @@ export class CombatHUD {
               weaponId:  weapon.id ?? null,
               shipActorId: actor.id ?? null,
               shipTokenId: this._token?.id ?? null,
+              primaryTargetTokenId: this._pendingExplicitTargetTokenId,
               isTorpedo,
               cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
               damage:    total,
@@ -3212,7 +3254,7 @@ export class CombatHUD {
                 opposedDifficulty:    this._opposedDifficulty,
                 opposedDefenseType:   this._opposedDefenseType,
                 defenderSuccesses:    this._defenderSuccesses,
-                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: Array.from(game.user.targets ?? [])[0] ?? null }) : null,
+                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null }) : null,
                 hasAttackPattern,
                 helmOfficer:          helmOfficerStats,
                 attackRunActive,
@@ -3288,6 +3330,7 @@ export class CombatHUD {
                 weaponId:  weapon.id ?? null,
                 shipActorId: actor.id ?? null,
                 shipTokenId: this._token?.id ?? null,
+                primaryTargetTokenId: this._pendingExplicitTargetTokenId,
                 isTorpedo,
                 isArray:   _modeInfo.isArray,
                 isSalvo:   _modeInfo.isSalvo,
@@ -3313,7 +3356,7 @@ export class CombatHUD {
                 opposedDifficulty:    this._opposedDifficulty,
                 opposedDefenseType:   this._opposedDefenseType,
                 defenderSuccesses:    this._defenderSuccesses,
-                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: Array.from(game.user.targets ?? [])[0] ?? null }) : null,
+                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null }) : null,
                 hasAttackPattern,
                 helmOfficer:          helmOfficerStats,
                 attackRunActive,
@@ -3377,6 +3420,123 @@ export class CombatHUD {
     return CombatHUD._shipWeaponRangeSummary(weapon, this._token, targets);
   }
 
+  /**
+   * Resolve a primary starship-combat target without changing Foundry's target
+   * highlights. Existing user targets retain their current behavior; otherwise
+   * a scene-token picker supplies an explicit one for the calling action.
+   */
+  static async resolveStarshipActionTarget(sourceToken, { weapon = null, actionLabel = "Action" } = {}) {
+    const existing = Array.from(game.user.targets ?? []);
+    if (existing.length) return { token: existing[0], explicit: false, cancelled: false };
+    if (!game.combat?.active || !sourceToken?.actor) {
+      return { token: null, explicit: false, cancelled: false };
+    }
+
+    const candidates = (canvas.tokens?.placeables ?? [])
+      .filter(token => token.id !== sourceToken.id && token.visible !== false)
+      .filter(token => ["starship", "smallcraft"].includes(token.actor?.type));
+    let choices = candidates.map(token => ({ token, rangeLabel: weapon ? "Range unavailable" : null }));
+
+    if (weapon) {
+      const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
+      const zones = zonesEnabled ? getSceneZones() : [];
+      if (zones.length) {
+        const summary = getWeaponRangeSummary(weapon, sourceToken, candidates, zones);
+        choices = summary.results
+          .filter(result => result.within)
+          .map(result => ({
+            token: result.target,
+            rangeLabel: result.actualRange ? `${result.actualRange} range` : result.label,
+          }));
+      }
+    }
+
+    if (!choices.length) {
+      ui.notifications.warn(`STA2e Toolkit: No eligible starship targets are available for ${actionLabel}.`);
+      return { token: null, explicit: false, cancelled: true };
+    }
+
+    const options = choices.map(({ token, rangeLabel }, index) => {
+      const name = token.name ?? token.actor?.name ?? "Ship";
+      const img = token.document?.texture?.src ?? token.actor?.img ?? "icons/svg/mystery-man.svg";
+      return `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;
+          border:1px solid ${LC.borderDim};border-radius:3px;cursor:pointer;
+          background:rgba(255,153,0,0.04);">
+          <input type="radio" name="sta2e-starship-target" value="${token.id}"
+            ${index === 0 ? "checked" : ""} style="accent-color:${LC.primary};" />
+          <img src="${escapeHtml(img)}" alt="" style="width:34px;height:34px;object-fit:cover;
+            border-radius:2px;border:1px solid ${LC.borderDim};" />
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <strong style="font-size:11px;color:${LC.text};font-family:${LC.font};">
+              ${escapeHtml(name)}
+            </strong>
+            ${rangeLabel ? `<span style="font-size:9px;color:${LC.secondary};font-family:${LC.font};">${escapeHtml(rangeLabel)}</span>` : ""}
+          </span>
+        </label>`;
+    }).join("");
+    let preview = null;
+    const clearPreview = () => {
+      if (!preview) return;
+      preview.destroy({ children: true });
+      preview = null;
+    };
+    const showPreview = tokenId => {
+      clearPreview();
+      const token = choices.find(choice => choice.token.id === tokenId)?.token;
+      if (!token || !globalThis.PIXI) return;
+      preview = new PIXI.Graphics();
+      preview.eventMode = "none";
+      preview.lineStyle(4, 0xff9900, 0.95);
+      preview.drawRoundedRect(3, 3, Math.max(1, token.w - 6), Math.max(1, token.h - 6), 8);
+      token.addChild(preview);
+    };
+
+    let pickedId;
+    try {
+      pickedId = await foundry.applications.api.DialogV2.wait({
+        window: { title: `${actionLabel} — Select Target` },
+        content: `
+          <div style="font-family:${LC.font};padding:4px 0;">
+            <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+              No target is selected. Choose a ship for this ${actionLabel.toLowerCase()}.
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto;">
+              ${options}
+            </div>
+          </div>`,
+        buttons: [
+          {
+            action: "select",
+            label: "Select Target",
+            icon: "fas fa-crosshairs",
+            default: true,
+            callback: (_event, _button, dialog) => dialog.element
+              ?.querySelector("input[name='sta2e-starship-target']:checked")?.value ?? null,
+          },
+          { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+        ],
+        render: (_event, dialog) => {
+          const element = dialog.element;
+          const updatePreview = () => showPreview(
+            element?.querySelector("input[name='sta2e-starship-target']:checked")?.value,
+          );
+          element?.querySelectorAll("input[name='sta2e-starship-target']")
+            .forEach(input => input.addEventListener("change", updatePreview));
+          updatePreview();
+        },
+      });
+    } finally {
+      clearPreview();
+    }
+    if (!pickedId || pickedId === "cancel") return { token: null, explicit: false, cancelled: true };
+    return {
+      token: choices.find(choice => choice.token.id === pickedId)?.token ?? null,
+      explicit: true,
+      cancelled: false,
+    };
+  }
+
   static _rangeWarningHtml(summary) {
     if (!summary?.hasWarning) return "";
     const rows = summary.warnings.map(result => {
@@ -3415,8 +3575,8 @@ export class CombatHUD {
    * can be invoked from the NPC roller's Roll button (character-sheet path)
    * without requiring a live CombatHUD instance.
    */
-  async _checkOpposedTask(weaponName) {
-    return checkOpposedTaskForTokens(weaponName, this._token, Array.from(game.user.targets));
+  async _checkOpposedTask(weaponName, targets = Array.from(game.user.targets ?? [])) {
+    return checkOpposedTaskForTokens(weaponName, this._token, targets);
   }
 
   // ── Shields ────────────────────────────────────────────────────────────────
@@ -4329,6 +4489,9 @@ export class CombatHUD {
     // ── Ship combat path — delegate to static method ───────────────────────
     const shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
     await CombatHUD.resolveShipAttack(token, weapon, isHit, {
+      overrideTargets: this._pendingExplicitTargetTokenId
+        ? [canvas.tokens?.get(this._pendingExplicitTargetTokenId)].filter(Boolean)
+        : null,
       salvoMode:          shipModeInfo.needsMode ? (this._pendingSalvoMode ?? "area") : null,
       defenderSuccesses:  this._defenderSuccesses,
       opposedDefenseType: this._opposedDefenseType,
@@ -4972,6 +5135,9 @@ export class CombatHUD {
           this._pendingSalvoMode = null;
           this._refresh();
           await CombatHUD.resolveShipAttack(this._token, weapon, true, {
+            overrideTargets: this._pendingExplicitTargetTokenId
+              ? [canvas.tokens?.get(this._pendingExplicitTargetTokenId)].filter(Boolean)
+              : null,
             salvoMode,
             rapidFireBonus: hasRapidFireTorpedoLauncher(actor) && weaponConfig?.type === "torpedo" ? 1 : 0,
           });
@@ -5506,7 +5672,7 @@ export class CombatHUD {
     switch (action.key) {
 
       case "create-trait": {
-        await this._handleCreateTrait(actor, token, station);
+        await this._handleCreateTrait(actor, token, station, action);
         break;
       }
 
@@ -5602,8 +5768,16 @@ export class CombatHUD {
       }
 
       case "scan-for-weakness": {
-        if (!target) { ui.notifications.warn("Select a target first."); return; }
-        await this._handleScanForWeakness(actor, token, target);
+        let scanTarget = target;
+        if (!scanTarget) {
+          const targetResolution = await CombatHUD.resolveStarshipActionTarget(token, {
+            actionLabel: "Scan for Weakness",
+          });
+          if (targetResolution.cancelled) return;
+          scanTarget = targetResolution.token;
+        }
+        if (!scanTarget) { ui.notifications.warn("Select a target first."); return; }
+        await this._handleScanForWeakness(actor, token, scanTarget);
         break;
       }
 
@@ -9122,6 +9296,28 @@ export class CombatHUD {
         || weapon.name?.toLowerCase().includes("torpedo")
         || !!(weapon.system?.qualities?.spread);
       const modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
+      const targetResolution = await CombatHUD.resolveStarshipActionTarget(token, {
+        weapon,
+        actionLabel: "Override Fire Weapons",
+      });
+      if (targetResolution.cancelled) return;
+      const selectedTargetToken = targetResolution.token;
+      let selectedSalvoMode = modeInfo.needsMode ? "area" : null;
+      if (modeInfo.needsMode) {
+        const modeChoice = await foundry.applications.api.DialogV2.wait({
+          window: { title: `${weapon.name} — Attack Mode` },
+          content: `<div style="font-family:${LC.font};padding:4px 0;font-size:11px;color:${LC.text};">
+            Choose <strong style="color:${LC.primary};">Area</strong> or
+            <strong style="color:${LC.secondary};">Spread</strong> before rolling.</div>`,
+          buttons: [
+            { action: "area", label: "⚡ Area", icon: "fas fa-bolt", default: true },
+            { action: "spread", label: "↔ Spread", icon: "fas fa-arrows-alt-h" },
+            { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+          ],
+        });
+        if (!modeChoice || modeChoice === "cancel") return;
+        selectedSalvoMode = modeChoice;
+      }
       const dmgParts = [];
       if (weapon.system?.damage)   dmgParts.push(`${weapon.system.damage}⚡`);
       if (weapon.system?.severity) dmgParts.push(`Sev ${weapon.system.severity}`);
@@ -9130,16 +9326,21 @@ export class CombatHUD {
         weaponId:  weapon.id ?? null,
         shipActorId: actor.id ?? null,
         shipTokenId: token?.id ?? null,
+        primaryTargetTokenId: targetResolution.explicit ? selectedTargetToken?.id ?? null : null,
         isTorpedo,
         isArray:   modeInfo.isArray,
         isSalvo:   modeInfo.isSalvo,
         damage:    dmgParts.join(" "),
         qualities: this._weaponQualityString(weapon),
-        salvoMode: modeInfo.needsMode ? "area" : null,
+        salvoMode: selectedSalvoMode,
       };
 
       // Check for opposed defense (evasive action / defensive fire)
-      const opposed = await this._checkOpposedTask(weapon.name);
+      const opposed = await checkOpposedTaskForTokens(
+        weapon.name,
+        token,
+        selectedTargetToken ? [selectedTargetToken] : Array.from(game.user.targets ?? []),
+      );
       if (opposed.proceed === "pending") {
         // Store pending task — GM socket handler injects opposedDifficulty (defender's
         // successes +1 for the override penalty) when the defender confirms their roll.
@@ -9199,7 +9400,7 @@ export class CombatHUD {
 
       const hasTS  = CombatHUD.hasTargetingSolution(token);
       const hasRFT = hasRapidFireTorpedoLauncher(actor);
-      const targetToken = Array.from(game.user.targets ?? [])[0] ?? null;
+      const targetToken = selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null;
       const baseOppDiff = _shipAttackDifficulty(weapon, getWeaponConfig(weapon), opposed.difficulty, {
         targetToken,
         attackPatternReduction: _shipAttackPatternDifficultyReduction(targetToken),
@@ -9228,9 +9429,17 @@ export class CombatHUD {
     // ── Step 3 (generic): open roller with base difficulty + 1 ────────────
     const baseDiff    = TASK_BASE_DIFF[taskPick];
     const difficulty  = baseDiff !== null && baseDiff !== undefined ? baseDiff + 1 : null;
-    const scanTargetToken = taskPick === "scan-for-weakness"
+    let scanTargetToken = taskPick === "scan-for-weakness"
       ? (Array.from(game.user.targets ?? [])[0] ?? null)
       : null;
+
+    if (taskPick === "scan-for-weakness" && !scanTargetToken) {
+      const targetResolution = await CombatHUD.resolveStarshipActionTarget(token, {
+        actionLabel: "Scan for Weakness",
+      });
+      if (targetResolution.cancelled) return;
+      scanTargetToken = targetResolution.token;
+    }
 
     if (taskPick === "scan-for-weakness" && !scanTargetToken) {
       ui.notifications.warn("Select a target token for Scan for Weakness.");
@@ -9266,8 +9475,11 @@ export class CombatHUD {
 
   // ── Create Trait ─────────────────────────────────────────────────────────
 
-  async _handleCreateTrait(actor, token, station) {
-    if (!CombatHUD._requiresPlayerOfficer(actor, station?.id ?? "command", station?.label ?? "Bridge")) return;
+  async _handleCreateTrait(actor, token, station, options = {}) {
+    const creatorActor = options?.creatorActorId ? game.actors.get(options.creatorActorId) : null;
+    const allowUnassignedCreator = options?.allowUnassignedCreator === true && !!creatorActor;
+    if (!allowUnassignedCreator
+      && !CombatHUD._requiresPlayerOfficer(actor, station?.id ?? "command", station?.label ?? "Bridge")) return;
 
     const isNpc    = CombatHUD.isNpcShip(actor);
     const isGM     = game.user.isGM;
@@ -9307,11 +9519,11 @@ export class CombatHUD {
     });
     if (!method || method === "cancel") return;
     const stationOfficers = station ? getStationOfficers(actor, station.id) : [];
-    const creatorActor = stationOfficers[0] ?? actor;
+    const traitCreator = creatorActor ?? stationOfficers[0] ?? actor;
     if (method === "spend") {
       const spend = await spendForTraitCreation(actor, token, 2);
       if (!spend) return;
-      await this._resolveTraitCreation(actor, stationLabel, station, true, null, token, { spend, creatorActor });
+      await this._resolveTraitCreation(actor, stationLabel, station, true, null, token, { spend, creatorActor: traitCreator });
       return;
     }
 
@@ -9323,7 +9535,7 @@ export class CombatHUD {
 
     if (isNpc && isGM) {
       // Resolve assigned officer for this station
-      const officer = stationOfficers.length > 0 ? readOfficerStats(stationOfficers[0]) : null;
+      const officer = traitCreator !== actor ? readOfficerStats(traitCreator) : null;
 
       // Roller posts result card directly via taskCallback — no second dialog
       openNpcRoller(actor, token, {
@@ -9335,14 +9547,14 @@ export class CombatHUD {
         taskLabel:           `Create Trait — ${stationLabel}`,
         taskContext:         "Difficulty 2 · Success creates a Trait with Potency 1",
         taskCallback:        ({ passed, successes }) => {
-          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token, { creatorActor });
+          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token, { creatorActor: traitCreator });
         },
       });
       return; // continues in taskCallback
 
     } else {
       // Player ship — open the player roller pre-set to Difficulty 2
-      const officer = stationOfficers.length > 0 ? readOfficerStats(stationOfficers[0]) : null;
+      const officer = traitCreator !== actor ? readOfficerStats(traitCreator) : null;
 
       openPlayerRoller(actor, token, {
         stationId:           station?.id ?? null,
@@ -9352,7 +9564,7 @@ export class CombatHUD {
         taskLabel:           `Create Trait — ${stationLabel}`,
         taskContext:         "Difficulty 2 · Success creates a Trait with Potency 1",
         taskCallback:        ({ passed, successes }) => {
-          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token, { creatorActor });
+          this._resolveTraitCreation(actor, stationLabel, station, passed, successes, token, { creatorActor: traitCreator });
         },
       });
       return; // continues in taskCallback
@@ -14742,7 +14954,7 @@ export class CombatHUD {
 
   _buildCrewManifestBtn(actor) {
     const manifest  = getCrewManifest(actor);
-    const hasAny    = Object.values(manifest).some(ids => ids.length > 0);
+    const hasAny    = Object.values(manifest).some(ids => ids.some(Boolean));
     const btn       = document.createElement("button");
     btn.style.cssText = this._iconBtnStyle();
     btn.title     = "Crew Manifest — assign named officers to bridge stations";
@@ -15736,14 +15948,47 @@ export class CombatHUD {
 // @param {Item}   weapon     - The starshipweapon2e item to fire
 // @param {object} officer    - readOfficerStats() result for the firing officer
 
-export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer) {
+export async function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer, { override = false } = {}) {
+  const targetResolution = await CombatHUD.resolveStarshipActionTarget(shipToken, {
+    weapon,
+    actionLabel: override ? "Override Fire Weapons" : "Fire Weapons",
+  });
+  if (targetResolution.cancelled) return;
+  const targetToken = targetResolution.token;
   const weaponCtx       = buildWeaponContext(weapon);
+  const modeInfo        = CombatHUD._shipAreaSpreadModeInfo(weapon, getWeaponConfig(weapon));
+  weaponCtx.isArray     = modeInfo.isArray;
+  weaponCtx.isSalvo     = modeInfo.isSalvo;
+  if (modeInfo.needsMode) {
+    const modeChoice = await foundry.applications.api.DialogV2.wait({
+      window: { title: `${weapon.name} — Attack Mode` },
+      content: `
+        <div style="font-family:${LC.font};padding:4px 0;">
+          <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+            Choose how <strong style="color:${LC.primary};">${weapon.name}</strong> fires:
+          </div>
+          <div style="font-size:10px;color:${LC.textDim};line-height:1.6;padding:4px 8px;
+            border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;">
+            ⚡ <strong>Area</strong> — attack one primary target; same damage can be applied
+            to additional nearby ships after the roll (1 threat each)<br>
+            ↔ <strong>Spread</strong> — reduces Devastating Attack cost from 2 → 1 threat
+          </div>
+        </div>`,
+      buttons: [
+        { action: "area", label: "⚡ Area", icon: "fas fa-bolt", default: true },
+        { action: "spread", label: "↔ Spread", icon: "fas fa-arrows-alt-h" },
+        { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+      ],
+    });
+    if (!modeChoice || modeChoice === "cancel") return;
+    weaponCtx.salvoMode = modeChoice;
+  }
   weaponCtx.shipTokenId = shipToken?.id ?? null;
+  weaponCtx.primaryTargetTokenId = targetResolution.explicit ? targetToken?.id ?? null : null;
   const tokenDoc        = shipToken?.document ?? null;
   const hasTS           = CombatHUD.hasTargetingSolution(shipToken);
   const hasRFT          = hasRapidFireTorpedoLauncher(shipActor) && weaponCtx.isTorpedo;
   const hasAP           = shipToken ? hasCondition(shipToken, "attack-pattern") : false;
-  const targetToken     = Array.from(game.user.targets ?? [])[0] ?? null;
   const helmActors      = getStationOfficers(shipActor, "helm");
   const helmActor       = helmActors[0] ?? null;
   const helmOfficer     = helmActor ? readOfficerStats(helmActor) : null;
@@ -15753,13 +15998,14 @@ export function openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer
     stationId:            "tactical",
     officer,
     weaponContext:        weaponCtx,
-    difficulty:           _shipAttackDifficulty(weapon, getWeaponConfig(weapon), null, { targetToken }),
+    difficulty:           _shipAttackDifficulty(weapon, getWeaponConfig(weapon), null, { targetToken }) + (override ? 1 : 0),
     hasTargetingSolution: hasTS,
     hasRapidFireTorpedo:  hasRFT,
     hasAttackPattern:     hasAP,
     helmOfficer,
     attackRunActive,
-    taskLabel: `Attack — ${weapon.name}`,
+    taskLabel: `Attack${override ? " (Override)" : ""} — ${weapon.name}`,
+    taskContext: override ? "Override weapons controls · +1 Difficulty" : null,
   });
 }
 
@@ -18802,9 +19048,32 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const weapon = shipActor.items.get(weaponId);
         if (!weapon) { ui.notifications.warn(`Weapon not found on ${shipActor.name}.`); return; }
 
+        const targetResolution = await CombatHUD.resolveStarshipActionTarget(tokenObj, {
+          weapon,
+          actionLabel: "Direct Fire Weapon",
+        });
+        if (targetResolution.cancelled) return;
+        const targetToken = targetResolution.token;
+
         const config    = getWeaponConfig(weapon);
         const isTorpedo = config?.type === "torpedo";
         const modeInfo  = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+        let salvoMode = modeInfo.needsMode ? "area" : null;
+        if (modeInfo.needsMode) {
+          const modeChoice = await foundry.applications.api.DialogV2.wait({
+            window: { title: `${weapon.name} — Attack Mode` },
+            content: `<div style="font-family:${LC.font};padding:4px 0;font-size:11px;color:${LC.text};">
+              Choose <strong style="color:${LC.primary};">Area</strong> or
+              <strong style="color:${LC.secondary};">Spread</strong> before rolling.</div>`,
+            buttons: [
+              { action: "area", label: "⚡ Area", icon: "fas fa-bolt", default: true },
+              { action: "spread", label: "↔ Spread", icon: "fas fa-arrows-alt-h" },
+              { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+            ],
+          });
+          if (!modeChoice || modeChoice === "cancel") return;
+          salvoMode = modeChoice;
+        }
         const hasTS     = CombatHUD.hasTargetingSolution(tokenObj);
         const hasRFT    = hasRapidFireTorpedoLauncher(shipActor) && isTorpedo;
         const hasAP     = tokenObj ? hasCondition(tokenObj, "attack-pattern") : false;
@@ -18813,7 +19082,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const helmActor   = helmActors[0] ?? null;
         const helmOfficer = helmActor ? readOfficerStats(helmActor) : null;
         const attackRunActive = hasAP && hasAttackRun(helmActor);
-        const targetToken = Array.from(game.user.targets ?? [])[0] ?? null;
 
         // Inline quality string (mirrors _weaponQualityString — not available outside class)
         const _quals = (() => {
@@ -18837,12 +19105,13 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           weaponId:  weapon.id ?? null,
           shipActorId: shipActor.id ?? null,
           shipTokenId: tokenObj?.id ?? shipTokenId ?? null,
+          primaryTargetTokenId: targetResolution.explicit ? targetToken?.id ?? null : null,
           isTorpedo,
           isArray:   modeInfo.isArray,
           isSalvo:   modeInfo.isSalvo,
           damage:    weapon.system?.damage ?? 0,
           qualities: _quals,
-          salvoMode: modeInfo.needsMode ? "area" : null,
+          salvoMode,
         };
 
         openPlayerRoller(shipActor, tokenObj, {
@@ -20067,6 +20336,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _shipPlanOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _intenseSubject ?? shipActor) : 0;
             const _shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {
+              overrideTargets: weaponContext.primaryTargetTokenId
+                ? [canvas.tokens?.get(weaponContext.primaryTargetTokenId)].filter(Boolean)
+                : null,
               salvoMode:            _shipModeInfo.needsMode ? (weaponContext.salvoMode ?? "area") : null,
               rapidFireBonus:       hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
               calibrateWeaponsBonus,

@@ -3255,15 +3255,17 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     ?? false;
   const hasCalibrateWeapons = tokenDoc?.getFlag(MODULE, "calibrateWeapons") ?? false;
 
-  // Read pre-declared Targeting Solution benefit from the token flag (set via HUD sub-buttons).
-  // For the HUD path, tokenDoc is the ship token — pre-declared choice is already stored there.
-  // For the character-sheet path, tokenDoc is the PC token which never carries the TS flag,
-  // so this falls back to null and the benefit defaults to "reroll" as before.
-  const _tsFlagRaw = hasTargetingSolution
-    ? (tokenDoc?.getFlag(MODULE, "targetingSolution") ?? null) : null;
+  // Read the pre-declared Targeting Solution benefit from the combat ship when
+  // available. Character-sheet rolls use the PC token, but the declaration is
+  // stored on the ship token; without this snapshot the selected system was
+  // silently lost and the roller fell back to a d20 reroll.
+  const _tsCombatState = combatTaskContext?.targetingSolution ?? null;
+  const _tsFlagRaw = _tsCombatState ?? (hasTargetingSolution
+    ? (tokenDoc?.getFlag(MODULE, "targetingSolution") ?? null) : null);
   const _tsFlagObj = _tsFlagRaw && typeof _tsFlagRaw === "object" && _tsFlagRaw.active
     ? _tsFlagRaw : null;
-  const _tsInitChoice = _tsFlagObj?.benefit ?? (hasTargetingSolution ? "reroll" : null);
+  const _hasTargetingSolution = !!_tsFlagObj || _tsFlagRaw === true || hasTargetingSolution;
+  const _tsInitChoice = _tsFlagObj?.benefit ?? (_hasTargetingSolution ? "reroll" : null);
   const _tsInitSystem = _tsFlagObj?.system ?? null;
 
   // Read any pending crew assist declarations for this station.
@@ -3344,6 +3346,22 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     }
   };
 
+  // Temporary minor actions expire once the task they modify is completed.  The
+  // weapon and targeting variants are already cleared by ship-attack resolution;
+  // Calibrate Sensors needs to be cleared here because its reroll is optional.
+  const _clearCompletedTaskMinors = async () => {
+    if (groundMode || stationId !== "sensors") return;
+    const combatHud = game.sta2eToolkit?.CombatHUD;
+    if (!combatHud) return;
+    const shipActorId = combatTaskContext?.combatShip?.actorId ?? null;
+    const shipToken = shipActorId
+      ? canvas.tokens?.placeables?.find(candidate => candidate.actor?.id === shipActorId) ?? token
+      : token;
+    if (combatHud.hasCalibratesensors(shipToken)) {
+      await combatHud.setCalibratesensors(shipToken, false);
+    }
+  };
+
   // Station's own officer — passed in from the caller (crew manifest lookup).
   // Assisting officers (from combat HUD assist command) are kept SEPARATE in
   // state.assistOfficers and shown in the assist section, never replacing the
@@ -3356,7 +3374,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   // IMPORTANT: use getCrewManifest() — not actor.getFlag() directly — because for unlinked
   // tokens the manifest lives on the token document, not the world actor.
   const _crewManifest = getCrewManifest(actor);
-  const _stationActorIds = stationId ? (_crewManifest[stationId] ?? []) : [];
+  const _stationActorIds = stationId ? (_crewManifest[stationId] ?? []).filter(Boolean) : [];
   const _hasActorAtStation = officerStats === null && _stationActorIds.length > 0;
 
   // Similarly detect an actor assigned to the Helm station who lacks full STA2e stats.
@@ -3654,7 +3672,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     opposedDifficulty,
     opposedDefenseType,
     defenderSuccesses,
-    hasTargetingSolution,
+    hasTargetingSolution: _hasTargetingSolution,
     tsChoice: _tsInitChoice,   // "reroll" | "system" | null; read from pre-declared flag if set
     tsSystem: _tsInitSystem,   // chosen system key, or null = random
     tsRerollUsed: false,
@@ -3853,6 +3871,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           isTorpedo: !!state.weaponContext.isTorpedo,
           weaponId: state.weaponContext.weaponId ?? null,
           shipActorId: state.weaponContext.shipActorId ?? null,
+          primaryTargetTokenId: state.weaponContext.primaryTargetTokenId ?? null,
           isArray: !!state.weaponContext.isArray,
           isSalvo: !!state.weaponContext.isSalvo,
           salvoMode: state.weaponContext.salvoMode ?? null,
@@ -4232,6 +4251,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
               await CombatHUD.resolveShipAttack(resolveToken, weapon, isHit, {
+                overrideTargets: state.weaponContext.primaryTargetTokenId
+                  ? [canvas.tokens?.get(state.weaponContext.primaryTargetTokenId)].filter(Boolean)
+                  : null,
                 salvoMode: state.weaponContext.salvoMode ?? "area",
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
                 calibrateWeaponsBonus,
@@ -4307,6 +4329,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
               // Clear any pending assist flag for this station now that the task is posted
               (async () => { await _clearAssistFlag(); })();
+              await _clearCompletedTaskMinors();
 
               // Fire taskCallback if provided — passes full context so the
               // caller can resolve success/failure without a second dialog
@@ -4364,7 +4387,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             label: state.taskCallback ? "📋 Post Dice Only" : "Post Results",
             icon: "fas fa-comments",
             default: false,
-            callback: () => {
+            callback: async () => {
               ChatMessage.create({
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
@@ -4373,6 +4396,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
               // Clear any pending assist flag for this station now that the task is posted
               (async () => { await _clearAssistFlag(); })();
+              await _clearCompletedTaskMinors();
             },
           },
           {
@@ -4525,7 +4549,10 @@ function _deptLabel(key) {
 async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) {
   // Resolve target token for the chat card
   let targetToken = null;
-  if (state.selectedTargetId) {
+  if (state.weaponContext?.primaryTargetTokenId) {
+    targetToken = canvas.tokens?.get(state.weaponContext.primaryTargetTokenId) ?? null;
+  }
+  if (!targetToken && state.selectedTargetId) {
     targetToken = canvas.tokens?.placeables
       .find(t => t.actor?.id === state.selectedTargetId) ?? null;
   }
@@ -6392,7 +6419,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
 
       // Weapon fire buttons — update roller fields in-place (do not close/reopen)
       el.querySelectorAll(".sta2e-weapon-fire-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", async () => {
           const weaponId = btn.dataset.weaponId;
           const shipActorId = state.combatTaskContext.combatShip.actorId;
           const shipActor = game.actors.get(shipActorId);
@@ -6401,6 +6428,13 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
             ui.notifications.warn("STA2e Toolkit: Weapon not found.");
             return;
           }
+
+          const shipTokenEl = canvas.tokens?.placeables.find(t => t.actor?.id === shipActorId) ?? null;
+          const targetResolution = await game.sta2eToolkit?.CombatHUD?.resolveStarshipActionTarget(
+            shipTokenEl,
+            { weapon, actionLabel: btn.dataset.isOverride === "1" ? "Override Fire Weapons" : "Fire Weapons" },
+          );
+          if (targetResolution?.cancelled) return;
 
           // Highlight this weapon button; clear other task/weapon selections
           el.querySelectorAll(".sta2e-task-btn, .sta2e-weapon-fire-btn").forEach(b => {
@@ -6417,14 +6451,15 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
               ...buildCtx(weapon),
               weaponId: weapon.id,
               shipActorId: shipActorId,
+              primaryTargetTokenId: targetResolution?.explicit ? targetResolution.token?.id ?? null : null,
             };
           }
 
           // Set tactical flags from the ship (not the character token)
           state.hasRapidFireTorpedo = state.combatTaskContext.shipHasRapidFireTorpedo ?? false;
           state.hasCalibrateWeapons = state.combatTaskContext.tacticalMinorStates?.calibrateWeapons ?? false;
-          const shipTokenEl = canvas.tokens?.placeables.find(t => t.actor?.id === shipActorId) ?? null;
           state._tokenDoc = shipTokenEl?.document ?? shipTokenEl ?? null;
+          if (targetResolution?.token?.actor?.id) state.selectedTargetId = targetResolution.token.actor.id;
 
           // Re-detect talent rerolls for security discipline (Cautious/Bold security, Precision Targeting)
           const _weaponOfficerActor = state.officer?.id ? game.actors.get(state.officer.id) : null;
@@ -6511,7 +6546,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           if (!targetTokenId) {
             targetTokenId = Array.from(game.user.targets ?? [])[0]?.id ?? null;
           }
-          if (targetTokenId) {
+          if (targetTokenId && !state.weaponContext?.primaryTargetTokenId) {
             canvas.tokens?.get(targetTokenId)?.setTarget(true, { user: game.user, releaseOthers: true });
           }
 
@@ -6889,5 +6924,3 @@ export async function openPlayerRoller(actor, token, options = {}) {
     crewQuality: null,   // no NPC crew quality on a player ship
   });
 }
-
-

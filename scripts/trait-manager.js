@@ -73,6 +73,10 @@ export class TraitManager {
     this._app = new TraitManagerApp();
     this._app.render(true);
   }
+
+  refresh() {
+    if (this._app?.rendered) this._app.render(true);
+  }
 }
 
 class TraitManagerApp extends foundry.applications.api.ApplicationV2 {
