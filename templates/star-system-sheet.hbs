@@ -1,0 +1,267 @@
+{{!-- sta2e-toolkit | star-system-sheet.hbs --}}
+<form class="sta2e-ss-root" style="{{cssVars}}" autocomplete="off">
+  <header class="sta2e-ss-header">
+    <img class="sta2e-ss-portrait" src="{{actor.img}}" alt="" data-edit="img" />
+    <div class="sta2e-ss-title">
+      <label>Actor Name</label>
+      <input type="text" name="actorName" value="{{actor.name}}" />
+      <div class="sta2e-ss-kicker">
+        <span>{{starSystem.classification}}</span>
+        <span>{{starSystem.sector}}</span>
+        <span>{{coordinateLabel}}</span>
+      </div>
+    </div>
+    <div class="sta2e-ss-actions">
+      {{#if isGM}}
+      <label class="sta2e-ss-force-habitable" title="Force the next generated primary world to be Class-M, Class-L, Class-O, or Class-P">
+        <input type="checkbox" data-force-habitable />
+        <span>Force Habitable</span>
+      </label>
+      <button type="button" data-ss-action="generate" title="Generate system"><i class="fas fa-dice-d20"></i><span>Generate</span></button>
+      {{/if}}
+      <button type="button" data-ss-action="post-chat" title="Post summary to chat"><i class="fas fa-comment-alt"></i><span>Post</span></button>
+      {{#if isGM}}<button type="button" data-ss-action="prompt-system" title="Prompt players with this system report"><i class="fas fa-bell"></i><span>Prompt</span></button>{{/if}}
+      <button type="submit" title="Save changes"><i class="fas fa-save"></i><span>Save</span></button>
+    </div>
+  </header>
+
+  <nav class="sta2e-ss-tabs tabs" data-group="primary">
+    <a class="item" data-tab="overview"><i class="fas fa-sun"></i><span>Overview</span></a>
+    <a class="item" data-tab="worlds"><i class="fas fa-globe"></i><span>Worlds</span></a>
+    <a class="item" data-tab="features"><i class="fas fa-satellite-dish"></i><span>Features</span></a>
+    <a class="item" data-tab="hazards"><i class="fas fa-triangle-exclamation"></i><span>Hazards</span></a>
+    <a class="item" data-tab="notes"><i class="fas fa-align-left"></i><span>Notes</span></a>
+  </nav>
+
+  <section class="sta2e-ss-body">
+    <div class="tab sta2e-ss-tab" data-tab="overview" data-group="primary">
+      <div class="sta2e-ss-grid sta2e-ss-grid--overview">
+        <label>
+          <span>Designation</span>
+          <input type="text" name="starSystem.designation" value="{{starSystem.designation}}" placeholder="System designation" />
+        </label>
+        <label>
+          <span>Classification</span>
+          <select name="starSystem.classification">
+            {{#each classificationOptions}}
+            <option value="{{this}}" {{#if (eq ../starSystem.classification this)}}selected{{/if}}>{{this}}</option>
+            {{/each}}
+          </select>
+        </label>
+        <label>
+          <span>Sector</span>
+          <input type="text" name="starSystem.sector" value="{{starSystem.sector}}" placeholder="Sector name" />
+        </label>
+        <label>
+          <span>Region</span>
+          <input type="text" name="starSystem.region" value="{{starSystem.region}}" placeholder="Coreward, borderland, etc." />
+        </label>
+        <label>
+          <span>Map X</span>
+          <input type="number" name="starSystem.coordinates.x" value="{{starSystem.coordinates.x}}" step="1" />
+        </label>
+        <label>
+          <span>Map Y</span>
+          <input type="number" name="starSystem.coordinates.y" value="{{starSystem.coordinates.y}}" step="1" />
+        </label>
+        <label>
+          <span>Map Z</span>
+          <input type="number" name="starSystem.coordinates.z" value="{{starSystem.coordinates.z}}" step="1" />
+        </label>
+        <label>
+          <span>Affiliation</span>
+          <select name="starSystem.affiliation">
+            {{#each affiliationOptions}}
+            <option value="{{this}}" {{#if (eq ../starSystem.affiliation this)}}selected{{/if}}>{{this}}</option>
+            {{/each}}
+          </select>
+        </label>
+        <label>
+          <span>Travel Code</span>
+          <input type="text" name="starSystem.travelCode" value="{{starSystem.travelCode}}" placeholder="Open, caution, quarantine" />
+        </label>
+        <label>
+          <span>Strategic Value</span>
+          <input type="text" name="starSystem.strategicValue" value="{{starSystem.strategicValue}}" placeholder="Low, standard, critical" />
+        </label>
+        <label>
+          <span>Primary Star</span>
+          <input type="text" name="starSystem.primaryStar" value="{{starSystem.primaryStar}}" />
+        </label>
+        <label>
+          <span>Stellar Age</span>
+          <input type="text" name="starSystem.stellarAge" value="{{starSystem.stellarAge}}" />
+        </label>
+        <label>
+          <span>Orbital Bodies</span>
+          <input type="number" name="starSystem.orbitalBodies" value="{{starSystem.orbitalBodies}}" min="0" step="1" />
+        </label>
+        <label>
+          <span>Habitable Worlds</span>
+          <input type="number" name="starSystem.habitableWorlds" value="{{starSystem.habitableWorlds}}" min="0" step="1" />
+        </label>
+        <label>
+          <span>Population</span>
+          <input type="text" name="starSystem.population" value="{{starSystem.population}}" />
+        </label>
+        <label>
+          <span>Survey Status</span>
+          <input type="text" name="starSystem.surveyStatus" value="{{starSystem.surveyStatus}}" placeholder="Unsurveyed, charted, classified" />
+        </label>
+        <label>
+          <span>Last Updated</span>
+          <input type="date" name="starSystem.lastUpdated" value="{{starSystem.lastUpdated}}" />
+        </label>
+      </div>
+
+      <div class="sta2e-ss-list-head sta2e-ss-list-head--sub">
+        <h3>Stars</h3>
+      </div>
+      <div class="sta2e-ss-table sta2e-ss-table--stars">
+        <div class="sta2e-ss-row sta2e-ss-row--head">
+          <span>Role</span><span>Type</span><span>Sub</span><span>Lum.</span><span>Classification</span><span>Image</span><span>Notes</span>
+        </div>
+        {{#each starSystem.stars}}
+        <div class="sta2e-ss-row">
+          <input type="hidden" name="starSystem.stars.{{index}}.id" value="{{id}}" />
+          <input type="text" name="starSystem.stars.{{index}}.role" value="{{role}}" placeholder="Primary" />
+          <input type="text" name="starSystem.stars.{{index}}.spectralType" value="{{spectralType}}" placeholder="G" />
+          <input type="text" name="starSystem.stars.{{index}}.subdivision" value="{{subdivision}}" placeholder="2" />
+          <input type="text" name="starSystem.stars.{{index}}.luminosityType" value="{{luminosityType}}" placeholder="V" />
+          <input type="text" name="starSystem.stars.{{index}}.classification" value="{{classification}}" placeholder="G2V" />
+          <label class="sta2e-ss-image-field">
+            {{#if image}}<img src="{{image}}" alt="" />{{/if}}
+            <input type="text" name="starSystem.stars.{{index}}.image" value="{{image}}" placeholder="Image path" />
+          </label>
+          <input type="text" name="starSystem.stars.{{index}}.notes" value="{{notes}}" placeholder="Traits and generation notes" />
+        </div>
+        {{else}}
+        <div class="sta2e-ss-empty">No star records logged.</div>
+        {{/each}}
+      </div>
+    </div>
+
+    <div class="tab sta2e-ss-tab" data-tab="worlds" data-group="primary">
+      <div class="sta2e-ss-list-head">
+        <h3>Major Worlds</h3>
+        {{#if isGM}}<button type="button" data-ss-action="add-world" title="Add world"><i class="fas fa-plus"></i></button>{{/if}}
+      </div>
+      <div class="sta2e-ss-world-list">
+        {{#each starSystem.worlds}}
+        <section class="sta2e-ss-world-block">
+          <input type="hidden" name="starSystem.worlds.{{index}}.id" value="{{id}}" />
+          <div class="sta2e-ss-world-block-head">
+            <h4>{{name}}</h4>
+            <div class="sta2e-ss-world-actions">
+              {{#if ../isGM}}<button type="button" data-ss-action="randomize-world" data-index="{{index}}" title="Randomize this world"><i class="fas fa-dice-d20"></i></button>{{/if}}
+              <button type="button" data-ss-action="post-world" data-index="{{index}}" title="Post planet to chat"><i class="fas fa-comment-alt"></i></button>
+              {{#if ../isGM}}<button type="button" data-ss-action="whisper-world" data-index="{{index}}" title="Whisper planet to players"><i class="fas fa-comment-dots"></i></button>{{/if}}
+              {{#if ../isGM}}<button type="button" data-ss-action="prompt-world" data-index="{{index}}" title="Prompt players with this planet report"><i class="fas fa-bell"></i></button>{{/if}}
+              {{#if ../isGM}}<button type="button" data-ss-action="remove-row" data-collection="worlds" data-index="{{index}}" title="Remove world"><i class="fas fa-trash"></i></button>{{/if}}
+            </div>
+          </div>
+          <div class="sta2e-ss-world-grid">
+            <label><span>Orbit</span><input type="text" name="starSystem.worlds.{{index}}.orbit" value="{{orbit}}" placeholder="#" /></label>
+            <label><span>Zone</span><select name="starSystem.worlds.{{index}}.zone" title="World zone">{{#each zoneOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span>Name</span><input type="text" name="starSystem.worlds.{{index}}.name" value="{{name}}" placeholder="World" /></label>
+            <label><span>Type</span><select name="starSystem.worlds.{{index}}.type" title="World type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span>Atmosphere</span><select name="starSystem.worlds.{{index}}.atmosphere" title="Atmosphere">{{#each atmosphereOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span>Population</span><input type="text" name="starSystem.worlds.{{index}}.population" value="{{population}}" placeholder="Population" /></label>
+            <label><span>Moons</span><input type="number" name="starSystem.worlds.{{index}}.moons" value="{{moons}}" placeholder="0" min="0" step="1" /></label>
+            <label><span>Moon Types</span><input type="text" name="starSystem.worlds.{{index}}.moonTypes" value="{{moonTypes}}" placeholder="Moon types" /></label>
+            <label><span>Rings</span><select name="starSystem.worlds.{{index}}.rings" title="Rings">{{#each ringOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span>Mass</span><input type="text" name="starSystem.worlds.{{index}}.mass" value="{{mass}}" placeholder="Mass" /></label>
+            <label><span>Radius</span><input type="text" name="starSystem.worlds.{{index}}.radius" value="{{radius}}" placeholder="Radius" /></label>
+            <label><span>Gravity</span><input type="text" name="starSystem.worlds.{{index}}.gravity" value="{{gravity}}" placeholder="Gravity" /></label>
+            <label class="sta2e-ss-image-field"><span>Image</span>{{#if image}}<img src="{{image}}" alt="" />{{/if}}<input type="text" name="starSystem.worlds.{{index}}.image" value="{{image}}" placeholder="Image path" /></label>
+            <label class="sta2e-ss-world-field--wide"><span>Notes</span><input type="text" name="starSystem.worlds.{{index}}.notes" value="{{notes}}" placeholder="Notes" /></label>
+          </div>
+          <div class="sta2e-ss-moon-head">
+            <h5>Moons</h5>
+            {{#if ../isGM}}<button type="button" data-ss-action="add-moon" data-index="{{index}}" title="Add moon"><i class="fas fa-plus"></i></button>{{/if}}
+          </div>
+          <div class="sta2e-ss-moon-list">
+            {{#each moonRecords}}
+            <div class="sta2e-ss-moon-row">
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.id" value="{{id}}" />
+              <label><span>Orbit</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.orbit" value="{{orbit}}" placeholder="I" /></label>
+              <label><span>Name</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.name" value="{{name}}" placeholder="Moon" /></label>
+              <label><span>Type</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.type" title="Moon type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Atmosphere</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.atmosphere" title="Moon atmosphere">{{#each atmosphereOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Population</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.population" value="{{population}}" placeholder="Population" /></label>
+              <label><span>Rings</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.rings" title="Moon rings">{{#each ringOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Mass</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.mass" value="{{mass}}" placeholder="Mass" /></label>
+              <label><span>Radius</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.radius" value="{{radius}}" placeholder="Radius" /></label>
+              <label><span>Gravity</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.gravity" value="{{gravity}}" placeholder="Gravity" /></label>
+              <label class="sta2e-ss-image-field"><span>Image</span>{{#if image}}<img src="{{image}}" alt="" />{{/if}}<input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.image" value="{{image}}" placeholder="Image path" /></label>
+              <label class="sta2e-ss-moon-field--wide"><span>Notes</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.notes" value="{{notes}}" placeholder="Notes" /></label>
+              <div class="sta2e-ss-world-actions">
+                {{#if ../../isGM}}<button type="button" data-ss-action="randomize-moon" data-index="{{../index}}" data-moon-index="{{index}}" title="Randomize this moon"><i class="fas fa-dice-d20"></i></button>{{/if}}
+                {{#if ../../isGM}}<button type="button" data-ss-action="remove-moon" data-index="{{../index}}" data-moon-index="{{index}}" title="Remove moon"><i class="fas fa-trash"></i></button>{{/if}}
+              </div>
+            </div>
+            {{else}}
+            <div class="sta2e-ss-empty">No individual moons logged.</div>
+            {{/each}}
+          </div>
+        </section>
+        {{else}}
+        <div class="sta2e-ss-empty">No major worlds logged.</div>
+        {{/each}}
+      </div>
+    </div>
+
+    <div class="tab sta2e-ss-tab" data-tab="features" data-group="primary">
+      <div class="sta2e-ss-list-head">
+        <h3>Sector Features</h3>
+        {{#if isGM}}<button type="button" data-ss-action="add-feature" title="Add feature"><i class="fas fa-plus"></i></button>{{/if}}
+      </div>
+      <div class="sta2e-ss-table sta2e-ss-table--features">
+        <div class="sta2e-ss-row sta2e-ss-row--head">
+          <span>Name</span><span>Category</span><span>Notes</span><span></span>
+        </div>
+        {{#each starSystem.features}}
+        <div class="sta2e-ss-row">
+          <input type="hidden" name="starSystem.features.{{index}}.id" value="{{id}}" />
+          <input type="text" name="starSystem.features.{{index}}.name" value="{{name}}" placeholder="Feature" />
+          <input type="text" name="starSystem.features.{{index}}.category" value="{{category}}" placeholder="Category" />
+          <input type="text" name="starSystem.features.{{index}}.notes" value="{{notes}}" placeholder="Notes" />
+          {{#if ../isGM}}<button type="button" data-ss-action="remove-row" data-collection="features" data-index="{{index}}" title="Remove feature"><i class="fas fa-trash"></i></button>{{/if}}
+        </div>
+        {{else}}
+        <div class="sta2e-ss-empty">No features logged.</div>
+        {{/each}}
+      </div>
+    </div>
+
+    <div class="tab sta2e-ss-tab" data-tab="hazards" data-group="primary">
+      <div class="sta2e-ss-list-head">
+        <h3>Hazards</h3>
+        {{#if isGM}}<button type="button" data-ss-action="add-hazard" title="Add hazard"><i class="fas fa-plus"></i></button>{{/if}}
+      </div>
+      <div class="sta2e-ss-table sta2e-ss-table--hazards">
+        <div class="sta2e-ss-row sta2e-ss-row--head">
+          <span>Name</span><span>Severity</span><span>Notes</span><span></span>
+        </div>
+        {{#each starSystem.hazards}}
+        <div class="sta2e-ss-row">
+          <input type="hidden" name="starSystem.hazards.{{index}}.id" value="{{id}}" />
+          <input type="text" name="starSystem.hazards.{{index}}.name" value="{{name}}" placeholder="Hazard" />
+          <input type="text" name="starSystem.hazards.{{index}}.severity" value="{{severity}}" placeholder="Minor, moderate, severe" />
+          <input type="text" name="starSystem.hazards.{{index}}.notes" value="{{notes}}" placeholder="Effect or handling note" />
+          {{#if ../isGM}}<button type="button" data-ss-action="remove-row" data-collection="hazards" data-index="{{index}}" title="Remove hazard"><i class="fas fa-trash"></i></button>{{/if}}
+        </div>
+        {{else}}
+        <div class="sta2e-ss-empty">No hazards logged.</div>
+        {{/each}}
+      </div>
+    </div>
+
+    <div class="tab sta2e-ss-tab" data-tab="notes" data-group="primary">
+      <label class="sta2e-ss-notes">
+        <span>Notes</span>
+        <textarea name="starSystem.notes" rows="18" placeholder="Mission hooks, political complications, survey history, map notes...">{{starSystem.notes}}</textarea>
+      </label>
+    </div>
+  </section>
+</form>

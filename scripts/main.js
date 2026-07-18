@@ -57,6 +57,13 @@ import { clearTokenLocalHullDecals, registerHullDecals } from "./hull-decals.js"
 import { registerMomentumSpend } from "./momentum-spend.js";
 import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker, setTrackerBucket } from "./momentum-tracker.js";
 import { setPool } from "./pool-service.js";
+import {
+  createStarSystemActor,
+  openStarSystemSheet,
+  openStarSystemTypeInfoPrompt,
+  registerStarSystemActorDirectoryHooks,
+  registerStarSystemActorSheet,
+} from "./star-system-sheet.js";
 
 function getShipCardAllowedUserIds(message, payload = {}) {
   const toolkitFlags = message?.flags?.["sta2e-toolkit"] ?? {};
@@ -282,6 +289,8 @@ Hooks.once("init", () => {
   registerZoneTokenConfig();
   registerHullDecals();
   registerTraitItemSheetFields();
+  registerStarSystemActorSheet();
+  registerStarSystemActorDirectoryHooks();
 
   // ── Keybinding: toggle Combat HUD on selected token ───────────────────────
   game.keybindings.register("sta2e-toolkit", "toggleCombatHud", {
@@ -739,6 +748,8 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.stopTractorBeamVFX = () => NativeTractorBeamVFX.stopActive();
   game.sta2eToolkit.openShipVfxAnchorEditor = openShipVfxAnchorEditor;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
+  game.sta2eToolkit.createStarSystemActor = createStarSystemActor;
+  game.sta2eToolkit.openStarSystemSheet = openStarSystemSheet;
   // Expose NPC roller launcher so the widget button can call it
   game.sta2eToolkit.launchNpcRoller = _npcRollerLaunch;
 
@@ -819,6 +830,17 @@ Hooks.once("ready", async () => {
 
   // Register elevation ruler — hover distance label
   registerElevationRuler();
+
+  if (!window.__sta2eStarSystemTypeInfoDelegates) {
+    window.__sta2eStarSystemTypeInfoDelegates = true;
+    document.addEventListener("click", async event => {
+      const button = event.target.closest?.("[data-ss-type-info]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      await openStarSystemTypeInfoPrompt(button.dataset.ssTypeInfo, button.dataset.ssTypeKey);
+    });
+  }
 
   if (!window.__sta2ePlayerShipCardDelegates) {
     window.__sta2ePlayerShipCardDelegates = true;
@@ -994,6 +1016,23 @@ Hooks.once("ready", async () => {
     else if (msg.action === "refreshPoolTracker") {
       game.sta2eToolkit?.poolTracker?.applyMode?.();
       game.sta2eToolkit?.poolTracker?.refresh?.();
+    }
+
+    else if (msg.action === "starSystemPrompt") {
+      if (game.user.isGM) return;
+      const targetUserIds = Array.isArray(msg.targetUserIds) ? msg.targetUserIds : [];
+      if (!targetUserIds.includes(game.user.id)) return;
+      const sender = game.users.get(msg.senderUserId);
+      if (!sender?.isGM) return;
+      const content = String(msg.content ?? "");
+      if (!content) return;
+      await foundry.applications.api.DialogV2.wait({
+        window: { title: String(msg.title || "Star System Report").slice(0, 120) },
+        content: `<div class="sta2e-ss-prompt-dialog">${content}</div>`,
+        buttons: [
+          { action: "ok", label: "OK", icon: "fas fa-check", default: true },
+        ],
+      });
     }
 
     else if (msg.action === "setToolkitPool" && _isResponsibleGM()) {
@@ -2711,6 +2750,11 @@ function _applySheetRollerOverride(app, html) {
   // ── Inject "Assign Ships" button below Stress Modifier in the left panel ──
   const actor = app.document ?? app.actor;
   if (!actor) return;
+  if (actor.getFlag?.("sta2e-toolkit", "starSystem")?.isStarSystem) return;
+
+  html = html instanceof HTMLElement ? html : html?.[0] ?? html;
+  if (!html?.querySelector) return;
+
   const alliedSource = actor.getFlag("sta2e-toolkit", "alliedMomentumSource") ?? "allied";
   const alliedUsesPlayerPool = alliedSource === "player";
   const alliedSourceHtml = `

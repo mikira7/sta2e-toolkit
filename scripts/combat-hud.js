@@ -43,7 +43,7 @@ import {
   diePipHtml, dsnShowPool,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
   taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
-  callOutTargetsSourceForActor,
+  callOutTargetsSourceForActor, flightControllerBonusMomentum,
 } from "./npc-roller.js";
 import {
   STATION_SLOTS,
@@ -559,8 +559,23 @@ function _rollDataHasAnyRerollUsed(rollData) {
     || rollData?.detRerollUsed || rollData?.genericRerollUsed
     || rollData?.tsRerollUsed || rollData?.csRerollUsed
     || rollData?.techExpertiseUsed || rollData?.rfRerollUsed
+    || rollData?.chiefEngineerRerollUsed || rollData?.adaptAndExcelRerollUsed
     || ((rollData?.aimRerollsUsed ?? 0) > 0)
   );
+}
+
+async function _spendRollDataMomentumLike(rollData, cost = 1, label = "reroll") {
+  const tokenObj = rollData?.tokenId ? canvas.tokens?.get(rollData.tokenId) : null;
+  const actor = tokenObj?.actor ?? (rollData?.actorId ? game.actors.get(rollData.actorId) : null);
+  const usesPlayerPayment = _rollEditUsesPlayerPayment(rollData);
+  const pool = usesPlayerPayment ? _rollEditMomentumPool(rollData) : "threat";
+  const poolLabel = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
+  const current = readPool(pool);
+  if (current < cost) {
+    ui.notifications.warn(`STA2e Toolkit: Not enough ${poolLabel} for ${label} (need ${cost}; have ${current}).`);
+    return false;
+  }
+  return writePool(pool, current - cost, { source: "diceRoller", token: tokenObj, actor });
 }
 
 function _rollEditApplyChanges(rollData, formData) {
@@ -4531,7 +4546,7 @@ export class CombatHUD {
    * @param {number|null} opts.defenderSuccesses   - Successes from defender's opposed roll (if any)
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, trackerMessageId = null, complications = 0, opposedMomentumAwarded = false } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, chiefTacticalOfficerAvailable = false, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, trackerMessageId = null, momentumPool = null, complications = 0, opposedMomentumAwarded = false } = {}) {
     token = CombatHUD._resolveShipWeaponSourceToken({
       shipActorId: weapon?.parent?.id ?? token?.actor?.id ?? token?.document?.actorId ?? null,
     }, token);
@@ -4671,6 +4686,9 @@ export class CombatHUD {
         scanBonus,
         rapidFireBonus:       rfBonus,
         calibrateWeaponsBonus: cwBonus,
+        chiefTacticalOfficerAvailable: !!chiefTacticalOfficerAvailable,
+        chiefTacticalOfficerBonusApplied: false,
+        chiefTacticalOfficerCost: 1,
         persistentDamage,
         complicationDamagePenalty: complicationInfo.penalty,
         complications:        complicationInfo.total,
@@ -4700,7 +4718,7 @@ export class CombatHUD {
         spreadAvailable,
         spread:         spreadActive,
         attackerIsNpc:  CombatHUD.isNpcShip(actor),
-        momentumPool:   CombatHUD.alliedNpcMomentumPool(actor),
+        momentumPool:   momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
         weaponImg:      weapon.img ?? null,
         weaponId:       weapon.id ?? null,
         weaponName:     weapon.name,
@@ -4733,7 +4751,7 @@ export class CombatHUD {
       attackerTokenId: (token?.document ?? token)?.id ?? null,
       intenseTalentBonus,
       trackerMessageId: _resolvedTrackerId,
-      momentumPool: CombatHUD.alliedNpcMomentumPool(actor),
+      momentumPool: momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
     }) : null;
     ChatMessage.create({
       flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name, ...(spendContext ? { spendContext } : {}) } },
@@ -11184,6 +11202,8 @@ export class CombatHUD {
       const encodedData    = encodeURIComponent(JSON.stringify({
         tokenId:            t.tokenId,
         actorId:            t.actorId,
+        rawDamage:          t.rawDamage,
+        resistance:         t.resistance,
         finalDamage:        t.finalDamage,
         highYield,
         dampening,
@@ -11209,6 +11229,10 @@ export class CombatHUD {
         opposedDefenseType: t.opposedDefenseType ?? null,
         attackerSuccesses:  t.attackerSuccesses ?? null,
         trackerMessageId:   t.trackerMessageId ?? null,
+        momentumPool:       t.momentumPool ?? null,
+        chiefTacticalOfficerAvailable: !!t.chiefTacticalOfficerAvailable,
+        chiefTacticalOfficerBonusApplied: !!t.chiefTacticalOfficerBonusApplied,
+        chiefTacticalOfficerCost: t.chiefTacticalOfficerCost ?? 1,
       }));
       const resistanceIgnored = !!t.resistanceIgnored;
       const ignoredResistance = t.ignoredResistance ?? t.resistance ?? 0;
@@ -11260,6 +11284,15 @@ export class CombatHUD {
 
           <div class="sta2e-damage-controls" style="margin-top:5px;">
             ${qualityControlsHtml}
+            ${t.chiefTacticalOfficerAvailable && !t.chiefTacticalOfficerBonusApplied ? `
+            <button type="button" class="sta2e-chief-tactical-damage"
+              data-cost="${t.chiefTacticalOfficerCost ?? 1}"
+              style="width:100%;padding:4px;margin-bottom:4px;background:rgba(255,153,0,0.10);
+                     border:1px solid ${LC.primary};border-radius:2px;color:${LC.primary};
+                     font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
+                     cursor:pointer;font-family:${LC.font};">
+              Chief Tactical Officer - spend ${t.chiefTacticalOfficerCost ?? 1} Momentum for +1 Damage
+            </button>` : ""}
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
               <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
                 text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Adj:</label>
@@ -11329,6 +11362,7 @@ export class CombatHUD {
           ${scanBonus > 0 ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — +2 DAMAGE</div>` : ""}
           ${targetData.some(t => t.rapidFireBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.green};font-size:10px;color:${LC.green};font-family:${LC.font};">🚀 RAPID-FIRE TORPEDO LAUNCHER — +1 DAMAGE · Ship assist die may be re-rolled</div>` : ""}
           ${targetData.some(t => t.calibrateWeaponsBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.primary};font-size:10px;color:${LC.primary};font-family:${LC.font};">🔩 CALIBRATE WEAPONS — +1 DAMAGE</div>` : ""}
+          ${targetData.some(t => t.chiefTacticalOfficerAvailable) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.primary};font-size:10px;color:${LC.primary};font-family:${LC.font};">CHIEF TACTICAL OFFICER — one-time +1 damage spend costs 1 Momentum</div>` : ""}
           ${targetData.some(t => t.glancingBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.green};font-size:10px;color:${LC.green};font-family:${LC.font};">↗️ GLANCING IMPACT — +2 RESISTANCE (Evasive Action)</div>` : ""}
           ${targetData.some(t => t.tsRerollGranted) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.primary};font-size:10px;color:${LC.primary};font-family:${LC.font};">🎯 TARGETING SOLUTION — Re-roll used on this attack${hasFastTargetingSystems(actor) ? " (Fast Targeting Systems: both benefits applied)" : ""}</div>` : ""}
           ${targetRows}
@@ -14748,6 +14782,45 @@ export class CombatHUD {
   }
 
   // ── Devastating Attack (2 Momentum, or 1 with Spread) ─────────────────────
+
+  static async _spendDamageMomentumCost(payload, cost = 1, label = "spend") {
+    const atkIsNpc = payload.attackerIsNpc ?? false;
+    const tracker = readTrackerState(payload.trackerMessageId ?? null, payload.attackerActorId ?? null);
+    const pool = payload.momentumPool ?? tracker.pool ?? (atkIsNpc ? "threat" : "momentum");
+    const poolLabel = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
+
+    let remaining = Math.max(0, Number(cost) || 0);
+    const trackerFloat = Math.max(0, Number(tracker.float) || 0);
+    const trackerBonus = Math.max(0, Number(tracker.bonus) || 0);
+    const floatUsed = Math.min(trackerFloat, remaining);
+    remaining -= floatUsed;
+    const bonusUsed = Math.min(trackerBonus, remaining);
+    remaining -= bonusUsed;
+
+    if (remaining > 0) {
+      const current = readPool(pool);
+      if (current < remaining) {
+        const available = trackerFloat + trackerBonus + current;
+        ui.notifications.warn(`STA2e Toolkit: Not enough ${poolLabel} for ${label} (need ${cost}; available ${available}).`);
+        return false;
+      }
+      await writePool(pool, current - remaining);
+    }
+
+    if (tracker.messageId && (floatUsed > 0 || bonusUsed > 0)) {
+      try {
+        const mod = await import("./momentum-tracker.js");
+        await mod.decrementTracker(tracker.messageId, {
+          float: floatUsed,
+          bonus: bonusUsed,
+        });
+      } catch (err) {
+        console.error("STA2e Toolkit | damage spend tracker decrement failed:", err);
+        return false;
+      }
+    }
+    return true;
+  }
 
   static async applyDevastatingAttack(payload) {
     const { tokenId, actorId, halfDamage, attackerTokenId, weaponImg, weaponName } = payload;
@@ -19640,6 +19713,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const isDet          = ability === "detReroll";
         const isAim          = ability === "aim";
         const isTechExpertise = ability === "techExpertise";
+        const isChiefEngineer = ability === "chiefEngineer";
+        const isAdaptAndExcel = ability === "adaptAndExcel";
         // Aim may allow up to N rerolls (1 normally, 2 with Accurate); use checkboxes when N>1
         const aimRemaining = isAim ? Math.max(0, (payload.aimRerolls ?? 0) - (payload.aimRerollsUsed ?? 0)) : 0;
         const useCheckbox  = isDet || (isAim && aimRemaining > 1);
@@ -19845,6 +19920,21 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           ui.notifications.warn(`Aim allows rerolling up to ${aimRemaining} die${aimRemaining !== 1 ? "s" : ""}.`);
         }
 
+        if (isChiefEngineer) {
+          const paid = await _spendRollDataMomentumLike(payload, 1, "Chief Engineer reroll");
+          if (!paid) return;
+        }
+        if (isAdaptAndExcel) {
+          const stressActorId = payload.officerActorId ?? payload.actorId ?? null;
+          const actor = stressActorId
+            ? (stressActorId === payload.actorId
+              ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(stressActorId))
+              : game.actors.get(stressActorId))
+            : null;
+          const stressResult = await _applyMakeYourOwnLuckStress(actor);
+          if (!stressResult) return;
+        }
+
         // Reroll each selected die index
         const newCrewDice  = [...crewDice];
         const rerolledDice = [];
@@ -19870,6 +19960,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           detReroll:     "detRerollUsed",
           ts:            "tsRerollUsed",
           cs:            "csRerollUsed",
+          chiefEngineer:  "chiefEngineerRerollUsed",
+          adaptAndExcel:  "adaptAndExcelRerollUsed",
           genericReroll: "genericRerollUsed",
         };
         const usedFlag = usedFlagMap[ability] ?? null;
@@ -19986,7 +20078,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const _traitPoolBonus = passed
           ? Math.max(0, Number(generatedPool === "threat" ? payload.traitBonusThreat : payload.traitBonusMomentum) || 0)
           : 0;
-        const momentum = Math.max(0, totalSuccesses - effectiveDifficulty) + _traitPoolBonus;
+        const _flightControllerBonus = flightControllerBonusMomentum(payload, passed);
+        const _trackerGeneratedMomentum = Math.max(0, totalSuccesses - effectiveDifficulty) + _traitPoolBonus;
+        const momentum = _trackerGeneratedMomentum + _flightControllerBonus;
         const poolLabel  = generatedPool === "threat"
           ? "Threat"
           : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
@@ -20011,6 +20105,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const _trackerPlanOfActionBonus = passed
           ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _trackerCharActor ?? shipActor)
           : 0;
+        const _trackerFlightControllerBonus = flightControllerBonusMomentum(payload, passed);
         // Versatile X is per-weapon — only present on ship weapon attacks.
         // The damage-card spend panel + Devastating Attack button both pull
         // from the tracker, so we seed it here when the weapon has the quality.
@@ -20031,11 +20126,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         let _trackerMessageId = null;
         let _trackerFloat = 0;     // Unbanked overflow available for this action's spends.
         let _trackerBanked = 0;    // What auto-banked to the pool (for display).
-        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerVersatile > 0)) {
+        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerVersatile > 0)) {
           try {
             const trackerRes = await createTracker(_trackerOwner, {
-              totalGenerated: momentum,
-              bonus:          _trackerIntenseBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus,
+              totalGenerated: _trackerGeneratedMomentum,
+              bonus:          _trackerIntenseBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus + _trackerFlightControllerBonus,
               versatile:      _trackerVersatile,
               weaponName:     _trackerWeaponName,
               pool:           _trackerPool,
@@ -20104,7 +20199,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           confirmedMomentum: momentum,
           confirmedPassed: passed,
           completionEffectsRun: true,
-          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerVersatile > 0)),
+          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerVersatile > 0)),
           trackerMessageId: _trackerMessageId,
           trackerBanked: _trackerBanked,
           trackerFloat:  _trackerFloat,
@@ -20345,12 +20440,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               salvoMode:            _shipModeInfo.needsMode ? (weaponContext.salvoMode ?? "area") : null,
               rapidFireBonus:       hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
               calibrateWeaponsBonus,
+              chiefTacticalOfficerAvailable: !!payload.hasChiefTacticalOfficer,
               defenderSuccesses:    defenderSuccesses ?? null,
               opposedDefenseType:   opposedDefenseType ?? null,
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
               floatingMomentum:     _shipFloating,
               intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus,
               trackerMessageId:     _trackerMessageId,
+              momentumPool:         generatedPool,
               complications:         totalComplications,
               opposedMomentumAwarded: opposedDefenseType !== null && (
                 _trackerBanked > 0
@@ -21122,6 +21219,36 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       input.addEventListener("change", update);
       input.addEventListener("mousedown", e => e.stopPropagation());
       update();
+    });
+
+    html.querySelectorAll(".sta2e-chief-tactical-damage").forEach(btn => {
+      const controls = btn.closest(".sta2e-damage-controls");
+      const input = controls?.querySelector(".sta2e-extra-damage");
+      btn.addEventListener("mousedown", e => e.stopPropagation());
+      btn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (!input) return;
+        const basePayload = JSON.parse(decodeURIComponent(input.dataset.basePayload ?? "{}"));
+        if (!basePayload.chiefTacticalOfficerAvailable || basePayload.chiefTacticalOfficerBonusApplied) return;
+        const cost = Math.max(1, Number(btn.dataset.cost ?? basePayload.chiefTacticalOfficerCost ?? 1) || 1);
+        const paid = await CombatHUD._spendDamageMomentumCost(basePayload, cost, "Chief Tactical Officer damage bonus");
+        if (!paid) return;
+
+        const baseRaw = Number(basePayload.rawDamage ?? (Number(basePayload.finalDamage ?? 0) + Number(basePayload.resistance ?? 0))) || 0;
+        const resistance = Math.max(0, Number(basePayload.resistance ?? 0) || 0);
+        const nextPayload = {
+          ...basePayload,
+          rawDamage: baseRaw + 1,
+          finalDamage: Math.max(0, baseRaw + 1 - resistance),
+          chiefTacticalOfficerBonusApplied: true,
+        };
+        input.dataset.basePayload = encodeURIComponent(JSON.stringify(nextPayload));
+        btn.disabled = true;
+        btn.textContent = "Chief Tactical Officer Applied";
+        btn.style.opacity = "0.5";
+        btn.style.cursor = "default";
+        syncShipDamageControls(controls);
+      });
     });
 
     html.querySelectorAll(".sta2e-apply-damage").forEach(btn => {

@@ -1,0 +1,72 @@
+{{!-- sta2e-toolkit | Star System Images settings --}}
+<form class="sta2e-ssi-root">
+  <header class="sta2e-ssi-header">
+    <h2>Star System Images</h2>
+    <p>Configure image pools used by generated Star System sheets, tokens, and player prompts.</p>
+  </header>
+
+  <section class="sta2e-ssi-section">
+    <h3>Stars</h3>
+    <div class="sta2e-ssi-type-list">
+      {{#each stars}}
+      <article class="sta2e-ssi-type-row" data-image-type-row data-kind="star" data-key="{{key}}">
+        <header>
+          <strong>{{label}}</strong>
+          <button type="button" data-action="addImage" data-kind="star" data-key="{{key}}" title="Add image"><i class="fas fa-plus"></i></button>
+        </header>
+        <div class="sta2e-ssi-image-list">
+          {{#each images}}
+          <div class="sta2e-ssi-image-entry" data-image-entry>
+            <div class="sta2e-ssi-image-media">
+              <img src="{{path}}" alt="" data-image-preview />
+              <input type="text" data-image-path value="{{path}}" placeholder="path/to/star-image.webp" />
+            </div>
+            <div class="sta2e-ssi-image-actions">
+              <button type="button" data-browse-image title="Browse image"><i class="fas fa-folder-open"></i></button>
+              <button type="button" data-action="deleteImage" data-kind="star" data-key="{{../key}}" data-index="{{index}}" title="Remove image"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {{else}}
+          <div class="sta2e-ssi-empty">No images configured.</div>
+          {{/each}}
+        </div>
+      </article>
+      {{/each}}
+    </div>
+  </section>
+
+  <section class="sta2e-ssi-section">
+    <h3>Planets And Moons</h3>
+    <div class="sta2e-ssi-type-list">
+      {{#each planets}}
+      <article class="sta2e-ssi-type-row" data-image-type-row data-kind="planet" data-key="{{key}}">
+        <header>
+          <strong>{{label}}</strong>
+          <button type="button" data-action="addImage" data-kind="planet" data-key="{{key}}" title="Add image"><i class="fas fa-plus"></i></button>
+        </header>
+        <div class="sta2e-ssi-image-list">
+          {{#each images}}
+          <div class="sta2e-ssi-image-entry" data-image-entry>
+            <div class="sta2e-ssi-image-media">
+              <img src="{{path}}" alt="" data-image-preview />
+              <input type="text" data-image-path value="{{path}}" placeholder="path/to/world-image.webp" />
+            </div>
+            <div class="sta2e-ssi-image-actions">
+              <button type="button" data-browse-image title="Browse image"><i class="fas fa-folder-open"></i></button>
+              <button type="button" data-action="deleteImage" data-kind="planet" data-key="{{../key}}" data-index="{{index}}" title="Remove image"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {{else}}
+          <div class="sta2e-ssi-empty">No images configured.</div>
+          {{/each}}
+        </div>
+      </article>
+      {{/each}}
+    </div>
+  </section>
+
+  <footer class="sta2e-ssi-footer">
+    <button type="button" data-action="save"><i class="fas fa-save"></i> Save</button>
+    <button type="button" data-action="cancel"><i class="fas fa-times"></i> Cancel</button>
+  </footer>
+</form>

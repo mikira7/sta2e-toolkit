@@ -341,6 +341,64 @@ function detectNamedTalent(actor, talentName) {
   return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
 }
 
+function detectAdaptAndExcel(actor) {
+  if (!actor?.items) return { hasTalent: false, source: null, attribute: null };
+  const attrNames = Object.fromEntries(Object.entries({
+    control: "Control",
+    daring: "Daring",
+    fitness: "Fitness",
+    insight: "Insight",
+    presence: "Presence",
+    reason: "Reason",
+  }).map(([key, label]) => [normalizeTalentName(label), key]));
+  for (const item of actor.items) {
+    const name = String(item?.name ?? "");
+    const normalized = normalizeTalentName(name);
+    const suffix = name.match(/\(([^)]+)\)\s*$/)?.[1] ?? "";
+    const attrKey = attrNames[normalizeTalentName(suffix)] ?? null;
+    if (normalized === "adapt and excel" || normalized.startsWith("adapt and excel ")) {
+      return { hasTalent: !!attrKey, source: item.name, attribute: attrKey };
+    }
+  }
+  return { hasTalent: false, source: null, attribute: null };
+}
+
+function isChiefEngineerTask(source = {}) {
+  if (source.groundMode || source.isAssistRoll) return false;
+  const taskKey = normalizeTalentName(source.selectedTaskKey ?? source.taskKey ?? "");
+  const engineeringTasks = new Set([
+    "damage control",
+    "regain power",
+    "reroute power",
+    "regen shields",
+    "repair",
+    "repair hull",
+    "reactor stabilize",
+    "reactor eject",
+    "stabilize reactor",
+    "eject reactor",
+    "cloak toggle",
+  ]);
+  if (engineeringTasks.has(taskKey)) return true;
+  const text = `${source.taskLabel ?? ""} ${source.taskContext ?? ""}`.toLowerCase();
+  return /\b(repair|damage control|regain power|reroute power|reactor|warp core|push|overload|capabilities)\b/.test(text);
+}
+
+function isFlightControllerPilotTask(source = {}) {
+  if (source.groundMode || source.isAssistRoll) return false;
+  const taskKey = normalizeTalentName(source.selectedTaskKey ?? source.taskKey ?? "");
+  const pilotTasks = new Set(["impulse", "thrusters", "warp", "ram", "evasive action"]);
+  if (pilotTasks.has(taskKey)) return true;
+  const text = `${source.taskLabel ?? ""} ${source.taskContext ?? ""}`.toLowerCase();
+  return /\b(pilot|piloting|helm|flight|propulsion|impulse|thrusters|evasive|warp|ram)\b/.test(text);
+}
+
+export function flightControllerBonusMomentum(source = {}, passed = false) {
+  if (!passed || !source?.hasFlightController) return 0;
+  if ((source.officerDiscKey ?? source.discKey) !== "conn") return 0;
+  return isFlightControllerPilotTask(source) ? 1 : 0;
+}
+
 export function isCommunicationsOfficerShipAssistActive(rollState) {
   return !!rollState?.hasCommunicationsOfficer
     && (rollState.shipSystemKey === "computers" || rollState.shipSystemKey === "communications");
@@ -520,7 +578,8 @@ function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarge
   const compls = countComplicationsTotal(crewDice, [], shipDice, reservePower) + autoComplications(resultMods);
   const passed = total >= effectiveDifficulty;
   const traitBonus = passed ? Math.max(0, Number(resultMods?.traitBonusMomentum ?? 0) || 0) : 0;
-  const momentum = Math.max(0, total - effectiveDifficulty) + traitBonus;
+  const flightBonus = flightControllerBonusMomentum(resultMods, passed);
+  const momentum = Math.max(0, total - effectiveDifficulty) + traitBonus + flightBonus;
 
   const passColor = passed ? LC.green : LC.red;
   const passText = passed ? "SUCCESS" : "FAILURE";
@@ -535,6 +594,11 @@ function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarge
   const persistentNote = autoSuccesses(resultMods) > 0 || autoComplications(resultMods) > 0
     ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};margin-top:2px;">
         Persistent: +${autoSuccesses(resultMods)} success, +${autoComplications(resultMods)} complication
+      </div>`
+    : "";
+  const flightControllerNote = flightBonus > 0
+    ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};margin-top:2px;">
+        Flight Controller: +${flightBonus} bonus Momentum for this piloting task
       </div>`
     : "";
 
@@ -571,7 +635,7 @@ function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarge
     </div>
     ${resultMods?.showOffSelected ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};padding:2px 10px 0;background:rgba(0,0,0,0.4);">
       ${resultMods.showOffSource ?? "Show-Off"} - Difficulty increased by 1
-    </div>` : ""}${reserveNote}${persistentNote}
+    </div>` : ""}${reserveNote}${persistentNote}${flightControllerNote}
     <div style="
       text-align:center;padding:6px 10px 8px;
       font-size:14px;font-weight:700;letter-spacing:0.15em;
@@ -1438,6 +1502,16 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 ${state.showOffSource ?? "Show-Off"} - +1 Difficulty, +2 bonus Momentum on success
               </span>
             </label>` : ""}
+            ${state.hasFlightController && !state.isAssistRoll && !state.groundMode && (officerDiscKey === "engineering" || state.flightControllerActive || state._flightControllerBaseDisc === "engineering") ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="has-flight-controller" type="checkbox"
+                ${state.flightControllerActive ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.flightControllerSource ?? "Flight Controller"} - use Conn for Engineering flight/propulsion task
+              </span>
+            </label>` : ""}
             ${state.extendedTaskContext && state.hasMeticulous && !state.isAssistRoll ? `
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
               <input id="has-meticulous" type="checkbox"
@@ -1478,6 +1552,11 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
               padding:1px 0;letter-spacing:0.05em;">
               ✦ ${state.shipTalentRerollSource} — reroll available post-roll
+            </div>` : ""}
+            ${state.hasChiefEngineer ? `
+            <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
+              padding:1px 0;letter-spacing:0.05em;">
+              ✦ ${state.chiefEngineerSource ?? "Chief Engineer"} - engineering team opportunity cost reduced by 1 where applicable
             </div>` : ""}
             ${state.hasProcedural ? `
             <div style="font-size:9px;color:${LC.primary};font-family:${LC.font};
@@ -2375,6 +2454,10 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           state.hasSystemReroll, state.systemRerollUsed),
         mkTalent("shipTalent", state.shipTalentRerollSource ?? "Ship Talent",
           state.hasShipTalentReroll, state.shipTalentRerollUsed),
+        mkTalent("chiefEngineer", "Chief Engineer - Spend 1 Momentum",
+          state.hasChiefEngineerReroll, state.chiefEngineerRerollUsed),
+        mkTalent("adaptAndExcel", state.adaptAndExcelSource ?? "Adapt and Excel - Suffer 1 Stress",
+          state.hasAdaptAndExcelReroll, state.adaptAndExcelRerollUsed),
         mkDet("detReroll", "Spend Determination — Reroll Dice", state.detRerollUsed),
         // Generic reroll — always available once per roll for any talent/trait not listed above
         mkTalent("genericReroll", state.traitRerollSource ?? "Talent / Trait Reroll", true, state.genericRerollUsed),
@@ -2549,7 +2632,8 @@ function buildChatCard(actorName, state) {
   const traitPoolBonus = passed
     ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
     : 0;
-  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus;
+  const flightBonus = flightControllerBonusMomentum(state, passed);
+  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus + flightBonus;
   const generatedPoolLabel = resourceProfile.generatedPool === "threat"
     ? "Threat"
     : resourceProfile.momentumLabel;
@@ -2557,6 +2641,7 @@ function buildChatCard(actorName, state) {
   const passText = passed ? "✓ SUCCESS" : "✗ FAILURE";
   const callOutTargetsPotential = callOutTargetsBonusMomentum(state, true);
   const planOfActionPotential = planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : null);
+  const flightControllerPotential = flightControllerBonusMomentum(state, true);
 
   const diceRow = (dice, target) => `
     <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px;">
@@ -2640,10 +2725,14 @@ function buildChatCard(actorName, state) {
         state.percussiveMaintenanceUsed ? `${state.percussiveMaintenanceSource ?? "Percussive Maintenance"} (+1 Threat, Daring for Control, -1 interval on success)` : null,
         callOutTargetsPotential > 0 ? `Call Out Targets (+${callOutTargetsPotential} bonus Momentum on success)` : null,
         planOfActionPotential > 0 ? `Plan of Action (+${planOfActionPotential} bonus Momentum on success)` : null,
+        flightControllerPotential > 0 ? `Flight Controller (+${flightControllerPotential} bonus Momentum on success)` : null,
         state.hasChiefOfStaff ? (state.chiefOfStaffSource ?? "Chief of Staff") : null,
         state.shipTalentRerollUsed ? (state.shipTalentRerollSource ?? "Ship Talent Reroll") : null,
         state.hasPiercingSalvo ? "Piercing Salvo (spend 2 Momentum)" : null,
         state.multiTaskingActive ? "Multi-Tasking (Conn)" : null,
+        state.flightControllerActive ? "Flight Controller (Conn)" : null,
+        state.chiefEngineerRerollUsed ? "Chief Engineer (1 Momentum reroll)" : null,
+        state.adaptAndExcelRerollUsed ? `${state.adaptAndExcelSource ?? "Adapt and Excel"} (Stress reroll)` : null,
       ].filter(Boolean).join(" · ");
       return rerollNotes
         ? `<div style="font-size:8px;color:${LC.secondary};font-family:${LC.font};
@@ -2794,6 +2883,8 @@ export function buildPlayerRollCardHtml(rollData) {
     hasSystemReroll, systemRerollUsed, systemRerollSource,
     hasShipTalentReroll, shipTalentRerollUsed, shipTalentRerollSource,
     detRerollUsed, genericRerollUsed,
+    hasChiefEngineerReroll, chiefEngineerRerollUsed,
+    hasAdaptAndExcelReroll, adaptAndExcelRerollUsed, adaptAndExcelSource,
     hasMakeYourOwnLuck, makeYourOwnLuckUsed, makeYourOwnLuckSource,
     hasTargetingSolution, tsChoice, tsRerollUsed,
     hasCalibratesensors, csRerollUsed,
@@ -2832,13 +2923,15 @@ export function buildPlayerRollCardHtml(rollData) {
   const traitPoolBonus = passed
     ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? rollData.traitBonusThreat : rollData.traitBonusMomentum) || 0)
     : 0;
+  const flightBonus = flightControllerBonusMomentum(rollData, passed);
   const displayMomentum = confirmed
-    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus)
-    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus;
+    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus)
+    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus;
   const passColor = passed ? LC.green : LC.red;
   const finalResultLabel = passed ? "Success" : "Failed";
   const callOutTargetsPotential = callOutTargetsBonusMomentum(rollData, true);
   const planOfActionPotential = planOfActionBonusMomentum(rollData.appliedTraitEffects ?? [], game.actors.get(rollData.officerActorId ?? rollData.actorId));
+  const flightControllerPotential = flightControllerBonusMomentum(rollData, true);
   const generatedPool = resourceProfile.generatedPool;
   const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
@@ -2951,7 +3044,8 @@ export function buildPlayerRollCardHtml(rollData) {
   const anyRerollUsed = !!(
     talentRerollUsed || advisorRerollUsed || systemRerollUsed || shipTalentRerollUsed
     || detRerollUsed || genericRerollUsed || tsRerollUsed || csRerollUsed
-    || techExpertiseUsed || ((aimRerollsUsed ?? 0) > 0)
+    || techExpertiseUsed || chiefEngineerRerollUsed || adaptAndExcelRerollUsed
+    || ((aimRerollsUsed ?? 0) > 0)
   );
   const failedOwnLuckDice = (crewDice ?? [])
     .map((d, i) => ({ d, i }))
@@ -2977,6 +3071,10 @@ export function buildPlayerRollCardHtml(rollData) {
     hasTechExpertise && !techExpertiseUsed
       && (shipSystemKey === "computers" || shipSystemKey === "sensors")
       ? { ability: "techExpertise", label: techExpertiseSource ?? "Technical Expertise", labelShort: "Reroll a Die (Crew or Ship)" } : null,
+    hasChiefEngineerReroll && !chiefEngineerRerollUsed
+      ? { ability: "chiefEngineer", label: "Chief Engineer", labelShort: "Spend 1 Momentum - Reroll a Die" } : null,
+    hasAdaptAndExcelReroll && !adaptAndExcelRerollUsed
+      ? { ability: "adaptAndExcel", label: adaptAndExcelSource ?? "Adapt and Excel", labelShort: "Suffer 1 Stress - Reroll a Die" } : null,
     (aimRerolls ?? 0) > (aimRerollsUsed ?? 0) ? { ability: "aim", label: `Aim (${(aimRerolls ?? 0) - (aimRerollsUsed ?? 0)} remaining)`, labelShort: "Reroll a Die" } : null,
     !genericRerollUsed ? { ability: "genericReroll", label: "Talent / Trait Reroll", labelShort: "Reroll a Die" } : null,
   ].filter(Boolean);
@@ -3079,6 +3177,24 @@ export function buildPlayerRollCardHtml(rollData) {
     ${rollData.percussiveMaintenanceSource ?? "Percussive Maintenance"}: +1 Threat, Daring for Control, -1 interval on success
   </div>` : ""}
 
+  ${rollData.flightControllerActive ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.flightControllerSource ?? "Flight Controller"}: using Conn for this task
+  </div>` : ""}
+
+  ${rollData.chiefEngineerRerollUsed ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.chiefEngineerSource ?? "Chief Engineer"}: spent 1 Momentum to reroll a d20
+  </div>` : ""}
+
+  ${rollData.adaptAndExcelRerollUsed ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.adaptAndExcelSource ?? "Adapt and Excel"}: suffered 1 Stress to reroll a d20
+  </div>` : ""}
+
   ${traitSummaryHtml(rollData.appliedTraitEffects ?? [])}
 
   ${callOutTargetsPotential > 0 ? `
@@ -3091,6 +3207,12 @@ export function buildPlayerRollCardHtml(rollData) {
   <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
     font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
     Plan of Action: +${planOfActionPotential} bonus Momentum on success
+  </div>` : ""}
+
+  ${flightControllerPotential > 0 ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    Flight Controller: +${flightControllerPotential} bonus Momentum on success
   </div>` : ""}
 
   ${!isAssistRoll ? `<div style="display:grid;grid-template-columns:repeat(${totalComplications > 0 ? 5 : 4},1fr);gap:4px;
@@ -3555,6 +3677,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _percussiveTalent = _officerActorFull
     ? detectNamedTalent(_officerActorFull, "Percussive Maintenance")
     : { hasTalent: false, source: null };
+  const _flightControllerTalent = _officerActorFull
+    ? detectNamedTalent(_officerActorFull, "Flight Controller")
+    : { hasTalent: false, source: null };
+  const _chiefEngineerTalent = _officerActorFull
+    ? detectNamedTalent(_officerActorFull, "Chief Engineer")
+    : { hasTalent: false, source: null };
+  const _chiefTacticalTalent = _officerActorFull
+    ? detectNamedTalent(_officerActorFull, "Chief Tactical Officer")
+    : { hasTalent: false, source: null };
+  const _adaptAndExcelTalent = _officerActorFull
+    ? detectAdaptAndExcel(_officerActorFull)
+    : { hasTalent: false, source: null, attribute: null };
   const _callOutTargetsEligible = !!weaponContext || !!callOutTargetsEligible;
   const _namedCallOutTargetsSources = _callOutTargetsEligible
     ? _assistOfficerStates
@@ -3655,6 +3789,21 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     percussiveMaintenanceSelected: false,
     percussiveMaintenanceUsed: false,
     percussiveMaintenanceThreatPaid: false,
+    hasFlightController: _flightControllerTalent.hasTalent,
+    flightControllerSource: _flightControllerTalent.source,
+    flightControllerActive: false,
+    _flightControllerBaseDisc: null,
+    hasChiefEngineer: _chiefEngineerTalent.hasTalent,
+    chiefEngineerSource: _chiefEngineerTalent.source,
+    hasChiefEngineerReroll: false,
+    chiefEngineerRerollUsed: false,
+    hasChiefTacticalOfficer: _chiefTacticalTalent.hasTalent,
+    chiefTacticalOfficerSource: _chiefTacticalTalent.source,
+    hasAdaptAndExcel: _adaptAndExcelTalent.hasTalent,
+    adaptAndExcelSource: _adaptAndExcelTalent.source,
+    adaptAndExcelAttribute: _adaptAndExcelTalent.attribute,
+    hasAdaptAndExcelReroll: false,
+    adaptAndExcelRerollUsed: false,
     callOutTargetsSources: _initialCallOutTargetsSources,
     callOutTargetsEligible: _callOutTargetsEligible,
     shipSystemKey: defaultSysKey,
@@ -3865,6 +4014,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
       taskLabel: state.taskLabel ?? "",
       taskContext: state.taskContext ?? null,
+      selectedTaskKey: state.selectedTaskKey ?? state.combatTaskContext?._selected?.taskKey ?? null,
+      taskKey: state.selectedTaskKey ?? state.combatTaskContext?._selected?.taskKey ?? null,
       weaponContext: state.weaponContext
         ? {
           name: state.weaponContext.name,
@@ -3935,6 +4086,20 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       traitBonusThreat: state.traitBonusThreat ?? 0,
       hasTraitReroll: state.hasTraitReroll ?? false,
       traitRerollSource: state.traitRerollSource ?? null,
+      hasFlightController: state.hasFlightController ?? false,
+      flightControllerSource: state.flightControllerSource ?? null,
+      flightControllerActive: state.flightControllerActive ?? false,
+      hasChiefEngineer: state.hasChiefEngineer ?? false,
+      chiefEngineerSource: state.chiefEngineerSource ?? null,
+      hasChiefEngineerReroll: state.hasChiefEngineerReroll ?? false,
+      chiefEngineerRerollUsed: state.chiefEngineerRerollUsed ?? false,
+      hasChiefTacticalOfficer: state.hasChiefTacticalOfficer ?? false,
+      chiefTacticalOfficerSource: state.chiefTacticalOfficerSource ?? null,
+      hasAdaptAndExcel: state.hasAdaptAndExcel ?? false,
+      adaptAndExcelSource: state.adaptAndExcelSource ?? null,
+      adaptAndExcelAttribute: state.adaptAndExcelAttribute ?? null,
+      hasAdaptAndExcelReroll: state.hasAdaptAndExcelReroll ?? false,
+      adaptAndExcelRerollUsed: state.adaptAndExcelRerollUsed ?? false,
 
       officerName: state.officer?.name ?? null,
       officerActorId: state.officer?.id ?? null,
@@ -4148,17 +4313,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _hitShowOffBonus = showOffBonusMomentum(state, isHit);
               const _hitCallOutTargetsBonus = callOutTargetsBonusMomentum(state, isHit);
               const _hitPlanOfActionBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
+              const _hitFlightControllerBonus = flightControllerBonusMomentum(state, isHit);
               const _hitPool = _rollResourceProfile(state, actor).generatedPool;
               const _hitTraitBonus = isHit
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
               const _hitWQ = weapon?.system?.qualities ?? {};
               const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
-              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
+              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitFlightControllerBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
                 try {
                   const _hitTrackerRes = await createTracker(actor, {
                     totalGenerated: _hitMomentum,
-                    bonus: _hitIntenseBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitTraitBonus,
+                    bonus: _hitIntenseBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitFlightControllerBonus + _hitTraitBonus,
                     versatile: _hitVersatile,
                     weaponName: weapon?.name ?? null,
                     pool:  _hitPool,
@@ -4247,6 +4413,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _showOffTalentBonus = showOffBonusMomentum(state, isHit);
               const _callOutTargetsTalentBonus = callOutTargetsBonusMomentum(state, isHit);
               const _planOfActionTalentBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
+              const _flightControllerTalentBonus = flightControllerBonusMomentum(state, isHit);
               const _traitTalentBonus = isHit
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
@@ -4257,12 +4424,14 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 salvoMode: state.weaponContext.salvoMode ?? "area",
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
                 calibrateWeaponsBonus,
+                chiefTacticalOfficerAvailable: !!state.hasChiefTacticalOfficer,
                 defenderSuccesses: state.defenderSuccesses,
                 opposedDefenseType: state.opposedDefenseType,
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
                 floatingMomentum: _floatingMomentum,
-                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _traitTalentBonus,
+                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _flightControllerTalentBonus + _traitTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
+                momentumPool: _hitPool,
                 complications: attackComplications,
                 opposedMomentumAwarded: state.opposedDefenseType !== null && (
                   (state.trackerBanked ?? 0) > 0
@@ -4300,15 +4469,16 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prShowOffBonus = showOffBonusMomentum(state, _prPassed);
               const _prCallOutTargetsBonus = callOutTargetsBonusMomentum(state, _prPassed);
               const _prPlanOfActionBonus = _prPassed ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
+              const _prFlightControllerBonus = flightControllerBonusMomentum(state, _prPassed);
               const _prPool = _rollResourceProfile(state, actor).generatedPool;
               const _prTraitBonus = _prPassed
                 ? Math.max(0, Number(_prPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
-              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prTraitBonus > 0)) {
+              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prFlightControllerBonus > 0 || _prTraitBonus > 0)) {
                 try {
                   const _prTrackerRes = await createTracker(actor, {
                     totalGenerated: _prMomentum,
-                    bonus: _prIntenseBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prTraitBonus,
+                    bonus: _prIntenseBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prFlightControllerBonus + _prTraitBonus,
                     pool:  _prPool,
                     speakerToken: token,
                   });
@@ -4883,6 +5053,7 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     const determCb = el.querySelector("#has-determination");
     const persistentCb = el.querySelector("#has-persistent");
     const showOffCb = el.querySelector("#has-show-off");
+    const flightControllerCb = el.querySelector("#has-flight-controller");
     const meticulousCb = el.querySelector("#has-meticulous");
     const percussiveCb = el.querySelector("#has-percussive-maintenance");
     if (attrSel?.value) state.officerAttrKey = attrSel.value;
@@ -4894,6 +5065,22 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     if (determCb !== null) state.hasDetermination = determCb.checked;
     state.persistentSelected = !!(persistentCb?.checked && state.hasPersistentTalent && !state.isAssistRoll);
     state.showOffSelected = !!(showOffCb?.checked && state.hasShowOff && !state.isAssistRoll);
+    const wasFlightControllerActive = !!state.flightControllerActive;
+    const flightControllerBaseDisc = wasFlightControllerActive
+      ? (state._flightControllerBaseDisc ?? "engineering")
+      : state.officerDiscKey;
+    const flightControllerEligible = state.hasFlightController
+      && !state.isAssistRoll
+      && !state.groundMode
+      && flightControllerBaseDisc === "engineering";
+    state.flightControllerActive = !!(flightControllerCb?.checked && flightControllerEligible);
+    if (state.flightControllerActive) {
+      state._flightControllerBaseDisc = flightControllerBaseDisc;
+      state.officerDiscKey = "conn";
+    } else if (wasFlightControllerActive && state._flightControllerBaseDisc) {
+      state.officerDiscKey = state._flightControllerBaseDisc;
+      state._flightControllerBaseDisc = null;
+    }
     state.meticulousSelected = !!(meticulousCb?.checked && state.extendedTaskContext && state.hasMeticulous && !state.isAssistRoll);
     const percussiveEligible = state.extendedTaskContext
       && state.hasPercussiveMaintenance
@@ -4904,6 +5091,14 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     if (state.percussiveMaintenanceSelected) state.officerAttrKey = "daring";
     state.crewAttr = state.officer.attributes[state.officerAttrKey] ?? state.crewAttr;
     state.crewDept = state.officer.disciplines[state.officerDiscKey] ?? state.crewDept;
+    state.hasChiefEngineerReroll = !!(state.hasChiefEngineer
+      && !state.chiefEngineerRerollUsed
+      && state.officerDiscKey === "engineering"
+      && isChiefEngineerTask(state));
+    state.hasAdaptAndExcelReroll = !!(state.hasAdaptAndExcel
+      && !state.adaptAndExcelRerollUsed
+      && state.adaptAndExcelAttribute
+      && state.officerAttrKey === state.adaptAndExcelAttribute);
   }
 
   // Per-assisting-officer attr/disc selection and focus flags
@@ -6727,6 +6922,49 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
 // been used yet. Per STA 2e rules, Targeting Solution grants ONE free reroll
 // of any single die — this is the only legitimate per-die reroll in the system.
 
+async function _spendImmediateRerollCost(state, label = "reroll") {
+  const actor = state.actorId ? game.actors.get(state.actorId) : null;
+  const resourceProfile = _rollResourceProfile(state, actor);
+  const pool = resourceProfile.usesPlayerPayment ? resourceProfile.momentumPool : "threat";
+  const poolLabel = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
+  const current = readPool(pool);
+  if (current < 1) {
+    ui.notifications.warn(`STA2e Toolkit: Not enough ${poolLabel} for ${label}.`);
+    return false;
+  }
+  return adjustPool(pool, -1, {
+    source: "diceRoller",
+    actor,
+    token: canvas.tokens?.placeables.find(t => t.actor?.id === state.actorId) ?? null,
+  });
+}
+
+async function _sufferRollerStress(state) {
+  const stressActorId = state.officer?.id ?? state.actorId ?? null;
+  const actor = stressActorId ? game.actors.get(stressActorId) : null;
+  if (!actor?.system?.stress) {
+    ui.notifications.warn(`${actor?.name ?? "Actor"} has no Stress track.`);
+    return false;
+  }
+  const stressMode = game.settings.get("sta2e-toolkit", "stressMode") ?? "countdown";
+  const current = Number(actor.system.stress.value ?? 0);
+  const max = Number(actor.system.stress.max ?? 0);
+  if (stressMode === "countup") {
+    if (max > 0 && current >= max) {
+      ui.notifications.warn(`${actor.name} cannot suffer more Stress.`);
+      return false;
+    }
+    await actor.update({ "system.stress.value": max > 0 ? Math.min(max, current + 1) : current + 1 });
+    return true;
+  }
+  if (current <= 0) {
+    ui.notifications.warn(`${actor.name} has no Stress available.`);
+    return false;
+  }
+  await actor.update({ "system.stress.value": Math.max(0, current - 1) });
+  return true;
+}
+
 function _wireDiePips(state, dialog, openDialog) {
   setTimeout(() => {
     const el = dialog.element ?? document.querySelector(".app.dialog-v2");
@@ -6758,6 +6996,14 @@ function _wireDiePips(state, dialog, openDialog) {
           const armed = state.activeRerollAbility; // "talent"|"advisor"|"system"|"shipTalent" or null
           if (!tsReady && !csReady && !aimReady && !armed) return;
 
+          if (armed === "chiefEngineer") {
+            const paid = await _spendImmediateRerollCost(state, "Chief Engineer reroll");
+            if (!paid) return;
+          } else if (armed === "adaptAndExcel") {
+            const stressed = await _sufferRollerStress(state);
+            if (!stressed) return;
+          }
+
           const [newDie] = rollPool(1, state.crewTarget, state.compThresh ?? 20, state.crewCritThresh);
           state.crewDice[idx] = newDie;
 
@@ -6774,6 +7020,8 @@ function _wireDiePips(state, dialog, openDialog) {
               advisor: "advisorRerollUsed",
               system: "systemRerollUsed",
               shipTalent: "shipTalentRerollUsed",
+              chiefEngineer: "chiefEngineerRerollUsed",
+              adaptAndExcel: "adaptAndExcelRerollUsed",
               genericReroll: "genericRerollUsed"
             }[armed];
             if (usedKey) state[usedKey] = true;

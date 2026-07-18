@@ -11,6 +11,11 @@ import { NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
 import { resyncAllHullDecals, refreshAllHullDecals } from "./hull-decals.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
 import { CharacterCreatorConfig, CHARACTER_CREATOR_DEFAULT_DATA } from "./character-creator.js";
+import {
+  STAR_SYSTEM_IMAGE_SETTING,
+  StarSystemImagesConfig,
+  normalizeStarSystemImageData,
+} from "./star-system-images.js";
 
 export function registerSettings() {
 
@@ -48,6 +53,23 @@ export function registerSettings() {
     config:  false,
     type:    Object,
     default: CHARACTER_CREATOR_DEFAULT_DATA,
+  });
+
+  game.settings.registerMenu("sta2e-toolkit", "starSystemImagesMenu", {
+    name:       "Star System Images",
+    label:      "Configure Images",
+    hint:       "Configure image pools used by generated Star System sheets, tokens, and prompts.",
+    icon:       "fas fa-image",
+    type:       StarSystemImagesConfig,
+    restricted: true,
+  });
+
+  game.settings.register("sta2e-toolkit", STAR_SYSTEM_IMAGE_SETTING, {
+    name:    "Star System Image Data",
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: normalizeStarSystemImageData(),
   });
 
   game.settings.register("sta2e-toolkit", "poolTrackerMode", {
