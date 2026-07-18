@@ -84,6 +84,121 @@ export function pickStarSystemImage(kind, key) {
   return images[Math.floor(Math.random() * images.length)] ?? "";
 }
 
+// ---------------------------------------------------------------------------
+// Multi-star composite portraits
+// ---------------------------------------------------------------------------
+// Binary/trinary systems combine each star's art into one image for the actor
+// portrait and token instead of showing only the primary. The composite is
+// drawn on an offscreen canvas with additive ("lighter") blending — star art on
+// black or transparent backgrounds merges naturally — then uploaded once to
+// the world's data directory under a deterministic content-hashed filename, so
+// repeat saves of the same star combination reuse the same file.
+
+// hash -> uploaded path, per session (avoids re-uploading on every sheet save)
+const _compositeCache = new Map();
+
+// Center-x, center-y, and size as fractions of the square canvas. Primary star
+// first, companions arranged around it, shrinking with count. Capped at 4.
+const _COMPOSITE_LAYOUTS = {
+  2: [
+    { x: 0.40, y: 0.50, s: 0.72 },
+    { x: 0.74, y: 0.30, s: 0.42 },
+  ],
+  3: [
+    { x: 0.38, y: 0.52, s: 0.66 },
+    { x: 0.74, y: 0.28, s: 0.40 },
+    { x: 0.76, y: 0.74, s: 0.32 },
+  ],
+  4: [
+    { x: 0.36, y: 0.54, s: 0.62 },
+    { x: 0.72, y: 0.26, s: 0.38 },
+    { x: 0.78, y: 0.72, s: 0.30 },
+    { x: 0.30, y: 0.20, s: 0.26 },
+  ],
+};
+
+function _hashPaths(paths) {
+  let hash = 5381;
+  const text = paths.join("|");
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+function _loadCompositeImage(path) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = path;
+  });
+}
+
+/**
+ * Compose 2+ star images into a single portrait and upload it to the world's
+ * data directory. Returns the uploaded path, or "" on any failure so callers
+ * can fall back to the primary star image.
+ *
+ * @param {string[]} paths      star image paths, primary first
+ * @param {string} [knownPath]  current actor.img — reused when it already is
+ *                              this exact composite (skips canvas + upload)
+ * @returns {Promise<string>}
+ */
+export async function composeStarSystemImage(paths, knownPath = "") {
+  try {
+    const list = (Array.isArray(paths) ? paths : []).filter(Boolean).slice(0, 4);
+    if (list.length < 2) return "";
+    // Uploading needs file permissions — players without them keep the fallback.
+    if (!(game.user?.isGM || game.user?.can?.("FILES_UPLOAD"))) return "";
+
+    const hash = _hashPaths(list);
+    const fileName = `sta2e-stars-${hash}.webp`;
+    if (knownPath && String(knownPath).includes(fileName)) return knownPath;
+    if (_compositeCache.has(hash)) return _compositeCache.get(hash);
+
+    const loaded = (await Promise.all(list.map(_loadCompositeImage))).filter(Boolean);
+    if (loaded.length < 2) return "";
+
+    const SIZE = 512;
+    const canvasEl = document.createElement("canvas");
+    canvasEl.width = SIZE;
+    canvasEl.height = SIZE;
+    const ctx = canvasEl.getContext("2d");
+    if (!ctx) return "";
+    ctx.globalCompositeOperation = "lighter";
+
+    const layout = _COMPOSITE_LAYOUTS[Math.min(loaded.length, 4)];
+    loaded.forEach((img, i) => {
+      const spot = layout[i];
+      if (!spot) return;
+      const box = spot.s * SIZE;
+      const w = img.naturalWidth || box;
+      const h = img.naturalHeight || box;
+      const scale = box / Math.max(w, h);
+      const dw = w * scale;
+      const dh = h * scale;
+      ctx.drawImage(img, spot.x * SIZE - dw / 2, spot.y * SIZE - dh / 2, dw, dh);
+    });
+
+    const blob = await new Promise(resolve => canvasEl.toBlob(resolve, "image/webp", 0.92));
+    if (!blob) return "";
+
+    const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
+    const dir = `worlds/${game.world.id}/sta2e-star-composites`;
+    try { await FP.createDirectory("data", dir); } catch { /* already exists */ }
+    const file = new File([blob], fileName, { type: "image/webp" });
+    const result = await FP.upload("data", dir, file, {}, { notify: false });
+    const path = result?.path ? String(result.path) : "";
+    if (path) _compositeCache.set(hash, path);
+    return path;
+  } catch (err) {
+    console.warn("STA2e Toolkit | star composite failed:", err);
+    return "";
+  }
+}
+
 function contextRows(types, stored) {
   return types.map(type => ({
     ...type,

@@ -13301,6 +13301,11 @@ export class CombatHUD {
     const DRIFT_PX      = grid * 0.05;
     const WANDER_RADIUS = grid * 0.8;   // bounded local wander
     const EXPLODE_EVERY = 3;            // secondary explosion every ~2.4s
+    // Auto-stop the drift loop after ~32s. Each tick is a token update
+    // broadcast to every client; without a cap, every destroyed ship keeps
+    // generating update traffic for the rest of the session, which degrades
+    // combat performance (slow token moves, starved animations).
+    const MAX_TICKS     = 40;
 
     state.intervalId = setInterval(async () => {
       const st = map.get(tokenId);
@@ -13308,6 +13313,7 @@ export class CombatHUD {
       const tk = canvas.tokens?.get(tokenId);
       if (!tk) { CombatHUD._stopDeathThroes(tokenId); return; }
       st.tick++;
+      if (st.tick > MAX_TICKS) { CombatHUD._stopDeathThroes(tokenId); return; }
 
       // Spin a fixed step in the chosen direction.
       st.angle = (st.angle + st.dir * SPIN_DEG + 360) % 360;

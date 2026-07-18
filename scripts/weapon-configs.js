@@ -108,10 +108,34 @@ const SHIP_PHOTON_TORPEDO_TINT = 0xff3333;
 // stretchTo — see isMovingTorpedoSprite()/applyTorpedoTravel().
 const SHIP_TORPEDO_SPRITE_DIR = "modules/sta2e-toolkit/assets/vfx";
 const SHIP_PHOTON_TORPEDO_SPRITE = `${SHIP_TORPEDO_SPRITE_DIR}/Photon-Torpedo.webm`;
+// Sprites shipped with the module. The cache is pre-seeded with these so every
+// bundled type resolves even when FilePicker.browse can't list the module dir —
+// which happens on hosted services like The Forge, where module assets are
+// served from a CDN and a "data" browse fails or comes back empty. Without the
+// seed, an empty cache made every torpedo type silently fall back to the
+// photon sprite. Keep this list in sync with assets/vfx/*-Torpedo.webm.
+const BUNDLED_TORPEDO_SPRITES = Object.freeze([
+  "Blue-Photon-Torpedo.webm",
+  "Chroniton-Torpedo.webm",
+  "Gravimetric-Torpedo.webm",
+  "Neutronic-Torpedo.webm",
+  "Nuclear-Torpedo.webm",
+  "Photon-Torpedo.webm",
+  "Photonic-Torpedo.webm",
+  "Plasma-Torpedo.webm",
+  "Polaron-Torpedo.webm",
+  "Positron-Torpedo.webm",
+  "Quantum-Torpedo.webm",
+  "Spatial-Torpedo.webm",
+  "Tetryonic-Torpedo.webm",
+  "Transphasic-Torpedo.webm",
+  "Tricobalt-Torpedo.webm",
+]);
 // Lowercased basenames of "<Type>-Torpedo.webm" files present in the sprite
-// dir, populated at ready by refreshTorpedoSpriteCache(). A type without its
-// own file falls back to the photon sprite.
-const TORPEDO_SPRITE_FILES = new Set();
+// dir. Seeded with the bundled sprites; refreshTorpedoSpriteCache() adds any
+// user-dropped extras at ready. A type without its own file falls back to the
+// photon sprite.
+const TORPEDO_SPRITE_FILES = new Set(BUNDLED_TORPEDO_SPRITES.map(f => f.toLowerCase()));
 // On-canvas size of the moving sprite, as a fraction of one grid square.
 const SHIP_TORPEDO_SPRITE_GRID_FRACTION = 0.66;
 const SHIP_WEAPON_FACING_DURATION_SCALE = 3.5;
@@ -119,8 +143,12 @@ const SHIP_WEAPON_FACING_SETTLE_MS = 900;
 // Cinematic reposition glide: time per grid square, and a floor. Higher = slower.
 const SHIP_WEAPON_REPOSITION_MS_PER_SQUARE = 900;
 const SHIP_WEAPON_REPOSITION_MIN_MS = 700;
-// Per-frame step for the bow-first turning glide (~60fps).
-const SHIP_WEAPON_REPOSITION_STEP_MS = 16;
+// Waypoint interval for the bow-first turning glide. Each waypoint is a
+// document.update — a full server round-trip on hosted games (The Forge) —
+// so waypoints are coarse and Foundry tweens between them. Per-frame stepping
+// (16ms) stacked 24–90 round-trips in front of every shot, which is what made
+// torpedoes fire late and out of sync as combat wore on.
+const SHIP_WEAPON_REPOSITION_STEP_MS = 60;
 // How hard the ship banks into the curve: extra heading swing, in degrees,
 // blended in at mid-glide then unwound so it still ends on the firing facing.
 const SHIP_WEAPON_REPOSITION_BANK_DEG = 6;
@@ -210,18 +238,25 @@ function torpedoSpritePath(torpedoType, era = "") {
 
 // Scans the sprite dir for "<Type>-Torpedo.webm" files so each torpedo type
 // auto-picks up its own sprite once dropped in. Called at ready; safe to re-run
-// (e.g. after adding new assets and reloading).
+// (e.g. after adding new assets and reloading). The bundled sprites are always
+// kept in the cache — a failed or empty browse (normal on The Forge, where
+// module assets live on a CDN) must never wipe them, or every type would fall
+// back to the photon sprite.
 export async function refreshTorpedoSpriteCache() {
   try {
     const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
     const response = await FP.browse("data", SHIP_TORPEDO_SPRITE_DIR);
     TORPEDO_SPRITE_FILES.clear();
+    for (const f of BUNDLED_TORPEDO_SPRITES) TORPEDO_SPRITE_FILES.add(f.toLowerCase());
     for (const f of (response?.files ?? [])) {
-      const name = f.split("/").pop();
+      // Hosted services may return full URLs with query strings or encoded
+      // characters — normalize down to the plain basename before matching.
+      let name = String(f).split("/").pop().split("?")[0];
+      try { name = decodeURIComponent(name); } catch { /* keep raw */ }
       if (/-Torpedo\.webm$/i.test(name)) TORPEDO_SPRITE_FILES.add(name.toLowerCase());
     }
   } catch (err) {
-    console.warn("STA2e Toolkit | torpedo sprite scan failed:", err);
+    console.warn("STA2e Toolkit | torpedo sprite scan failed (bundled sprites remain active):", err);
   }
 }
 
@@ -1621,7 +1656,7 @@ async function maneuverShipForFiring(token, selection, primaryTarget = null) {
 
   const speedFactor = shipScaleSpeedFactor(token);
   const DURATION_MS = Math.max(SHIP_WEAPON_REPOSITION_MIN_MS, maxSquares * SHIP_WEAPON_REPOSITION_MS_PER_SQUARE) * speedFactor;
-  const STEPS = Math.max(24, Math.min(90, Math.round(DURATION_MS / SHIP_WEAPON_REPOSITION_STEP_MS)));
+  const STEPS = Math.max(6, Math.min(30, Math.round(DURATION_MS / SHIP_WEAPON_REPOSITION_STEP_MS)));
   const stepDelay = DURATION_MS / STEPS;
   const smooth = t => t * t * (3 - 2 * t); // smoothstep ease-in-out
 
@@ -1637,7 +1672,11 @@ async function maneuverShipForFiring(token, selection, primaryTarget = null) {
 
       await doc.update(
         { x: bx - width / 2, y: by - height / 2, rotation: heading },
-        { animate: false, sta2eWeaponReposition: true },
+        {
+          animate: true,
+          animation: { duration: stepDelay, easing: "linear" },
+          sta2eWeaponReposition: true,
+        },
       );
       await _delay(stepDelay);
     }

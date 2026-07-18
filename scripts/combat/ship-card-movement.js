@@ -229,8 +229,57 @@ function normalizeShipDestination(tok, point) {
 }
 
 const ACTION_ENGINE_TRAIL_MAX_MS = 8000;
-const ACTION_TRAIL_STEP_MS = 24;
-const IMPULSE_BEZIER_STEP_MS = 10;
+// Waypoint interval for scripted moves. Each waypoint is a document.update
+// (a server round-trip that fires every updateToken hook on every client),
+// so keep these coarse and let Foundry tween between waypoints. Intermediate
+// waypoints carry `sta2eScriptedMove: true` so main.js skips per-step zone
+// BFS / cover / movement-log work; zone logic runs once on the final update.
+const ACTION_TRAIL_STEP_MS = 60;
+const IMPULSE_BEZIER_STEP_MS = 60;
+const SCRIPTED_STEP_OPTIONS = Object.freeze({
+  animate: true,
+  sta2eScriptedMove: true,
+});
+
+function _scriptedStepOptions(durationMs) {
+  return {
+    ...SCRIPTED_STEP_OPTIONS,
+    animation: { duration: durationMs, easing: "linear" },
+  };
+}
+
+// spawnEngineTrail is a client-local PIXI effect. These runners execute only on
+// the responsible GM client (socket-routed), so without a broadcast the trail
+// renders on that one canvas and nobody else — including the player who
+// clicked — ever sees it. Spawn locally AND tell every other client to spawn
+// the same trail; stop() broadcasts the stop the same way. Remote trails also
+// self-clean on their built-in safety timeout if the stop message is lost.
+function broadcastEngineTrail(tok, kind, opts = {}) {
+  const tokenId = tok?.document?.id ?? tok?.id ?? null;
+  const local = spawnEngineTrail(tok, kind, opts);
+  if (tokenId) {
+    try {
+      game.socket.emit("module.sta2e-toolkit", {
+        action: "spawnEngineTrailVfx",
+        tokenId,
+        kind,
+        opts: { emitDuration: opts.emitDuration, drift: opts.drift },
+      });
+    } catch { /* cosmetic — never block the move */ }
+  }
+  return {
+    stop() {
+      local?.stop?.();
+      if (!tokenId) return;
+      try {
+        game.socket.emit("module.sta2e-toolkit", {
+          action: "stopEngineTrailVfx",
+          tokenId,
+        });
+      } catch { /* cosmetic */ }
+    },
+  };
+}
 
 function _clamp01(value) {
   return Math.max(0, Math.min(1, Number(value) || 0));
@@ -305,7 +354,7 @@ export async function runImpulseEngageCard(payload, destination) {
     return { x, y, rotation };
   };
 
-  const trail = spawnEngineTrail(tok, "impulse", {
+  const trail = broadcastEngineTrail(tok, "impulse", {
     emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
     drift: false,
   });
@@ -314,7 +363,10 @@ export async function runImpulseEngageCard(payload, destination) {
     const nextProgress = i / STEPS;
     const p = sampleImpulsePath(nextProgress);
 
-    await tok.document.update({ x: p.x, y: p.y, rotation: p.rotation });
+    await tok.document.update(
+      { x: p.x, y: p.y, rotation: p.rotation },
+      _scriptedStepOptions(STEP_MS)
+    );
     await new Promise(r => setTimeout(r, STEP_MS));
   }
 
@@ -336,8 +388,13 @@ export async function runWarpEngageCard(payload, destination) {
   const tok = getCardShipToken(payload);
   const warpSound = game.settings.get("sta2e-toolkit", "sndWarpEngage") ?? "";
   const startPosition = { x: tok.x, y: tok.y };
+  const startOrigin = tok.center ?? { x: tok.x + tok.w / 2, y: tok.y + tok.h / 2 };
   const finalDestination = normalizeShipDestination(tok, destination);
   let targetRotation = tok.document.rotation || 0;
+
+  // Suppress per-step zone log chat cards during the stepped flight; one card
+  // is posted manually after the final position update (same as impulse).
+  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
 
   try {
     const angle = Math.atan2(finalDestination.y - startPosition.y, finalDestination.x - startPosition.x) * (180 / Math.PI);
@@ -360,7 +417,7 @@ export async function runWarpEngageCard(payload, destination) {
   } catch(e) { console.warn("STA2e | warp flash:", e); }
   await new Promise(r => setTimeout(r, 1000));
 
-  const trail = spawnEngineTrail(tok, "warp", {
+  const trail = broadcastEngineTrail(tok, "warp", {
     emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
     drift: false,
   });
@@ -370,7 +427,7 @@ export async function runWarpEngageCard(payload, destination) {
     min: 900,
     max: 4200,
   });
-  const warpSteps = Math.round(_clampNumber(warpTravelMs / ACTION_TRAIL_STEP_MS, 24, 120));
+  const warpSteps = Math.round(_clampNumber(warpTravelMs / ACTION_TRAIL_STEP_MS, 8, 48));
   const warpStepMs = Math.max(16, Math.round(warpTravelMs / warpSteps));
   for (let i = 1; i <= warpSteps; i++) {
     const t = i / warpSteps;
@@ -378,12 +435,19 @@ export async function runWarpEngageCard(payload, destination) {
       x: startPosition.x + (finalDestination.x - startPosition.x) * t,
       y: startPosition.y + (finalDestination.y - startPosition.y) * t,
       rotation: targetRotation,
-    });
+    }, _scriptedStepOptions(warpStepMs));
     await new Promise(r => setTimeout(r, warpStepMs));
   }
   await tok.document.update({ x: finalDestination.x, y: finalDestination.y });
   await new Promise(r => setTimeout(r, _distanceTrailTailMs(startPosition, finalDestination)));
   trail?.stop?.();
+
+  // Lift suppression and post a single zone movement log for the full move.
+  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
+  game.sta2eToolkit?.zoneMovementLog?.onTokenMove(
+    tok.document, startOrigin,
+    { x: finalDestination.x, y: finalDestination.y }
+  );
 
   try {
     if (window.Sequence) {
@@ -451,22 +515,28 @@ export async function runWarpFleeCard(payload) {
     min: 700,
     max: 3600,
   });
-  const steps = Math.round(_clampNumber(fleeTravelMs / ACTION_TRAIL_STEP_MS, 12, 100));
+  const steps = Math.round(_clampNumber(fleeTravelMs / ACTION_TRAIL_STEP_MS, 6, 40));
   const MOVE_STEP_MS = Math.max(16, Math.round(fleeTravelMs / steps));
   const dxStep = (destX - startX) / steps;
   const dyStep = (destY - startY) / steps;
-  const trail = spawnEngineTrail(tok, "warp", {
+  const trail = broadcastEngineTrail(tok, "warp", {
     emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
     drift: false,
   });
+  // No zone log for a ship leaving the map — suppress cards during the flight.
+  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
   for (let i = 1; i <= steps; i++) {
     const alpha = Math.max(0, 1 - i / steps);
-    await tok.document.update({ x: startX + dxStep * i, y: startY + dyStep * i, alpha });
+    await tok.document.update(
+      { x: startX + dxStep * i, y: startY + dyStep * i, alpha },
+      _scriptedStepOptions(MOVE_STEP_MS)
+    );
     await new Promise(r => setTimeout(r, MOVE_STEP_MS));
   }
 
   await new Promise(r => setTimeout(r, _distanceTrailTailMs({ x: startX, y: startY }, { x: destX, y: destY })));
   trail?.stop?.();
+  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
   await tok.document.delete();
 }
 

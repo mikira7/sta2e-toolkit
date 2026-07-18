@@ -4,7 +4,7 @@
  */
 
 import { getLcCssVars } from "./lcars-theme.js";
-import { pickStarSystemImage } from "./star-system-images.js";
+import { pickStarSystemImage, composeStarSystemImage } from "./star-system-images.js";
 
 export const STAR_SYSTEM_FLAG = "starSystem";
 export const STAR_SYSTEM_SHEET_ID = "sta2e-toolkit.StarSystemActorSheet";
@@ -635,6 +635,20 @@ function savedImage(value) {
 
 function starImageForType(starOrType) {
   return pickStarSystemImage("star", starTypeKey(starOrType));
+}
+
+/**
+ * Portrait/token image for a star system. Single-star systems use that star's
+ * image; multi-star systems get a composite of all star images (primary large,
+ * companions arranged around it). Falls back to the primary star image when
+ * the composite can't be built (missing art, no upload permission, error).
+ */
+async function resolveStarSystemPortraitImage(starSystem, { knownPath = "" } = {}) {
+  const starImages = (starSystem?.stars ?? []).map(s => savedImage(s?.image)).filter(Boolean);
+  if (!starImages.length) return "";
+  if (starImages.length === 1) return starImages[0];
+  const composite = await composeStarSystemImage(starImages, knownPath);
+  return composite || starImages[0];
 }
 
 function planetImageForType(type) {
@@ -1495,7 +1509,7 @@ export async function createStarSystemActor({ folderId = null, data = null } = {
   }
 
   const starSystem = normalizeStarSystemData(data ?? generateStarSystemData());
-  const primaryImage = savedImage(starSystem.stars?.[0]?.image) || DEFAULT_IMG;
+  const primaryImage = (await resolveStarSystemPortraitImage(starSystem)) || DEFAULT_IMG;
   const actorData = {
     name: starSystem.designation || "New Star System",
     type: defaultActorType(),
@@ -1610,7 +1624,7 @@ export class StarSystemActorSheet extends ActorSheet {
         forceHabitable: !!form?.querySelector?.("[data-force-habitable]")?.checked,
       });
       const generatedName = generated.designation || this.actor.name;
-      const generatedImage = savedImage(generated.stars?.[0]?.image) || this.actor.img || DEFAULT_IMG;
+      const generatedImage = (await resolveStarSystemPortraitImage(generated)) || this.actor.img || DEFAULT_IMG;
       await this.actor.update({
         name: generatedName,
         img: generatedImage,
@@ -1732,7 +1746,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const data = this._dataFromForm(form);
     const actorName = data.actorName || this.actor.name;
     const starSystem = normalizeStarSystemData(data.starSystem);
-    const primaryImage = savedImage(starSystem.stars?.[0]?.image);
+    const primaryImage = await resolveStarSystemPortraitImage(starSystem, { knownPath: this.actor.img });
     const actorUpdate = {
       name: actorName,
       "prototypeToken.name": actorName,

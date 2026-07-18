@@ -17,6 +17,7 @@ import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
 import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination } from "./combat-hud.js";
 import { buildWeaponContext, refreshTorpedoSpriteCache } from "./weapon-configs.js";
+import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
@@ -278,6 +279,22 @@ function _isResponsibleGM() {
     .filter(user => user?.active && user.isGM)
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
+}
+
+// Set at ready when the socket listener registers; used by emitToolkitSocket.
+let _toolkitSocketHandler = null;
+
+// Foundry sockets never deliver a message back to the emitting client. Any
+// action gated on the responsible GM therefore silently does nothing when the
+// responsible GM is the one who clicked — the exact situation in solo-GM local
+// testing. This wrapper emits for the other clients AND runs the handler
+// locally when this client is itself the responsible GM.
+function emitToolkitSocket(msg) {
+  game.socket.emit("module.sta2e-toolkit", msg);
+  if (_isResponsibleGM() && typeof _toolkitSocketHandler === "function") {
+    Promise.resolve(_toolkitSocketHandler(msg)).catch(err =>
+      console.error("STA2e Toolkit | local socket dispatch failed:", err));
+  }
 }
 
 Hooks.once("init", () => {
@@ -883,7 +900,7 @@ Hooks.once("ready", async () => {
           return;
         }
 
-        game.socket.emit("module.sta2e-toolkit", {
+        emitToolkitSocket({
           action: "runImpulseEngageCard",
           messageId: impulseMessageId,
           requesterUserId: game.user.id,
@@ -891,7 +908,7 @@ Hooks.once("ready", async () => {
           destination,
         });
         if (impulseMessageId) {
-          game.socket.emit("module.sta2e-toolkit", {
+          emitToolkitSocket({
             action: "updateShipCardLock",
             messageId: impulseMessageId,
             requesterUserId: game.user.id,
@@ -941,7 +958,7 @@ Hooks.once("ready", async () => {
           return;
         }
 
-        game.socket.emit("module.sta2e-toolkit", {
+        emitToolkitSocket({
           action: "runWarpEngageCard",
           messageId: warpMessageId,
           requesterUserId: game.user.id,
@@ -949,7 +966,7 @@ Hooks.once("ready", async () => {
           destination,
         });
         if (warpMessageId) {
-          game.socket.emit("module.sta2e-toolkit", {
+          emitToolkitSocket({
             action: "updateShipCardLock",
             messageId: warpMessageId,
             requesterUserId: game.user.id,
@@ -981,14 +998,14 @@ Hooks.once("ready", async () => {
           .forEach(btn => { btn.disabled = true; btn.style.opacity = "0.5"; });
         fleeBtn.textContent = "🚀 FLEEING...";
 
-        game.socket.emit("module.sta2e-toolkit", {
+        emitToolkitSocket({
           action: "runWarpFleeCard",
           messageId: fleeMessageId,
           requesterUserId: game.user.id,
           payload,
         });
         if (fleeMessageId) {
-          game.socket.emit("module.sta2e-toolkit", {
+          emitToolkitSocket({
             action: "updateShipCardLock",
             messageId: fleeMessageId,
             requesterUserId: game.user.id,
@@ -999,11 +1016,36 @@ Hooks.once("ready", async () => {
     });
   }
 
+  // Remote engine trails spawned via the spawnEngineTrailVfx socket action,
+  // keyed by token id so stopEngineTrailVfx can end them early. Trails also
+  // self-clean on their internal safety timeout if the stop message is lost.
+  const _remoteEngineTrails = new Map();
+
   // Socket — listen for GM broadcast requesting all clients to re-render the HUD.
   // "world" scope settings onChange only fires on the GM's client, so whenever
   // the GM changes time, campaign data, or theme we emit this to sync players.
-  game.socket.on("module.sta2e-toolkit", async (msg) => {
+  _toolkitSocketHandler = async (msg) => {
     if (!msg?.action) return;
+
+    // Engine trail VFX broadcast — the impulse/warp runners execute on the
+    // responsible GM only; these mirror the client-local PIXI trail on every
+    // other client so all players see it. Runs on ALL receivers (no GM gate —
+    // it's cosmetic and touches no documents).
+    if (msg.action === "spawnEngineTrailVfx") {
+      const trailTok = canvas?.tokens?.get(msg.tokenId);
+      if (trailTok) {
+        // Stop any prior remote trail for this token before starting a new one.
+        _remoteEngineTrails.get(msg.tokenId)?.stop?.();
+        const remoteTrail = spawnEngineTrail(trailTok, msg.kind, { ...(msg.opts ?? {}) });
+        if (remoteTrail) _remoteEngineTrails.set(msg.tokenId, remoteTrail);
+      }
+      return;
+    }
+    if (msg.action === "stopEngineTrailVfx") {
+      _remoteEngineTrails.get(msg.tokenId)?.stop?.();
+      _remoteEngineTrails.delete(msg.tokenId);
+      return;
+    }
 
     if (msg.action === "renderHUD") {
       game.sta2eToolkit?.hud?.render();
@@ -1399,7 +1441,8 @@ Hooks.once("ready", async () => {
         openPlayerRoller(attackerActor, attackerToken ?? null, msg.rollerOpts);
       }
     }
-  });
+  };
+  game.socket.on("module.sta2e-toolkit", _toolkitSocketHandler);
 
   // Seed default campaign for new worlds
   if (game.user.isGM && campaignStore.getCampaigns().length === 0) {
@@ -1415,7 +1458,65 @@ Hooks.once("ready", async () => {
 
   await hud.render();
   alertHud.render();
+
+  // Deferred so it also catches hooks other modules register late in ready.
+  setTimeout(() => _shimTokenlessCombatantHookErrors(), 0);
 });
+
+// ---------------------------------------------------------------------------
+// Compatibility shim — tokenless crew combatants vs third-party combat hooks
+// ---------------------------------------------------------------------------
+// The toolkit adds ship crew officers to the combat tracker as actor-only
+// combatants with no scene token. Some modules (observed: Monk's Combat
+// Details, combat-turn.js `combatant.token.getFlag(...)`) assume every
+// combatant has a token and throw on officer turns. Foundry catches SYNC hook
+// errors itself, but ASYNC hooks that reject produce unhandled promise
+// rejections and abort the rest of that module's turn handling. This shim
+// wraps registered combat-hook functions so returned promise rejections are
+// caught and logged as warnings instead. It changes no sync behavior and
+// nothing about our own logic.
+const _SHIMMED_COMBAT_HOOKS = ["updateCombat", "combatStart", "combatTurn", "combatRound", "combatTurnChange"];
+
+// Each unique suppressed error is logged once per session, at debug level, so
+// the console stays clean during play (enable the Verbose filter to see them).
+const _shimSeenErrors = new Set();
+
+function _logSuppressedHookError(hookName, err) {
+  const key = `${hookName}:${err?.message ?? err}`;
+  if (_shimSeenErrors.has(key)) return;
+  _shimSeenErrors.add(key);
+  console.debug(
+    `STA2e Toolkit | Suppressed async "${hookName}" hook rejection `
+    + "(a module likely assumed combatant.token exists on a tokenless crew combatant). "
+    + "Logged once per session:", err);
+}
+
+function _shimTokenlessCombatantHookErrors() {
+  if (!game.modules.get("monks-combat-details")?.active) return;
+  try {
+    const registry = Hooks.events;
+    if (!registry) return;
+    for (const hookName of _SHIMMED_COMBAT_HOOKS) {
+      const entries = registry[hookName];
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (typeof entry?.fn !== "function" || entry.fn._sta2eShimmed) continue;
+        const original = entry.fn;
+        const wrapped = function (...args) {
+          const result = original.apply(this, args);
+          if (typeof result?.catch === "function") {
+            result.catch(err => _logSuppressedHookError(hookName, err));
+          }
+          return result;
+        };
+        wrapped._sta2eShimmed = true;
+        entry.fn = wrapped;
+      }
+    }
+  } catch (err) {
+    console.warn("STA2e Toolkit | Combat hook shim could not be applied:", err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Settings change hooks
@@ -2016,6 +2117,7 @@ const _lastKnownTokenPositions = new Map();
 Hooks.on("preUpdateToken", (tokenDoc, changes, options) => {
   if (options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logging
   if (options?.sta2eWeaponReposition) return;   // cinematic firing nudge (in-zone) — skip zone logging
+  if (options?.sta2eScriptedMove) return;   // scripted impulse/warp waypoint — zone logic runs once on the final (unflagged) update
   if (!("x" in changes || "y" in changes)) return;
   // Store the pre-move canvas center for zone distance calculation
   const gs = canvas.grid?.size ?? 100;
@@ -2045,6 +2147,7 @@ Hooks.on("canvasReady", () => {
 Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
   if (_options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logic
   if (_options?.sta2eWeaponReposition) return;   // cinematic firing nudge (in-zone) — skip zone logic
+  if (_options?.sta2eScriptedMove) return;   // scripted impulse/warp waypoint — zone logic runs once on the final (unflagged) update
   if (!("x" in changes || "y" in changes)) return;
 
   game.sta2eToolkit?.zoneMonitor?._debouncedRefresh();

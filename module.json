@@ -2,7 +2,7 @@
   "id": "sta2e-toolkit",
   "title": "STA 2e Toolkit",
   "description": "A toolkit for Star Trek Adventures 2nd Edition. Includes a Stardate HUD with multi-campaign support, era switching (TOS/TNG), warp travel integration, Zone grid creation, Transporter to spawning character or remove characters.",
-  "version": "1.16.1",
+  "version": "1.16.3",
   "compatibility": {
     "minimum": "13",
     "verified": "14",
@@ -34,19 +34,6 @@
       "path": "lang/en.json"
     }
   ],
-  "packs": [
-    {
-      "name": "sta2e-macros",
-      "label": "STA 2e Macros",
-      "path": "packs/sta2e-macros",
-      "type": "Macro",
-      "ownership": {
-        "PLAYER": "OBSERVER",
-        "ASSISTANT": "OWNER"
-      },
-      "flags": {}
-    }
-  ],
   "relationships": {
     "optional": [
       { "id": "token-attacher", "type": "module" },
@@ -60,5 +47,5 @@
   "flags": {},
   "url": "https://github.com/mikira7/sta2e-toolkit",
   "manifest": "https://github.com/mikira7/sta2e-toolkit/releases/latest/download/module.json",
-  "download": "https://github.com/mikira7/sta2e-toolkit/releases/download/v1.16.1/sta2e-toolkit-v1.16.1.zip"
+  "download": "https://github.com/mikira7/sta2e-toolkit/releases/download/v1.16.3/sta2e-toolkit-v1.16.3.zip"
 }
