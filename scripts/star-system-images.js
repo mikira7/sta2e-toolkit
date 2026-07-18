@@ -61,6 +61,7 @@ export function normalizeStarSystemImageData(raw = {}) {
   return {
     stars: keyedImageRows(STAR_SYSTEM_STAR_IMAGE_TYPES, raw?.stars),
     planets: keyedImageRows(STAR_SYSTEM_PLANET_IMAGE_TYPES, raw?.planets),
+    backgrounds: cleanImageList(raw?.backgrounds),
   };
 }
 
@@ -84,17 +85,31 @@ export function pickStarSystemImage(kind, key) {
   return images[Math.floor(Math.random() * images.length)] ?? "";
 }
 
+export function getStarSystemBackgrounds() {
+  return getStarSystemImageData().backgrounds;
+}
+
+export function pickStarSystemBackground() {
+  const images = getStarSystemBackgrounds();
+  if (!images.length) return "";
+  return images[Math.floor(Math.random() * images.length)] ?? "";
+}
+
 // ---------------------------------------------------------------------------
 // Multi-star composite portraits
 // ---------------------------------------------------------------------------
 // Binary/trinary systems combine each star's art into one image for the actor
 // portrait and token instead of showing only the primary. The composite is
 // drawn on an offscreen canvas with additive ("lighter") blending — star art on
-// black or transparent backgrounds merges naturally — then uploaded once to
-// the world's data directory under a deterministic content-hashed filename, so
-// repeat saves of the same star combination reuse the same file.
+// black or transparent backgrounds merges naturally — then uploaded to the
+// world's data directory under a per-actor filename that is overwritten in
+// place, so rerolling a system never accumulates extra files. Foundry has no
+// client-side file-delete API, so a stable overwritten name is the only way to
+// keep the folder bounded. A `?h=<comboHash>` query string on the stored path
+// cache-busts client textures after an overwrite and lets repeat saves of the
+// same combination skip the upload entirely.
 
-// hash -> uploaded path, per session (avoids re-uploading on every sheet save)
+// "actorId:hash" -> uploaded path, per session (avoids re-uploading on every sheet save)
 const _compositeCache = new Map();
 
 // Center-x, center-y, and size as fractions of the square canvas. Primary star
@@ -138,25 +153,33 @@ function _loadCompositeImage(path) {
 
 /**
  * Compose 2+ star images into a single portrait and upload it to the world's
- * data directory. Returns the uploaded path, or "" on any failure so callers
- * can fall back to the primary star image.
+ * data directory. The file is named after the owning actor and overwritten on
+ * every regeneration, so each multi-star system keeps exactly one file on
+ * disk. Returns the uploaded path (with a `?h=<hash>` cache-bust), or "" on
+ * any failure so callers can fall back to the primary star image.
  *
- * @param {string[]} paths      star image paths, primary first
- * @param {string} [knownPath]  current actor.img — reused when it already is
- *                              this exact composite (skips canvas + upload)
+ * @param {string[]} paths              star image paths, primary first
+ * @param {object} [options]
+ * @param {string} [options.actorId]    owning actor id — required; names the file
+ * @param {string} [options.knownPath]  current actor.img — reused when it already
+ *                                      is this exact composite (skips canvas + upload)
  * @returns {Promise<string>}
  */
-export async function composeStarSystemImage(paths, knownPath = "") {
+export async function composeStarSystemImage(paths, { actorId = "", knownPath = "" } = {}) {
   try {
     const list = (Array.isArray(paths) ? paths : []).filter(Boolean).slice(0, 4);
     if (list.length < 2) return "";
+    const id = String(actorId ?? "").trim().replace(/[^A-Za-z0-9_-]/g, "");
+    if (!id) return "";
     // Uploading needs file permissions — players without them keep the fallback.
     if (!(game.user?.isGM || game.user?.can?.("FILES_UPLOAD"))) return "";
 
     const hash = _hashPaths(list);
-    const fileName = `sta2e-stars-${hash}.webp`;
-    if (knownPath && String(knownPath).includes(fileName)) return knownPath;
-    if (_compositeCache.has(hash)) return _compositeCache.get(hash);
+    const fileName = `sta2e-stars-${id}.webp`;
+    const cacheKey = `${id}:${hash}`;
+    const known = String(knownPath ?? "");
+    if (known.includes(fileName) && known.endsWith(`?h=${hash}`)) return known;
+    if (_compositeCache.has(cacheKey)) return _compositeCache.get(cacheKey);
 
     const loaded = (await Promise.all(list.map(_loadCompositeImage))).filter(Boolean);
     if (loaded.length < 2) return "";
@@ -190,8 +213,9 @@ export async function composeStarSystemImage(paths, knownPath = "") {
     try { await FP.createDirectory("data", dir); } catch { /* already exists */ }
     const file = new File([blob], fileName, { type: "image/webp" });
     const result = await FP.upload("data", dir, file, {}, { notify: false });
-    const path = result?.path ? String(result.path) : "";
-    if (path) _compositeCache.set(hash, path);
+    if (!result?.path) return "";
+    const path = `${String(result.path)}?h=${hash}`;
+    _compositeCache.set(cacheKey, path);
     return path;
   } catch (err) {
     console.warn("STA2e Toolkit | star composite failed:", err);
@@ -230,6 +254,7 @@ export class StarSystemImagesConfig extends HandlebarsApplicationMixin(Applicati
     return {
       stars: contextRows(STAR_SYSTEM_STAR_IMAGE_TYPES, data.stars),
       planets: contextRows(STAR_SYSTEM_PLANET_IMAGE_TYPES, data.planets),
+      backgrounds: data.backgrounds.map((path, index) => ({ path, index })),
     };
   }
 
@@ -261,8 +286,9 @@ export class StarSystemImagesConfig extends HandlebarsApplicationMixin(Applicati
       button.addEventListener("click", () => {
         const row = button.closest("[data-image-entry]");
         const input = row?.querySelector("[data-image-path]");
-        if (!input || typeof FilePicker !== "function") return;
-        new FilePicker({
+        const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
+        if (!input || typeof FP !== "function") return;
+        new FP({
           type: "image",
           current: input.value || "",
           callback: path => {
@@ -299,9 +325,14 @@ export class StarSystemImagesConfig extends HandlebarsApplicationMixin(Applicati
     const el = this.element;
     const data = normalizeStarSystemImageData();
     for (const row of el.querySelectorAll("[data-image-type-row]")) {
+      const paths = cleanImageList(Array.from(row.querySelectorAll("[data-image-path]")).map(input => input.value));
+      if (row.dataset.kind === "background") {
+        data.backgrounds = paths;
+        continue;
+      }
       const kind = row.dataset.kind === "star" ? "stars" : "planets";
       const key = row.dataset.key;
-      data[kind][key] = cleanImageList(Array.from(row.querySelectorAll("[data-image-path]")).map(input => input.value));
+      data[kind][key] = paths;
     }
     await game.settings.set(MODULE_ID, STAR_SYSTEM_IMAGE_SETTING, data);
     this.close();

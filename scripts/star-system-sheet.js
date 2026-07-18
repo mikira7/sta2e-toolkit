@@ -388,6 +388,10 @@ const ATMOSPHERE_OPTIONS = [
   "helium-rich cold giant",
 ];
 
+const SPECTRAL_TYPE_OPTIONS = ["", "O", "B", "A", "F", "G", "K", "M", "L", "Y", "T", "White Dwarf", "T-Tauri"];
+const LUMINOSITY_OPTIONS = ["", "VI", "V", "IV", "III", "II", "Ib", "Ia"];
+const STAR_COUNT_CLASSIFICATIONS = ["Primary Star System", "Binary Star System", "Trinary Star System", "Multiple Star System"];
+
 const RING_OPTIONS = ["", "No", "Yes"];
 const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image"];
 
@@ -550,6 +554,14 @@ function worldContextRows(rows) {
   }));
 }
 
+function starContextRows(rows) {
+  return numberedRows(rows).map(row => ({
+    ...row,
+    spectralOptions: optionRows(SPECTRAL_TYPE_OPTIONS, row.spectralType),
+    luminosityOptions: optionRows(LUMINOSITY_OPTIONS, row.luminosityType),
+  }));
+}
+
 function moonContextRows(rows) {
   return numberedRows(rows ?? []).map(row => ({
     ...row,
@@ -640,14 +652,15 @@ function starImageForType(starOrType) {
 /**
  * Portrait/token image for a star system. Single-star systems use that star's
  * image; multi-star systems get a composite of all star images (primary large,
- * companions arranged around it). Falls back to the primary star image when
- * the composite can't be built (missing art, no upload permission, error).
+ * companions arranged around it), stored as one per-actor file overwritten on
+ * each regeneration. Falls back to the primary star image when the composite
+ * can't be built (missing art, no actor id, no upload permission, error).
  */
-async function resolveStarSystemPortraitImage(starSystem, { knownPath = "" } = {}) {
+async function resolveStarSystemPortraitImage(starSystem, { actorId = "", knownPath = "" } = {}) {
   const starImages = (starSystem?.stars ?? []).map(s => savedImage(s?.image)).filter(Boolean);
   if (!starImages.length) return "";
   if (starImages.length === 1) return starImages[0];
-  const composite = await composeStarSystemImage(starImages, knownPath);
+  const composite = await composeStarSystemImage(starImages, { actorId, knownPath });
   return composite || starImages[0];
 }
 
@@ -1108,20 +1121,34 @@ export function normalizeStarSystemData(raw = {}) {
   data.surveyStatus = clampText(data.surveyStatus, "Unsurveyed");
   data.lastUpdated = clampText(data.lastUpdated);
   data.notes = String(data.notes ?? "");
-  data.stars = normalizeRows(data.stars).map(row => ({
-    id: row.id || uid(),
-    role: clampText(row.role),
-    spectralType: clampText(row.spectralType),
-    subdivision: clampText(row.subdivision),
-    luminosityType: clampText(row.luminosityType),
-    classification: clampText(row.classification),
-    notes: clampText(row.notes),
-    image: savedImage(row.image),
-  }));
+  data.stars = normalizeRows(data.stars).map(row => {
+    const star = {
+      id: row.id || uid(),
+      role: clampText(row.role),
+      spectralType: clampText(row.spectralType),
+      subdivision: clampText(row.subdivision),
+      luminosityType: clampText(row.luminosityType),
+      classification: clampText(row.classification),
+      notes: clampText(row.notes),
+      image: savedImage(row.image),
+    };
+    // Brown dwarfs, white dwarfs, and T-Tauri stars use no subdivision or
+    // luminosity class; classification is always derived from the parts.
+    if (["L", "Y", "T", "White Dwarf", "T-Tauri"].includes(star.spectralType)) {
+      star.subdivision = "";
+      star.luminosityType = "";
+    }
+    if (star.spectralType) {
+      star.classification = `${star.spectralType}${star.subdivision}${star.luminosityType}`;
+      if (!star.image) star.image = starImageForType(star.spectralType);
+    }
+    return star;
+  });
   data.worlds = normalizeRows(data.worlds).map(row => {
     const world = {
       id: row.id || uid(),
       orbit: clampText(row.orbit),
+      orbitalAU: clampText(row.orbitalAU),
       zone: clampText(row.zone),
       name: clampText(row.name),
       type: clampText(row.type),
@@ -1184,6 +1211,7 @@ export function generateStarSystemData(seed = {}, options = {}) {
       : rollTable(table);
     worlds.push(generateWorld({ designation, orbit, zone, type, primaryStar }));
   }
+  generateOrbitalDistances(worlds, primaryStar);
 
   const hazards = primaryStar.rollPhenomena ? [generateSpatialPhenomenon(primaryStar)] : [];
   const habitableWorlds = worlds.filter(world => isHabitableWorld(world.type)).length;
@@ -1257,6 +1285,22 @@ function generateStar({ role = "Primary", maxRank = null } = {}) {
   const notes = starNotes(spectralType, luminosityType, rollPhenomena);
   const image = starImageForType(spectralType);
   return { id: uid(), role, spectralType, subdivision, luminosityType, classification, notes, image, rollPhenomena };
+}
+
+/**
+ * Keep the system-level star-count classification and primary-star summary in
+ * step after star rows are added, removed, or rerolled. Leaves classification
+ * alone when the GM picked a non-star-count value (Nebula System, etc.).
+ */
+function syncStarDerivedFields(data) {
+  const count = data.stars?.length ?? 0;
+  if (STAR_COUNT_CLASSIFICATIONS.includes(data.classification)) {
+    data.classification = count <= 1 ? "Primary Star System"
+      : count === 2 ? "Binary Star System"
+        : count === 3 ? "Trinary Star System"
+          : "Multiple Star System";
+  }
+  if (data.stars?.[0]?.spectralType) data.primaryStar = starSummary(data.stars[0]);
 }
 
 function rollSpectralIgnoringPhenomena() {
@@ -1361,6 +1405,110 @@ function randomizeWorld(existing = {}, primaryStar = null) {
     zone,
     type,
     primaryStar: primaryStar ?? { spectralType: "G", luminosityType: "V" },
+  });
+}
+
+// Approximate habitable-zone center distance (AU) by spectral type, used to
+// anchor generated orbital distances.
+const HZ_CENTER_AU = {
+  O: 15, B: 8, A: 3, F: 1.6, G: 1, K: 0.6, M: 0.2,
+  L: 0.05, Y: 0.05, T: 0.05,
+  "White Dwarf": 0.02,
+  "T-Tauri": 1,
+};
+
+function habitableZoneCenterAU(primaryStar) {
+  const key = starTypeKey(primaryStar) || "G";
+  return HZ_CENTER_AU[key] ?? 1;
+}
+
+function jitterValue(value, spread = 0.15) {
+  return value * (1 + (Math.random() * 2 - 1) * spread);
+}
+
+function sortedWorldsByOrbit(worlds) {
+  return worlds
+    .map((world, index) => ({ world, order: Number(world?.orbit) || index + 1 }))
+    .sort((a, b) => a.order - b.order)
+    .map(entry => entry.world);
+}
+
+/**
+ * Assign a plausible orbital distance (AU) to every world, anchored on the
+ * primary star's habitable zone: the Primary World sits near the HZ center,
+ * inner worlds step geometrically inward, outer worlds geometrically outward.
+ * Overwrites existing values — used at generation time.
+ */
+function generateOrbitalDistances(worlds, primaryStar) {
+  const ordered = sortedWorldsByOrbit(worlds);
+  if (!ordered.length) return worlds;
+  const hz = habitableZoneCenterAU(primaryStar);
+  const anchorIdx = Math.max(0, ordered.findIndex(world => world.zone === "Primary World"));
+  const values = new Array(ordered.length);
+  values[anchorIdx] = jitterValue(hz, 0.1);
+  for (let i = anchorIdx - 1; i >= 0; i -= 1) {
+    values[i] = Math.max(0.04, values[i + 1] / jitterValue(1.65, 0.1));
+  }
+  for (let i = anchorIdx + 1; i < ordered.length; i += 1) {
+    values[i] = values[i - 1] * jitterValue(1.75, 0.12);
+  }
+  applyOrbitalDistances(ordered, values);
+  return worlds;
+}
+
+/**
+ * Fill in blank orbitalAU values without touching values the GM already set:
+ * interpolates between known neighbours, or extrapolates geometrically from
+ * the nearest known value; a fully blank system gets freshly generated values.
+ */
+export function ensureOrbitalDistances(data) {
+  const worlds = Array.isArray(data?.worlds) ? data.worlds : [];
+  if (!worlds.length) return data;
+  const primaryStar = data.stars?.[0] ?? { spectralType: starTypeKey(data.primaryStar) || "G" };
+  const ordered = sortedWorldsByOrbit(worlds);
+  const known = ordered.map(world => {
+    const num = Number(world.orbitalAU);
+    return Number.isFinite(num) && num > 0 ? num : null;
+  });
+  if (known.every(value => value === null)) return generateOrbitalDistances(worlds, primaryStar) && data;
+
+  const values = new Array(ordered.length);
+  for (let i = 0; i < ordered.length; i += 1) {
+    if (known[i] !== null) {
+      values[i] = known[i];
+      continue;
+    }
+    let lo = -1;
+    let hi = -1;
+    for (let j = i - 1; j >= 0; j -= 1) if (known[j] !== null) { lo = j; break; }
+    for (let j = i + 1; j < ordered.length; j += 1) if (known[j] !== null) { hi = j; break; }
+    if (lo >= 0 && hi >= 0) {
+      // Log-interpolate between the surrounding known orbits.
+      const t = (i - lo) / (hi - lo);
+      values[i] = Math.exp(Math.log(known[lo]) + t * (Math.log(known[hi]) - Math.log(known[lo])));
+    } else if (lo >= 0) {
+      values[i] = known[lo] * (1.7 ** (i - lo));
+    } else {
+      values[i] = Math.max(0.04, known[hi] / (1.7 ** (hi - i)));
+    }
+  }
+  applyOrbitalDistances(ordered, values, { keepExisting: true });
+  return data;
+}
+
+function applyOrbitalDistances(orderedWorlds, values, { keepExisting = false } = {}) {
+  let prev = 0;
+  orderedWorlds.forEach((world, i) => {
+    let value = Math.max(values[i] ?? 0.05, prev * 1.15, prev + 0.01);
+    value = Math.round(value * 100) / 100;
+    if (value <= prev) value = Math.round((prev + 0.01) * 100) / 100;
+    prev = value;
+    const existing = Number(world.orbitalAU);
+    if (keepExisting && Number.isFinite(existing) && existing > 0) {
+      prev = Math.max(prev, existing);
+      return;
+    }
+    world.orbitalAU = String(value);
   });
 }
 
@@ -1509,8 +1657,11 @@ export async function createStarSystemActor({ folderId = null, data = null } = {
   }
 
   const starSystem = normalizeStarSystemData(data ?? generateStarSystemData());
-  const primaryImage = (await resolveStarSystemPortraitImage(starSystem)) || DEFAULT_IMG;
+  // Pre-generate the actor id so the composite file can be named after it.
+  const actorId = foundry.utils.randomID(16);
+  const primaryImage = (await resolveStarSystemPortraitImage(starSystem, { actorId })) || DEFAULT_IMG;
   const actorData = {
+    _id: actorId,
     name: starSystem.designation || "New Star System",
     type: defaultActorType(),
     img: primaryImage,
@@ -1525,9 +1676,42 @@ export async function createStarSystemActor({ folderId = null, data = null } = {
     },
   };
 
-  const actor = await Actor.create(actorData);
+  const actor = await Actor.create(actorData, { keepId: true });
   actor?.sheet?.render?.(true);
   return actor;
+}
+
+/**
+ * One-time repair: move star system actors off old content-hashed composite
+ * paths (sta2e-stars-<hash>.webp, one orphaned file per reroll) onto the
+ * per-actor overwritten scheme (sta2e-stars-<actorId>.webp?h=<hash>). Once no
+ * actor references an old-style path, everything in the composites folder
+ * except sta2e-stars-<actorId>.webp files can be deleted manually. Cheap
+ * no-op on every subsequent ready.
+ */
+export async function migrateStarSystemCompositeImages() {
+  if (!game.user?.isGM) return;
+  const stale = (game.actors ?? []).filter(actor => {
+    const img = String(actor?.img ?? "");
+    if (!img.includes("sta2e-star-composites/") || img.includes("?h=")) return false;
+    return !!getStarSystemData(actor)?.isStarSystem;
+  });
+  if (!stale.length) return;
+  console.log(`STA2e Toolkit | Migrating ${stale.length} star system composite image(s) to per-actor files.`);
+  for (const actor of stale) {
+    try {
+      const starSystem = getStarSystemData(actor);
+      const image = await resolveStarSystemPortraitImage(starSystem, { actorId: actor.id });
+      if (!image) continue;
+      await actor.update({ img: image, "prototypeToken.texture.src": image });
+    } catch (err) {
+      console.warn(`STA2e Toolkit | Composite migration failed for ${actor?.name}:`, err);
+    }
+  }
+  ui.notifications?.info(
+    "STA2e Toolkit: Star system portraits now reuse one file per system. "
+    + `Old files in worlds/${game.world.id}/sta2e-star-composites/ that are not named after an actor id can be deleted to free space.`
+  );
 }
 
 export async function markActorAsStarSystem(actor, data = null) {
@@ -1575,7 +1759,7 @@ export class StarSystemActorSheet extends ActorSheet {
 
   async getData(options = {}) {
     const context = await super.getData(options);
-    const starSystem = getStarSystemData(this.actor);
+    const starSystem = ensureOrbitalDistances(getStarSystemData(this.actor));
     return {
       ...context,
       cssVars: getLcCssVars("ss"),
@@ -1584,7 +1768,7 @@ export class StarSystemActorSheet extends ActorSheet {
       affiliationOptions: AFFILIATIONS,
       starSystem: {
         ...starSystem,
-        stars: numberedRows(starSystem.stars),
+        stars: starContextRows(starSystem.stars),
         worlds: worldContextRows(starSystem.worlds),
         features: numberedRows(starSystem.features),
         hazards: numberedRows(starSystem.hazards),
@@ -1608,7 +1792,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const button = event.currentTarget;
     const action = button.dataset.ssAction;
     const form = button.closest("form");
-    const gmOnlyActions = new Set(["generate", "add-world", "add-feature", "add-hazard", "add-moon", "randomize-world", "randomize-moon", "remove-moon", "remove-row"]);
+    const gmOnlyActions = new Set(["generate", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene"]);
     if (gmOnlyActions.has(action) && !game.user?.isGM) {
       ui.notifications.warn("STA2e Toolkit: Only the GM can modify generated star system records.");
       return;
@@ -1624,7 +1808,7 @@ export class StarSystemActorSheet extends ActorSheet {
         forceHabitable: !!form?.querySelector?.("[data-force-habitable]")?.checked,
       });
       const generatedName = generated.designation || this.actor.name;
-      const generatedImage = (await resolveStarSystemPortraitImage(generated)) || this.actor.img || DEFAULT_IMG;
+      const generatedImage = (await resolveStarSystemPortraitImage(generated, { actorId: this.actor.id, knownPath: this.actor.img })) || this.actor.img || DEFAULT_IMG;
       await this.actor.update({
         name: generatedName,
         img: generatedImage,
@@ -1632,6 +1816,16 @@ export class StarSystemActorSheet extends ActorSheet {
         "prototypeToken.texture.src": generatedImage,
       });
       await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, generated);
+      this.render(false);
+      return;
+    }
+
+    if (action === "create-scene") {
+      if (form) await this._saveForm(form);
+      const data = ensureOrbitalDistances(getStarSystemData(this.actor));
+      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, data);
+      const { createStarSystemMapScene } = await import("./star-system-scene.js");
+      await createStarSystemMapScene(this.actor);
       this.render(false);
       return;
     }
@@ -1654,7 +1848,7 @@ export class StarSystemActorSheet extends ActorSheet {
       return;
     }
 
-    if (["add-world", "add-feature", "add-hazard", "add-moon", "randomize-world", "randomize-moon", "remove-moon", "remove-row"].includes(action)) {
+    if (["add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row"].includes(action)) {
       const data = form ? this._dataFromForm(form).starSystem : getStarSystemData(this.actor);
       if (action === "add-world") {
         data.worlds.push({
@@ -1674,6 +1868,21 @@ export class StarSystemActorSheet extends ActorSheet {
           notes: "",
           moonRecords: [],
         });
+      }
+      if (action === "add-star") {
+        data.stars = normalizeRows(data.stars);
+        const role = data.stars.length === 0 ? "Primary" : `Companion ${data.stars.length}`;
+        data.stars.push(generateStar({ role }));
+        syncStarDerivedFields(data);
+      }
+      if (action === "randomize-star") {
+        const index = Number(button.dataset.index);
+        const star = data.stars?.[index];
+        if (star) {
+          const rerolled = generateStar({ role: star.role || (index === 0 ? "Primary" : `Companion ${index}`) });
+          data.stars[index] = { ...rerolled, id: star.id || rerolled.id };
+          syncStarDerivedFields(data);
+        }
       }
       if (action === "add-feature") data.features.push({ id: uid(), name: "", category: "", notes: "" });
       if (action === "add-hazard") data.hazards.push({ id: uid(), name: "", severity: "Moderate", notes: "" });
@@ -1695,6 +1904,7 @@ export class StarSystemActorSheet extends ActorSheet {
             ...randomized,
             id: data.worlds[index].id || randomized.id,
             name: data.worlds[index].name || randomized.name,
+            orbitalAU: data.worlds[index].orbitalAU || "",
           };
         }
       }
@@ -1728,8 +1938,16 @@ export class StarSystemActorSheet extends ActorSheet {
         const collection = button.dataset.collection;
         const index = Number(button.dataset.index);
         if (Array.isArray(data[collection]) && Number.isInteger(index)) data[collection].splice(index, 1);
+        if (collection === "stars") syncStarDerivedFields(data);
       }
-      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, normalizeStarSystemData(data));
+      const normalized = normalizeStarSystemData(data);
+      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, normalized);
+      const starsChanged = ["add-star", "randomize-star"].includes(action)
+        || (action === "remove-row" && button.dataset.collection === "stars");
+      if (starsChanged) {
+        const image = await resolveStarSystemPortraitImage(normalized, { actorId: this.actor.id, knownPath: this.actor.img });
+        if (image) await this.actor.update({ img: image, "prototypeToken.texture.src": image });
+      }
       this.render(false);
       return;
     }
@@ -1746,7 +1964,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const data = this._dataFromForm(form);
     const actorName = data.actorName || this.actor.name;
     const starSystem = normalizeStarSystemData(data.starSystem);
-    const primaryImage = await resolveStarSystemPortraitImage(starSystem, { knownPath: this.actor.img });
+    const primaryImage = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
     const actorUpdate = {
       name: actorName,
       "prototypeToken.name": actorName,
@@ -1812,7 +2030,7 @@ export class StarSystemActorSheet extends ActorSheet {
       ]));
     };
 
-    const worlds = rowsFor("worlds", ["id", "orbit", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image"]);
+    const worlds = rowsFor("worlds", ["id", "orbit", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image"]);
     const moonRecords = nestedRowsFor("worlds", "moonRecords", MOON_RECORD_FIELDS);
     worlds.forEach((world, index) => {
       world.moonRecords = moonRecords.get(index) ?? [];

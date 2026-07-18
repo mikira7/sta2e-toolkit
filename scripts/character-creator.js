@@ -2487,8 +2487,9 @@ export class CharacterCreatorConfig extends HandlebarsApplicationMixin(Applicati
       button.addEventListener("click", () => {
         const row = button.closest(".sta2e-cc-species-row");
         const input = row?.querySelector("[data-field='tokenImage']");
-        if (!input || typeof FilePicker !== "function") return;
-        new FilePicker({
+        const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
+        if (!input || typeof FP !== "function") return;
+        new FP({
           type: "image",
           current: input.value || "",
           callback: path => {

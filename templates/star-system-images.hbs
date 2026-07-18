@@ -65,6 +65,35 @@
     </div>
   </section>
 
+  <section class="sta2e-ssi-section">
+    <h3>Scene Backgrounds</h3>
+    <p class="sta2e-ssi-hint">Background images offered when creating a scene map from a Star System sheet.</p>
+    <div class="sta2e-ssi-type-list">
+      <article class="sta2e-ssi-type-row" data-image-type-row data-kind="background" data-key="backgrounds">
+        <header>
+          <strong>Backgrounds</strong>
+          <button type="button" data-action="addImage" data-kind="background" data-key="backgrounds" title="Add background"><i class="fas fa-plus"></i></button>
+        </header>
+        <div class="sta2e-ssi-image-list">
+          {{#each backgrounds}}
+          <div class="sta2e-ssi-image-entry" data-image-entry>
+            <div class="sta2e-ssi-image-media">
+              <img src="{{path}}" alt="" data-image-preview />
+              <input type="text" data-image-path value="{{path}}" placeholder="path/to/background.webp" />
+            </div>
+            <div class="sta2e-ssi-image-actions">
+              <button type="button" data-browse-image title="Browse image"><i class="fas fa-folder-open"></i></button>
+              <button type="button" data-action="deleteImage" data-kind="background" data-key="backgrounds" data-index="{{index}}" title="Remove image"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {{else}}
+          <div class="sta2e-ssi-empty">No images configured.</div>
+          {{/each}}
+        </div>
+      </article>
+    </div>
+  </section>
+
   <footer class="sta2e-ssi-footer">
     <button type="button" data-action="save"><i class="fas fa-save"></i> Save</button>
     <button type="button" data-action="cancel"><i class="fas fa-times"></i> Cancel</button>

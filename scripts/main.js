@@ -60,11 +60,13 @@ import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker
 import { setPool } from "./pool-service.js";
 import {
   createStarSystemActor,
+  migrateStarSystemCompositeImages,
   openStarSystemSheet,
   openStarSystemTypeInfoPrompt,
   registerStarSystemActorDirectoryHooks,
   registerStarSystemActorSheet,
 } from "./star-system-sheet.js";
+import { registerStarSystemMapHover } from "./star-system-scene.js";
 
 function getShipCardAllowedUserIds(message, payload = {}) {
   const toolkitFlags = message?.flags?.["sta2e-toolkit"] ?? {};
@@ -308,6 +310,7 @@ Hooks.once("init", () => {
   registerTraitItemSheetFields();
   registerStarSystemActorSheet();
   registerStarSystemActorDirectoryHooks();
+  registerStarSystemMapHover();
 
   // ── Keybinding: toggle Combat HUD on selected token ───────────────────────
   game.keybindings.register("sta2e-toolkit", "toggleCombatHud", {
@@ -767,6 +770,9 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   game.sta2eToolkit.createStarSystemActor = createStarSystemActor;
   game.sta2eToolkit.openStarSystemSheet = openStarSystemSheet;
+  // Move any star system actors off old content-hashed composite files onto
+  // the per-actor overwritten scheme (no-op once migrated).
+  migrateStarSystemCompositeImages().catch(err => console.warn("STA2e Toolkit | Composite migration error:", err));
   // Expose NPC roller launcher so the widget button can call it
   game.sta2eToolkit.launchNpcRoller = _npcRollerLaunch;
 

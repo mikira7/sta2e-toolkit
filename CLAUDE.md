@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Module Overview
 
-`sta2e-toolkit` is a FoundryVTT v13 module for Star Trek Adventures 2nd Edition. It runs on the `sta` game system. The module is pure ES modules — there is no build step, no bundler, no transpilation, and no test suite. Reload FoundryVTT to see changes.
+`sta2e-toolkit` is a FoundryVTT module for Star Trek Adventures 2nd Edition, running on Foundry **v14** (v14 gotchas: tiles anchor at their center, so tile x/y is the center point; scene background image/color live in the scene's `levels` collection, not the legacy top-level fields). It runs on the `sta` game system. The module is pure ES modules — there is no build step, no bundler, no transpilation, and no test suite. Reload FoundryVTT to see changes.
 
 ## Development Workflow
 
@@ -84,6 +84,7 @@ Zones are stored as scene flags. The ruler measurement is patched in `main.js` t
 | [scripts/toolkit-widget.js](scripts/toolkit-widget.js) | Floating toolbar widget |
 | [scripts/wildcard-namer.js](scripts/wildcard-namer.js) | Auto-names wildcard tokens from rollable tables |
 | [scripts/elevation-ruler.js](scripts/elevation-ruler.js) | Patches FoundryVTT ruler for 3D elevation |
+| [scripts/star-system-scene.js](scripts/star-system-scene.js) | Builds a scene map from a Star System actor (tiles, orbit rings, per-orbit zones, hover tooltips) |
 | [scripts/scene-flags.js](scripts/scene-flags.js) | Scene flag helpers |
 
 ## Key Conventions

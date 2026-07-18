@@ -418,7 +418,7 @@
 }
 
 .sta2e-ss-table--stars .sta2e-ss-row {
-  grid-template-columns: 96px 70px 48px 56px 100px minmax(150px, 0.8fr) minmax(220px, 1fr);
+  grid-template-columns: 96px 104px 48px 62px 100px minmax(150px, 0.8fr) minmax(200px, 1fr) 58px;
 }
 
 .sta2e-ss-table--features .sta2e-ss-row,
@@ -1216,4 +1216,79 @@
   .sta2e-ss-chat-detail {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ── Star System Images: hint text ─────────────────────────────────────── */
+
+.sta2e-ssi-hint {
+  margin: 2px 0 8px;
+  color: #b78a20;
+  font-size: 11px;
+}
+
+/* ── Create Scene Map dialog ───────────────────────────────────────────── */
+
+.sta2e-ss-scene-dialog h4 {
+  margin: 10px 0 6px;
+  border: none;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.sta2e-ss-scene-bg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sta2e-ss-scene-bg-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sta2e-ss-scene-bg-option img,
+.sta2e-ss-scene-bg-random {
+  width: 96px;
+  height: 54px;
+  flex: 0 0 96px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #14141e;
+  border: 1px solid #3a3a4a;
+}
+
+.sta2e-ss-scene-bg-random {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff9c00;
+  font-size: 18px;
+}
+
+/* ── System map hover tooltip ──────────────────────────────────────────── */
+
+.sta2e-ss-map-tooltip {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  max-width: 320px;
+  padding: 4px 12px;
+  background: rgba(8, 10, 22, 0.92);
+  color: #ffcc66;
+  border: 1px solid #ff9c00;
+  border-left-width: 6px;
+  border-radius: 8px;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

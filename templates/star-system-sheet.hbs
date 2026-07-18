@@ -18,6 +18,7 @@
         <span>Force Habitable</span>
       </label>
       <button type="button" data-ss-action="generate" title="Generate system"><i class="fas fa-dice-d20"></i><span>Generate</span></button>
+      <button type="button" data-ss-action="create-scene" title="Create a scene map of this system"><i class="fas fa-map"></i><span>Scene Map</span></button>
       {{/if}}
       <button type="button" data-ss-action="post-chat" title="Post summary to chat"><i class="fas fa-comment-alt"></i><span>Post</span></button>
       {{#if isGM}}<button type="button" data-ss-action="prompt-system" title="Prompt players with this system report"><i class="fas fa-bell"></i><span>Prompt</span></button>{{/if}}
@@ -116,24 +117,29 @@
 
       <div class="sta2e-ss-list-head sta2e-ss-list-head--sub">
         <h3>Stars</h3>
+        {{#if isGM}}<button type="button" data-ss-action="add-star" title="Add star"><i class="fas fa-plus"></i></button>{{/if}}
       </div>
       <div class="sta2e-ss-table sta2e-ss-table--stars">
         <div class="sta2e-ss-row sta2e-ss-row--head">
-          <span>Role</span><span>Type</span><span>Sub</span><span>Lum.</span><span>Classification</span><span>Image</span><span>Notes</span>
+          <span>Role</span><span>Type</span><span>Sub</span><span>Lum.</span><span>Classification</span><span>Image</span><span>Notes</span><span></span>
         </div>
         {{#each starSystem.stars}}
         <div class="sta2e-ss-row">
           <input type="hidden" name="starSystem.stars.{{index}}.id" value="{{id}}" />
           <input type="text" name="starSystem.stars.{{index}}.role" value="{{role}}" placeholder="Primary" />
-          <input type="text" name="starSystem.stars.{{index}}.spectralType" value="{{spectralType}}" placeholder="G" />
+          <select name="starSystem.stars.{{index}}.spectralType" title="Spectral type">{{#each spectralOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
           <input type="text" name="starSystem.stars.{{index}}.subdivision" value="{{subdivision}}" placeholder="2" />
-          <input type="text" name="starSystem.stars.{{index}}.luminosityType" value="{{luminosityType}}" placeholder="V" />
-          <input type="text" name="starSystem.stars.{{index}}.classification" value="{{classification}}" placeholder="G2V" />
+          <select name="starSystem.stars.{{index}}.luminosityType" title="Luminosity class">{{#each luminosityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+          <input type="text" name="starSystem.stars.{{index}}.classification" value="{{classification}}" placeholder="G2V" title="Derived from type + subdivision + luminosity on save" />
           <label class="sta2e-ss-image-field">
             {{#if image}}<img src="{{image}}" alt="" />{{/if}}
             <input type="text" name="starSystem.stars.{{index}}.image" value="{{image}}" placeholder="Image path" />
           </label>
           <input type="text" name="starSystem.stars.{{index}}.notes" value="{{notes}}" placeholder="Traits and generation notes" />
+          <div class="sta2e-ss-world-actions">
+            {{#if ../isGM}}<button type="button" data-ss-action="randomize-star" data-index="{{index}}" title="Randomize this star"><i class="fas fa-dice-d20"></i></button>{{/if}}
+            {{#if ../isGM}}<button type="button" data-ss-action="remove-row" data-collection="stars" data-index="{{index}}" title="Remove star"><i class="fas fa-trash"></i></button>{{/if}}
+          </div>
         </div>
         {{else}}
         <div class="sta2e-ss-empty">No star records logged.</div>
@@ -162,6 +168,7 @@
           </div>
           <div class="sta2e-ss-world-grid">
             <label><span>Orbit</span><input type="text" name="starSystem.worlds.{{index}}.orbit" value="{{orbit}}" placeholder="#" /></label>
+            <label><span>AU</span><input type="number" name="starSystem.worlds.{{index}}.orbitalAU" value="{{orbitalAU}}" placeholder="1.0" min="0" step="0.01" title="Orbital distance from the primary star in AU" /></label>
             <label><span>Zone</span><select name="starSystem.worlds.{{index}}.zone" title="World zone">{{#each zoneOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             <label><span>Name</span><input type="text" name="starSystem.worlds.{{index}}.name" value="{{name}}" placeholder="World" /></label>
             <label><span>Type</span><select name="starSystem.worlds.{{index}}.type" title="World type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>

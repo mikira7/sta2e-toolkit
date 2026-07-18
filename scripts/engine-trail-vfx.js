@@ -67,6 +67,21 @@ function _drawLine(g, from, to, width, color, alpha) {
   }
 }
 
+// ── Diagnostics ─────────────────────────────────────────────────────────────
+// spawnEngineTrail has several guards that legitimately no-op (trail disabled,
+// no emitters placed). They used to return silently, which made "no trail
+// appeared" impossible to triage. Bail-outs now always warn; the verbose
+// success dump is opt-in via `CONFIG.debug.sta2eVfx = true` in the console.
+const LOG_PREFIX = "sta2e-toolkit | EngineTrail";
+
+function _vfxDebug() {
+  return !!CONFIG?.debug?.sta2eVfx;
+}
+
+function _abort(kind, reason, detail = null) {
+  console.warn(`${LOG_PREFIX}(${kind}) aborted — ${reason}`, detail ?? "");
+}
+
 // ── Token geometry helpers ──────────────────────────────────────────────────
 function _resolveToken(tokenOrDoc) {
   if (!tokenOrDoc) return null;
@@ -75,22 +90,34 @@ function _resolveToken(tokenOrDoc) {
   return canvas?.tokens?.get?.(tokenOrDoc.id) ?? null;
 }
 
-// Where to parent the trail, and at what zIndex, for a given layer choice.
-// "above" rides the TokenLayer (above token sprites). "below" rides the
-// PrimaryCanvasGroup beneath the token mesh so exhaust sits behind the hull.
-function _trailParent(token, layer) {
-  if (layer === "below") {
-    const primary = canvas?.primary ?? null;
-    if (primary) {
-      if (!primary.sortableChildren) primary.sortableChildren = true;
-      const meshZ = typeof token?.mesh?.zIndex === "number" ? token.mesh.zIndex : 0;
-      return { parent: primary, zIndex: meshZ - 50 };
-    }
-  }
-  const tokens = canvas?.tokens ?? canvas?.interface ?? canvas?.stage ?? null;
-  if (tokens && !tokens.sortableChildren) tokens.sortableChildren = true;
+const VFX_Z_BASE = 900_000;
+
+// The layer custom VFX render into. canvas.tokens (TokenLayer) sits ABOVE
+// canvas.primary in the display list, so a large zIndex beats every token
+// sprite and a negative one drops behind them. Mirrors _effectLayer() in
+// transporter-vfx.js and the layer chain in native-weapon-vfx.js.
+//
+// We deliberately do NOT parent into canvas.primary any more. The
+// PrimaryCanvasGroup sorts and composites its children by elevation/sort, and
+// a bare PIXI.Graphics carrying neither of those rendered nothing at all under
+// Foundry v14 / PIXI v8 — which is why "below" emitters were invisible there
+// while every other effect in the module kept working.
+function _trailLayer() {
+  const layer = canvas?.tokens ?? canvas?.interface ?? canvas?.primary ?? canvas?.stage ?? null;
+  if (layer && !layer.sortableChildren) layer.sortableChildren = true;
+  return layer;
+}
+
+// "below" is expressed purely as a negative zIndex within that layer, the same
+// way _sceneContainer() places the torpedo trail in native-weapon-vfx.js.
+// Trade-off: this puts the exhaust behind *all* tokens rather than just its own
+// hull. That matches existing behaviour elsewhere in the module and is
+// version-agnostic, unlike the PrimaryCanvasGroup approach it replaces.
+function _trailZIndex(token, layer) {
   const tokenZ = typeof token?.zIndex === "number" ? token.zIndex : 0;
-  return { parent: tokens, zIndex: Math.max(900_000, tokenZ + 10_000) };
+  return layer === "below"
+    ? -VFX_Z_BASE + tokenZ
+    : Math.max(VFX_Z_BASE, tokenZ + 10_000);
 }
 
 function _degToRad(deg) {
@@ -111,21 +138,28 @@ function _degToRad(deg) {
  */
 export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   const token = _resolveToken(tokenOrDoc);
-  if (!token || !canvas?.app?.ticker) return;
-  if (typeof PIXI === "undefined") return;
+  if (!token) return _abort(kind, "could not resolve a canvas token", tokenOrDoc);
+  if (typeof PIXI === "undefined") return _abort(kind, "PIXI is not available");
+  if (!canvas?.app?.ticker) return _abort(kind, "canvas.app.ticker is not available");
 
   const settings = opts.settings
     ? normalizeShipEngineTrailSettings(opts.settings)
     : getShipEngineTrailSettings(token);
-  if (!settings?.enabled && !opts.isPreview) return;
+  if (!settings?.enabled && !opts.isPreview) {
+    return _abort(kind, "engine trails are disabled for this ship "
+      + "(Ship VFX Anchor editor → Engine tab → enable), actor: " + (token.actor?.name ?? "?"));
+  }
 
   const mode = settings?.[kind];
-  if (!mode) return;
+  if (!mode) return _abort(kind, `no "${kind}" settings block on this ship`, settings);
 
   const emitters = (opts.emitters && opts.emitters.length)
     ? opts.emitters.filter(a => !a.kind || a.kind === kind)
     : getShipEngineEmitters(token, kind);
-  if (!emitters.length) return;
+  if (!emitters.length) {
+    return _abort(kind, `no ${kind} emitter points placed on this ship, actor: `
+      + (token.actor?.name ?? "?"));
+  }
 
   const colorNum = _parseHexColor(resolveEngineTrailColorHex(token, kind, mode), 0xffffff);
   const coreColorNum = _lighten(colorNum, 0.55);
@@ -140,17 +174,37 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   const nodeInterval = Math.max(8, life / maxNodes);           // even node spacing along the line
 
   // One ribbon per placed emitter point — every nacelle streams its own line.
+  // The Graphics rides inside a Container that carries the zIndex, matching how
+  // transporter / weapon VFX are structured so the layer sort sees a stable object.
+  const parent = _trailLayer();
+  if (!parent) return _abort(kind, "no canvas layer available to parent the trail");
+
   const sources = [];
   for (const anchor of emitters) {
-    const { parent, zIndex } = _trailParent(token, anchor.layer === "below" ? "below" : "above");
-    if (!parent) continue;
+    const layerName = anchor.layer === "below" ? "below" : "above";
+    const container = new PIXI.Container();
+    container.zIndex = _trailZIndex(token, layerName);
     const g = new PIXI.Graphics();
-    g.zIndex = zIndex;
     g.blendMode = blend;
-    parent.addChild(g);
-    sources.push({ anchor, g, nodes: [], spawnAccum: 0 });
+    container.addChild(g);
+    parent.addChild(container);
+    sources.push({ anchor, g, container, nodes: [], spawnAccum: 0 });
   }
-  if (!sources.length) return;
+  if (!sources.length) return _abort(kind, "no emitter ribbons could be created");
+
+  if (_vfxDebug()) {
+    console.log(
+      `${LOG_PREFIX}(${kind})`,
+      `\n  PIXI / Foundry : ${PIXI.VERSION ?? "?"} / ${game?.version ?? "?"}`,
+      `\n  actor          : ${token.actor?.name ?? "?"}`,
+      `\n  enabled        : ${settings?.enabled}${opts.isPreview ? " (preview — gate bypassed)" : ""}`,
+      `\n  emitters       : ${emitters.length} [${emitters.map(a => a.layer ?? "above").join(", ")}]`,
+      `\n  layer          : ${parent?.constructor?.name ?? "none"}  sortable: ${parent?.sortableChildren}`,
+      `\n  zIndex         : ${sources.map(s => s.container.zIndex).join(", ")}`,
+      `\n  blendMode      : ${String(blend)}`,
+      `\n  first head     : ${JSON.stringify(shipEngineEmitterToCanvasPoint(token, emitters[0]))}`,
+    );
+  }
 
   const startedAt = performance.now();
   let prevNow = startedAt;
@@ -159,7 +213,8 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   const cleanup = () => {
     try { canvas.app.ticker.remove(tick); } catch { /* no-op */ }
     for (const source of sources) {
-      try { source.g.destroy(); } catch { /* no-op */ }
+      // Destroy the container (removes it from the layer) along with its Graphics.
+      try { source.container.destroy({ children: true }); } catch { /* no-op */ }
     }
   };
 

@@ -416,7 +416,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
           ?? btn.closest("td")?.previousElementSibling?.querySelector("input");
         if (!input) return;
         const fpType = btn.dataset.fpType ?? "audio";
-        new FilePicker({
+        const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
+        new FP({
           type:     fpType,
           current:  input.value || "",
           callback: path => { input.value = path; },
@@ -575,7 +576,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     row.querySelectorAll(".ec-browse-btn").forEach(b => {
       b.addEventListener("click", () => {
         const input = b.previousElementSibling;
-        new FilePicker({ type: b.dataset.fpType ?? "audio", current: input.value || "",
+        const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
+        new FP({ type: b.dataset.fpType ?? "audio", current: input.value || "",
           callback: p => { input.value = p; } }).render(true);
       });
     });
