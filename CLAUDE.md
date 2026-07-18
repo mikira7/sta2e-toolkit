@@ -47,10 +47,11 @@ Themes: `lcars-tng` (orange), `lcars-tng-blue` (cool blue), `tos-panel`, and oth
 
 ### Combat HUD
 
-[scripts/combat-hud.js](scripts/combat-hud.js) is the largest file (~16k+ lines). It contains:
+[scripts/combat-hud.js](scripts/combat-hud.js) is a compatibility facade for the split combat HUD modules. Most implementation still lives in [scripts/combat/combat-hud-core.js](scripts/combat/combat-hud-core.js). The split modules contain:
 - `CombatHUD` class — draggable floating widget for ship/ground combat
-- `BRIDGE_STATIONS`, `TASK_PARAMS` — configuration constants
+- `BRIDGE_STATIONS`, `TASK_PARAMS` — configuration constants in `scripts/combat/combat-definitions.js`
 - Dozens of exported task functions (`applyImpulseForOfficer`, `applyWarpForOfficer`, etc.) called from `main.js` socket/button handlers
+- Ship-card destination and Impulse/Warp movement helpers in `scripts/combat/ship-card-movement.js`
 - NPC Notable/Major actors spend Threat to avoid deadly injuries (`applyGroundInjury`)
 
 All combat button actions route through socket messages to ensure the GM executes privileged operations. Player buttons emit socket events; `main.js` handles them on the GM side.
