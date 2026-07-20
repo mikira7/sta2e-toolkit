@@ -16,6 +16,7 @@ export const STAR_SYSTEM_SHEET_ID = "sta2e-toolkit.StarSystemActorSheet";
 
 const MODULE_ID = "sta2e-toolkit";
 const DEFAULT_IMG = "icons/svg/planet.svg";
+const STAR_SYSTEM_CONVERSION_FLAG = "starSystemConversion";
 
 const CLASSIFICATIONS = [
   "Primary Star System",
@@ -2093,15 +2094,49 @@ export async function markActorAsStarSystem(actor, data = null) {
   }
 
   const current = getStarSystemData(actor);
+  const previousSheetClass = actor.getFlag?.("core", "sheetClass")
+    ?? foundry.utils.getProperty(actor, "flags.core.sheetClass")
+    ?? null;
+  const existingBackup = actor.getFlag?.(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG);
   const next = await bakeStarSystemWorldImages(normalizeStarSystemData({
     ...current,
     ...(data ?? {}),
     isStarSystem: true,
     designation: data?.designation || current.designation || actor.name,
   }), { actorId: actor.id });
+  if (!existingBackup && previousSheetClass !== STAR_SYSTEM_SHEET_ID) {
+    await actor.setFlag(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG, {
+      previousSheetClass,
+      convertedAt: new Date().toISOString(),
+      convertedBy: game.user?.id ?? null,
+    });
+  }
   await actor.update({ "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID });
   await actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, next);
   return next;
+}
+
+export async function undoStarSystemConversion(actor) {
+  if (!game.user?.isGM) {
+    ui.notifications.warn("STA2e Toolkit: Only the GM can undo Star System sheet conversions.");
+    return false;
+  }
+  if (!actor || !isStarSystemActor(actor)) return false;
+
+  const backup = actor.getFlag?.(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG) ?? {};
+  const previousSheetClass = typeof backup.previousSheetClass === "string" && backup.previousSheetClass.trim()
+    ? backup.previousSheetClass
+    : null;
+  const update = previousSheetClass
+    ? { "flags.core.sheetClass": previousSheetClass }
+    : { "flags.core.-=sheetClass": null };
+
+  await actor.update(update);
+  await actor.unsetFlag(MODULE_ID, STAR_SYSTEM_FLAG);
+  await actor.unsetFlag(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG);
+  actor.sheet?.render?.(true);
+  ui.notifications.info(`STA2e Toolkit: Restored ${actor.name} to its previous actor sheet.`);
+  return true;
 }
 
 export function openStarSystemSheet(actor) {
@@ -2688,42 +2723,112 @@ function addStarSystemDirectoryButton(_app, html) {
 function starSystemEntryContextHook(...args) {
   const options = args.find(arg => Array.isArray(arg));
   if (!options) return;
-  if (options.some(option => option?.label === "Open Star System Sheet" || option?.name === "Open Star System Sheet")) return;
 
-  options.push({
-    name: "Open Star System Sheet",
-    label: "Open Star System Sheet",
-    icon: '<i class="fas fa-sun"></i>',
-    condition: element => isStarSystemActor(actorFromContextElement(element)),
-    visible: element => isStarSystemActor(actorFromContextElement(element)),
-    callback: element => openStarSystemSheet(actorFromContextElement(element)),
-    onClick: (_event, element) => openStarSystemSheet(actorFromContextElement(element)),
+  if (!options.some(option => option?.label === "Open Star System Sheet" || option?.name === "Open Star System Sheet")) {
+    options.push({
+      name: "Open Star System Sheet",
+      label: "Open Star System Sheet",
+      icon: '<i class="fas fa-sun"></i>',
+      condition: element => isStarSystemActor(actorFromContextElement(element)),
+      visible: element => isStarSystemActor(actorFromContextElement(element)),
+      callback: element => openStarSystemSheet(actorFromContextElement(element)),
+      onClick: (_event, element) => openStarSystemSheet(actorFromContextElement(element)),
+    });
+  }
+
+  if (!options.some(option => option?.label === "Convert to Star System" || option?.name === "Convert to Star System")) {
+    options.push({
+      name: "Convert to Star System",
+      label: "Convert to Star System",
+      icon: '<i class="fas fa-map"></i>',
+      condition: element => {
+        const actor = actorFromContextElement(element);
+        return !!actor && game.user?.isGM && !isStarSystemActor(actor);
+      },
+      visible: element => {
+        const actor = actorFromContextElement(element);
+        return !!actor && game.user?.isGM && !isStarSystemActor(actor);
+      },
+      callback: async element => {
+        const actor = actorFromContextElement(element);
+        if (!actor) return;
+        const confirmed = await confirmStarSystemConversion(actor);
+        if (!confirmed) return;
+        await markActorAsStarSystem(actor, { designation: actor.name });
+        openStarSystemSheet(actor);
+      },
+      onClick: async (_event, element) => {
+        const actor = actorFromContextElement(element);
+        if (!actor) return;
+        const confirmed = await confirmStarSystemConversion(actor);
+        if (!confirmed) return;
+        await markActorAsStarSystem(actor, { designation: actor.name });
+        openStarSystemSheet(actor);
+      },
+    });
+  }
+
+  if (!options.some(option => option?.label === "Undo Star System Conversion" || option?.name === "Undo Star System Conversion")) {
+    options.push({
+      name: "Undo Star System Conversion",
+      label: "Undo Star System Conversion",
+      icon: '<i class="fas fa-undo"></i>',
+      condition: element => {
+        const actor = actorFromContextElement(element);
+        return !!actor && game.user?.isGM && isStarSystemActor(actor);
+      },
+      visible: element => {
+        const actor = actorFromContextElement(element);
+        return !!actor && game.user?.isGM && isStarSystemActor(actor);
+      },
+      callback: async element => {
+        const actor = actorFromContextElement(element);
+        if (!actor) return;
+        const confirmed = await confirmStarSystemUndo(actor);
+        if (!confirmed) return;
+        await undoStarSystemConversion(actor);
+      },
+      onClick: async (_event, element) => {
+        const actor = actorFromContextElement(element);
+        if (!actor) return;
+        const confirmed = await confirmStarSystemUndo(actor);
+        if (!confirmed) return;
+        await undoStarSystemConversion(actor);
+      },
+    });
+  }
+}
+
+function actorLooksLikeCharacter(actor) {
+  const sheetClass = actor?.getFlag?.("core", "sheetClass")
+    ?? foundry.utils.getProperty(actor, "flags.core.sheetClass")
+    ?? "";
+  return actor?.type === "character" || /character|npc|supporting/i.test(String(sheetClass));
+}
+
+async function confirmStarSystemConversion(actor) {
+  const characterWarning = actorLooksLikeCharacter(actor)
+    ? "<p><strong>This looks like a character actor. Convert it to a Star System sheet?</strong></p>"
+    : "";
+  return foundry.applications.api.DialogV2.confirm({
+    window: { title: "Convert to Star System?" },
+    content: `
+      <p>Convert <strong>${escapeHtml(actor?.name ?? "this actor")}</strong> to the STA2e Toolkit Star System sheet?</p>
+      ${characterWarning}
+      <p>This changes the actor's sheet. You can undo the conversion from the actor directory context menu.</p>`,
+    yes: { label: "Convert", icon: "fas fa-map" },
+    no: { label: "Cancel" },
   });
+}
 
-  options.push({
-    name: "Convert to Star System",
-    label: "Convert to Star System",
-    icon: '<i class="fas fa-map"></i>',
-    condition: element => {
-      const actor = actorFromContextElement(element);
-      return !!actor && game.user?.isGM && !isStarSystemActor(actor);
-    },
-    visible: element => {
-      const actor = actorFromContextElement(element);
-      return !!actor && game.user?.isGM && !isStarSystemActor(actor);
-    },
-    callback: async element => {
-      const actor = actorFromContextElement(element);
-      if (!actor) return;
-      await markActorAsStarSystem(actor, { designation: actor.name });
-      openStarSystemSheet(actor);
-    },
-    onClick: async (_event, element) => {
-      const actor = actorFromContextElement(element);
-      if (!actor) return;
-      await markActorAsStarSystem(actor, { designation: actor.name });
-      openStarSystemSheet(actor);
-    },
+async function confirmStarSystemUndo(actor) {
+  return foundry.applications.api.DialogV2.confirm({
+    window: { title: "Undo Star System Conversion?" },
+    content: `
+      <p>Restore <strong>${escapeHtml(actor?.name ?? "this actor")}</strong> to its previous actor sheet?</p>
+      <p>The Star System data stored on this actor will be removed.</p>`,
+    yes: { label: "Undo Conversion", icon: "fas fa-undo" },
+    no: { label: "Cancel" },
   });
 }
 
