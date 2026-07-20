@@ -2018,6 +2018,9 @@ export function registerStarSystemActorDirectoryHooks() {
   Hooks.on("getActorDirectoryEntryContext", starSystemEntryContextHook);
   Hooks.on("getActorContextOptions", starSystemEntryContextHook);
   Hooks.on("getDocumentDirectoryEntryContext", starSystemEntryContextHook);
+  Hooks.on("preUpdateActor", preventManualStarSystemSheetSelection);
+  Hooks.on("renderActorSheetConfig", removeStarSystemSheetConfigOption);
+  Hooks.on("renderDocumentSheetConfig", removeStarSystemSheetConfigOption);
 }
 
 export async function createStarSystemActor({ folderId = null, data = null } = {}) {
@@ -2092,6 +2095,10 @@ export async function markActorAsStarSystem(actor, data = null) {
   if (!actor) {
     return null;
   }
+  if (!isStarSystemActor(actor)) {
+    ui.notifications.warn("STA2e Toolkit: Converting existing actors to Star System sheets is disabled. Use the Actor Directory Star System button to create a new one.");
+    return null;
+  }
 
   const current = getStarSystemData(actor);
   const previousSheetClass = actor.getFlag?.("core", "sheetClass")
@@ -2121,9 +2128,13 @@ export async function undoStarSystemConversion(actor) {
     ui.notifications.warn("STA2e Toolkit: Only the GM can undo Star System sheet conversions.");
     return false;
   }
-  if (!actor || !isStarSystemActor(actor)) return false;
+  if (!actor) return false;
 
-  const backup = actor.getFlag?.(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG) ?? {};
+  const backup = getStarSystemConversionBackup(actor);
+  if (!backup) {
+    ui.notifications.warn(`STA2e Toolkit: ${actor.name} has no Star System conversion backup to restore.`);
+    return false;
+  }
   const previousSheetClass = typeof backup.previousSheetClass === "string" && backup.previousSheetClass.trim()
     ? backup.previousSheetClass
     : null;
@@ -2731,40 +2742,8 @@ function starSystemEntryContextHook(...args) {
       icon: '<i class="fas fa-sun"></i>',
       condition: element => isStarSystemActor(actorFromContextElement(element)),
       visible: element => isStarSystemActor(actorFromContextElement(element)),
-      callback: element => openStarSystemSheet(actorFromContextElement(element)),
-      onClick: (_event, element) => openStarSystemSheet(actorFromContextElement(element)),
-    });
-  }
-
-  if (!options.some(option => option?.label === "Convert to Star System" || option?.name === "Convert to Star System")) {
-    options.push({
-      name: "Convert to Star System",
-      label: "Convert to Star System",
-      icon: '<i class="fas fa-map"></i>',
-      condition: element => {
-        const actor = actorFromContextElement(element);
-        return !!actor && game.user?.isGM && !isStarSystemActor(actor);
-      },
-      visible: element => {
-        const actor = actorFromContextElement(element);
-        return !!actor && game.user?.isGM && !isStarSystemActor(actor);
-      },
-      callback: async element => {
-        const actor = actorFromContextElement(element);
-        if (!actor) return;
-        const confirmed = await confirmStarSystemConversion(actor);
-        if (!confirmed) return;
-        await markActorAsStarSystem(actor, { designation: actor.name });
-        openStarSystemSheet(actor);
-      },
-      onClick: async (_event, element) => {
-        const actor = actorFromContextElement(element);
-        if (!actor) return;
-        const confirmed = await confirmStarSystemConversion(actor);
-        if (!confirmed) return;
-        await markActorAsStarSystem(actor, { designation: actor.name });
-        openStarSystemSheet(actor);
-      },
+      callback: (...callbackArgs) => openStarSystemSheet(actorFromContextArgs(...callbackArgs)),
+      onClick: (...clickArgs) => openStarSystemSheet(actorFromContextArgs(...clickArgs)),
     });
   }
 
@@ -2775,21 +2754,21 @@ function starSystemEntryContextHook(...args) {
       icon: '<i class="fas fa-undo"></i>',
       condition: element => {
         const actor = actorFromContextElement(element);
-        return !!actor && game.user?.isGM && isStarSystemActor(actor);
+        return !!actor && game.user?.isGM && isConvertedStarSystemActor(actor);
       },
       visible: element => {
         const actor = actorFromContextElement(element);
-        return !!actor && game.user?.isGM && isStarSystemActor(actor);
+        return !!actor && game.user?.isGM && isConvertedStarSystemActor(actor);
       },
       callback: async element => {
-        const actor = actorFromContextElement(element);
+        const actor = actorFromContextArgs(element);
         if (!actor) return;
         const confirmed = await confirmStarSystemUndo(actor);
         if (!confirmed) return;
         await undoStarSystemConversion(actor);
       },
-      onClick: async (_event, element) => {
-        const actor = actorFromContextElement(element);
+      onClick: async (...clickArgs) => {
+        const actor = actorFromContextArgs(...clickArgs);
         if (!actor) return;
         const confirmed = await confirmStarSystemUndo(actor);
         if (!confirmed) return;
@@ -2797,28 +2776,6 @@ function starSystemEntryContextHook(...args) {
       },
     });
   }
-}
-
-function actorLooksLikeCharacter(actor) {
-  const sheetClass = actor?.getFlag?.("core", "sheetClass")
-    ?? foundry.utils.getProperty(actor, "flags.core.sheetClass")
-    ?? "";
-  return actor?.type === "character" || /character|npc|supporting/i.test(String(sheetClass));
-}
-
-async function confirmStarSystemConversion(actor) {
-  const characterWarning = actorLooksLikeCharacter(actor)
-    ? "<p><strong>This looks like a character actor. Convert it to a Star System sheet?</strong></p>"
-    : "";
-  return foundry.applications.api.DialogV2.confirm({
-    window: { title: "Convert to Star System?" },
-    content: `
-      <p>Convert <strong>${escapeHtml(actor?.name ?? "this actor")}</strong> to the STA2e Toolkit Star System sheet?</p>
-      ${characterWarning}
-      <p>This changes the actor's sheet. You can undo the conversion from the actor directory context menu.</p>`,
-    yes: { label: "Convert", icon: "fas fa-map" },
-    no: { label: "Cancel" },
-  });
 }
 
 async function confirmStarSystemUndo(actor) {
@@ -2832,8 +2789,26 @@ async function confirmStarSystemUndo(actor) {
   });
 }
 
+function actorFromContextArgs(...args) {
+  for (const arg of args) {
+    const actor = actorFromContextElement(arg);
+    if (actor) return actor;
+  }
+  return null;
+}
+
 function actorFromContextElement(element) {
-  const root = element instanceof HTMLElement ? element : element?.[0] ?? element;
+  if (!element) return null;
+  if (element?.documentName === "Actor") return element;
+
+  const document = element?.document ?? element?.object;
+  if (document?.documentName === "Actor") return document;
+
+  if (typeof Event !== "undefined" && element instanceof Event) {
+    return actorFromContextElement(element.currentTarget) ?? actorFromContextElement(element.target);
+  }
+
+  const root = typeof HTMLElement !== "undefined" && element instanceof HTMLElement ? element : element?.[0] ?? element;
   const item = root?.closest?.("[data-document-id], [data-entry-id], [data-actor-id], .directory-item")
     ?? root;
   const id = item?.dataset?.documentId
@@ -2842,4 +2817,43 @@ function actorFromContextElement(element) {
     ?? item?.dataset?.id
     ?? "";
   return game.actors?.get(id) ?? null;
+}
+
+function isConvertedStarSystemActor(actor) {
+  return !!getStarSystemConversionBackup(actor);
+}
+
+function getStarSystemConversionBackup(actor) {
+  const backup = actor?.getFlag?.(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG) ?? null;
+  return backup && typeof backup === "object" ? backup : null;
+}
+
+function removeStarSystemSheetConfigOption(app, html) {
+  const actor = app?.document ?? app?.object ?? null;
+  if (actor && isStarSystemActor(actor)) return;
+
+  const root = typeof HTMLElement !== "undefined" && html instanceof HTMLElement ? html : html?.[0] ?? html;
+  root?.querySelectorAll?.(`option[value="${STAR_SYSTEM_SHEET_ID}"]`).forEach(option => {
+    const select = option.closest("select");
+    option.remove();
+    if (select?.value === STAR_SYSTEM_SHEET_ID) select.value = "";
+  });
+}
+
+function preventManualStarSystemSheetSelection(actor, changes, _options, userId) {
+  if (requestedSheetClass(changes) !== STAR_SYSTEM_SHEET_ID) return true;
+  if (isStarSystemActor(actor)) return true;
+
+  if (!userId || userId === game.user?.id) {
+    ui.notifications?.warn("STA2e Toolkit: Star System sheets must be created with the Actor Directory Star System button.");
+  }
+  console.warn(`STA2e Toolkit | Blocked Star System sheet assignment on non-star-system actor: ${actor?.name ?? actor?.id ?? "unknown actor"}`);
+  return false;
+}
+
+function requestedSheetClass(changes = {}) {
+  return changes["flags.core.sheetClass"]
+    ?? changes?.flags?.core?.sheetClass
+    ?? foundry.utils.getProperty(changes, "flags.core.sheetClass")
+    ?? null;
 }
