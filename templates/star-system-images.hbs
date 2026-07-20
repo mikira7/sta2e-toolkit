@@ -66,6 +66,97 @@
   </section>
 
   <section class="sta2e-ssi-section">
+    <h3>Polar Caps</h3>
+    <p class="sta2e-ssi-hint">Transparent overlays drawn above Class-K, Class-L, and Class-M planet bases.</p>
+    <div class="sta2e-ssi-type-list">
+      {{#each polarCaps}}
+      <article class="sta2e-ssi-type-row" data-image-type-row data-kind="polarCap" data-key="{{key}}">
+        <header>
+          <strong>{{label}}</strong>
+          <button type="button" data-action="addImage" data-kind="polarCap" data-key="{{key}}" title="Add polar cap"><i class="fas fa-plus"></i></button>
+        </header>
+        <div class="sta2e-ssi-image-list">
+          {{#each images}}
+          <div class="sta2e-ssi-image-entry" data-image-entry>
+            <div class="sta2e-ssi-image-media">
+              <img src="{{path}}" alt="" data-image-preview />
+              <input type="text" data-image-path value="{{path}}" placeholder="path/to/polar-cap.png" />
+            </div>
+            <div class="sta2e-ssi-image-actions">
+              <button type="button" data-browse-image title="Browse image"><i class="fas fa-folder-open"></i></button>
+              <button type="button" data-action="deleteImage" data-kind="polarCap" data-key="{{../key}}" data-index="{{index}}" title="Remove image"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {{else}}
+          <div class="sta2e-ssi-empty">No images configured.</div>
+          {{/each}}
+        </div>
+      </article>
+      {{/each}}
+    </div>
+  </section>
+
+  <section class="sta2e-ssi-section">
+    <h3>Clouds</h3>
+    <p class="sta2e-ssi-hint">Transparent overlays drawn above the planet and polar caps for Class-K, Class-L, and Class-M bodies.</p>
+    <div class="sta2e-ssi-type-list">
+      {{#each clouds}}
+      <article class="sta2e-ssi-type-row" data-image-type-row data-kind="cloud" data-key="{{key}}">
+        <header>
+          <strong>{{label}}</strong>
+          <button type="button" data-action="addImage" data-kind="cloud" data-key="{{key}}" title="Add clouds"><i class="fas fa-plus"></i></button>
+        </header>
+        <div class="sta2e-ssi-image-list">
+          {{#each images}}
+          <div class="sta2e-ssi-image-entry" data-image-entry>
+            <div class="sta2e-ssi-image-media">
+              <img src="{{path}}" alt="" data-image-preview />
+              <input type="text" data-image-path value="{{path}}" placeholder="path/to/clouds.png" />
+            </div>
+            <div class="sta2e-ssi-image-actions">
+              <button type="button" data-browse-image title="Browse image"><i class="fas fa-folder-open"></i></button>
+              <button type="button" data-action="deleteImage" data-kind="cloud" data-key="{{../key}}" data-index="{{index}}" title="Remove image"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {{else}}
+          <div class="sta2e-ssi-empty">No images configured.</div>
+          {{/each}}
+        </div>
+      </article>
+      {{/each}}
+    </div>
+  </section>
+
+  <section class="sta2e-ssi-section">
+    <h3>Planetary Rings</h3>
+    <p class="sta2e-ssi-hint">Transparent ring overlays used for worlds and moons whose Rings field is Yes.</p>
+    <div class="sta2e-ssi-type-list">
+      <article class="sta2e-ssi-type-row" data-image-type-row data-kind="ring" data-key="rings">
+        <header>
+          <strong>Rings</strong>
+          <button type="button" data-action="addImage" data-kind="ring" data-key="rings" title="Add ring"><i class="fas fa-plus"></i></button>
+        </header>
+        <div class="sta2e-ssi-image-list">
+          {{#each rings}}
+          <div class="sta2e-ssi-image-entry" data-image-entry>
+            <div class="sta2e-ssi-image-media">
+              <img src="{{path}}" alt="" data-image-preview />
+              <input type="text" data-image-path value="{{path}}" placeholder="path/to/ring.png" />
+            </div>
+            <div class="sta2e-ssi-image-actions">
+              <button type="button" data-browse-image title="Browse image"><i class="fas fa-folder-open"></i></button>
+              <button type="button" data-action="deleteImage" data-kind="ring" data-key="rings" data-index="{{index}}" title="Remove image"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {{else}}
+          <div class="sta2e-ssi-empty">No images configured.</div>
+          {{/each}}
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="sta2e-ssi-section">
     <h3>Scene Backgrounds</h3>
     <p class="sta2e-ssi-hint">Background images offered when creating a scene map from a Star System sheet.</p>
     <div class="sta2e-ssi-type-list">

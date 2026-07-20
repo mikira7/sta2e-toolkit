@@ -23,6 +23,16 @@ export function hasRapidFireTorpedoLauncher(actor) {
   );
 }
 
+export function hasChiefTacticalOfficer(actor) {
+  if (!actor?.items) return false;
+  const normalize = value => String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+  return actor.items.some(i => normalize(i.name) === "chief tactical officer");
+}
+
 // Attack Run: character talent — when the ship takes Attack Pattern, attacks
 // against the ship do NOT reduce Difficulty. Checked on the Helm officer actor.
 export function hasAttackRun(actor) {

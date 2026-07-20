@@ -48,6 +48,12 @@ export const STAR_SYSTEM_PLANET_IMAGE_TYPES = [
   { key: "Belt", label: "Asteroid Belt" },
 ];
 
+export const STAR_SYSTEM_LAYERED_PLANET_TYPES = [
+  { key: "K", label: "Class-K Adaptable" },
+  { key: "L", label: "Class-L Marginal" },
+  { key: "M", label: "Class-M Terrestrial" },
+];
+
 function cleanImageList(value) {
   const list = Array.isArray(value) ? value : [];
   return Array.from(new Set(list.map(path => String(path ?? "").trim()).filter(Boolean)));
@@ -61,6 +67,11 @@ export function normalizeStarSystemImageData(raw = {}) {
   return {
     stars: keyedImageRows(STAR_SYSTEM_STAR_IMAGE_TYPES, raw?.stars),
     planets: keyedImageRows(STAR_SYSTEM_PLANET_IMAGE_TYPES, raw?.planets),
+    planetOverlays: {
+      polarCaps: keyedImageRows(STAR_SYSTEM_LAYERED_PLANET_TYPES, raw?.planetOverlays?.polarCaps),
+      clouds: keyedImageRows(STAR_SYSTEM_LAYERED_PLANET_TYPES, raw?.planetOverlays?.clouds),
+      rings: cleanImageList(raw?.planetOverlays?.rings),
+    },
     backgrounds: cleanImageList(raw?.backgrounds),
   };
 }
@@ -81,6 +92,20 @@ export function imagesForStarSystemType(kind, key) {
 
 export function pickStarSystemImage(kind, key) {
   const images = imagesForStarSystemType(kind, key);
+  if (!images.length) return "";
+  return images[Math.floor(Math.random() * images.length)] ?? "";
+}
+
+export function imagesForStarSystemOverlay(kind, key = "") {
+  const data = getStarSystemImageData();
+  if (kind === "polarCap") return cleanImageList(data.planetOverlays?.polarCaps?.[String(key ?? "").trim()]);
+  if (kind === "cloud") return cleanImageList(data.planetOverlays?.clouds?.[String(key ?? "").trim()]);
+  if (kind === "ring") return cleanImageList(data.planetOverlays?.rings);
+  return [];
+}
+
+export function pickStarSystemOverlay(kind, key = "") {
+  const images = imagesForStarSystemOverlay(kind, key);
   if (!images.length) return "";
   return images[Math.floor(Math.random() * images.length)] ?? "";
 }
@@ -223,6 +248,124 @@ export async function composeStarSystemImage(paths, { actorId = "", knownPath = 
   }
 }
 
+// ---------------------------------------------------------------------------
+// Layered planet composite portraits
+// ---------------------------------------------------------------------------
+
+const _planetCompositeCache = new Map();
+const _PLANET_COMPOSITE_SIZE = 700;
+const _PLANET_COMPOSITE_VERSION = "v3";
+const _RINGED_PLANET_SCALE = 0.68;
+
+function _drawImageCover(ctx, img, x, y, size) {
+  const w = img.naturalWidth || size;
+  const h = img.naturalHeight || size;
+  const scale = size / Math.max(w, h);
+  const dw = w * scale;
+  const dh = h * scale;
+  ctx.drawImage(img, x + (size - dw) / 2, y + (size - dh) / 2, dw, dh);
+}
+
+function _sanitizeFilePart(value, fallback = "body") {
+  return String(value ?? "").trim().replace(/[^A-Za-z0-9_-]/g, "") || fallback;
+}
+
+/**
+ * Compose a world or moon image into one uploaded texture. Layer order:
+ * ring back, planet base, polar cap, clouds, ring front half. Non-ringed
+ * bodies draw the planet stack full-canvas; ringed bodies scale the planet
+ * stack down inside the shared 700px ring canvas.
+ *
+ * @param {object} layers
+ * @param {string} layers.base
+ * @param {string} [layers.polarCap]
+ * @param {string} [layers.cloud]
+ * @param {string} [layers.ring]
+ * @param {object} options
+ * @param {string} options.actorId
+ * @param {string} options.bodyId
+ * @param {string} [options.kind]
+ * @param {string} [options.knownPath]
+ * @returns {Promise<string>}
+ */
+export async function composeStarSystemPlanetImage(layers = {}, { actorId = "", bodyId = "", kind = "world", knownPath = "" } = {}) {
+  try {
+    const base = String(layers.base ?? "").trim();
+    if (!base) return "";
+    const id = _sanitizeFilePart(actorId, "");
+    const body = _sanitizeFilePart(bodyId, "");
+    if (!id || !body) return "";
+    if (!(game.user?.isGM || game.user?.can?.("FILES_UPLOAD"))) return "";
+
+    const ring = String(layers.ring ?? "").trim();
+    const paths = [
+      base,
+      String(layers.polarCap ?? "").trim(),
+      String(layers.cloud ?? "").trim(),
+      ring,
+    ].filter(Boolean);
+    const hash = _hashPaths([...paths, _PLANET_COMPOSITE_VERSION, String(_RINGED_PLANET_SCALE)]);
+    const fileName = `sta2e-${_sanitizeFilePart(kind)}-${id}-${body}.webp`;
+    const cacheKey = `${id}:${body}:${hash}`;
+    const known = String(knownPath ?? "");
+    if (known.includes(fileName) && known.endsWith(`?h=${hash}`)) return known;
+    if (_planetCompositeCache.has(cacheKey)) return _planetCompositeCache.get(cacheKey);
+
+    const loaded = {};
+    await Promise.all(Object.entries({
+      base,
+      polarCap: layers.polarCap,
+      cloud: layers.cloud,
+      ring,
+    }).map(async ([key, path]) => {
+      const clean = String(path ?? "").trim();
+      if (!clean) return;
+      loaded[key] = await _loadCompositeImage(clean);
+    }));
+    if (!loaded.base) return "";
+
+    const SIZE = _PLANET_COMPOSITE_SIZE;
+    const canvasEl = document.createElement("canvas");
+    canvasEl.width = SIZE;
+    canvasEl.height = SIZE;
+    const ctx = canvasEl.getContext("2d");
+    if (!ctx) return "";
+
+    if (loaded.ring) _drawImageCover(ctx, loaded.ring, 0, 0, SIZE);
+
+    const planetSize = loaded.ring ? SIZE * _RINGED_PLANET_SCALE : SIZE;
+    const planetOffset = (SIZE - planetSize) / 2;
+    _drawImageCover(ctx, loaded.base, planetOffset, planetOffset, planetSize);
+    if (loaded.polarCap) _drawImageCover(ctx, loaded.polarCap, planetOffset, planetOffset, planetSize);
+    if (loaded.cloud) _drawImageCover(ctx, loaded.cloud, planetOffset, planetOffset, planetSize);
+
+    if (loaded.ring) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, SIZE / 2, SIZE, SIZE / 2);
+      ctx.clip();
+      _drawImageCover(ctx, loaded.ring, 0, 0, SIZE);
+      ctx.restore();
+    }
+
+    const blob = await new Promise(resolve => canvasEl.toBlob(resolve, "image/webp", 0.92));
+    if (!blob) return "";
+
+    const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
+    const dir = `worlds/${game.world.id}/sta2e-world-composites`;
+    try { await FP.createDirectory("data", dir); } catch { /* already exists */ }
+    const file = new File([blob], fileName, { type: "image/webp" });
+    const result = await FP.upload("data", dir, file, {}, { notify: false });
+    if (!result?.path) return "";
+    const path = `${String(result.path)}?h=${hash}`;
+    _planetCompositeCache.set(cacheKey, path);
+    return path;
+  } catch (err) {
+    console.warn("STA2e Toolkit | planet composite failed:", err);
+    return "";
+  }
+}
+
 function contextRows(types, stored) {
   return types.map(type => ({
     ...type,
@@ -254,6 +397,9 @@ export class StarSystemImagesConfig extends HandlebarsApplicationMixin(Applicati
     return {
       stars: contextRows(STAR_SYSTEM_STAR_IMAGE_TYPES, data.stars),
       planets: contextRows(STAR_SYSTEM_PLANET_IMAGE_TYPES, data.planets),
+      polarCaps: contextRows(STAR_SYSTEM_LAYERED_PLANET_TYPES, data.planetOverlays.polarCaps),
+      clouds: contextRows(STAR_SYSTEM_LAYERED_PLANET_TYPES, data.planetOverlays.clouds),
+      rings: data.planetOverlays.rings.map((path, index) => ({ path, index })),
       backgrounds: data.backgrounds.map((path, index) => ({ path, index })),
     };
   }
@@ -328,6 +474,18 @@ export class StarSystemImagesConfig extends HandlebarsApplicationMixin(Applicati
       const paths = cleanImageList(Array.from(row.querySelectorAll("[data-image-path]")).map(input => input.value));
       if (row.dataset.kind === "background") {
         data.backgrounds = paths;
+        continue;
+      }
+      if (row.dataset.kind === "polarCap") {
+        data.planetOverlays.polarCaps[row.dataset.key] = paths;
+        continue;
+      }
+      if (row.dataset.kind === "cloud") {
+        data.planetOverlays.clouds[row.dataset.key] = paths;
+        continue;
+      }
+      if (row.dataset.kind === "ring") {
+        data.planetOverlays.rings = paths;
         continue;
       }
       const kind = row.dataset.kind === "star" ? "stars" : "planets";

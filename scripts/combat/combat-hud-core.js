@@ -40,6 +40,7 @@ import {
 import {
   openNpcRoller, openPlayerRoller,
   PlayerRollCallbacks, rollPool, clearStationAssistFlag, buildPlayerRollCardHtml,
+  clearCompletedBridgeTaskMinors,
   diePipHtml, dsnShowPool,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
   taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
@@ -93,6 +94,7 @@ import {
   _taAvailable,
   hasAttackRun,
   hasCloakingDevice,
+  hasChiefTacticalOfficer,
   hasFastTargetingSystems,
   hasGlancingImpact,
   hasRapidFireTorpedoLauncher,
@@ -4099,6 +4101,11 @@ export class CombatHUD {
     const spreadActive = spreadAvailable && (spreadDeclared || salvoMode === "spread");
     const rangeSummary = CombatHUD._shipWeaponRangeSummary(weapon, token, targets);
     const rangeByTargetId = new Map((rangeSummary?.results ?? []).map(result => [result.target?.id, result]));
+    // If the caller didn't pass an explicit trackerMessageId, try to find the
+    // most-recent active tracker for the attacker. Covers opposed-defense
+    // winners whose bonus tracker is created by _autoAwardOpposedShipPool.
+    const _resolvedTrackerId = trackerMessageId
+      ?? (actor?.id ? (getActiveTracker(actor.id)?.id ?? null) : null);
 
     const targetData = targets.map(t => {
       const tActor      = t.actor;
@@ -4174,7 +4181,7 @@ export class CombatHUD {
         opposedDefenderBonus,
         attackerTokenId:    token?.id ?? null,
         attackerActorId:    actor?.id ?? null,
-        trackerMessageId:   trackerMessageId ?? null,
+        trackerMessageId:   _resolvedTrackerId,
         salvoMode,
         area:           areaActive,
         areaAvailable,
@@ -4196,12 +4203,6 @@ export class CombatHUD {
     });
 
     const targetNames = targets.map(t => t.name).join(", ");
-    // If the caller didn't pass an explicit trackerMessageId, try to find the
-    // most-recent active tracker for the attacker. Covers paths where the
-    // tracker was posted by a different code site (e.g. roller summary card)
-    // and we need to link back to it.
-    const _resolvedTrackerId = trackerMessageId
-      ?? (actor?.id ? (getActiveTracker(actor.id)?.id ?? null) : null);
     const spendContext = isHit ? makeSpendContext({
       floatingMomentum,
       qualities: _shipDamageSpendQualities(weapon, {
@@ -19061,12 +19062,39 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         //   same resolution logic on their end.
         if (!skipCompletionEffects && noPoolButton && taskLabel?.includes("Defense")) {
           const _successes = Math.max(0, totalSuccesses);
+          const _defenseRollingActor = payload.officerActorId
+            ? game.actors.get(payload.officerActorId)
+            : game.actors.get(actorId);
+          const _defenseThreatBought = passed
+            ? (payload.paymentSlots ?? []).filter(s => s === "threat" || s === "poolThreat" || s === "personalThreat").length
+            : 0;
+          const _defenseIntenseBonus = (passed && _defenseThreatBought > 0 && _defenseRollingActor && actorHasIntenseTalent(_defenseRollingActor))
+            ? _defenseThreatBought
+            : 0;
+          const _defenseIsNpcRoll = groundMode
+            ? groundIsNpc
+            : (playerMode ? false : CombatHUD.isNpcShip(game.actors.get(actorId)));
+          const _defensePool = payload.isAlliedNpc ? _rollEditMomentumPool(payload) : (_defenseIsNpcRoll ? "threat" : "momentum");
+          const _defenseTraitBonus = passed
+            ? Math.max(0, Number(_defensePool === "threat" ? payload.traitBonusThreat : payload.traitBonusMomentum) || 0)
+            : 0;
+          const _defenderBonusMomentum = _defenseIntenseBonus
+            + showOffBonusMomentum(payload, passed)
+            + callOutTargetsBonusMomentum(payload, passed)
+            + planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _defenseRollingActor ?? game.actors.get(actorId))
+            + flightControllerBonusMomentum(payload, passed)
+            + _defenseTraitBonus;
+          const _defenderRollResult = {
+            successes: _successes,
+            bonusMomentum: Math.max(0, Number(_defenderBonusMomentum) || 0),
+          };
           if (game.user.isGM) {
-            game.sta2eToolkit?.resolveDefenderRoll?.(_successes);
+            game.sta2eToolkit?.resolveDefenderRoll?.(_defenderRollResult);
           } else {
             game.socket.emit("module.sta2e-toolkit", {
               action:    "defenderRollComplete",
               successes: _successes,
+              bonusMomentum: _defenderRollResult.bonusMomentum,
             });
           }
         }
@@ -19271,6 +19299,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             );
           }
         }
+        if (!skipCompletionEffects) {
+          await clearCompletedBridgeTaskMinors(confirmedRollData, tokenObj);
+        }
 
         // Weapon attack resolution
         if (!skipCompletionEffects && !suppressWeaponResolution && weaponContext && groundMode) {
@@ -19449,6 +19480,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               defenderSuccesses:    defenderSuccesses ?? null,
               opposedDefenseType:   opposedDefenseType ?? null,
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
+              opposedDefenderBonus: payload.opposedDefenderBonus ?? 0,
               floatingMomentum:     _shipFloating,
               intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus,
               trackerMessageId:     _trackerMessageId,
@@ -20725,10 +20757,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             return;
           }
 
+          const defenderTacticalOfficer = getStationOfficers(defenderActor, "tactical")[0] ?? null;
+          const chiefTacticalOfficerAvailable = !!(defenderTacticalOfficer && hasChiefTacticalOfficer(defenderTacticalOfficer));
+
           // Auto-hit — pass the attacker token directly so no target selection needed
           await CombatHUD.resolveShipAttack(defenderToken, defWeapon, true, {
             salvoMode:       caSalvoMode,
             overrideTargets: [attackerToken],
+            chiefTacticalOfficerAvailable,
           });
         } catch(err) {
           console.error("STA2e Toolkit | Ship counterattack error:", err);

@@ -4,7 +4,12 @@
  */
 
 import { getLcCssVars } from "./lcars-theme.js";
-import { pickStarSystemImage, composeStarSystemImage } from "./star-system-images.js";
+import {
+  pickStarSystemImage,
+  pickStarSystemOverlay,
+  composeStarSystemImage,
+  composeStarSystemPlanetImage,
+} from "./star-system-images.js";
 
 export const STAR_SYSTEM_FLAG = "starSystem";
 export const STAR_SYSTEM_SHEET_ID = "sta2e-toolkit.StarSystemActorSheet";
@@ -393,7 +398,13 @@ const LUMINOSITY_OPTIONS = ["", "VI", "V", "IV", "III", "II", "Ib", "Ia"];
 const STAR_COUNT_CLASSIFICATIONS = ["Primary Star System", "Binary Star System", "Trinary Star System", "Multiple Star System"];
 
 const RING_OPTIONS = ["", "No", "Yes"];
-const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image"];
+const ROOT_ORBITAL_NODE_ID = "root";
+const ORBITAL_NODE_FIELDS = ["id", "type", "label", "parentId", "starId", "orbitalAU", "angle"];
+const IMAGE_LAYER_FIELDS = ["base", "polarCap", "cloud", "ring"];
+const IMAGE_LAYER_FORM_FIELDS = IMAGE_LAYER_FIELDS.map(field => `imageLayers.${field}`);
+const STAR_RECORD_FIELDS = ["id", "role", "spectralType", "subdivision", "luminosityType", "classification", "notes", "image", "orbitParentNodeId", "orbitalAU", "orbitalAngle"];
+const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image", "orbitParentNodeId", ...IMAGE_LAYER_FORM_FIELDS];
+const WORLD_RECORD_FIELDS = ["id", "orbit", "orbitParentNodeId", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image", ...IMAGE_LAYER_FORM_FIELDS];
 
 const OUTER_WORLD_TABLE = [
   { min: 1, max: 1, value: "Class-L (Marginal)" },
@@ -509,6 +520,11 @@ function numberText(value, digits = 2) {
   return String(Math.round(num * (10 ** digits)) / (10 ** digits));
 }
 
+function numericText(value, fallback = "0", digits = 2) {
+  const text = numberText(value, digits);
+  return text || fallback;
+}
+
 function worldClass(value) {
   const match = String(value ?? "").match(/Class-([A-Z])/i);
   return match ? match[1].toUpperCase() : String(value ?? "").includes("Asteroid Belt") ? "Belt" : "";
@@ -543,28 +559,183 @@ function optionRows(options, selected) {
   }));
 }
 
-function worldContextRows(rows) {
+function rootOrbitalNode() {
+  return {
+    id: ROOT_ORBITAL_NODE_ID,
+    type: "barycenter",
+    label: "System Barycenter",
+    parentId: "",
+    starId: "",
+    orbitalAU: "0",
+    angle: "0",
+  };
+}
+
+function starNodeId(star) {
+  return `star-${clampText(star?.id, uid()).replace(/[^A-Za-z0-9_-]/g, "")}`;
+}
+
+function barycenterNodeId(index = 1) {
+  return `barycenter-${index}`;
+}
+
+function starDisplayLabel(star, fallback = "Star") {
+  return displayText(star?.role, "") || star?.classification || starSummary(star) || fallback;
+}
+
+function normalizeOrbitalNode(row = {}, stars = [], index = 0) {
+  const type = clampText(row.type, "barycenter") === "star" ? "star" : "barycenter";
+  const star = type === "star" ? stars.find(s => s.id === row.starId) : null;
+  const id = clampText(row.id, type === "star" && star ? starNodeId(star) : barycenterNodeId(index));
+  return {
+    id,
+    type,
+    label: clampText(row.label, type === "star" ? starDisplayLabel(star, "Star") : id === ROOT_ORBITAL_NODE_ID ? "System Barycenter" : `Barycenter ${index}`),
+    parentId: id === ROOT_ORBITAL_NODE_ID ? "" : clampText(row.parentId, ROOT_ORBITAL_NODE_ID),
+    starId: type === "star" ? clampText(row.starId, star?.id ?? "") : "",
+    orbitalAU: numericText(row.orbitalAU, id === ROOT_ORBITAL_NODE_ID ? "0" : "1"),
+    angle: numericText(row.angle, "0", 0),
+  };
+}
+
+function defaultOrbitalNodesForStars(stars = []) {
+  const nodes = [rootOrbitalNode()];
+  stars.forEach((star, index) => {
+    nodes.push({
+      id: starNodeId(star),
+      type: "star",
+      label: starDisplayLabel(star, index === 0 ? "Primary" : `Companion ${index}`),
+      parentId: ROOT_ORBITAL_NODE_ID,
+      starId: star.id,
+      orbitalAU: index === 0 ? "0" : String(8 + index * 12),
+      angle: String((index * 137) % 360),
+    });
+  });
+  return nodes;
+}
+
+function applyStarOrbitEdits(nodes, stars) {
+  for (const star of stars) {
+    const node = nodes.find(row => row.type === "star" && row.starId === star.id);
+    if (!node) continue;
+    if (star.orbitParentNodeId) node.parentId = star.orbitParentNodeId;
+    if (star.orbitalAU !== undefined) node.orbitalAU = numericText(star.orbitalAU, node.orbitalAU);
+    if (star.orbitalAngle !== undefined) node.angle = numericText(star.orbitalAngle, node.angle, 0);
+    node.label = starDisplayLabel(star, node.label);
+  }
+}
+
+function normalizeOrbitalNodes(rawNodes = [], stars = []) {
+  const source = normalizeRows(rawNodes);
+  let nodes = source.length ? source.map((row, index) => normalizeOrbitalNode(row, stars, index)) : defaultOrbitalNodesForStars(stars);
+  if (!nodes.some(node => node.id === ROOT_ORBITAL_NODE_ID)) nodes.unshift(rootOrbitalNode());
+  const starIds = new Set(stars.map(star => star.id));
+  nodes = nodes.filter(node => node.id === ROOT_ORBITAL_NODE_ID || node.type !== "star" || starIds.has(node.starId));
+  for (const [index, star] of stars.entries()) {
+    if (!nodes.some(node => node.type === "star" && node.starId === star.id)) {
+      nodes.push({
+        id: starNodeId(star),
+        type: "star",
+        label: starDisplayLabel(star, index === 0 ? "Primary" : `Companion ${index}`),
+        parentId: ROOT_ORBITAL_NODE_ID,
+        starId: star.id,
+        orbitalAU: index === 0 ? "0" : String(8 + index * 12),
+        angle: String((index * 137) % 360),
+      });
+    }
+  }
+  applyStarOrbitEdits(nodes, stars);
+  const ids = new Set(nodes.map(node => node.id));
+  nodes.forEach(node => {
+    if (node.id !== ROOT_ORBITAL_NODE_ID && (!node.parentId || !ids.has(node.parentId) || node.parentId === node.id)) {
+      node.parentId = ROOT_ORBITAL_NODE_ID;
+    }
+  });
+  return nodes;
+}
+
+function syncStarOrbitFieldsFromNodes(stars = [], nodes = []) {
+  for (const star of stars) {
+    const node = nodes.find(row => row.type === "star" && row.starId === star.id);
+    if (!node) continue;
+    star.orbitParentNodeId = node.parentId;
+    star.orbitalAU = node.orbitalAU;
+    star.orbitalAngle = node.angle;
+  }
+  return stars;
+}
+
+function primaryStarNodeId(dataOrNodes) {
+  const nodes = Array.isArray(dataOrNodes) ? dataOrNodes : dataOrNodes?.orbitalNodes;
+  const primary = nodes?.find(node => node.type === "star");
+  return primary?.id || ROOT_ORBITAL_NODE_ID;
+}
+
+function orbitalNodeLabel(node, stars = []) {
+  if (!node) return "Primary Star";
+  if (node.type === "star") {
+    const star = stars.find(s => s.id === node.starId);
+    return starDisplayLabel(star, node.label || "Star");
+  }
+  return node.label || "Barycenter";
+}
+
+function parentNodeOptions(nodes = [], selected = "", { includeRoot = false, forStarNodeId = "" } = {}) {
+  const options = nodes
+    .filter(node => {
+      if (node.id === forStarNodeId) return false;
+      if (node.id === ROOT_ORBITAL_NODE_ID) return includeRoot;
+      return node.type === "barycenter" || !forStarNodeId;
+    })
+    .map(node => ({ value: node.id, label: node.label || node.id }));
+  return optionRows(options.map(option => option.value), selected).map(row => {
+    const label = options.find(option => option.value === row.value)?.label ?? row.label;
+    return { ...row, label };
+  });
+}
+
+function orbitParentLabel(world, data) {
+  const id = world?.orbitParentNodeId || primaryStarNodeId(data);
+  return orbitalNodeLabel(data?.orbitalNodes?.find(node => node.id === id), data?.stars ?? []);
+}
+
+function worldContextRows(rows, starSystem = {}) {
+  const parentOptions = starSystem.orbitalNodeParentOptions ?? [];
   return numberedRows(rows).map(row => ({
     ...row,
+    orbitParentNodeOptions: optionRows(parentOptions.map(option => option.value), row.orbitParentNodeId).map(option => ({
+      ...option,
+      label: parentOptions.find(parent => parent.value === option.value)?.label ?? option.label,
+    })),
     zoneOptions: optionRows(WORLD_ZONE_OPTIONS, row.zone),
     typeOptions: optionRows(WORLD_TYPE_OPTIONS, row.type),
     atmosphereOptions: optionRows(ATMOSPHERE_OPTIONS, row.atmosphere),
     ringOptions: optionRows(RING_OPTIONS, row.rings),
-    moonRecords: moonContextRows(row.moonRecords),
+    moonRecords: moonContextRows(row.moonRecords, starSystem),
   }));
 }
 
-function starContextRows(rows) {
+function starContextRows(rows, starSystem = {}) {
   return numberedRows(rows).map(row => ({
     ...row,
+    orbitalNode: starSystem.orbitalNodes?.find(node => node.type === "star" && node.starId === row.id) ?? null,
+    orbitParentNodeOptions: parentNodeOptions(starSystem.orbitalNodes, starSystem.orbitalNodes?.find(node => node.type === "star" && node.starId === row.id)?.parentId, {
+      includeRoot: true,
+      forStarNodeId: starSystem.orbitalNodes?.find(node => node.type === "star" && node.starId === row.id)?.id,
+    }),
     spectralOptions: optionRows(SPECTRAL_TYPE_OPTIONS, row.spectralType),
     luminosityOptions: optionRows(LUMINOSITY_OPTIONS, row.luminosityType),
   }));
 }
 
-function moonContextRows(rows) {
+function moonContextRows(rows, starSystem = {}) {
+  const parentOptions = starSystem.orbitalNodeParentOptions ?? [];
   return numberedRows(rows ?? []).map(row => ({
     ...row,
+    orbitParentNodeOptions: optionRows(parentOptions.map(option => option.value), row.orbitParentNodeId).map(option => ({
+      ...option,
+      label: parentOptions.find(parent => parent.value === option.value)?.label ?? option.label,
+    })),
     typeOptions: optionRows(WORLD_TYPE_OPTIONS, row.type),
     atmosphereOptions: optionRows(ATMOSPHERE_OPTIONS, row.atmosphere),
     ringOptions: optionRows(RING_OPTIONS, row.rings),
@@ -666,6 +837,83 @@ async function resolveStarSystemPortraitImage(starSystem, { actorId = "", knownP
 
 function planetImageForType(type) {
   return pickStarSystemImage("planet", worldClass(type));
+}
+
+function hasRings(value) {
+  return String(value ?? "").trim().toLowerCase() === "yes";
+}
+
+function imageLayerValue(row, field) {
+  return savedImage(row?.imageLayers?.[field] ?? row?.[`imageLayers.${field}`]);
+}
+
+function normalizeImageLayers(row = {}) {
+  return {
+    base: imageLayerValue(row, "base"),
+    polarCap: imageLayerValue(row, "polarCap"),
+    cloud: imageLayerValue(row, "cloud"),
+    ring: imageLayerValue(row, "ring"),
+  };
+}
+
+function createPlanetImageLayers(type, { rings = "No", baseImage = "" } = {}) {
+  const cls = worldClass(type);
+  const layers = {
+    base: savedImage(baseImage) || planetImageForType(type),
+    polarCap: "",
+    cloud: "",
+    ring: "",
+  };
+  if (["K", "L", "M"].includes(cls)) {
+    layers.polarCap = pickStarSystemOverlay("polarCap", cls);
+    layers.cloud = pickStarSystemOverlay("cloud", cls);
+  }
+  if (hasRings(rings)) layers.ring = pickStarSystemOverlay("ring");
+  return layers;
+}
+
+function imageFromLayers(layers = {}) {
+  return savedImage(layers.base);
+}
+
+async function bakePlanetImageForBody(body, { actorId = "", kind = "world" } = {}) {
+  if (!body) return body;
+  const sourceLayers = normalizeImageLayers(body);
+  if (!sourceLayers.base) sourceLayers.base = savedImage(body.image) || planetImageForType(body.type);
+  if (!sourceLayers.ring && hasRings(body.rings)) sourceLayers.ring = pickStarSystemOverlay("ring");
+  const cls = worldClass(body.type);
+  if (["K", "L", "M"].includes(cls)) {
+    if (!sourceLayers.polarCap) sourceLayers.polarCap = pickStarSystemOverlay("polarCap", cls);
+    if (!sourceLayers.cloud) sourceLayers.cloud = pickStarSystemOverlay("cloud", cls);
+  }
+
+  body.imageLayers = sourceLayers;
+  const shouldBake = !!sourceLayers.base && (hasRings(body.rings) || !!sourceLayers.polarCap || !!sourceLayers.cloud);
+  if (!shouldBake) {
+    body.image = sourceLayers.base || savedImage(body.image);
+    return body;
+  }
+
+  const image = await composeStarSystemPlanetImage(sourceLayers, {
+    actorId,
+    bodyId: body.id,
+    kind,
+    knownPath: body.image,
+  });
+  body.image = image || sourceLayers.base || savedImage(body.image);
+  return body;
+}
+
+async function bakeStarSystemWorldImages(starSystem, { actorId = "" } = {}) {
+  const worlds = Array.isArray(starSystem?.worlds) ? starSystem.worlds : [];
+  for (const world of worlds) {
+    await bakePlanetImageForBody(world, { actorId, kind: "world" });
+    const moons = Array.isArray(world.moonRecords) ? world.moonRecords : [];
+    for (const moon of moons) {
+      await bakePlanetImageForBody(moon, { actorId, kind: "moon" });
+    }
+  }
+  return starSystem;
 }
 
 function promptImageHtml(src, label) {
@@ -897,12 +1145,14 @@ function createMoonRecord({ hostWorld = {}, index = 0, summary = "", randomize =
   const type = moonTypeFromSummary(moonSummary) || planetTypeForClass("D");
   const size = moonMassSize(moonSummary);
   const orbit = romanNumeral(index + 1);
-  const image = useConfiguredImage ? planetImageForType(type) : "";
+  const imageLayers = useConfiguredImage ? createPlanetImageLayers(type, { rings: "No" }) : normalizeImageLayers();
+  const image = useConfiguredImage ? imageFromLayers(imageLayers) : "";
   return {
     id: uid(),
     orbit,
     name: `${displayText(hostWorld.name, "Moon")} ${orbit}`,
     type,
+    orbitParentNodeId: hostWorld.orbitParentNodeId,
     atmosphere: atmosphereForWorld(type),
     population: moonPopulationForType(type),
     rings: "No",
@@ -911,6 +1161,7 @@ function createMoonRecord({ hostWorld = {}, index = 0, summary = "", randomize =
     gravity: size.gravity,
     notes: moonSummary,
     image,
+    imageLayers,
   };
 }
 
@@ -932,6 +1183,7 @@ function normalizeMoonRecord(row = {}, hostWorld = {}, index = 0) {
     orbit: clampText(row.orbit, fallback.orbit),
     name: clampText(row.name, fallback.name),
     type: clampText(row.type, fallback.type),
+    orbitParentNodeId: clampText(row.orbitParentNodeId) || hostWorld.orbitParentNodeId,
     atmosphere: clampText(row.atmosphere, fallback.atmosphere),
     population: clampText(row.population, fallback.population),
     rings: clampText(row.rings, fallback.rings),
@@ -940,6 +1192,7 @@ function normalizeMoonRecord(row = {}, hostWorld = {}, index = 0) {
     gravity: clampText(row.gravity, fallback.gravity),
     notes: clampText(row.notes, fallback.notes),
     image: savedImage(row.image),
+    imageLayers: normalizeImageLayers(row),
   };
 }
 
@@ -1007,6 +1260,7 @@ function systemWorldRows(worlds, { compact = false, showImages = false, summary 
       ${compact || summary ? "" : `<p>${escapeHtml(planetTypeDescription(world.type))}</p>`}
       <div class="sta2e-ss-chat-pills">
         ${chatPill("Orbit", world.orbit, "Unassigned")}
+        ${chatPill("Parent", world.orbitParentLabel, "Primary Star")}
         ${chatPill("Zone", world.zone, "Unassigned")}
         ${summary ? chatPill("Moons", world.moons, "0") : chatPillHtml("Moons", moonDetailsHtml(world), "None logged")}
         ${summary ? "" : chatPill("Atmosphere", world.atmosphere)}
@@ -1087,6 +1341,7 @@ export function defaultStarSystemData(overrides = {}) {
     lastUpdated: "",
     notes: "",
     stars: [],
+    orbitalNodes: [],
     worlds: [],
     features: [],
     hazards: [],
@@ -1131,6 +1386,9 @@ export function normalizeStarSystemData(raw = {}) {
       classification: clampText(row.classification),
       notes: clampText(row.notes),
       image: savedImage(row.image),
+      orbitParentNodeId: clampText(row.orbitParentNodeId),
+      orbitalAU: clampText(row.orbitalAU),
+      orbitalAngle: clampText(row.orbitalAngle),
     };
     // Brown dwarfs, white dwarfs, and T-Tauri stars use no subdivision or
     // luminosity class; classification is always derived from the parts.
@@ -1144,10 +1402,14 @@ export function normalizeStarSystemData(raw = {}) {
     }
     return star;
   });
+  data.orbitalNodes = normalizeOrbitalNodes(data.orbitalNodes, data.stars);
+  syncStarOrbitFieldsFromNodes(data.stars, data.orbitalNodes);
+  const fallbackParentNodeId = primaryStarNodeId(data);
   data.worlds = normalizeRows(data.worlds).map(row => {
     const world = {
       id: row.id || uid(),
       orbit: clampText(row.orbit),
+      orbitParentNodeId: clampText(row.orbitParentNodeId) || fallbackParentNodeId,
       orbitalAU: clampText(row.orbitalAU),
       zone: clampText(row.zone),
       name: clampText(row.name),
@@ -1162,7 +1424,9 @@ export function normalizeStarSystemData(raw = {}) {
       gravity: clampText(row.gravity),
       notes: clampText(row.notes),
       image: savedImage(row.image),
+      imageLayers: normalizeImageLayers(row),
     };
+    world.orbitParentLabel = orbitParentLabel(world, data);
     const hasMoonRecords = Object.prototype.hasOwnProperty.call(row, "moonRecords");
     const moonRows = hasMoonRecords ? normalizeRows(row.moonRecords) : inferMoonRecords(world);
     world.moonRecords = moonRows.map((moon, index) => normalizeMoonRecord(moon, world, index));
@@ -1187,6 +1451,81 @@ export function isStarSystemActor(actor) {
   return !!actor?.getFlag?.(MODULE_ID, STAR_SYSTEM_FLAG)?.isStarSystem;
 }
 
+function generateOrbitalHierarchy(stars = []) {
+  const nodes = [rootOrbitalNode()];
+  if (!stars.length) return nodes;
+  if (stars.length === 1) {
+    nodes.push({ ...defaultOrbitalNodesForStars(stars)[1], parentId: ROOT_ORBITAL_NODE_ID, orbitalAU: "0", angle: "0" });
+    return nodes;
+  }
+
+  const closePair = stars.length > 2 || Math.random() < 0.55;
+  if (closePair) {
+    const pairId = barycenterNodeId(1);
+    nodes.push({
+      id: pairId,
+      type: "barycenter",
+      label: "Close Binary Barycenter",
+      parentId: ROOT_ORBITAL_NODE_ID,
+      starId: "",
+      orbitalAU: "0",
+      angle: "0",
+    });
+    stars.slice(0, 2).forEach((star, index) => {
+      nodes.push({
+        id: starNodeId(star),
+        type: "star",
+        label: starDisplayLabel(star, index === 0 ? "Primary" : "Companion"),
+        parentId: pairId,
+        starId: star.id,
+        orbitalAU: numberText(jitterValue(index === 0 ? 0.18 : 0.24, 0.35)),
+        angle: String(index * 180),
+      });
+    });
+    stars.slice(2).forEach((star, index) => {
+      nodes.push({
+        id: starNodeId(star),
+        type: "star",
+        label: starDisplayLabel(star, `Companion ${index + 2}`),
+        parentId: ROOT_ORBITAL_NODE_ID,
+        starId: star.id,
+        orbitalAU: numberText(jitterValue(18 + index * 16, 0.25)),
+        angle: String((70 + index * 145) % 360),
+      });
+    });
+    return nodes;
+  }
+
+  stars.forEach((star, index) => {
+    nodes.push({
+      id: starNodeId(star),
+      type: "star",
+      label: starDisplayLabel(star, index === 0 ? "Primary" : `Companion ${index}`),
+      parentId: ROOT_ORBITAL_NODE_ID,
+      starId: star.id,
+      orbitalAU: index === 0 ? "0" : numberText(jitterValue(12 + index * 14, 0.25)),
+      angle: String((index * 151) % 360),
+    });
+  });
+  return nodes;
+}
+
+function generatedWorldParentCandidates(nodes = []) {
+  return nodes.filter(node => node.type === "star" || (node.type === "barycenter" && node.id !== ROOT_ORBITAL_NODE_ID));
+}
+
+function pickGeneratedWorldParent(candidates = [], { orbit = 1, zone = "", starCount = 1 } = {}) {
+  if (!candidates.length) return ROOT_ORBITAL_NODE_ID;
+  const primary = candidates.find(node => node.type === "star") ?? candidates[0];
+  if (starCount <= 1) return primary.id;
+  const barycenters = candidates.filter(node => node.type === "barycenter");
+  const secondaryStars = candidates.filter(node => node.type === "star" && node.id !== primary.id);
+  if (barycenters.length && zone === "Outer Worlds" && Math.random() < 0.25) return pick(barycenters).id;
+  if (secondaryStars.length && (zone !== "Primary World" || orbit > 2) && Math.random() < 0.35) return pick(secondaryStars).id;
+  if (barycenters.length && Math.random() < 0.12) return pick(barycenters).id;
+  return primary.id;
+}
+
 export function generateStarSystemData(seed = {}, options = {}) {
   const suffix = randomInt(100, 999);
   const designation = `${pick(REGION_ADJECTIVES)}-${suffix}`;
@@ -1199,6 +1538,9 @@ export function generateStarSystemData(seed = {}, options = {}) {
       maxRank: Math.max(1, (SPECTRAL_RANK[primaryStar.spectralType] ?? 2) - 1),
     }));
   }
+  const orbitalNodes = generateOrbitalHierarchy(stars);
+  syncStarOrbitFieldsFromNodes(stars, orbitalNodes);
+  const orbitParents = generatedWorldParentCandidates(orbitalNodes);
 
   const orbitalBodies = generatePlanetCount(primaryStar, starCount);
   const primaryOrbit = Math.min(orbitalBodies, Math.max(1, Math.ceil(rollD20() / 4)));
@@ -1209,7 +1551,8 @@ export function generateStarSystemData(seed = {}, options = {}) {
     const type = zone === "Primary World" && options.forceHabitable
       ? rollTable(FORCE_HABITABLE_TABLE)
       : rollTable(table);
-    worlds.push(generateWorld({ designation, orbit, zone, type, primaryStar }));
+    const orbitParentNodeId = pickGeneratedWorldParent(orbitParents, { orbit, zone, starCount });
+    worlds.push(generateWorld({ designation, orbit, zone, type, primaryStar, orbitParentNodeId }));
   }
   generateOrbitalDistances(worlds, primaryStar);
 
@@ -1242,6 +1585,7 @@ export function generateStarSystemData(seed = {}, options = {}) {
     lastUpdated: new Date().toISOString().slice(0, 10),
     notes: `Generated using STA 2e Exploration star-system tables. Primary world orbit: ${primaryOrbit}.`,
     stars,
+    orbitalNodes,
     worlds,
     features: stars.map(star => ({
       id: uid(),
@@ -1367,15 +1711,17 @@ function generatePlanetCount(primaryStar, starCount) {
   return rollTable(NUMBER_OF_PLANETS_TABLE, rollD20(modifier));
 }
 
-function generateWorld({ designation, orbit, zone, type, primaryStar }) {
+function generateWorld({ designation, orbit, zone, type, primaryStar, orbitParentNodeId = "" }) {
   const moons = generateMoonCount({ type, zone, primaryStar });
   const moonTypes = generateMoonTypes({ type, zone, moons });
   const rings = generateRings({ type, zone, moons });
   const size = generateMassSize({ type, zone, primaryStar });
-  const image = planetImageForType(type);
+  const imageLayers = createPlanetImageLayers(type, { rings });
+  const image = imageFromLayers(imageLayers);
   const world = {
     id: uid(),
     orbit: String(orbit),
+    orbitParentNodeId,
     zone,
     name: `${designation} ${romanNumeral(orbit)}`,
     type,
@@ -1389,6 +1735,7 @@ function generateWorld({ designation, orbit, zone, type, primaryStar }) {
     gravity: size.gravity,
     notes: worldNotes(type, zone),
     image,
+    imageLayers,
   };
   world.moonRecords = inferMoonRecords(world, { useConfiguredImages: true });
   return world;
@@ -1439,7 +1786,7 @@ function sortedWorldsByOrbit(worlds) {
  * inner worlds step geometrically inward, outer worlds geometrically outward.
  * Overwrites existing values — used at generation time.
  */
-function generateOrbitalDistances(worlds, primaryStar) {
+function generateOrbitalDistancesForGroup(worlds, primaryStar) {
   const ordered = sortedWorldsByOrbit(worlds);
   if (!ordered.length) return worlds;
   const hz = habitableZoneCenterAU(primaryStar);
@@ -1456,6 +1803,17 @@ function generateOrbitalDistances(worlds, primaryStar) {
   return worlds;
 }
 
+function generateOrbitalDistances(worlds, primaryStar) {
+  const groups = new Map();
+  for (const world of worlds) {
+    const key = world.orbitParentNodeId || "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(world);
+  }
+  for (const group of groups.values()) generateOrbitalDistancesForGroup(group, primaryStar);
+  return worlds;
+}
+
 /**
  * Fill in blank orbitalAU values without touching values the GM already set:
  * interpolates between known neighbours, or extrapolates geometrically from
@@ -1465,12 +1823,23 @@ export function ensureOrbitalDistances(data) {
   const worlds = Array.isArray(data?.worlds) ? data.worlds : [];
   if (!worlds.length) return data;
   const primaryStar = data.stars?.[0] ?? { spectralType: starTypeKey(data.primaryStar) || "G" };
+  const groups = new Map();
+  for (const world of worlds) {
+    const key = world.orbitParentNodeId || primaryStarNodeId(data);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(world);
+  }
+  for (const group of groups.values()) ensureOrbitalDistancesForGroup(group, primaryStar);
+  return data;
+}
+
+function ensureOrbitalDistancesForGroup(worlds, primaryStar) {
   const ordered = sortedWorldsByOrbit(worlds);
   const known = ordered.map(world => {
     const num = Number(world.orbitalAU);
     return Number.isFinite(num) && num > 0 ? num : null;
   });
-  if (known.every(value => value === null)) return generateOrbitalDistances(worlds, primaryStar) && data;
+  if (known.every(value => value === null)) return generateOrbitalDistancesForGroup(worlds, primaryStar);
 
   const values = new Array(ordered.length);
   for (let i = 0; i < ordered.length; i += 1) {
@@ -1493,7 +1862,7 @@ export function ensureOrbitalDistances(data) {
     }
   }
   applyOrbitalDistances(ordered, values, { keepExisting: true });
-  return data;
+  return worlds;
 }
 
 function applyOrbitalDistances(orderedWorlds, values, { keepExisting = false } = {}) {
@@ -1656,9 +2025,9 @@ export async function createStarSystemActor({ folderId = null, data = null } = {
     return null;
   }
 
-  const starSystem = normalizeStarSystemData(data ?? generateStarSystemData());
   // Pre-generate the actor id so the composite file can be named after it.
   const actorId = foundry.utils.randomID(16);
+  const starSystem = await bakeStarSystemWorldImages(normalizeStarSystemData(data ?? generateStarSystemData()), { actorId });
   const primaryImage = (await resolveStarSystemPortraitImage(starSystem, { actorId })) || DEFAULT_IMG;
   const actorData = {
     _id: actorId,
@@ -1724,12 +2093,12 @@ export async function markActorAsStarSystem(actor, data = null) {
   }
 
   const current = getStarSystemData(actor);
-  const next = normalizeStarSystemData({
+  const next = await bakeStarSystemWorldImages(normalizeStarSystemData({
     ...current,
     ...(data ?? {}),
     isStarSystem: true,
     designation: data?.designation || current.designation || actor.name,
-  });
+  }), { actorId: actor.id });
   await actor.update({ "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID });
   await actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, next);
   return next;
@@ -1760,6 +2129,13 @@ export class StarSystemActorSheet extends ActorSheet {
   async getData(options = {}) {
     const context = await super.getData(options);
     const starSystem = ensureOrbitalDistances(getStarSystemData(this.actor));
+    const orbitalNodeParentOptions = starSystem.orbitalNodes
+      .filter(node => node.id !== ROOT_ORBITAL_NODE_ID)
+      .map(node => ({ value: node.id, label: orbitalNodeLabel(node, starSystem.stars) }));
+    const contextStarSystem = {
+      ...starSystem,
+      orbitalNodeParentOptions,
+    };
     return {
       ...context,
       cssVars: getLcCssVars("ss"),
@@ -1767,9 +2143,10 @@ export class StarSystemActorSheet extends ActorSheet {
       classificationOptions: CLASSIFICATIONS,
       affiliationOptions: AFFILIATIONS,
       starSystem: {
-        ...starSystem,
-        stars: starContextRows(starSystem.stars),
-        worlds: worldContextRows(starSystem.worlds),
+        ...contextStarSystem,
+        orbitalNodes: numberedRows(starSystem.orbitalNodes),
+        stars: starContextRows(starSystem.stars, contextStarSystem),
+        worlds: worldContextRows(starSystem.worlds, contextStarSystem),
         features: numberedRows(starSystem.features),
         hazards: numberedRows(starSystem.hazards),
       },
@@ -1807,6 +2184,7 @@ export class StarSystemActorSheet extends ActorSheet {
       }, {
         forceHabitable: !!form?.querySelector?.("[data-force-habitable]")?.checked,
       });
+      await bakeStarSystemWorldImages(generated, { actorId: this.actor.id });
       const generatedName = generated.designation || this.actor.name;
       const generatedImage = (await resolveStarSystemPortraitImage(generated, { actorId: this.actor.id, knownPath: this.actor.img })) || this.actor.img || DEFAULT_IMG;
       await this.actor.update({
@@ -1854,6 +2232,7 @@ export class StarSystemActorSheet extends ActorSheet {
         data.worlds.push({
           id: uid(),
           orbit: String((data.worlds?.length ?? 0) + 1),
+          orbitParentNodeId: primaryStarNodeId(data),
           zone: "",
           name: "",
           type: "",
@@ -1892,6 +2271,7 @@ export class StarSystemActorSheet extends ActorSheet {
         if (world) {
           world.moonRecords = normalizeRows(world.moonRecords);
           world.moonRecords.push(createMoonRecord({ hostWorld: world, index: world.moonRecords.length, randomize: true, useConfiguredImage: true }));
+          await bakePlanetImageForBody(world.moonRecords[world.moonRecords.length - 1], { actorId: this.actor.id, kind: "moon" });
           syncMoonSummary(world);
         }
       }
@@ -1904,8 +2284,14 @@ export class StarSystemActorSheet extends ActorSheet {
             ...randomized,
             id: data.worlds[index].id || randomized.id,
             name: data.worlds[index].name || randomized.name,
+            orbitParentNodeId: data.worlds[index].orbitParentNodeId || randomized.orbitParentNodeId,
             orbitalAU: data.worlds[index].orbitalAU || "",
           };
+          for (const moon of data.worlds[index].moonRecords ?? []) moon.orbitParentNodeId = data.worlds[index].orbitParentNodeId;
+          await bakePlanetImageForBody(data.worlds[index], { actorId: this.actor.id, kind: "world" });
+          for (const moon of data.worlds[index].moonRecords ?? []) {
+            await bakePlanetImageForBody(moon, { actorId: this.actor.id, kind: "moon" });
+          }
         }
       }
       if (action === "randomize-moon") {
@@ -1921,6 +2307,7 @@ export class StarSystemActorSheet extends ActorSheet {
             orbit: moon.orbit || randomized.orbit,
             name: moon.name || randomized.name,
           };
+          await bakePlanetImageForBody(world.moonRecords[moonIndex], { actorId: this.actor.id, kind: "moon" });
           syncMoonSummary(world);
         }
       }
@@ -2030,7 +2417,7 @@ export class StarSystemActorSheet extends ActorSheet {
       ]));
     };
 
-    const worlds = rowsFor("worlds", ["id", "orbit", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image"]);
+    const worlds = rowsFor("worlds", WORLD_RECORD_FIELDS);
     const moonRecords = nestedRowsFor("worlds", "moonRecords", MOON_RECORD_FIELDS);
     worlds.forEach((world, index) => {
       world.moonRecords = moonRecords.get(index) ?? [];
@@ -2058,7 +2445,8 @@ export class StarSystemActorSheet extends ActorSheet {
       surveyStatus: value("starSystem.surveyStatus"),
       lastUpdated: value("starSystem.lastUpdated"),
       notes: value("starSystem.notes"),
-      stars: rowsFor("stars", ["id", "role", "spectralType", "subdivision", "luminosityType", "classification", "notes", "image"]),
+      stars: rowsFor("stars", STAR_RECORD_FIELDS),
+      orbitalNodes: rowsFor("orbitalNodes", ORBITAL_NODE_FIELDS),
       worlds,
       features: rowsFor("features", ["id", "name", "category", "notes"]),
       hazards: rowsFor("hazards", ["id", "name", "severity", "notes"]),

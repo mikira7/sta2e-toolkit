@@ -34,6 +34,16 @@
     <a class="item" data-tab="notes"><i class="fas fa-align-left"></i><span>Notes</span></a>
   </nav>
 
+  {{#each starSystem.orbitalNodes}}
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.id" value="{{id}}" />
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.type" value="{{type}}" />
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.label" value="{{label}}" />
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.parentId" value="{{parentId}}" />
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.starId" value="{{starId}}" />
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.orbitalAU" value="{{orbitalAU}}" />
+  <input type="hidden" name="starSystem.orbitalNodes.{{index}}.angle" value="{{angle}}" />
+  {{/each}}
+
   <section class="sta2e-ss-body">
     <div class="tab sta2e-ss-tab" data-tab="overview" data-group="primary">
       <div class="sta2e-ss-grid sta2e-ss-grid--overview">
@@ -121,7 +131,7 @@
       </div>
       <div class="sta2e-ss-table sta2e-ss-table--stars">
         <div class="sta2e-ss-row sta2e-ss-row--head">
-          <span>Role</span><span>Type</span><span>Sub</span><span>Lum.</span><span>Classification</span><span>Image</span><span>Notes</span><span></span>
+          <span>Role</span><span>Type</span><span>Sub</span><span>Lum.</span><span>Parent</span><span>AU</span><span>Angle</span><span>Classification</span><span>Image</span><span>Notes</span><span></span>
         </div>
         {{#each starSystem.stars}}
         <div class="sta2e-ss-row">
@@ -130,6 +140,9 @@
           <select name="starSystem.stars.{{index}}.spectralType" title="Spectral type">{{#each spectralOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
           <input type="text" name="starSystem.stars.{{index}}.subdivision" value="{{subdivision}}" placeholder="2" />
           <select name="starSystem.stars.{{index}}.luminosityType" title="Luminosity class">{{#each luminosityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+          <select name="starSystem.stars.{{index}}.orbitParentNodeId" title="Stellar orbit parent">{{#each orbitParentNodeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+          <input type="number" name="starSystem.stars.{{index}}.orbitalAU" value="{{orbitalNode.orbitalAU}}" min="0" step="0.01" title="Local stellar orbit distance in AU" />
+          <input type="number" name="starSystem.stars.{{index}}.orbitalAngle" value="{{orbitalNode.angle}}" step="1" title="Stellar orbit angle in degrees" />
           <input type="text" name="starSystem.stars.{{index}}.classification" value="{{classification}}" placeholder="G2V" title="Derived from type + subdivision + luminosity on save" />
           <label class="sta2e-ss-image-field">
             {{#if image}}<img src="{{image}}" alt="" />{{/if}}
@@ -156,6 +169,10 @@
         {{#each starSystem.worlds}}
         <section class="sta2e-ss-world-block">
           <input type="hidden" name="starSystem.worlds.{{index}}.id" value="{{id}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.base" value="{{imageLayers.base}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.polarCap" value="{{imageLayers.polarCap}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.cloud" value="{{imageLayers.cloud}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.ring" value="{{imageLayers.ring}}" />
           <div class="sta2e-ss-world-block-head">
             <h4>{{name}}</h4>
             <div class="sta2e-ss-world-actions">
@@ -168,7 +185,8 @@
           </div>
           <div class="sta2e-ss-world-grid">
             <label><span>Orbit</span><input type="text" name="starSystem.worlds.{{index}}.orbit" value="{{orbit}}" placeholder="#" /></label>
-            <label><span>AU</span><input type="number" name="starSystem.worlds.{{index}}.orbitalAU" value="{{orbitalAU}}" placeholder="1.0" min="0" step="0.01" title="Orbital distance from the primary star in AU" /></label>
+            <label><span>Parent</span><select name="starSystem.worlds.{{index}}.orbitParentNodeId" title="World orbit parent">{{#each orbitParentNodeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span>Local AU</span><input type="number" name="starSystem.worlds.{{index}}.orbitalAU" value="{{orbitalAU}}" placeholder="1.0" min="0" step="0.01" title="Orbital distance from the selected parent in AU" /></label>
             <label><span>Zone</span><select name="starSystem.worlds.{{index}}.zone" title="World zone">{{#each zoneOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             <label><span>Name</span><input type="text" name="starSystem.worlds.{{index}}.name" value="{{name}}" placeholder="World" /></label>
             <label><span>Type</span><select name="starSystem.worlds.{{index}}.type" title="World type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
@@ -191,7 +209,12 @@
             {{#each moonRecords}}
             <div class="sta2e-ss-moon-row">
               <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.id" value="{{id}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.base" value="{{imageLayers.base}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.polarCap" value="{{imageLayers.polarCap}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.cloud" value="{{imageLayers.cloud}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.ring" value="{{imageLayers.ring}}" />
               <label><span>Orbit</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.orbit" value="{{orbit}}" placeholder="I" /></label>
+              <label><span>Light</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.orbitParentNodeId" title="Moon lighting parent">{{#each orbitParentNodeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Name</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.name" value="{{name}}" placeholder="Moon" /></label>
               <label><span>Type</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.type" title="Moon type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Atmosphere</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.atmosphere" title="Moon atmosphere">{{#each atmosphereOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>

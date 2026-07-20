@@ -28,6 +28,7 @@ import {
   rollTraitSuggestions,
   traitSummaryHtml,
 } from "./trait-service.js";
+import { hasChiefTacticalOfficer } from "./combat/combat-definitions.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -132,6 +133,36 @@ export async function clearStationAssistFlag(tokenDoc, stationId) {
   const existing = tokenDoc.getFlag("sta2e-toolkit", "assistPending") ?? {};
   if (!(stationId in existing)) return;
   await tokenDoc.update({ [`flags.sta2e-toolkit.assistPending.-=${stationId}`]: null });
+}
+
+export async function clearCompletedBridgeTaskMinors(rollData = {}, fallbackToken = null) {
+  const completedStationId = rollData?.selectedTaskStationId
+    ?? rollData?.stationId
+    ?? (rollData?.weaponContext ? "tactical" : null);
+  if (rollData?.groundMode || !completedStationId) return;
+  const combatHud = game.sta2eToolkit?.CombatHUD;
+  if (!combatHud) return;
+
+  const selectedShip = Array.isArray(rollData.availableShips) && rollData.selectedShipIdx >= 0
+    ? rollData.availableShips[rollData.selectedShipIdx]
+    : null;
+  const shipActorId = rollData.combatShipActorId
+    ?? rollData.combatTaskContext?.combatShip?.actorId
+    ?? rollData.weaponContext?.shipActorId
+    ?? selectedShip?.actorId
+    ?? fallbackToken?.actor?.id
+    ?? rollData.actorId
+    ?? null;
+  const shipToken = shipActorId
+    ? canvas.tokens?.placeables?.find(candidate => candidate.actor?.id === shipActorId) ?? fallbackToken
+    : fallbackToken;
+
+  if (!shipToken || !combatHud.hasCalibratesensors(shipToken)) return;
+  try {
+    await combatHud.setCalibratesensors(shipToken, false);
+  } catch (err) {
+    console.warn("STA2e Toolkit | Could not clear Calibrate Sensors:", err);
+  }
 }
 
 // ── Reroll Talent Detection ───────────────────────────────────────────────────
@@ -354,9 +385,11 @@ function detectAdaptAndExcel(actor) {
   for (const item of actor.items) {
     const name = String(item?.name ?? "");
     const normalized = normalizeTalentName(name);
-    const suffix = name.match(/\(([^)]+)\)\s*$/)?.[1] ?? "";
-    const attrKey = attrNames[normalizeTalentName(suffix)] ?? null;
     if (normalized === "adapt and excel" || normalized.startsWith("adapt and excel ")) {
+      const parentheticalAttrs = Array.from(name.matchAll(/\(([^)]+)\)/g))
+        .map(match => attrNames[normalizeTalentName(match[1])] ?? null)
+        .filter(Boolean);
+      const attrKey = parentheticalAttrs[0] ?? null;
       return { hasTalent: !!attrKey, source: item.name, attribute: attrKey };
     }
   }
@@ -826,14 +859,14 @@ function _buildCombatTaskPanelHtml(state) {
       if (!taskParams[action.key]) continue;
       if (seen.has(action.key)) continue;
       seen.add(action.key);
-      myTaskItems.push({ key: action.key, label: action.label ?? action.key, action });
+      myTaskItems.push({ key: action.key, label: action.label ?? action.key, stationId: station.id, action });
     }
   }
 
   // Always include Create Trait — it is a universal action available at every post
   if (taskParams["create-trait"] && !seen.has("create-trait")) {
     seen.add("create-trait");
-    myTaskItems.push({ key: "create-trait", label: "Create Trait", action: { key: "create-trait" } });
+    myTaskItems.push({ key: "create-trait", label: "Create Trait", stationId: myStations[0] ?? null, action: { key: "create-trait" } });
   }
 
   // Pass 2 — other stations → Override section (skip station-exclusive tasks)
@@ -847,12 +880,12 @@ function _buildCombatTaskPanelHtml(state) {
       if (!taskParams[action.key]) continue;
       if (seen.has(action.key)) continue;
       seen.add(action.key);
-      otherTaskItems.push({ key: action.key, label: action.label ?? action.key, action });
+      otherTaskItems.push({ key: action.key, label: action.label ?? action.key, stationId: station.id, action });
     }
   }
 
   // Build a single task button
-  const taskBtn = ({ key, label }, diffMod = 0) => {
+  const taskBtn = ({ key, label, stationId: taskStationId = null }, diffMod = 0) => {
     const tp = taskParams[key];
     const attrLbl = tp.charAttr ? (ATTR_LABELS[tp.charAttr] ?? tp.charAttr) : null;
     const discLbl = tp.charDisc ? (DISC_LABELS[tp.charDisc] ?? tp.charDisc) : null;
@@ -868,6 +901,7 @@ function _buildCombatTaskPanelHtml(state) {
         data-diff="${tp.difficulty ?? 1}"
         data-diff-mod="${diffMod}"
         data-needs-target="${needsTarget}"
+        data-station-id="${taskStationId ?? ""}"
         style="display:flex;align-items:center;justify-content:space-between;
           width:100%;padding:5px 7px;margin-bottom:3px;cursor:pointer;text-align:left;
           background:${isSelected ? `rgba(255,153,0,0.12)` : 'transparent'};
@@ -3365,7 +3399,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -3468,20 +3502,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     }
   };
 
-  // Temporary minor actions expire once the task they modify is completed.  The
-  // weapon and targeting variants are already cleared by ship-attack resolution;
-  // Calibrate Sensors needs to be cleared here because its reroll is optional.
+  // Temporary bridge minor actions expire once any bridge task on the same ship
+  // is completed. Weapon and targeting variants are already cleared by
+  // ship-attack resolution; Calibrate Sensors needs explicit cleanup because
+  // its reroll is optional.
   const _clearCompletedTaskMinors = async () => {
-    if (groundMode || stationId !== "sensors") return;
-    const combatHud = game.sta2eToolkit?.CombatHUD;
-    if (!combatHud) return;
-    const shipActorId = combatTaskContext?.combatShip?.actorId ?? null;
-    const shipToken = shipActorId
-      ? canvas.tokens?.placeables?.find(candidate => candidate.actor?.id === shipActorId) ?? token
-      : token;
-    if (combatHud.hasCalibratesensors(shipToken)) {
-      await combatHud.setCalibratesensors(shipToken, false);
-    }
+    await clearCompletedBridgeTaskMinors(state, token);
   };
 
   // Station's own officer — passed in from the caller (crew manifest lookup).
@@ -3683,8 +3709,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _chiefEngineerTalent = _officerActorFull
     ? detectNamedTalent(_officerActorFull, "Chief Engineer")
     : { hasTalent: false, source: null };
-  const _chiefTacticalTalent = _officerActorFull
-    ? detectNamedTalent(_officerActorFull, "Chief Tactical Officer")
+  const _chiefTacticalTalent = _officerActorFull && hasChiefTacticalOfficer(_officerActorFull)
+    ? { hasTalent: true, source: _officerActorFull.items.find(i => String(i.name ?? "").toLowerCase().includes("chief tactical officer"))?.name ?? "Chief Tactical Officer" }
     : { hasTalent: false, source: null };
   const _adaptAndExcelTalent = _officerActorFull
     ? detectAdaptAndExcel(_officerActorFull)
@@ -3821,6 +3847,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     opposedDifficulty,
     opposedDefenseType,
     defenderSuccesses,
+    opposedDefenderBonus: Math.max(0, Number(opposedDefenderBonus) || 0),
     hasTargetingSolution: _hasTargetingSolution,
     tsChoice: _tsInitChoice,   // "reroll" | "system" | null; read from pre-declared flag if set
     tsSystem: _tsInitSystem,   // chosen system key, or null = random
@@ -3855,6 +3882,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     crewFailed: false,
     weaponContext,
     stationId,
+    selectedTaskStationId: null,
     // Station's own named officer (from crew manifest). Never an assisting officer —
     // assisting officers are tracked separately in assistOfficers below.
     officer: officerStats,
@@ -4010,6 +4038,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       tokenId: token?.id ?? null,
       actorName: actor.name,
       stationId: state.stationId,
+      selectedTaskKey: state.selectedTaskKey ?? null,
+      selectedTaskStationId: state.selectedTaskStationId ?? null,
+      combatShipActorId: state.combatTaskContext?.combatShip?.actorId ?? null,
       paymentSpent: state.paymentSpent ?? null,
 
       taskLabel: state.taskLabel ?? "",
@@ -4176,6 +4207,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       hasCalibrateWeapons: state.hasCalibrateWeapons ?? false,
       defenderSuccesses: state.defenderSuccesses ?? null,
       opposedDefenseType: state.opposedDefenseType ?? null,
+      opposedDefenderBonus: state.opposedDefenderBonus ?? 0,
       groundMode: state.groundMode ?? false,
       groundIsNpc: state.groundIsNpc ?? false,
       noPoolButton: state.noPoolButton ?? false,
@@ -4347,6 +4379,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
               // Clear any pending assist flag for this station (same as the non-weapon path)
               (async () => { await _clearAssistFlag(); })();
+              await _clearCompletedTaskMinors();
 
               // Then run the full ship attack resolution flow
               const CombatHUD = game.sta2eToolkit?.CombatHUD;
@@ -4428,6 +4461,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 defenderSuccesses: state.defenderSuccesses,
                 opposedDefenseType: state.opposedDefenseType,
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
+                opposedDefenderBonus: state.opposedDefenderBonus ?? 0,
                 floatingMomentum: _floatingMomentum,
                 intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _flightControllerTalentBonus + _traitTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
@@ -6154,12 +6188,14 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           }
 
           const taskKey = btn.dataset.taskKey;
+          const taskStationId = btn.dataset.stationId || null;
           const attr = btn.dataset.attr || null;
           const disc = btn.dataset.disc || null;
           const diff = parseInt(btn.dataset.diff ?? "1");
           const diffMod = parseInt(btn.dataset.diffMod ?? "0");
 
           state.selectedTaskKey = taskKey;
+          state.selectedTaskStationId = taskStationId;
 
           // Store task defaults so Multi-Tasking checkbox can revert on uncheck
           state._taskDefaultDisc = disc;
@@ -6273,12 +6309,15 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           // target box stays visible at all times
 
           // 5. Make Calibrate Sensors reroll available in the roller session when active
-          if (state.combatTaskContext.sensorMinorStates?.calibrateSensors) {
+          if (state.combatTaskContext.sensorMinorStates?.calibrateSensors && taskStationId === "sensors") {
             const shipActorId2 = state.combatTaskContext.combatShip?.actorId;
             const shipTokenEl = canvas.tokens?.placeables
               .find(t => t.actor?.id === shipActorId2) ?? null;
             state._tokenDoc ??= shipTokenEl?.document ?? shipTokenEl ?? null;
             state.hasCalibratesensors = true;
+            state.csRerollUsed = false;
+          } else if (taskStationId !== "sensors") {
+            state.hasCalibratesensors = false;
             state.csRerollUsed = false;
           }
         });
@@ -6654,6 +6693,10 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           state.hasRapidFireTorpedo = state.combatTaskContext.shipHasRapidFireTorpedo ?? false;
           state.hasCalibrateWeapons = state.combatTaskContext.tacticalMinorStates?.calibrateWeapons ?? false;
           state._tokenDoc = shipTokenEl?.document ?? shipTokenEl ?? null;
+          state.selectedTaskKey = "attack";
+          state.selectedTaskStationId = "tactical";
+          state.hasCalibratesensors = false;
+          state.csRerollUsed = false;
           if (targetResolution?.token?.actor?.id) state.selectedTargetId = targetResolution.token.actor.id;
 
           // Re-detect talent rerolls for security discipline (Cautious/Bold security, Precision Targeting)

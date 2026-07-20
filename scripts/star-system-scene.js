@@ -1,15 +1,13 @@
 /**
  * sta2e-toolkit | star-system-scene.js
  * Builds a playable Foundry scene from a Star System actor: star and planet
- * tiles, orbit-ring drawings labeled in AU, moon clusters, asteroid belts, and
- * concentric toolkit zones (one ring per orbit) so the zone ruler and range
- * bands work immediately. Also provides the hover tooltip that shows a body's
+ * tiles, orbit-ring drawings labeled in AU, moon clusters, and asteroid belts.
+ * Also provides the hover tooltip that shows a body's
  * name to any user mousing over a system-map tile.
  */
 
 import { getStarSystemData, ensureOrbitalDistances } from "./star-system-sheet.js";
 import { pickStarSystemImage, getStarSystemBackgrounds } from "./star-system-images.js";
-import { setSceneZones } from "./zone-data.js";
 
 const MODULE_ID = "sta2e-toolkit";
 export const SCENE_ACTOR_FLAG = "starSystemSceneActor";
@@ -22,9 +20,6 @@ const RING_MIN_GAP = 450;
 const SCENE_MARGIN = 900;
 const SCENE_MIN_SIZE = 3000;
 const SCENE_MAX_SIZE = 15000;
-const CIRCLE_POINTS = 48;
-
-const ZONE_COLORS = ["#ff9c00", "#cc99cc", "#9999ff", "#ff9966", "#66ccff", "#99cc99"];
 
 function worldClassOf(value) {
   const match = String(value ?? "").match(/Class-([A-Z])/i);
@@ -49,7 +44,7 @@ function bodyFlag(name, kind, type) {
   return { [MODULE_ID]: { [BODY_FLAG]: { name, kind, type: String(type ?? "") } } };
 }
 
-function tileData({ src, cx, cy, size, sort, name, kind, type }) {
+function tileData({ src, cx, cy, size, sort, name, kind, type, rotation = 0 }) {
   // Foundry v14 tiles anchor at their center (shape.anchor 0.5), so x/y is the
   // center point; v13 and earlier position tiles by their top-left corner.
   const centered = (game.release?.generation ?? 13) >= 14;
@@ -59,30 +54,15 @@ function tileData({ src, cx, cy, size, sort, name, kind, type }) {
     y: Math.round(centered ? cy : cy - size / 2),
     width: Math.round(size),
     height: Math.round(size),
+    rotation,
     sort,
     flags: bodyFlag(name, kind, type),
   };
 }
 
-function circleVertices(cx, cy, radius, points = CIRCLE_POINTS) {
-  const vertices = [];
-  for (let i = 0; i < points; i += 1) {
-    const angle = (i / points) * Math.PI * 2;
-    vertices.push({ x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius });
-  }
-  return vertices;
-}
-
-/**
- * Annulus polygon: outer circle then inner circle reversed. Ray-casting
- * point-in-polygon treats the hole correctly (seam edges cancel), and
- * consecutive rings share their boundary circle vertices exactly, which is
- * what zone adjacency checks look for.
- */
-function annulusVertices(cx, cy, innerRadius, outerRadius) {
-  const outer = circleVertices(cx, cy, outerRadius);
-  const inner = circleVertices(cx, cy, innerRadius).reverse();
-  return [...outer, ...inner];
+function shadowRotationAwayFrom(cx, cy, bodyX, bodyY) {
+  const angle = Math.atan2(bodyY - cy, bodyX - cx) * 180 / Math.PI;
+  return Math.round(angle - 90);
 }
 
 /**
@@ -114,25 +94,7 @@ function planetTileSize(cls) {
   return 1.8 * GRID;
 }
 
-// Primary star at center, companions offset around it, shrinking with count.
-const STAR_LAYOUTS = {
-  1: [{ dx: 0, dy: 0, size: 10 * GRID }],
-  2: [
-    { dx: -1.2 * GRID, dy: 0.8 * GRID, size: 9 * GRID },
-    { dx: 4.4 * GRID, dy: -3.2 * GRID, size: 5 * GRID },
-  ],
-  3: [
-    { dx: -1.6 * GRID, dy: 1.0 * GRID, size: 8.4 * GRID },
-    { dx: 4.4 * GRID, dy: -3.4 * GRID, size: 4.8 * GRID },
-    { dx: 4.8 * GRID, dy: 3.6 * GRID, size: 3.8 * GRID },
-  ],
-  4: [
-    { dx: -1.8 * GRID, dy: 1.2 * GRID, size: 8 * GRID },
-    { dx: 4.4 * GRID, dy: -3.6 * GRID, size: 4.6 * GRID },
-    { dx: 5.0 * GRID, dy: 3.8 * GRID, size: 3.6 * GRID },
-    { dx: -4.6 * GRID, dy: -4.0 * GRID, size: 3.2 * GRID },
-  ],
-};
+const ROOT_ORBITAL_NODE_ID = "root";
 
 function starTypeKeyOf(star) {
   const text = String(star?.spectralType || star?.classification || "").trim();
@@ -149,6 +111,58 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function stellarOrbitRadiusPx(au) {
+  const value = Number(au);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (value < 1) return 260 + value * 360;
+  return Math.min(4200, RING_MIN_RADIUS + Math.log(value) * 500);
+}
+
+function nodeLabel(node, data) {
+  if (!node) return "Primary Star";
+  if (node.type === "star") {
+    const star = data.stars.find(row => row.id === node.starId);
+    return star?.role || star?.classification || node.label || "Star";
+  }
+  return node.label || "Barycenter";
+}
+
+function primaryNodeId(data) {
+  return data.orbitalNodes?.find(node => node.type === "star")?.id ?? ROOT_ORBITAL_NODE_ID;
+}
+
+function resolveNodePositions(data) {
+  const nodes = Array.isArray(data.orbitalNodes) && data.orbitalNodes.length
+    ? data.orbitalNodes
+    : [{ id: ROOT_ORBITAL_NODE_ID, type: "barycenter", label: "System Barycenter", parentId: "", orbitalAU: 0, angle: 0 }];
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const positions = new Map([[ROOT_ORBITAL_NODE_ID, { x: 0, y: 0 }]]);
+
+  const resolve = node => {
+    if (!node?.id) return { x: 0, y: 0 };
+    if (positions.has(node.id)) return positions.get(node.id);
+    const parent = byId.get(node.parentId) ?? byId.get(ROOT_ORBITAL_NODE_ID);
+    const parentPos = parent && parent.id !== node.id ? resolve(parent) : { x: 0, y: 0 };
+    const radius = stellarOrbitRadiusPx(node.orbitalAU);
+    const angle = (Number(node.angle) || 0) * Math.PI / 180;
+    const pos = {
+      x: parentPos.x + Math.cos(angle) * radius,
+      y: parentPos.y + Math.sin(angle) * radius,
+    };
+    positions.set(node.id, pos);
+    return pos;
+  };
+
+  nodes.forEach(resolve);
+  return { nodes, byId, positions };
+}
+
+function starTileSize(star, node) {
+  if (!star) return 5 * GRID;
+  if (/primary/i.test(String(star.role ?? "")) && Number(node?.orbitalAU) <= 0) return 10 * GRID;
+  return ["O", "B", "A"].includes(starTypeKeyOf(star)) ? 6 * GRID : 5 * GRID;
 }
 
 /**
@@ -243,16 +257,52 @@ async function promptSceneOptions(data, existingScenes) {
 }
 
 async function buildScene(actor, data, background) {
-  // Order worlds by orbital distance — AU is the measurement basis for the map.
-  const worlds = data.worlds
-    .map((world, index) => ({ world, au: auNumber(world) ?? (index + 1) }))
-    .sort((a, b) => a.au - b.au);
-  const radii = computeRingRadii(worlds.map(entry => entry.au));
+  const { nodes, byId, positions } = resolveNodePositions(data);
+  const fallbackParentId = primaryNodeId(data);
+  const worldGroups = new Map();
+  data.worlds.forEach((world, index) => {
+    const parentId = byId.has(world.orbitParentNodeId) ? world.orbitParentNodeId : fallbackParentId;
+    if (!worldGroups.has(parentId)) worldGroups.set(parentId, []);
+    worldGroups.get(parentId).push({ world, au: auNumber(world) ?? (index + 1), originalIndex: index });
+  });
 
-  const outermost = radii.length ? radii[radii.length - 1] : RING_MIN_RADIUS;
-  const size = Math.round(Math.min(Math.max((outermost + SCENE_MARGIN) * 2, SCENE_MIN_SIZE), SCENE_MAX_SIZE));
-  const cx = size / 2;
-  const cy = size / 2;
+  const worldLayouts = [];
+  for (const [parentId, entries] of worldGroups.entries()) {
+    const ordered = entries.sort((a, b) => a.au - b.au);
+    const radii = computeRingRadii(ordered.map(entry => entry.au));
+    ordered.forEach((entry, index) => {
+      worldLayouts.push({
+        ...entry,
+        parentId,
+        radius: radii[index],
+        angle: Math.random() * Math.PI * 2,
+      });
+    });
+  }
+
+  const bounds = { minX: -GRID, minY: -GRID, maxX: GRID, maxY: GRID };
+  const includeBounds = (x, y, pad = 0) => {
+    bounds.minX = Math.min(bounds.minX, x - pad);
+    bounds.maxX = Math.max(bounds.maxX, x + pad);
+    bounds.minY = Math.min(bounds.minY, y - pad);
+    bounds.maxY = Math.max(bounds.maxY, y + pad);
+  };
+
+  for (const node of nodes) {
+    const pos = positions.get(node.id) ?? { x: 0, y: 0 };
+    const star = node.type === "star" ? data.stars.find(row => row.id === node.starId) : null;
+    includeBounds(pos.x, pos.y, node.type === "star" ? starTileSize(star, node) / 2 : GRID);
+  }
+  for (const layout of worldLayouts) {
+    const parentPos = positions.get(layout.parentId) ?? { x: 0, y: 0 };
+    includeBounds(parentPos.x, parentPos.y, layout.radius + planetTileSize(worldClassOf(layout.world.type)) + 250);
+  }
+
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const size = Math.round(Math.min(Math.max(Math.max(width, height) + SCENE_MARGIN * 2, SCENE_MIN_SIZE), SCENE_MAX_SIZE));
+  const offsetX = size / 2 - (bounds.minX + bounds.maxX) / 2;
+  const offsetY = size / 2 - (bounds.minY + bounds.maxY) / 2;
 
   const sceneData = {
     name: data.designation || actor.name || "Star System",
@@ -284,29 +334,31 @@ async function buildScene(actor, data, background) {
   const tiles = [];
   const drawings = [];
 
-  // ── Stars at the center ──────────────────────────────────────────────────
-  const stars = data.stars.length ? data.stars : [{ role: "Primary", spectralType: "G", classification: data.primaryStar }];
-  const layout = STAR_LAYOUTS[Math.min(stars.length, 4)] ?? STAR_LAYOUTS[1];
-  stars.slice(0, 4).forEach((star, i) => {
-    const spot = layout[i];
+  // ── Stars at their hierarchy positions ───────────────────────────────────
+  nodes.filter(node => node.type === "star").forEach((node, i) => {
+    const star = data.stars.find(row => row.id === node.starId) ?? { role: node.label, spectralType: "G", classification: node.label };
+    const pos = positions.get(node.id) ?? { x: 0, y: 0 };
     const src = String(star.image ?? "").trim() || pickStarSystemImage("star", starTypeKeyOf(star));
     const label = star.classification || data.primaryStar || "Star";
+    const size = starTileSize(star, node);
+    const sx = pos.x + offsetX;
+    const sy = pos.y + offsetY;
     if (src) {
       tiles.push(tileData({
         src,
-        cx: cx + spot.dx,
-        cy: cy + spot.dy,
-        size: spot.size,
+        cx: sx,
+        cy: sy,
+        size,
         sort: 100 + i,
-        name: `${displayName({ name: data.designation }, "System")} — ${label}`,
+        name: `${displayName({ name: data.designation }, "System")} - ${nodeLabel(node, data)} - ${label}`,
         kind: "star",
         type: label,
       }));
     } else {
       drawings.push({
-        x: Math.round(cx + spot.dx - spot.size / 2),
-        y: Math.round(cy + spot.dy - spot.size / 2),
-        shape: { type: "e", width: Math.round(spot.size), height: Math.round(spot.size) },
+        x: Math.round(sx - size / 2),
+        y: Math.round(sy - size / 2),
+        shape: { type: "e", width: Math.round(size), height: Math.round(size) },
         fillType: CONST.DRAWING_FILL_TYPES.SOLID,
         fillColor: "#ffcc66",
         fillAlpha: 0.9,
@@ -316,18 +368,22 @@ async function buildScene(actor, data, background) {
     }
   });
 
-  // ── Orbit rings, planets, belts, moons ───────────────────────────────────
-  worlds.forEach((entry, i) => {
+  // ── Local orbit rings, planets, belts, moons ─────────────────────────────
+  worldLayouts.forEach((entry, i) => {
     const world = entry.world;
-    const radius = radii[i];
+    const radius = entry.radius;
+    const parentPos = positions.get(entry.parentId) ?? { x: 0, y: 0 };
+    const pcx = parentPos.x + offsetX;
+    const pcy = parentPos.y + offsetY;
     const cls = worldClassOf(world.type);
     const isBelt = cls === "Belt";
     const name = displayName(world, `Orbit ${world.orbit || i + 1}`);
+    const parentLabel = nodeLabel(byId.get(entry.parentId), data);
 
     // Orbit ring
     drawings.push({
-      x: Math.round(cx - radius),
-      y: Math.round(cy - radius),
+      x: Math.round(pcx - radius),
+      y: Math.round(pcy - radius),
       shape: { type: "e", width: Math.round(radius * 2), height: Math.round(radius * 2) },
       fillType: CONST.DRAWING_FILL_TYPES.NONE,
       strokeColor: isBelt ? "#aa9977" : "#5599cc",
@@ -337,12 +393,12 @@ async function buildScene(actor, data, background) {
 
     // AU label at the top of the ring
     drawings.push({
-      x: Math.round(cx - 300),
-      y: Math.round(cy - radius - 90),
+      x: Math.round(pcx - 360),
+      y: Math.round(pcy - radius - 90),
       shape: { type: "r", width: 600, height: 80 },
       fillType: CONST.DRAWING_FILL_TYPES.NONE,
       strokeWidth: 0,
-      text: `${world.orbit || i + 1} — ${entry.au} AU`,
+      text: `${world.orbit || i + 1} - ${entry.au} AU - ${parentLabel}`,
       fontSize: 56,
       textColor: "#88bbee",
       textAlpha: 0.85,
@@ -357,8 +413,8 @@ async function buildScene(actor, data, background) {
         if (!src) break;
         tiles.push(tileData({
           src,
-          cx: cx + Math.cos(angle) * r,
-          cy: cy + Math.sin(angle) * r,
+          cx: pcx + Math.cos(angle) * r,
+          cy: pcy + Math.sin(angle) * r,
           size: 55 + Math.random() * 50,
           sort: 150,
           name: `${name} (asteroid belt)`,
@@ -369,11 +425,12 @@ async function buildScene(actor, data, background) {
       return;
     }
 
-    const angle = Math.random() * Math.PI * 2;
-    const px = cx + Math.cos(angle) * radius;
-    const py = cy + Math.sin(angle) * radius;
+    const angle = entry.angle;
+    const px = pcx + Math.cos(angle) * radius;
+    const py = pcy + Math.sin(angle) * radius;
     const psize = planetTileSize(cls);
     const src = String(world.image ?? "").trim() || pickStarSystemImage("planet", cls);
+    const rotation = shadowRotationAwayFrom(pcx, pcy, px, py);
     if (src) {
       tiles.push(tileData({
         src,
@@ -384,6 +441,7 @@ async function buildScene(actor, data, background) {
         name,
         kind: "planet",
         type: world.type,
+        rotation,
       }));
     } else {
       drawings.push({
@@ -403,17 +461,23 @@ async function buildScene(actor, data, background) {
     moons.forEach((moon, k) => {
       const moonAngle = angle + (k - (moons.length - 1) / 2) * 0.45;
       const moonRadius = psize / 2 + 90 + k * 30;
+      const mx = px + Math.cos(moonAngle) * moonRadius;
+      const my = py + Math.sin(moonAngle) * moonRadius;
+      const lightPos = positions.get(moon.orbitParentNodeId) ?? parentPos;
+      const lightX = lightPos.x + offsetX;
+      const lightY = lightPos.y + offsetY;
       const moonSrc = String(moon.image ?? "").trim() || pickStarSystemImage("planet", worldClassOf(moon.type));
       if (!moonSrc) return;
       tiles.push(tileData({
         src: moonSrc,
-        cx: px + Math.cos(moonAngle) * moonRadius,
-        cy: py + Math.sin(moonAngle) * moonRadius,
+        cx: mx,
+        cy: my,
         size: 80,
         sort: 300,
         name: displayName(moon, `${name} moon`),
         kind: "moon",
         type: moon.type,
+        rotation: shadowRotationAwayFrom(lightX, lightY, mx, my),
       }));
     });
   });
@@ -421,65 +485,7 @@ async function buildScene(actor, data, background) {
   if (tiles.length) await scene.createEmbeddedDocuments("Tile", tiles);
   if (drawings.length) await scene.createEmbeddedDocuments("Drawing", drawings);
 
-  await setSceneZones(buildOrbitZones(worlds, radii, cx, cy), scene);
   return scene;
-}
-
-/**
- * One toolkit zone per orbit: a central disc around the star, then annulus
- * bands whose boundaries sit midway between adjacent rings. Consecutive bands
- * share their boundary circle vertices so zone adjacency (and therefore BFS
- * zone distance = orbit separation) works out of the box.
- */
-function buildOrbitZones(worlds, radii, cx, cy) {
-  const zones = [];
-  const boundaries = [];
-  for (let i = 0; i < radii.length; i += 1) {
-    boundaries.push(i === 0 ? radii[0] / 2 : (radii[i - 1] + radii[i]) / 2);
-  }
-  if (radii.length) {
-    const lastGap = radii.length > 1 ? (radii[radii.length - 1] - boundaries[boundaries.length - 1]) : RING_MIN_GAP / 2;
-    boundaries.push(radii[radii.length - 1] + lastGap);
-  } else {
-    boundaries.push(RING_MIN_RADIUS);
-  }
-
-  // Boundary circles are shared between consecutive zones so adjacency sees
-  // identical vertices.
-  const circles = boundaries.map(radius => circleVertices(cx, cy, radius));
-
-  zones.push({
-    id: foundry.utils.randomID(),
-    name: "Inner System",
-    vertices: circles[0],
-    color: ZONE_COLORS[0],
-    momentumCost: 0,
-    tags: ["star-system"],
-    sort: 0,
-    borderStyle: "solid",
-    isDifficult: false,
-    opacity: 0.08,
-    hazards: [],
-  });
-
-  worlds.forEach((entry, i) => {
-    const name = displayName(entry.world, `Orbit ${entry.world.orbit || i + 1}`);
-    zones.push({
-      id: foundry.utils.randomID(),
-      name: worldClassOf(entry.world.type) === "Belt" ? `${name} belt` : `${name} orbit`,
-      vertices: [...circles[i + 1], ...[...circles[i]].reverse()],
-      color: ZONE_COLORS[(i + 1) % ZONE_COLORS.length],
-      momentumCost: 0,
-      tags: ["star-system"],
-      sort: i + 1,
-      borderStyle: "solid",
-      isDifficult: false,
-      opacity: 0.08,
-      hazards: [],
-    });
-  });
-
-  return zones;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

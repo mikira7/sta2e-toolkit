@@ -692,7 +692,11 @@ Hooks.once("ready", async () => {
     }
     try { await game.settings.set("sta2e-toolkit", "pendingOpposedTask", null); } catch(e) {}
 
-    const clampedSuccesses = Math.max(0, successes);
+    const resultPayload = typeof successes === "object" && successes !== null
+      ? successes
+      : { successes };
+    const clampedSuccesses = Math.max(0, Number(resultPayload.successes) || 0);
+    const defenderBonusMomentum = Math.max(0, Number(resultPayload.bonusMomentum) || 0);
 
     // Determine the defense type — ground uses defenseType, ship uses defMode
     const defType = pending.defenseType ?? pending.defMode ?? null;
@@ -729,6 +733,7 @@ Hooks.once("ready", async () => {
       opposedDifficulty:  difficulty,
       opposedDefenseType: defType,
       defenderSuccesses:  clampedSuccesses,
+      opposedDefenderBonus: defenderBonusMomentum,
       difficulty:         null,   // opposed tasks always use opposedDifficulty
       taskContext,
     };
@@ -1423,9 +1428,12 @@ Hooks.once("ready", async () => {
     // Only fires on the GM's client when a player is the defender.
     // (When the GM is the defender, combat-hud.js calls resolveDefenderRoll directly.)
     else if (msg.action === "defenderRollComplete" && _isResponsibleGM()) {
-      const { successes } = msg;
+      const { successes, bonusMomentum } = msg;
       if (typeof successes !== "number") return;
-      await game.sta2eToolkit?.resolveDefenderRoll?.(successes);
+      await game.sta2eToolkit?.resolveDefenderRoll?.({
+        successes,
+        bonusMomentum: Math.max(0, Number(bonusMomentum) || 0),
+      });
     }
 
     // ── Open the attacker's roller on their specific client ──────────────────
