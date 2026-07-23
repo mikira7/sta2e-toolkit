@@ -704,12 +704,13 @@ Hooks.once("ready", async () => {
     // Ground combat adds guard and prone penalties on top of the defender's successes.
     // Ship combat uses overridePenalty (+1 for Override actions). Neither applies to the other.
     const guardPenalty = pending.guardPenalty ?? 0;
+    const chiefSecurityPenalty = pending.chiefSecurityPenalty ?? 0;
     const pronePenalty = pending.pronePenalty ?? 0;
     const cumbersomePenalty = pending.rollerOpts?.cumbersomePenalty ?? pending.cumbersomePenalty ?? 0;
     const attackPatternPenalty = pending.attackPatternPenalty ?? pending.rollerOpts?.attackPatternPenalty ?? 0;
     const rawDifficulty = pending.overridePenalty
       ? clampedSuccesses + 1 + cumbersomePenalty           // ship override: +1 on top
-      : clampedSuccesses + guardPenalty + pronePenalty + cumbersomePenalty;    // ground: add situational penalties
+      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + pronePenalty + cumbersomePenalty;    // ground: add situational penalties
     const difficulty = Math.max(0, rawDifficulty - attackPatternPenalty);
 
     // Build the taskContext string now that defender's actual successes are known
@@ -717,12 +718,14 @@ Hooks.once("ready", async () => {
     if (defType === "melee") {
       const prone  = pending.targetIsProne ? " · Prone +2 Momentum" : "";
       const guard  = guardPenalty ? " +1 Guard" : "";
-      taskContext = `Melee — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${prone})`;
+      const chiefSecurity = chiefSecurityPenalty ? " +1 Chief of Security" : "";
+      taskContext = `Melee — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${chiefSecurity}${prone})`;
     } else if (defType === "cover") {
       const guard  = guardPenalty ? " +1 Guard" : "";
+      const chiefSecurity = chiefSecurityPenalty ? " +1 Chief of Security" : "";
       const prone  = pronePenalty ? ` +${pronePenalty} Prone Difficulty` : "";
       const proInC = pending.targetIsProneInCover ? " · +1 Protection" : "";
-      taskContext = `Ranged vs Cover — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${prone}${proInC})`;
+      taskContext = `Ranged vs Cover — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${chiefSecurity}${prone}${proInC})`;
     } else {
       // Ship combat — use whatever context was stored in rollerOpts
       taskContext = pending.rollerOpts?.taskContext ?? null;
@@ -1193,6 +1196,28 @@ Hooks.once("ready", async () => {
           type:   "injury",
           system: { description: "", quantity: quantity ?? 1 },
         }]);
+      }
+    }
+
+    else if (msg.action === "setChiefSecurityAttackPenalty" && _isResponsibleGM()) {
+      try {
+        const token = msg.targetTokenId ? canvas.tokens?.get(msg.targetTokenId) : null;
+        if (!token) return;
+        await CombatHUD.setChiefSecurityAttackPenalty(token, msg.source ?? {}, { broadcast: false });
+        game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      } catch (e) {
+        console.error("STA2e Toolkit | setChiefSecurityAttackPenalty via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "clearChiefSecurityAttackPenalty" && _isResponsibleGM()) {
+      try {
+        const token = msg.targetTokenId ? canvas.tokens?.get(msg.targetTokenId) : null;
+        if (!token) return;
+        await CombatHUD.clearChiefSecurityAttackPenalty(token, { broadcast: false });
+        game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      } catch (e) {
+        console.error("STA2e Toolkit | clearChiefSecurityAttackPenalty via socket failed:", e);
       }
     }
 

@@ -1646,6 +1646,7 @@ export class LcarsActionRing {
       crewQuality: null,
       officer: readOfficerStats(actor),
       groundMode: ships.length === 0,
+      showAssistRollToggle: true,
       availableShips: ships,
       shipAssist: false,
       selectedShipIdx: -1,

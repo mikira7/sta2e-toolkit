@@ -44,7 +44,7 @@ import {
   diePipHtml, dsnShowPool,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
   taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
-  callOutTargetsSourceForActor, flightControllerBonusMomentum,
+  callOutTargetsSourceForActor, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum,
 } from "../npc-roller.js";
 import {
   STATION_SLOTS,
@@ -94,6 +94,7 @@ import {
   _taAvailable,
   hasAttackRun,
   hasCloakingDevice,
+  findChiefOfSecurityTalent,
   hasChiefTacticalOfficer,
   hasFastTargetingSystems,
   hasGlancingImpact,
@@ -2004,6 +2005,11 @@ export class CombatHUD {
             const targetIsProne = targets.some(t => t.actor?.statuses?.has("prone") ?? false);
             // Prone + In Cover (ranged only) → +1 Protection AND +1 Difficulty at Medium+
             const targetIsProneInCover = !isMelee && targetHasCover && targetIsProne;
+            const chiefSecurityAttackPenaltyData = await CombatHUD.consumeChiefSecurityAttackPenalty(this._token);
+            const chiefSecurityPenalty = chiefSecurityAttackPenaltyData ? 1 : 0;
+            const chiefSecurityPenaltyLabel = chiefSecurityPenalty
+              ? ` +1 ${chiefSecurityAttackPenaltyData.sourceName ?? "Chief of Security"}`
+              : "";
 
             if (isMelee) {
               const meleeTarget = targets[0] ?? null;
@@ -2093,6 +2099,7 @@ export class CombatHUD {
                 weaponContext: weaponCtx,
                 aimRerolls,
                 guardPenalty,
+                chiefSecurityPenalty,
                 pronePenalty: 0,
                 targetIsProne,
                 targetIsProneInCover: false,
@@ -2216,6 +2223,7 @@ export class CombatHUD {
                 weaponContext: weaponCtx,
                 aimRerolls: _aimRerolls,
                 guardPenalty,
+                chiefSecurityPenalty,
                 pronePenalty,
                 targetIsProne,
                 targetIsProneInCover,
@@ -2240,10 +2248,10 @@ export class CombatHUD {
                   </div>
                   <div style="font-size:10px;color:${LC.textDim};">
                     ${isMelee
-                      ? "Melee attacks are always <strong>Opposed Tasks</strong> (Daring + Security)."
+                      ? `Melee attacks are always <strong>Opposed Tasks</strong> (Daring + Security).${chiefSecurityPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Chief of Security penalty also applies.</span>" : ""}`
                       : targetHasCover
-                        ? `Target is in <strong style="color:${LC.secondary};">Cover</strong> — this becomes an <strong>Opposed Task</strong> (defender rolls Control + Security).${guardPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Guard penalty also applies.</span>" : ""}${targetIsProneInCover ? " <span style='color:" + LC.secondary + ";'>Prone in Cover: defender gains <strong>+1 Protection</strong>.</span>" : ""}`
-                        : `Ranged attack: <strong>Control + Security</strong>, Difficulty ${2 + guardPenalty}${guardPenalty ? " <span style='color:" + LC.yellow + ";'>(+1 Guard)</span>" : ""}.`}
+                        ? `Target is in <strong style="color:${LC.secondary};">Cover</strong> — this becomes an <strong>Opposed Task</strong> (defender rolls Control + Security).${guardPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Guard penalty also applies.</span>" : ""}${chiefSecurityPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Chief of Security penalty also applies.</span>" : ""}${targetIsProneInCover ? " <span style='color:" + LC.secondary + ";'>Prone in Cover: defender gains <strong>+1 Protection</strong>.</span>" : ""}`
+                        : `Ranged attack: <strong>Control + Security</strong>, Difficulty ${2 + guardPenalty + chiefSecurityPenalty}${guardPenalty ? " <span style='color:" + LC.yellow + ";'>(+1 Guard)</span>" : ""}${chiefSecurityPenalty ? " <span style='color:" + LC.yellow + ";'>(+1 Chief of Security)</span>" : ""}.`}
                   </div>
                   ${targetIsProne ? `
                   <div style="margin-top:6px;padding:4px 8px;border-left:3px solid ${LC.secondary};
@@ -2403,6 +2411,7 @@ export class CombatHUD {
                   isNpcAttacker:   false,  // ground NPCs also use openPlayerRoller
                   defenseType:     "melee",
                   guardPenalty,
+                  chiefSecurityPenalty,
                   pronePenalty:    0,      // melee prone = +2 Momentum bonus, not a difficulty penalty
                   targetIsProne,
                   targetIsProneInCover: false,
@@ -2456,6 +2465,7 @@ export class CombatHUD {
                   weaponContext: weaponCtx,
                   aimRerolls: _aimRerolls,
                   guardPenalty,
+                  chiefSecurityPenalty,
                   pronePenalty,
                   targetIsProne,
                   targetIsProneInCover,
@@ -2482,11 +2492,11 @@ export class CombatHUD {
                 weaponContext:     weaponCtx,
                 groundMode:        true,
                 groundIsNpc:       CombatHUD.isGroundNpcActor(actor),
-                difficulty:        2 + guardPenalty + pronePenalty,
+                difficulty:        2 + guardPenalty + pronePenalty + chiefSecurityPenalty,
                 defaultAttr:       "control",
                 defaultDisc:       "security",
                 taskLabel:         `Attack — ${weapon.name}`,
-                taskContext:       `Control + Security · Difficulty ${2 + guardPenalty + pronePenalty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}`,
+                taskContext:       `Control + Security · Difficulty ${2 + guardPenalty + pronePenalty + chiefSecurityPenalty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}${chiefSecurityPenaltyLabel}`,
                 aimRerolls,
               });
             } else if (choice === "hitmiss") {
@@ -3902,6 +3912,7 @@ export class CombatHUD {
       // Threat for Deadly was already applied at weapon declaration (before the roll)
       const attackerProfile    = CombatHUD.getGroundCombatProfile(token?.actor, token?.document ?? null);
       const deadlyCostsThreat  = !useStun && hasDeadly && !!attackerProfile?.isPlayerOwned;
+      const chiefSecurityInfo = CombatHUD.chiefSecurityTalentInfo(actor);
 
       const targetData = targets.map(t => {
         const tActor     = t.actor;
@@ -3937,6 +3948,10 @@ export class CombatHUD {
           weaponType:    config?.type  ?? "ground-beam",
           damage:        weapon.system?.damage ?? 0,
           qualities:     weapon.system?.qualities ?? {},
+          chiefOfSecurityAvailable: isHit && chiefSecurityInfo.hasTalent,
+          chiefOfSecuritySource: chiefSecurityInfo.source,
+          trackerMessageId: null,
+          momentumPool: CombatHUD.chiefSecurityMomentumPool(actor),
         };
       });
 
@@ -4918,6 +4933,45 @@ export class CombatHUD {
         banner.appendChild(text);
         banner.appendChild(clearBtn);
         container.appendChild(banner);
+      }
+    }
+
+    // ── Chief of Security attack penalty banner ─────────────────────────────
+    {
+      const tokenDoc = this._token?.document ?? this._token;
+      const penaltyData = tokenDoc?.getFlag(MODULE, "chiefSecurityAttackPenalty");
+      if (penaltyData) {
+        const penaltyBanner = document.createElement("div");
+        penaltyBanner.style.cssText = `
+          display:flex;align-items:center;gap:5px;padding:4px 8px;
+          background:rgba(255,153,0,0.08);border-left:2px solid ${LC.primary};
+          border-radius:2px;margin-bottom:3px;
+        `;
+        const penaltyText = document.createElement("div");
+        penaltyText.style.cssText = `flex:1;font-size:9px;font-weight:700;
+          color:${LC.primary};font-family:${LC.font};letter-spacing:0.04em;`;
+        penaltyText.textContent = `CHIEF OF SECURITY - NEXT ATTACK +1 DIFFICULTY`;
+
+        const clearPenaltyBtn = document.createElement("button");
+        clearPenaltyBtn.title = "Remove Chief of Security penalty";
+        clearPenaltyBtn.style.cssText = `
+          background:none;border:1px solid ${LC.borderDim};border-radius:2px;
+          color:${LC.textDim};font-size:10px;line-height:1;cursor:pointer;
+          padding:1px 4px;flex-shrink:0;font-family:${LC.font};
+        `;
+        clearPenaltyBtn.textContent = "✕";
+        clearPenaltyBtn.addEventListener("click", async () => {
+          try {
+            await CombatHUD.clearChiefSecurityAttackPenalty(tokenDoc);
+            this._refresh();
+          } catch(e) {
+            console.warn("STA2e Toolkit | Could not clear Chief of Security penalty:", e);
+          }
+        });
+
+        penaltyBanner.appendChild(penaltyText);
+        penaltyBanner.appendChild(clearPenaltyBtn);
+        container.appendChild(penaltyBanner);
       }
     }
 
@@ -11062,6 +11116,63 @@ export class CombatHUD {
     return source === "player" ? null : "alliedNpcMomentum";
   }
 
+  static chiefSecurityMomentumPool(actor) {
+    return CombatHUD.alliedNpcMomentumPool(actor) ?? "momentum";
+  }
+
+  static chiefSecurityTalentInfo(actor) {
+    const item = findChiefOfSecurityTalent(actor);
+    return item ? { hasTalent: true, source: item.name } : { hasTalent: false, source: null };
+  }
+
+  static async setChiefSecurityAttackPenalty(targetToken, source = {}, { broadcast = true } = {}) {
+    const tokenDoc = targetToken?.document ?? targetToken;
+    if (!tokenDoc?.id) return false;
+    const payload = {
+      sourceName: source.sourceName ?? "Chief of Security",
+      sourceActorId: source.sourceActorId ?? null,
+      sourceTokenId: source.sourceTokenId ?? null,
+      appliedAtMs: Date.now(),
+    };
+    if (game.user.isGM) {
+      await tokenDoc.setFlag(MODULE, "chiefSecurityAttackPenalty", payload);
+      if (broadcast) game.socket?.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      return true;
+    }
+    game.socket?.emit("module.sta2e-toolkit", {
+      action: "setChiefSecurityAttackPenalty",
+      targetTokenId: tokenDoc.id,
+      source: payload,
+      requesterUserId: game.userId,
+    });
+    return true;
+  }
+
+  static async clearChiefSecurityAttackPenalty(tokenOrId, { broadcast = true } = {}) {
+    const token = typeof tokenOrId === "string" ? canvas.tokens?.get(tokenOrId) : tokenOrId;
+    const tokenDoc = token?.document ?? token;
+    if (!tokenDoc?.id) return false;
+    if (game.user.isGM) {
+      await tokenDoc.unsetFlag(MODULE, "chiefSecurityAttackPenalty").catch(() => {});
+      if (broadcast) game.socket?.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      return true;
+    }
+    game.socket?.emit("module.sta2e-toolkit", {
+      action: "clearChiefSecurityAttackPenalty",
+      targetTokenId: tokenDoc.id,
+      requesterUserId: game.userId,
+    });
+    return true;
+  }
+
+  static async consumeChiefSecurityAttackPenalty(attackerToken) {
+    const tokenDoc = attackerToken?.document ?? attackerToken;
+    const penalty = tokenDoc?.getFlag?.(MODULE, "chiefSecurityAttackPenalty") ?? null;
+    if (!penalty) return null;
+    await CombatHUD.clearChiefSecurityAttackPenalty(tokenDoc);
+    return penalty;
+  }
+
   static regenShieldSpendPool(actor) {
     const hostileNpcShip = CombatHUD.isNpcShip(actor) && !CombatHUD.isAlliedNpcActor(actor);
     if (hostileNpcShip) return "threat";
@@ -14732,9 +14843,22 @@ export class CombatHUD {
           weaponName:    t.weaponName ?? null,
           weaponColor:   t.weaponColor ?? "blue",
           weaponType:    t.weaponType  ?? "ground-beam",
+          chiefOfSecurityAvailable: !!t.chiefOfSecurityAvailable,
+          chiefOfSecuritySource: t.chiefOfSecuritySource ?? null,
+          trackerMessageId: t.trackerMessageId ?? null,
+          momentumPool: t.momentumPool ?? null,
         };
       const encodedPayload = encodeURIComponent(JSON.stringify(basePayloadObj));
       const encodedBase    = encodedPayload;
+      const chiefSecurityPayload = encodeURIComponent(JSON.stringify({
+        targetTokenId: t.tokenId,
+        targetActorId: t.actorId,
+        attackerTokenId: t.attackerTokenId ?? null,
+        attackerActorId: t.attackerActorId ?? null,
+        sourceName: t.chiefOfSecuritySource ?? "Chief of Security",
+        trackerMessageId: t.trackerMessageId ?? null,
+        momentumPool: t.momentumPool ?? null,
+      }));
 
       return `
         <div style="margin-bottom:8px;padding:6px 8px;background:rgba(0,0,0,0.3);
@@ -14761,6 +14885,16 @@ export class CombatHUD {
             margin-top:5px;margin-bottom:4px;">
             Injury if taken: <strong class="sta2e-injury-label" style="color:${injuryColor};">${injuryName}</strong>
           </div>
+          ${t.chiefOfSecurityAvailable ? `
+          <button type="button" class="sta2e-chief-security-penalty"
+            data-payload="${chiefSecurityPayload}"
+            style="width:100%;padding:4px;margin:4px 0 5px;
+              background:rgba(255,153,0,0.10);border:1px solid ${LC.primary};
+              border-radius:2px;color:${LC.primary};font-size:9px;font-weight:700;
+              letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
+              font-family:${LC.font};">
+            ${t.chiefOfSecuritySource ?? "Chief of Security"} - spend 1 Momentum to hinder next Attack
+          </button>` : ""}
           <div class="sta2e-ground-controls">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
               <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
@@ -19083,6 +19217,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             + callOutTargetsBonusMomentum(payload, passed)
             + planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _defenseRollingActor ?? game.actors.get(actorId))
             + flightControllerBonusMomentum(payload, passed)
+            + chiefMedicalOfficerBonusMomentum(payload, passed)
             + _defenseTraitBonus;
           const _defenderRollResult = {
             successes: _successes,
@@ -19112,8 +19247,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           ? Math.max(0, Number(generatedPool === "threat" ? payload.traitBonusThreat : payload.traitBonusMomentum) || 0)
           : 0;
         const _flightControllerBonus = flightControllerBonusMomentum(payload, passed);
+        const _chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
         const _trackerGeneratedMomentum = Math.max(0, totalSuccesses - effectiveDifficulty) + _traitPoolBonus;
-        const momentum = _trackerGeneratedMomentum + _flightControllerBonus;
+        const momentum = _trackerGeneratedMomentum + _flightControllerBonus + _chiefMedicalBonus;
         const poolLabel  = generatedPool === "threat"
           ? "Threat"
           : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
@@ -19139,6 +19275,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _trackerCharActor ?? shipActor)
           : 0;
         const _trackerFlightControllerBonus = flightControllerBonusMomentum(payload, passed);
+        const _trackerChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
         // Versatile X is per-weapon — only present on ship weapon attacks.
         // The damage-card spend panel + Devastating Attack button both pull
         // from the tracker, so we seed it here when the weapon has the quality.
@@ -19159,11 +19296,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         let _trackerMessageId = null;
         let _trackerFloat = 0;     // Unbanked overflow available for this action's spends.
         let _trackerBanked = 0;    // What auto-banked to the pool (for display).
-        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerVersatile > 0)) {
+        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerChiefMedicalBonus > 0 || _trackerVersatile > 0)) {
           try {
             const trackerRes = await createTracker(_trackerOwner, {
               totalGenerated: _trackerGeneratedMomentum,
-              bonus:          _trackerIntenseBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus + _trackerFlightControllerBonus,
+              bonus:          _trackerIntenseBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus + _trackerFlightControllerBonus + _trackerChiefMedicalBonus,
               versatile:      _trackerVersatile,
               weaponName:     _trackerWeaponName,
               pool:           _trackerPool,
@@ -19232,7 +19369,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           confirmedMomentum: momentum,
           confirmedPassed: passed,
           completionEffectsRun: true,
-          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerVersatile > 0)),
+          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerChiefMedicalBonus > 0 || _trackerVersatile > 0)),
           trackerMessageId: _trackerMessageId,
           trackerBanked: _trackerBanked,
           trackerFloat:  _trackerFloat,
@@ -19335,6 +19472,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               const isDual            = hasStun && hasDeadly;
               const useStun           = weaponContext.useStun ?? (hasStun && !hasDeadly);
               const deadlyCostsThreat = weaponContext.deadlyCostsThreat ?? false;
+              const chiefSecurityInfo = CombatHUD.chiefSecurityTalentInfo(charActor);
 
               const targetData = targets.map(t => {
                 const tActor     = t.actor;
@@ -19372,6 +19510,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   weaponType:  config?.type  ?? "ground-beam",
                   damage:      weapon.system?.damage ?? 0,
                   qualities:   weapon.system?.qualities ?? {},
+                  chiefOfSecurityAvailable: passed && chiefSecurityInfo.hasTalent,
+                  chiefOfSecuritySource: chiefSecurityInfo.source,
+                  trackerMessageId: _trackerMessageId,
+                  momentumPool: CombatHUD.chiefSecurityMomentumPool(charActor),
                 };
               });
 
@@ -19397,6 +19539,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 ? _threatBought : 0;
               const _callOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
               const _planOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], charActor) : 0;
+              const _chiefMedicalSpendBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
               const _spendCtx = passed ? makeSpendContext({
                 floatingMomentum: _floatingMomentum,
                 qualities: {
@@ -19410,7 +19553,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 attackerIsNpc: groundIsNpc,
                 attackerActorId: charActor?.id ?? null,
                 attackerTokenId: tokenId ?? null,
-                intenseTalentBonus: _intenseBonus + _trackerShowOffBonus + _callOutTargetsBonus + _planOfActionBonus,
+                intenseTalentBonus: _intenseBonus + _trackerShowOffBonus + _callOutTargetsBonus + _planOfActionBonus + _chiefMedicalSpendBonus,
                 trackerMessageId: _trackerMessageId,
                 momentumPool: CombatHUD.alliedNpcMomentumPool(charActor),
               }) : null;
@@ -19468,6 +19611,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _shipShowOffBonus = showOffBonusMomentum(payload, passed);
             const _shipCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
             const _shipPlanOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _intenseSubject ?? shipActor) : 0;
+            const _shipChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
             const _shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {
               overrideTargets: weaponContext.primaryTargetTokenId
@@ -19482,7 +19626,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
               opposedDefenderBonus: payload.opposedDefenderBonus ?? 0,
               floatingMomentum:     _shipFloating,
-              intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus,
+              intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus + _shipChiefMedicalBonus,
               trackerMessageId:     _trackerMessageId,
               momentumPool:         generatedPool,
               complications:         totalComplications,
@@ -19874,6 +20018,48 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     });
   });
 
+  // ── Chief of Security — successful personal attack spend ────────────────
+  html.querySelectorAll(".sta2e-chief-security-penalty").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      try {
+        const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+        const targetToken = canvas.tokens?.get(payload.targetTokenId);
+        const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
+        const attackerActor = attackerToken?.actor
+          ?? (payload.attackerActorId ? game.actors?.get(payload.attackerActorId) : null);
+        if (!targetToken) {
+          ui.notifications.warn("STA2e Toolkit | Chief of Security: target token not found.");
+          return;
+        }
+        if (!attackerActor) {
+          ui.notifications.warn("STA2e Toolkit | Chief of Security: attacker not found.");
+          return;
+        }
+        const paid = await CombatHUD._spendDamageMomentumCost({
+          attackerActorId: attackerActor.id ?? payload.attackerActorId ?? null,
+          attackerTokenId: attackerToken?.id ?? payload.attackerTokenId ?? null,
+          attackerIsNpc: false,
+          trackerMessageId: payload.trackerMessageId ?? null,
+          momentumPool: payload.momentumPool ?? CombatHUD.chiefSecurityMomentumPool(attackerActor),
+        }, 1, "Chief of Security");
+        if (!paid) return;
+
+        await CombatHUD.setChiefSecurityAttackPenalty(targetToken, {
+          sourceName: payload.sourceName ?? "Chief of Security",
+          sourceActorId: attackerActor.id ?? payload.attackerActorId ?? null,
+          sourceTokenId: attackerToken?.id ?? payload.attackerTokenId ?? null,
+        });
+        btn.disabled = true;
+        btn.textContent = "Chief of Security Applied";
+        btn.style.opacity = "0.5";
+        ui.notifications.info(`STA2e Toolkit: ${targetToken.name}'s next Attack is +1 Difficulty.`);
+      } catch (err) {
+        console.error("STA2e Toolkit | Chief of Security spend error:", err);
+        ui.notifications.error("Failed to apply Chief of Security — see console.");
+      }
+    });
+  });
+
   // ── Ground combat counterattack — visible to all users ───────────────────
   html.querySelectorAll(".sta2e-ground-counterattack").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -20053,6 +20239,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const rawPotency = severity - protection;
         const potency    = severity > 0 ? Math.max(1, rawPotency) : 0;
         const hasBraklul = CombatHUD._hasBraklul(attackerActor);
+        const chiefSecurityInfo = CombatHUD.chiefSecurityTalentInfo(defenderActor);
 
         const targetData = [{
           attackerTokenId: defenderToken?.id ?? null,
@@ -20073,6 +20260,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           weaponType:  config?.type  ?? "melee",
           damage:      chosenWeapon.system?.damage ?? 0,
           qualities:   chosenWeapon.system?.qualities ?? {},
+          chiefOfSecurityAvailable: chiefSecurityInfo.hasTalent,
+          chiefOfSecuritySource: chiefSecurityInfo.source,
+          trackerMessageId: null,
+          momentumPool: CombatHUD.chiefSecurityMomentumPool(defenderActor),
         }];
 
         await ChatMessage.create({

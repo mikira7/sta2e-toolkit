@@ -150,6 +150,7 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const options = taskData.options ?? {};
   const base = Number(taskData.defender?.successes ?? 0);
   const guardPenalty = Number(options.guardPenalty ?? 0);
+  const chiefSecurityPenalty = Number(options.chiefSecurityPenalty ?? 0);
   const pronePenalty = Number(options.pronePenalty ?? 0);
   const overridePenalty = Number(options.overridePenalty ?? 0);
   const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
@@ -159,8 +160,8 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const attackerTraitDelta = taskData.attacker?.rolled
     ? _opposedRollTraitDelta(taskData.attacker)
     : 0;
-  const total = Math.max(0, base + guardPenalty + pronePenalty + overridePenalty + cumbersomePenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
-  return { base, guardPenalty, pronePenalty, overridePenalty, cumbersomePenalty, attackPatternPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
+  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + pronePenalty + overridePenalty + cumbersomePenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
+  return { base, guardPenalty, chiefSecurityPenalty, pronePenalty, overridePenalty, cumbersomePenalty, attackPatternPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -824,6 +825,7 @@ export async function startGroundCombatOpposedTask(opts = {}) {
   const taskId = foundry.utils.randomID();
   const defenseType = opts.defenseType ?? "melee";
   const guardPenalty = Number(opts.guardPenalty ?? 0);
+  const chiefSecurityPenalty = Number(opts.chiefSecurityPenalty ?? 0);
   const pronePenalty = Number(opts.pronePenalty ?? 0);
   const targetIsProne = !!opts.targetIsProne;
   // Trait modifier is no longer prompted via a blocking dialog at start (which
@@ -842,6 +844,7 @@ export async function startGroundCombatOpposedTask(opts = {}) {
     options: {
       defenseType,
       guardPenalty,
+      chiefSecurityPenalty,
       pronePenalty,
       targetIsProne,
       targetIsProneInCover: !!opts.targetIsProneInCover,
@@ -1090,6 +1093,7 @@ function _renderCardHtml(d) {
   const isGroundCombat = d.mode === "groundCombat";
   const isStarshipCombat = d.mode === "starshipCombat";
   const guardPenalty = Number(d.options?.guardPenalty ?? 0);
+  const chiefSecurityPenalty = Number(d.options?.chiefSecurityPenalty ?? 0);
   const pronePenalty = Number(d.options?.pronePenalty ?? 0);
   const difficultyInfo = _calculateOpposedDifficulty(d);
   const adjustedTarget = difficultyInfo.total;
@@ -1184,6 +1188,7 @@ function _renderCardHtml(d) {
     if (isGroundCombat || isStarshipCombat) {
       breakdownParts.push(`${d.attacker.successes} succ vs Diff ${target}`);
       if (guardPenalty) breakdownParts.push(`Guard +${guardPenalty}`);
+      if (chiefSecurityPenalty) breakdownParts.push(`Chief of Security +${chiefSecurityPenalty}`);
       if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
       if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
       if (difficultyInfo.attackPatternPenalty) breakdownParts.push(`Attack Pattern -${difficultyInfo.attackPatternPenalty}`);
@@ -1275,7 +1280,7 @@ function _renderCardHtml(d) {
 
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
-        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${chiefSecurityPenalty ? ` + ${chiefSecurityPenalty} Chief of Security` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
       </div>`
     : "";
 

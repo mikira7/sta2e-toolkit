@@ -2,6 +2,38 @@
  * Shared action definitions and talent checks for the STA2e combat HUD.
  */
 
+export function normalizeTalentName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeRoleAbilityName(value) {
+  let text = normalizeTalentName(value);
+  text = text
+    .replace(/\brole ability\b/g, " ")
+    .replace(/\btalent\b/g, " ")
+    .replace(/\bability\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
+}
+
+export function findRoleAbilityTalent(actor, names = []) {
+  if (!actor?.items) return null;
+  const targets = new Set(names.map(normalizeTalentName));
+  const roleTargets = new Set(names.map(normalizeRoleAbilityName));
+  return actor.items.find(item => {
+    const normalized = normalizeTalentName(item.name);
+    const roleNormalized = normalizeRoleAbilityName(item.name);
+    return targets.has(normalized) || roleTargets.has(roleNormalized);
+  }) ?? null;
+}
+
 export function hasCloakingDevice(actor) {
   return actor.items.some(i =>
     i.name.toLowerCase().includes("cloaking device")
@@ -25,12 +57,19 @@ export function hasRapidFireTorpedoLauncher(actor) {
 
 export function hasChiefTacticalOfficer(actor) {
   if (!actor?.items) return false;
-  const normalize = value => String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ");
-  return actor.items.some(i => normalize(i.name) === "chief tactical officer");
+  return !!findRoleAbilityTalent(actor, ["chief tactical officer"]);
+}
+
+export function findChiefEngineerTalent(actor) {
+  return findRoleAbilityTalent(actor, ["chief engineer"]);
+}
+
+export function findChiefMedicalOfficerTalent(actor) {
+  return findRoleAbilityTalent(actor, ["chief medical officer"]);
+}
+
+export function findChiefOfSecurityTalent(actor) {
+  return findRoleAbilityTalent(actor, ["chief of security", "chief security officer"]);
 }
 
 // Attack Run: character talent — when the ship takes Attack Pattern, attacks

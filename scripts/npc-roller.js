@@ -28,7 +28,12 @@ import {
   rollTraitSuggestions,
   traitSummaryHtml,
 } from "./trait-service.js";
-import { hasChiefTacticalOfficer } from "./combat/combat-definitions.js";
+import {
+  findChiefEngineerTalent,
+  findChiefMedicalOfficerTalent,
+  findChiefOfSecurityTalent,
+  hasChiefTacticalOfficer,
+} from "./combat/combat-definitions.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -430,6 +435,18 @@ export function flightControllerBonusMomentum(source = {}, passed = false) {
   if (!passed || !source?.hasFlightController) return 0;
   if ((source.officerDiscKey ?? source.discKey) !== "conn") return 0;
   return isFlightControllerPilotTask(source) ? 1 : 0;
+}
+
+function hasActualAssistanceDice(source = {}) {
+  return (source.crewAssistDice?.length ?? 0) > 0
+    || (source.namedAssistDice?.length ?? 0) > 0
+    || (source.apAssistDice?.length ?? 0) > 0;
+}
+
+export function chiefMedicalOfficerBonusMomentum(source = {}, passed = false) {
+  if (!passed || !source?.hasChiefMedicalOfficer || source?.isAssistRoll) return 0;
+  if ((source.officerDiscKey ?? source.discKey) !== "medicine") return 0;
+  return hasActualAssistanceDice(source) ? 1 : 0;
 }
 
 export function isCommunicationsOfficerShipAssistActive(rollState) {
@@ -1590,7 +1607,17 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             ${state.hasChiefEngineer ? `
             <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
               padding:1px 0;letter-spacing:0.05em;">
-              ✦ ${state.chiefEngineerSource ?? "Chief Engineer"} - engineering team opportunity cost reduced by 1 where applicable
+              ✦ ${state.chiefEngineerSource ?? "Chief Engineer"} - spend 1 Momentum to reroll on eligible Engineering tasks
+            </div>` : ""}
+            ${state.hasChiefMedicalOfficer ? `
+            <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
+              padding:1px 0;letter-spacing:0.05em;">
+              ✦ ${state.chiefMedicalOfficerSource ?? "Chief Medical Officer"} - Medicine tasks with assistance gain +1 bonus Momentum
+            </div>` : ""}
+            ${state.hasChiefOfSecurity ? `
+            <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
+              padding:1px 0;letter-spacing:0.05em;">
+              ✦ ${state.chiefOfSecuritySource ?? "Chief of Security"} - successful personal attacks can hinder the target's next attack
             </div>` : ""}
             ${state.hasProcedural ? `
             <div style="font-size:9px;color:${LC.primary};font-family:${LC.font};
@@ -2152,7 +2179,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           </div>
           <div id="complication-desc" style="font-size:9px;color:${LC.textDim};
             font-family:${LC.font};padding-left:108px;">${compDesc}</div>
-          ${!isMethodicalPlanningAssist && !state.groundMode && !isShipAssistMode ? `
+          ${!isMethodicalPlanningAssist && !state.groundMode && !isShipAssistMode && !state.isAssistRoll ? `
           <div id="targeting-solution-label" style="${state.sheetMode && state.selectedShipIdx < 0 ? "display:none;" : "display:flex;flex-direction:column;gap:4px;"}">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
               <input id="targeting-solution" type="checkbox"
@@ -2226,7 +2253,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             </span>
           </label>` : ""}
           ` : ""}
-        ${!isMethodicalPlanningAssist && ((state.sheetMode && state.playerMode && !isShipAssistMode) || (state.groundMode && state.groundIsNpc)) ? `
+        ${!isMethodicalPlanningAssist && (((state.sheetMode || state.showAssistRollToggle) && state.playerMode && !isShipAssistMode) || (state.groundMode && state.groundIsNpc)) ? `
         <label id="assist-roll-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;
           margin-top:4px;padding:5px 7px;border-radius:2px;
           background:${state.isAssistRoll ? 'rgba(0,150,255,0.10)' : 'transparent'};
@@ -2667,7 +2694,8 @@ function buildChatCard(actorName, state) {
     ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
     : 0;
   const flightBonus = flightControllerBonusMomentum(state, passed);
-  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus + flightBonus;
+  const chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(state, passed);
+  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus;
   const generatedPoolLabel = resourceProfile.generatedPool === "threat"
     ? "Threat"
     : resourceProfile.momentumLabel;
@@ -2676,6 +2704,7 @@ function buildChatCard(actorName, state) {
   const callOutTargetsPotential = callOutTargetsBonusMomentum(state, true);
   const planOfActionPotential = planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : null);
   const flightControllerPotential = flightControllerBonusMomentum(state, true);
+  const chiefMedicalPotential = chiefMedicalOfficerBonusMomentum(state, true);
 
   const diceRow = (dice, target) => `
     <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px;">
@@ -2760,6 +2789,7 @@ function buildChatCard(actorName, state) {
         callOutTargetsPotential > 0 ? `Call Out Targets (+${callOutTargetsPotential} bonus Momentum on success)` : null,
         planOfActionPotential > 0 ? `Plan of Action (+${planOfActionPotential} bonus Momentum on success)` : null,
         flightControllerPotential > 0 ? `Flight Controller (+${flightControllerPotential} bonus Momentum on success)` : null,
+        chiefMedicalPotential > 0 ? `Chief Medical Officer (+${chiefMedicalPotential} bonus Momentum on success)` : null,
         state.hasChiefOfStaff ? (state.chiefOfStaffSource ?? "Chief of Staff") : null,
         state.shipTalentRerollUsed ? (state.shipTalentRerollSource ?? "Ship Talent Reroll") : null,
         state.hasPiercingSalvo ? "Piercing Salvo (spend 2 Momentum)" : null,
@@ -2958,14 +2988,16 @@ export function buildPlayerRollCardHtml(rollData) {
     ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? rollData.traitBonusThreat : rollData.traitBonusMomentum) || 0)
     : 0;
   const flightBonus = flightControllerBonusMomentum(rollData, passed);
+  const chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(rollData, passed);
   const displayMomentum = confirmed
-    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus)
-    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus;
+    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus)
+    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus;
   const passColor = passed ? LC.green : LC.red;
   const finalResultLabel = passed ? "Success" : "Failed";
   const callOutTargetsPotential = callOutTargetsBonusMomentum(rollData, true);
   const planOfActionPotential = planOfActionBonusMomentum(rollData.appliedTraitEffects ?? [], game.actors.get(rollData.officerActorId ?? rollData.actorId));
   const flightControllerPotential = flightControllerBonusMomentum(rollData, true);
+  const chiefMedicalPotential = chiefMedicalOfficerBonusMomentum(rollData, true);
   const generatedPool = resourceProfile.generatedPool;
   const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
@@ -3249,6 +3281,12 @@ export function buildPlayerRollCardHtml(rollData) {
     Flight Controller: +${flightControllerPotential} bonus Momentum on success
   </div>` : ""}
 
+  ${chiefMedicalPotential > 0 ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    Chief Medical Officer: +${chiefMedicalPotential} bonus Momentum on success
+  </div>` : ""}
+
   ${!isAssistRoll ? `<div style="display:grid;grid-template-columns:repeat(${totalComplications > 0 ? 5 : 4},1fr);gap:4px;
     padding:6px 10px;border-top:1px solid ${LC.borderDim};">
     ${[
@@ -3399,7 +3437,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, showAssistRollToggle = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -3706,8 +3744,17 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _flightControllerTalent = _officerActorFull
     ? detectNamedTalent(_officerActorFull, "Flight Controller")
     : { hasTalent: false, source: null };
-  const _chiefEngineerTalent = _officerActorFull
-    ? detectNamedTalent(_officerActorFull, "Chief Engineer")
+  const _chiefEngineerItem = _officerActorFull ? findChiefEngineerTalent(_officerActorFull) : null;
+  const _chiefEngineerTalent = _chiefEngineerItem
+    ? { hasTalent: true, source: _chiefEngineerItem.name }
+    : { hasTalent: false, source: null };
+  const _chiefMedicalItem = _officerActorFull ? findChiefMedicalOfficerTalent(_officerActorFull) : null;
+  const _chiefMedicalTalent = _chiefMedicalItem
+    ? { hasTalent: true, source: _chiefMedicalItem.name }
+    : { hasTalent: false, source: null };
+  const _chiefSecurityItem = _officerActorFull ? findChiefOfSecurityTalent(_officerActorFull) : null;
+  const _chiefSecurityTalent = _chiefSecurityItem
+    ? { hasTalent: true, source: _chiefSecurityItem.name }
     : { hasTalent: false, source: null };
   const _chiefTacticalTalent = _officerActorFull && hasChiefTacticalOfficer(_officerActorFull)
     ? { hasTalent: true, source: _officerActorFull.items.find(i => String(i.name ?? "").toLowerCase().includes("chief tactical officer"))?.name ?? "Chief Tactical Officer" }
@@ -3823,6 +3870,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     chiefEngineerSource: _chiefEngineerTalent.source,
     hasChiefEngineerReroll: false,
     chiefEngineerRerollUsed: false,
+    hasChiefMedicalOfficer: _chiefMedicalTalent.hasTalent,
+    chiefMedicalOfficerSource: _chiefMedicalTalent.source,
+    hasChiefOfSecurity: _chiefSecurityTalent.hasTalent,
+    chiefOfSecuritySource: _chiefSecurityTalent.source,
     hasChiefTacticalOfficer: _chiefTacticalTalent.hasTalent,
     chiefTacticalOfficerSource: _chiefTacticalTalent.source,
     hasAdaptAndExcel: _adaptAndExcelTalent.hasTalent,
@@ -3945,6 +3996,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     officerAttrKey: defaultOfficerAttr,
     officerDiscKey: defaultOfficerDisc,
     sheetMode,        // true = opened from character sheet — attr/disc fixed, no selectors shown
+    showAssistRollToggle: !!showAssistRollToggle,
     isAssistRoll: isAssistRoll,  // true = this roll assists another player's task
     methodicalPlanningAssist: !!methodicalPlanningAssist,
     availableShips,   // serialized ship list for sheet-mode ship selector
@@ -4124,6 +4176,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       chiefEngineerSource: state.chiefEngineerSource ?? null,
       hasChiefEngineerReroll: state.hasChiefEngineerReroll ?? false,
       chiefEngineerRerollUsed: state.chiefEngineerRerollUsed ?? false,
+      hasChiefMedicalOfficer: state.hasChiefMedicalOfficer ?? false,
+      chiefMedicalOfficerSource: state.chiefMedicalOfficerSource ?? null,
+      hasChiefOfSecurity: state.hasChiefOfSecurity ?? false,
+      chiefOfSecuritySource: state.chiefOfSecuritySource ?? null,
       hasChiefTacticalOfficer: state.hasChiefTacticalOfficer ?? false,
       chiefTacticalOfficerSource: state.chiefTacticalOfficerSource ?? null,
       hasAdaptAndExcel: state.hasAdaptAndExcel ?? false,
@@ -4174,6 +4230,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       percussiveMaintenanceSelected: state.percussiveMaintenanceSelected ?? false,
       percussiveMaintenanceUsed: state.percussiveMaintenanceUsed ?? false,
       sheetMode: state.sheetMode ?? false,
+      showAssistRollToggle: state.showAssistRollToggle ?? false,
       availableShips: state.availableShips ?? [],
       selectedShipIdx: state.selectedShipIdx ?? -1,
       playerMode: state.playerMode ?? false,
@@ -4346,17 +4403,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _hitCallOutTargetsBonus = callOutTargetsBonusMomentum(state, isHit);
               const _hitPlanOfActionBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _hitFlightControllerBonus = flightControllerBonusMomentum(state, isHit);
+              const _hitChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(state, isHit);
               const _hitPool = _rollResourceProfile(state, actor).generatedPool;
               const _hitTraitBonus = isHit
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
               const _hitWQ = weapon?.system?.qualities ?? {};
               const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
-              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitFlightControllerBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
+              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitFlightControllerBonus > 0 || _hitChiefMedicalBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
                 try {
                   const _hitTrackerRes = await createTracker(actor, {
                     totalGenerated: _hitMomentum,
-                    bonus: _hitIntenseBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitFlightControllerBonus + _hitTraitBonus,
+                    bonus: _hitIntenseBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitFlightControllerBonus + _hitChiefMedicalBonus + _hitTraitBonus,
                     versatile: _hitVersatile,
                     weaponName: weapon?.name ?? null,
                     pool:  _hitPool,
@@ -4447,6 +4505,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _callOutTargetsTalentBonus = callOutTargetsBonusMomentum(state, isHit);
               const _planOfActionTalentBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _flightControllerTalentBonus = flightControllerBonusMomentum(state, isHit);
+              const _chiefMedicalTalentBonus = chiefMedicalOfficerBonusMomentum(state, isHit);
               const _traitTalentBonus = isHit
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
@@ -4463,7 +4522,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
                 opposedDefenderBonus: state.opposedDefenderBonus ?? 0,
                 floatingMomentum: _floatingMomentum,
-                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _flightControllerTalentBonus + _traitTalentBonus,
+                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _flightControllerTalentBonus + _chiefMedicalTalentBonus + _traitTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
                 momentumPool: _hitPool,
                 complications: attackComplications,
@@ -4504,15 +4563,16 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prCallOutTargetsBonus = callOutTargetsBonusMomentum(state, _prPassed);
               const _prPlanOfActionBonus = _prPassed ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _prFlightControllerBonus = flightControllerBonusMomentum(state, _prPassed);
+              const _prChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(state, _prPassed);
               const _prPool = _rollResourceProfile(state, actor).generatedPool;
               const _prTraitBonus = _prPassed
                 ? Math.max(0, Number(_prPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
-              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prFlightControllerBonus > 0 || _prTraitBonus > 0)) {
+              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prFlightControllerBonus > 0 || _prChiefMedicalBonus > 0 || _prTraitBonus > 0)) {
                 try {
                   const _prTrackerRes = await createTracker(actor, {
                     totalGenerated: _prMomentum,
-                    bonus: _prIntenseBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prFlightControllerBonus + _prTraitBonus,
+                    bonus: _prIntenseBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prFlightControllerBonus + _prChiefMedicalBonus + _prTraitBonus,
                     pool:  _prPool,
                     speakerToken: token,
                   });
@@ -4852,6 +4912,8 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       });
       if (isDistant) pronePenalty = 1;
     }
+    const chiefSecurityPenaltyData = await game.sta2eToolkit?.CombatHUD?.consumeChiefSecurityAttackPenalty?.(attackerToken);
+    const chiefSecurityPenalty = chiefSecurityPenaltyData ? 1 : 0;
 
     weaponContext.useStun = useStun;
     weaponContext.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
@@ -4867,6 +4929,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       defenderTokenId: targetToken.id,
       weaponContext,
       guardPenalty: targetToken.document?.getFlag(MODULE, "guardActive") ? 1 : 0,
+      chiefSecurityPenalty,
       pronePenalty,
       targetIsProne,
       targetIsProneInCover,
@@ -4939,6 +5002,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       // attribute/discipline, ship list, and side-panel context.
       playerMode:           state.playerMode    ?? false,
       sheetMode:            state.sheetMode      ?? false,
+      showAssistRollToggle: state.showAssistRollToggle ?? false,
       groundMode:           state.groundMode     ?? false,
       officer:              state.officer        ?? null,
       defaultAttr:          state.officerAttrKey  ?? null,
@@ -5058,10 +5122,16 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
   }
   state.crewAssist = el.querySelector("#crew-assist")?.checked
     ?? state.crewAssist;
-  if ((state.sheetMode && state.playerMode) || (state.groundMode && state.groundIsNpc)) {
+  if (((state.sheetMode || state.showAssistRollToggle) && state.playerMode) || (state.groundMode && state.groundIsNpc)) {
     state.isAssistRoll = el.querySelector("#is-assist-roll")?.checked ?? false;
   }
-  if (state.isAssistRoll) state.crewNumDice = 1;
+  if (state.isAssistRoll) {
+    state.crewNumDice = 1;
+    state.hasTargetingSolution = false;
+    state.tsChoice = null;
+    state.tsSystem = null;
+    state.hasCalibratesensors = false;
+  }
 
   // Attack Pattern: read Helm attr/disc and focus selections.
   // Attr/disc selects only exist when a named helm officer is assigned;
@@ -5957,9 +6027,20 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
               .map(([k, d]) => `<option value="${k}" ${k === state.shipDeptKey ? "selected" : ""}>${_deptLabel(k)} (${d.value})</option>`)
               .join("");
           }
-          // Show ship-specific options now that a ship is selected
-          if (tsLabel) tsLabel.style.display = "flex";
-          if (csLabel) csLabel.style.display = "flex";
+          // Show ship-specific options now that a ship is selected, unless this is an assist roll.
+          if (state.isAssistRoll) {
+            state.hasTargetingSolution = false;
+            state.tsChoice = null;
+            state.tsSystem = null;
+            state.hasCalibratesensors = false;
+            const tsCb = el.querySelector("#targeting-solution");
+            const csCb = el.querySelector("#calibrate-sensors");
+            if (tsLabel) { tsLabel.style.display = "none"; if (tsCb) tsCb.checked = false; }
+            if (csLabel) { csLabel.style.display = "none"; if (csCb) csCb.checked = false; }
+          } else {
+            if (tsLabel) tsLabel.style.display = "flex";
+            if (csLabel) csLabel.style.display = "flex";
+          }
           updateShipTarget();
           updateSensorsNotice();
         } else {
@@ -5974,8 +6055,10 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           state.hasTargetingSolution = false;
           state.tsChoice = null;
           state.tsSystem = null;
-          if (tsLabel) { tsLabel.style.display = "none"; el.querySelector("#targeting-solution").checked = false; }
-          if (csLabel) { csLabel.style.display = "none"; el.querySelector("#calibrate-sensors").checked = false; }
+          const tsCb = el.querySelector("#targeting-solution");
+          const csCb = el.querySelector("#calibrate-sensors");
+          if (tsLabel) { tsLabel.style.display = "none"; if (tsCb) tsCb.checked = false; }
+          if (csLabel) { csLabel.style.display = "none"; if (csCb) csCb.checked = false; }
           updateSensorsNotice();
         }
         state.selectedShipIdx = idx;
@@ -5993,6 +6076,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
     const crewDicePoolSec = el.querySelector("#sta2e-crew-dice-pool-section");
     const shipPoolSec = el.querySelector("#sta2e-ship-pool-section");
     const difficultyRow = el.querySelector("#sta2e-difficulty-row");
+    const targetingSolutionLabel = el.querySelector("#targeting-solution-label");
+    const calibrateSensorsLabel = el.querySelector("#calibrate-sensors-label");
+    const targetingSolutionCb = el.querySelector("#targeting-solution");
+    const calibrateSensorsCb = el.querySelector("#calibrate-sensors");
+    const targetingBenefitSection = el.querySelector("#ts-benefit-section");
+    const targetingSystemPicker = el.querySelector("#ts-system-picker");
     if (assistRollCb) {
       const _applyAssistMode = (on) => {
         // Label highlight
@@ -6021,6 +6110,35 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         // Hide ship pool and difficulty when assisting
         if (shipPoolSec) shipPoolSec.style.display = on ? "none" : "";
         if (difficultyRow) difficultyRow.style.display = on ? "none" : "";
+        if (on) {
+          state._assistSuppressedTaskOptions ??= {
+            hasTargetingSolution: state.hasTargetingSolution,
+            tsChoice: state.tsChoice,
+            tsSystem: state.tsSystem,
+            hasCalibratesensors: state.hasCalibratesensors,
+          };
+          state.hasTargetingSolution = false;
+          state.tsChoice = null;
+          state.tsSystem = null;
+          state.hasCalibratesensors = false;
+          if (targetingSolutionCb) targetingSolutionCb.checked = false;
+          if (calibrateSensorsCb) calibrateSensorsCb.checked = false;
+          if (targetingBenefitSection) targetingBenefitSection.style.display = "none";
+          if (targetingSystemPicker) targetingSystemPicker.style.display = "none";
+        } else if (state._assistSuppressedTaskOptions) {
+          state.hasTargetingSolution = !!state._assistSuppressedTaskOptions.hasTargetingSolution;
+          state.tsChoice = state._assistSuppressedTaskOptions.tsChoice ?? null;
+          state.tsSystem = state._assistSuppressedTaskOptions.tsSystem ?? null;
+          state.hasCalibratesensors = !!state._assistSuppressedTaskOptions.hasCalibratesensors;
+          if (targetingSolutionCb) targetingSolutionCb.checked = state.hasTargetingSolution;
+          if (calibrateSensorsCb) calibrateSensorsCb.checked = state.hasCalibratesensors;
+          if (targetingBenefitSection) targetingBenefitSection.style.display = state.hasTargetingSolution ? "flex" : "none";
+          if (targetingSystemPicker) targetingSystemPicker.style.display = state.tsChoice === "system" ? "grid" : "none";
+          delete state._assistSuppressedTaskOptions;
+        }
+        const canShowShipOptions = !(state.sheetMode && state.selectedShipIdx < 0);
+        if (targetingSolutionLabel) targetingSolutionLabel.style.display = (on || !canShowShipOptions) ? "none" : "flex";
+        if (calibrateSensorsLabel) calibrateSensorsLabel.style.display = (on || !canShowShipOptions) ? "none" : "flex";
       };
       assistRollCb.addEventListener("change", () => {
         state.isAssistRoll = assistRollCb.checked;

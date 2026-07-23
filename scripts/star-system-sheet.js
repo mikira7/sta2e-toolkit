@@ -2018,6 +2018,7 @@ export function registerStarSystemActorDirectoryHooks() {
   Hooks.on("getActorDirectoryEntryContext", starSystemEntryContextHook);
   Hooks.on("getActorContextOptions", starSystemEntryContextHook);
   Hooks.on("getDocumentDirectoryEntryContext", starSystemEntryContextHook);
+  Hooks.on("preCreateActor", preventNonGmStarSystemCreation);
   Hooks.on("preUpdateActor", preventManualStarSystemSheetSelection);
   Hooks.on("renderActorSheetConfig", removeStarSystemSheetConfigOption);
   Hooks.on("renderDocumentSheetConfig", removeStarSystemSheetConfigOption);
@@ -2255,7 +2256,7 @@ export class StarSystemActorSheet extends ActorSheet {
     }
 
     if (action === "post-chat" || action === "prompt-system") {
-      if (form) await this._saveForm(form);
+      if (form && game.user?.isGM) await this._saveForm(form);
       if (action === "post-chat") await this._postChatSummary();
       else await this._promptSystemSummary();
       return;
@@ -2263,7 +2264,7 @@ export class StarSystemActorSheet extends ActorSheet {
 
     if (action === "post-world" || action === "whisper-world" || action === "prompt-world") {
       const data = form ? this._dataFromForm(form).starSystem : getStarSystemData(this.actor);
-      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, normalizeStarSystemData(data));
+      if (game.user?.isGM) await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, normalizeStarSystemData(data));
       const world = data.worlds[Number(button.dataset.index)];
       if (!world) return;
       if (action === "post-world") await this._postWorldSummary(world);
@@ -2394,6 +2395,10 @@ export class StarSystemActorSheet extends ActorSheet {
 
   async _saveForm(form) {
     if (!form) return;
+    if (!game.user?.isGM) {
+      ui.notifications?.warn("STA2e Toolkit: Only the GM can save Star System actors.");
+      return;
+    }
     const data = this._dataFromForm(form);
     const actorName = data.actorName || this.actor.name;
     const starSystem = normalizeStarSystemData(data.starSystem);
@@ -2840,20 +2845,51 @@ function removeStarSystemSheetConfigOption(app, html) {
   });
 }
 
+function preventNonGmStarSystemCreation(actor, data, _options, userId) {
+  if (!isStarSystemCreationRequest(data) && !isStarSystemCreationRequest(actor)) return true;
+  if (userIsGM(userId)) return true;
+
+  if (!userId || userId === game.user?.id) {
+    ui.notifications?.warn("STA2e Toolkit: Only the GM can create Star System actors.");
+  }
+  console.warn(`STA2e Toolkit | Blocked non-GM Star System actor creation: ${data?.name ?? actor?.name ?? "unknown actor"}`);
+  return false;
+}
+
 function preventManualStarSystemSheetSelection(actor, changes, _options, userId) {
-  if (requestedSheetClass(changes) !== STAR_SYSTEM_SHEET_ID) return true;
+  const requestsStarSystemSheet = requestedSheetClass(changes) === STAR_SYSTEM_SHEET_ID;
+  const requestsStarSystemFlag = requestedStarSystemFlag(changes)?.isStarSystem === true;
+  if (!requestsStarSystemSheet && !requestsStarSystemFlag) return true;
+  if (userIsGM(userId)) return true;
   if (isStarSystemActor(actor)) return true;
 
   if (!userId || userId === game.user?.id) {
-    ui.notifications?.warn("STA2e Toolkit: Star System sheets must be created with the Actor Directory Star System button.");
+    ui.notifications?.warn("STA2e Toolkit: Only the GM can create or convert Star System actors.");
   }
   console.warn(`STA2e Toolkit | Blocked Star System sheet assignment on non-star-system actor: ${actor?.name ?? actor?.id ?? "unknown actor"}`);
   return false;
+}
+
+function userIsGM(userId) {
+  if (!userId) return !!game.user?.isGM;
+  return !!game.users?.get?.(userId)?.isGM;
+}
+
+function isStarSystemCreationRequest(data = {}) {
+  return requestedSheetClass(data) === STAR_SYSTEM_SHEET_ID
+    || requestedStarSystemFlag(data)?.isStarSystem === true;
 }
 
 function requestedSheetClass(changes = {}) {
   return changes["flags.core.sheetClass"]
     ?? changes?.flags?.core?.sheetClass
     ?? foundry.utils.getProperty(changes, "flags.core.sheetClass")
+    ?? null;
+}
+
+function requestedStarSystemFlag(changes = {}) {
+  return changes[`flags.${MODULE_ID}.${STAR_SYSTEM_FLAG}`]
+    ?? changes?.flags?.[MODULE_ID]?.[STAR_SYSTEM_FLAG]
+    ?? foundry.utils.getProperty(changes, `flags.${MODULE_ID}.${STAR_SYSTEM_FLAG}`)
     ?? null;
 }
