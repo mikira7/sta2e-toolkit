@@ -10,7 +10,7 @@ import { DateEditor } from "./date-editor.js";
 import { CampaignManager } from "./campaign-manager.js";
 import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
-import { NativeTractorBeamVFX } from "./tractor-beam-vfx.js";
+import { NativeTractorBeamVFX, registerTractorBeamVfxHooks } from "./tractor-beam-vfx.js";
 import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
@@ -302,6 +302,7 @@ function emitToolkitSocket(msg) {
 Hooks.once("init", () => {
   console.log("STA 2e Toolkit | Initializing");
   registerSettings();
+  registerTractorBeamVfxHooks();
   registerTransporterSettings();
   registerMomentumSpend();
   registerMomentumTracker();
@@ -2060,6 +2061,8 @@ Hooks.on("preUpdateToken", (tokenDoc, changes) => {
   if (!game.user.isGM) return;
   const tractorState = tokenDoc.getFlag("sta2e-toolkit", "tractorBeam");
   if (!tractorState?.targetTokenId) return;
+  // Tractor locks created before behavior was recorded were towing locks.
+  if (tractorState.behavior === "beamOnly") return;
   if ("x" in changes || "y" in changes) {
     _tractorLastPos.set(tokenDoc.id, { x: tokenDoc.x, y: tokenDoc.y });
   }
@@ -2077,6 +2080,8 @@ Hooks.on("updateToken", async (tokenDoc, changes) => {
 
   const tractorState = tokenDoc.getFlag("sta2e-toolkit", "tractorBeam");
   if (!tractorState?.targetTokenId) return;  // not a source token
+  // Beam-only locks remain visual; legacy locks without a behavior keep towing.
+  if (tractorState.behavior === "beamOnly") return;
 
   const targetTok = canvas.tokens?.get(tractorState.targetTokenId);
   if (!targetTok) return;

@@ -18,6 +18,7 @@
         <span>Force Habitable</span>
       </label>
       <button type="button" data-ss-action="generate" title="Generate system"><i class="fas fa-dice-d20"></i><span>Generate</span></button>
+      <button type="button" data-ss-action="refresh-portrait" title="Rebuild the portrait and prototype-token image from current star art"><i class="fas fa-image"></i><span>Refresh Portrait</span></button>
       <button type="button" data-ss-action="create-scene" title="Create a scene map of this system"><i class="fas fa-map"></i><span>Scene Map</span></button>
       {{/if}}
       <button type="button" data-ss-action="post-chat" title="Post summary to chat"><i class="fas fa-comment-alt"></i><span>Post</span></button>
@@ -137,7 +138,7 @@
         <div class="sta2e-ss-row">
           <input type="hidden" name="starSystem.stars.{{index}}.id" value="{{id}}" />
           <input type="text" name="starSystem.stars.{{index}}.role" value="{{role}}" placeholder="Primary" />
-          <select name="starSystem.stars.{{index}}.spectralType" title="Spectral type">{{#each spectralOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+          <select name="starSystem.stars.{{index}}.spectralType" data-ss-type-change="star" data-index="{{index}}" title="Spectral type">{{#each spectralOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
           <input type="text" name="starSystem.stars.{{index}}.subdivision" value="{{subdivision}}" placeholder="2" />
           <select name="starSystem.stars.{{index}}.luminosityType" title="Luminosity class">{{#each luminosityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
           <select name="starSystem.stars.{{index}}.orbitParentNodeId" title="Stellar orbit parent">{{#each orbitParentNodeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
@@ -189,7 +190,7 @@
             <label><span>Local AU</span><input type="number" name="starSystem.worlds.{{index}}.orbitalAU" value="{{orbitalAU}}" placeholder="1.0" min="0" step="0.01" title="Orbital distance from the selected parent in AU" /></label>
             <label><span>Zone</span><select name="starSystem.worlds.{{index}}.zone" title="World zone">{{#each zoneOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             <label><span>Name</span><input type="text" name="starSystem.worlds.{{index}}.name" value="{{name}}" placeholder="World" /></label>
-            <label><span>Type</span><select name="starSystem.worlds.{{index}}.type" title="World type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span>Type</span><select name="starSystem.worlds.{{index}}.type" data-ss-type-change="world" data-index="{{index}}" title="World type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             <label><span>Atmosphere</span><select name="starSystem.worlds.{{index}}.atmosphere" title="Atmosphere">{{#each atmosphereOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             <label><span>Population</span><input type="text" name="starSystem.worlds.{{index}}.population" value="{{population}}" placeholder="Population" /></label>
             <label><span>Moons</span><input type="number" name="starSystem.worlds.{{index}}.moons" value="{{moons}}" placeholder="0" min="0" step="1" /></label>
@@ -216,7 +217,7 @@
               <label><span>Orbit</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.orbit" value="{{orbit}}" placeholder="I" /></label>
               <label><span>Light</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.orbitParentNodeId" title="Moon lighting parent">{{#each orbitParentNodeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Name</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.name" value="{{name}}" placeholder="Moon" /></label>
-              <label><span>Type</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.type" title="Moon type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Type</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.type" data-ss-type-change="moon" data-index="{{../index}}" data-moon-index="{{index}}" title="Moon type">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Atmosphere</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.atmosphere" title="Moon atmosphere">{{#each atmosphereOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Population</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.population" value="{{population}}" placeholder="Population" /></label>
               <label><span>Rings</span><select name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.rings" title="Moon rings">{{#each ringOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>

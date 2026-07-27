@@ -31,18 +31,9 @@ function _readForm(root, defaults) {
     preset,
     color: root.querySelector('[name="color"]')?.value?.trim() || defaults.color,
     placement: root.querySelector('[name="placement"]')?.value === "below" ? "below" : "above",
-    adaptiveSizing: root.querySelector('[name="adaptiveSizing"]')?.checked !== false,
     duration: _numberFrom(root, "duration", defaults.duration),
-    sourceWidth: _numberFrom(root, "sourceWidth", defaults.sourceWidth),
-    coneWidth: _numberFrom(root, "coneWidth", defaults.coneWidth),
-    edgeFeather: _numberFrom(root, "edgeFeather", defaults.edgeFeather),
-    targetBubble: root.querySelector('[name="targetBubble"]')?.checked !== false,
-    targetEnvelope: root.querySelector('[name="targetEnvelope"]')?.checked === true,
     opacity: _numberFrom(root, "opacity", defaults.opacity),
     pulseSpeed: _numberFrom(root, "pulseSpeed", defaults.pulseSpeed),
-    lineCount: _numberFrom(root, "lineCount", defaults.lineCount),
-    oscillationAmplitude: _numberFrom(root, "oscillationAmplitude", defaults.oscillationAmplitude),
-    oscillationSpeed: _numberFrom(root, "oscillationSpeed", defaults.oscillationSpeed),
   };
 }
 
@@ -51,7 +42,7 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
     id: "sta2e-vfx-test-panel",
     tag: "div",
     window: { title: "STA2e - VFX Test Panel", resizable: false },
-    position: { width: 420, height: 560 },
+    position: { width: 420, height: 430 },
     actions: {
       play: VFXTestPanel._onPlay,
       stop: VFXTestPanel._onStop,
@@ -84,9 +75,6 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
       presets,
       placementAbove: this._values.placement !== "below",
       placementBelow: this._values.placement === "below",
-      adaptiveSizing: this._values.adaptiveSizing !== false,
-      targetBubble: this._values.targetBubble !== false,
-      targetEnvelope: this._values.targetEnvelope === true,
       sourceName: source?.name ?? "No source selected",
       targetName: target?.name ?? "No target targeted",
       hasActive: NativeTractorBeamVFX.hasActive(),
@@ -116,19 +104,6 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
     colorPicker?.addEventListener("input", event => {
       if (colorInput) colorInput.value = event.currentTarget.value;
     });
-
-    const adaptiveInput = el.querySelector('[name="adaptiveSizing"]');
-    const applyAdaptiveState = () => {
-      const adaptive = adaptiveInput?.checked !== false;
-      el.querySelectorAll("[data-manual-width]").forEach(input => {
-        input.disabled = adaptive;
-      });
-      el.querySelectorAll("[data-manual-width-row]").forEach(row => {
-        row.classList.toggle("is-disabled", adaptive);
-      });
-    };
-    adaptiveInput?.addEventListener("change", applyAdaptiveState);
-    applyAdaptiveState();
 
     el.querySelectorAll("[data-sync-range]").forEach(range => {
       const number = el.querySelector(`[data-sync-number="${range.dataset.syncRange}"]`);

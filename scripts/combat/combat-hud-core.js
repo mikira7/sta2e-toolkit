@@ -85,6 +85,12 @@ import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit
 import { createTracker, getActiveTracker } from "../momentum-tracker.js";
 import { clearHullDecals, hasHullDecals } from "../hull-decals.js";
 import { postTaskRequestCard } from "../task-maker.js";
+import {
+  NativeTractorBeamVFX,
+  getPersistentTractorBeamKey,
+  getTractorBeamAnimationRenderer,
+  refreshPersistentTractorBeamVfx,
+} from "../tractor-beam-vfx.js";
 
 import {
   BRIDGE_STATIONS,
@@ -6679,7 +6685,12 @@ export class CombatHUD {
               <div style="font-size:11px;color:${LC.text};">Engines + Conn<br>vs Difficulty ${tractorStr}</div>
             </div>
           </div>
-          <div style="display:flex;gap:4px;">
+          <div class="sta2e-tractor-controls" style="display:flex;gap:4px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:4px;padding:0 4px;color:${LC.textDim};font-size:10px;font-family:${LC.font};white-space:nowrap;cursor:pointer;"
+              title="Move and attach the target so it follows the host ship">
+              <input class="sta2e-tractor-tow" type="checkbox" style="margin:0;accent-color:${LC.primary};">
+              Tow Target
+            </label>
             <button class="sta2e-tractor-engage"
               data-payload="${engagePayload}"
               style="flex:1;padding:5px;background:rgba(0,166,251,0.12);
@@ -12532,31 +12543,35 @@ export class CombatHUD {
   }
 
   // ── Tractor Beam tracking ────────────────────────────────────────────────
-  // Stored on the tractoring token: { targetTokenId, targetName }
-  // Stored on the target token: { sourceTokenId, sourceName } (so both know the state)
+  // Stored on the tractoring token: { targetTokenId, targetName, behavior }
+  // Stored on the target token: { sourceTokenId, sourceName, behavior } (so both know the state)
 
   static getTractorBeamState(token) {
     return token.document?.getFlag("sta2e-toolkit", "tractorBeam") ?? null;
   }
 
-  static async engageTractorBeam(sourceToken, targetToken) {
-    // Store the tow distance — target will sit behind the source at this distance,
-    // dynamically recomputed as the source rotates.
-    // "Behind" = opposite of the source's facing direction.
-    // Distance = one source token width + half target width for a natural gap.
-    const gridSize   = canvas.grid?.size ?? 100;
-    const srcSize    = (sourceToken.document.width ?? 1) * gridSize;
-    const tgtSize    = (targetToken.document.width ?? 1) * gridSize;
-    const towDist    = srcSize * 0.5 + tgtSize * 0.5 + gridSize * 0.2;
+  static async engageTractorBeam(sourceToken, targetToken, { towTarget = false } = {}) {
+    // Tow locks retain their behind-source offset for rotation-only movement.
+    // Beam-only locks intentionally have no positional behavior.
+    const behavior = towTarget ? "tow" : "beamOnly";
+    let towDist;
+    if (towTarget) {
+      const gridSize = canvas.grid?.size ?? 100;
+      const srcSize  = (sourceToken.document.width ?? 1) * gridSize;
+      const tgtSize  = (targetToken.document.width ?? 1) * gridSize;
+      towDist = srcSize * 0.5 + tgtSize * 0.5 + gridSize * 0.2;
+    }
 
     await sourceToken.document.setFlag("sta2e-toolkit", "tractorBeam", {
       targetTokenId: targetToken.id,
       targetName:    targetToken.name,
-      towDist,
+      behavior,
+      ...(towTarget ? { towDist } : {}),
     });
     await targetToken.document.setFlag("sta2e-toolkit", "tractorBeam", {
       sourceTokenId: sourceToken.id,
       sourceName:    sourceToken.name,
+      behavior,
     });
   }
 
@@ -12565,6 +12580,13 @@ export class CombatHUD {
   }
 
   static async playTractorBeamEffect(sourceToken, targetToken) {
+    if (getTractorBeamAnimationRenderer() === "pixi") {
+      // The shared tractor flags drive native playback on every client. Refresh
+      // immediately for the GM that engaged it; remote clients receive the same
+      // work through their updateToken hook.
+      refreshPersistentTractorBeamVfx();
+      return;
+    }
     if (!window.Sequence) return;
 
     const effectName = CombatHUD._tractorEffectName(sourceToken);
@@ -12600,6 +12622,10 @@ export class CombatHUD {
   }
 
   static async stopTractorBeamEffect(sourceToken) {
+    if (getTractorBeamAnimationRenderer() === "pixi") {
+      NativeTractorBeamVFX.stopPersistent(getPersistentTractorBeamKey(sourceToken));
+      return;
+    }
     if (!window.Sequencer) return;
 
     const effectName = CombatHUD._tractorEffectName(sourceToken);
@@ -12620,9 +12646,9 @@ export class CombatHUD {
     if (targetToken) {
       await targetToken.document.unsetFlag("sta2e-toolkit", "tractorBeam").catch(() => {});
     }
-    // Stop the persistent Sequencer beam effect
+    // Stop the configured persistent beam effect.
     if (sourceToken) await CombatHUD.stopTractorBeamEffect(sourceToken);
-    // Clear TMFX glow on source
+    // Clear a legacy host glow if an older tractor lock created one.
     if (sourceToken) {
       try { await TokenMagic.deleteFilters(sourceToken, "tractorBeam"); } catch {}
     }
@@ -16700,7 +16726,12 @@ export async function lockTractorBeam(sourceToken, targetToken) {
           <div style="font-size:11px;color:${LC.text};">Engines + Conn<br>vs Difficulty ${tractorStr}</div>
         </div>
       </div>
-      <div style="display:flex;gap:4px;">
+      <div class="sta2e-tractor-controls" style="display:flex;gap:4px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:4px;padding:0 4px;color:${LC.textDim};font-size:10px;font-family:${LC.font};white-space:nowrap;cursor:pointer;"
+          title="Move and attach the target so it follows the host ship">
+          <input class="sta2e-tractor-tow" type="checkbox" style="margin:0;accent-color:${LC.primary};">
+          Tow Target
+        </label>
         <button class="sta2e-tractor-engage"
           data-payload="${engagePayload}"
           style="flex:1;padding:5px;background:rgba(0,166,251,0.12);
@@ -21049,7 +21080,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
   // ── Tractor Beam card buttons ────────────────────────────────────────────
   if (game.user.isGM && message.flags?.["sta2e-toolkit"]?.tractorBeamCard) {
 
-    // ENGAGE — apply TMFX beam glow on source + attach target via Token Attacher
+    // ENGAGE — create a visual lock, optionally attaching the target for towing.
     html.querySelectorAll(".sta2e-tractor-engage").forEach(btn => {
       btn.addEventListener("click", async () => {
         try {
@@ -21061,71 +21092,60 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             return;
           }
 
+          const controls   = btn.closest(".sta2e-tractor-controls");
+          const towToggle  = controls?.querySelector(".sta2e-tractor-tow");
+          const towTarget  = towToggle?.checked === true;
+
           btn.disabled     = true;
           btn.textContent  = "🔗 ENGAGED";
           btn.style.opacity = "0.6";
           btn.style.borderColor = LC.green;
+          if (towToggle) towToggle.disabled = true;
 
           // Flag both tokens
-          await CombatHUD.engageTractorBeam(sourceTok, targetTok);
+          await CombatHUD.engageTractorBeam(sourceTok, targetTok, { towTarget });
 
-          // TMFX persistent beam glow on source token
-          try {
-            await TokenMagic.addUpdateFilters(sourceTok, [{
-              filterType: "glow",
-              filterId:   "tractorBeam",
-              outerStrength: 8,
-              innerStrength: 3,
-              color:      0x00aaff,
-              quality:    0.5,
-              padding:    10,
-              animated: {
-                time: { active: true, speed: 0.005, animType: "move" }
-              }
-            }]);
-          } catch(e) { console.warn("STA2e | tractor TMFX:", e); }
+          // Remove any glow left by a tractor lock created before native PIXI
+          // rendering replaced the source-token filter.
+          try { await TokenMagic.deleteFilters(sourceTok, "tractorBeam"); } catch { /* optional */ }
 
-          // Play persistent JB2A tractor beam effect
+          // Play the configured persistent tractor beam effect.
           await CombatHUD.playTractorBeamEffect(sourceTok, targetTok);
 
-          // Snap target to behind the source immediately
-          // Helper so we can call it again after a short delay (Foundry may grid-snap)
-          const snapBehind = async (animate = true) => {
-            const gridSize = canvas.grid?.size ?? 100;
-            const srcW     = (sourceTok.document.width  ?? 1) * gridSize;
-            const srcH     = (sourceTok.document.height ?? 1) * gridSize;
-            const tgtW     = (targetTok.document.width  ?? 1) * gridSize;
-            const tgtH     = (targetTok.document.height ?? 1) * gridSize;
-            const srcRot   = sourceTok.document.rotation ?? 0;
-            const towDist  = srcW * 0.5 + tgtW * 0.5 + gridSize * 0.2;
-            const rotRad   = (srcRot * Math.PI) / 180;
-            const behindX  = (sourceTok.x + srcW / 2) + Math.sin(rotRad) * towDist - tgtW / 2;
-            const behindY  = (sourceTok.y + srcH / 2) - Math.cos(rotRad) * towDist - tgtH / 2;
-            console.log(`STA2e | snapBehind rot=${srcRot} behind=(${behindX.toFixed(0)},${behindY.toFixed(0)})`);
-            await targetTok.document.update({ x: behindX, y: behindY, rotation: srcRot },
-              { animate }).catch(() => {});
-          };
-          await snapBehind(false);
-          // Second snap after 300ms in case Foundry grid-snapping overrides us.
-          // If Token Attacher is available, attach the target to the source after
-          // the snap so TA stores the correct "behind" offset and handles all
-          // subsequent movement natively (drag, keyboard, ruler, API calls).
-          setTimeout(async () => {
+          if (towTarget) {
+            // Snap target to behind the source immediately. Call it again after a
+            // short delay because Foundry may grid-snap the first update.
+            const snapBehind = async (animate = true) => {
+              const gridSize = canvas.grid?.size ?? 100;
+              const srcW     = (sourceTok.document.width  ?? 1) * gridSize;
+              const srcH     = (sourceTok.document.height ?? 1) * gridSize;
+              const tgtW     = (targetTok.document.width  ?? 1) * gridSize;
+              const tgtH     = (targetTok.document.height ?? 1) * gridSize;
+              const srcRot   = sourceTok.document.rotation ?? 0;
+              const towDist  = srcW * 0.5 + tgtW * 0.5 + gridSize * 0.2;
+              const rotRad   = (srcRot * Math.PI) / 180;
+              const behindX  = (sourceTok.x + srcW / 2) + Math.sin(rotRad) * towDist - tgtW / 2;
+              const behindY  = (sourceTok.y + srcH / 2) - Math.cos(rotRad) * towDist - tgtH / 2;
+              await targetTok.document.update({ x: behindX, y: behindY, rotation: srcRot },
+                { animate }).catch(() => {});
+            };
             await snapBehind(false);
-            if (_taAvailable()) {
-              try {
-                // attachElementToToken(element, parentToken, suppressNotification)
-                // Both args are canvas PlaceableObjects. Offset is captured from
-                // their current relative positions, so the target stays "behind".
-                await window.tokenAttacher.attachElementToToken(targetTok, sourceTok, true);
-                // Record that TA is managing movement so the hook fallback skips this pair.
-                await sourceTok.document.setFlag("sta2e-toolkit", "tractorBeam", {
-                  ...sourceTok.document.getFlag("sta2e-toolkit", "tractorBeam"),
-                  usesTA: true,
-                });
-              } catch(e) { console.warn("STA2e | TA attach failed:", e); }
-            }
-          }, 300);
+            // Attach after the second snap so Token Attacher captures the final
+            // behind-host offset and handles subsequent movement natively.
+            setTimeout(async () => {
+              await snapBehind(false);
+              if (_taAvailable()) {
+                try {
+                  await window.tokenAttacher.attachElementToToken(targetTok, sourceTok, true);
+                  // Record that TA is managing movement so the hook fallback skips this pair.
+                  await sourceTok.document.setFlag("sta2e-toolkit", "tractorBeam", {
+                    ...sourceTok.document.getFlag("sta2e-toolkit", "tractorBeam"),
+                    usesTA: true,
+                  });
+                } catch(e) { console.warn("STA2e | TA attach failed:", e); }
+              }
+            }, 300);
+          }
 
           ChatMessage.create({
             content: lcarsCard("🔗 TRACTOR BEAM ACTIVE", LC.primary, `
@@ -21136,7 +21156,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 🔗 ${payload.targetName} locked in tractor beam
               </div>
               <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};line-height:1.5;">
-                Target follows source token movement.
+                ${towTarget
+                  ? "Target follows source token movement."
+                  : "Visual tractor lock established; target is not attached or moved."}
                 Break-free: Engines + Conn vs Difficulty ${payload.tractorStr}.
                 Release manually via the Tractor Beam action or the HUD status badge.
               </div>`),

@@ -1756,6 +1756,110 @@ function randomizeWorld(existing = {}, primaryStar = null) {
   });
 }
 
+function imageLayersForSelectedPlanetType(type, { rings = "No", existingImage = "" } = {}) {
+  const baseImage = planetImageForType(type);
+  if (baseImage) {
+    return {
+      imageLayers: createPlanetImageLayers(type, { rings, baseImage }),
+      missingImage: false,
+    };
+  }
+  // Preserve a manually supplied image if the selected type has no configured
+  // pool. Clearing the generated overlays prevents the previous class's layers
+  // from being carried into the newly selected type.
+  return {
+    imageLayers: { base: savedImage(existingImage), polarCap: "", cloud: "", ring: "" },
+    missingImage: true,
+  };
+}
+
+function regenerateStarForType(existing = {}, spectralType = "", index = 0) {
+  const type = clampText(spectralType, existing.spectralType || "G");
+  const role = existing.role || (index === 0 ? "Primary" : `Companion ${index}`);
+  const regenerated = generateStar({ role });
+  const noLuminosity = ["L", "Y", "T", "White Dwarf", "T-Tauri"].includes(type);
+  const subdivision = noLuminosity ? "" : spectralSubdivision();
+  const luminosityType = noLuminosity ? "" : rollTable(LUMINOSITY_TABLE);
+  const image = starImageForType(type);
+  return {
+    ...regenerated,
+    id: existing.id || regenerated.id,
+    role,
+    spectralType: type,
+    subdivision,
+    luminosityType,
+    classification: `${type}${subdivision}${luminosityType}`,
+    notes: starNotes(type, luminosityType, false),
+    image: image || savedImage(existing.image),
+    orbitParentNodeId: existing.orbitParentNodeId,
+    orbitalAU: existing.orbitalAU,
+    orbitalAngle: existing.orbitalAngle,
+    missingImage: !image,
+  };
+}
+
+function regenerateWorldForType(existing = {}, type = "", primaryStar = null) {
+  const orbit = Number(existing.orbit) || 1;
+  const zone = WORLD_ZONE_OPTIONS.includes(existing.zone) ? existing.zone : "Inner Worlds";
+  const regenerated = generateWorld({
+    designation: existing.name?.replace(/\s+[IVXLCDM]+$/i, "") || "Custom",
+    orbit,
+    zone,
+    type,
+    primaryStar: primaryStar ?? { spectralType: "G", luminosityType: "V" },
+    orbitParentNodeId: existing.orbitParentNodeId,
+  });
+  const { imageLayers, missingImage } = imageLayersForSelectedPlanetType(type, {
+    rings: regenerated.rings,
+    existingImage: existing.image,
+  });
+  const moonRecords = normalizeRows(existing.moonRecords);
+  const world = {
+    ...regenerated,
+    id: existing.id || regenerated.id,
+    orbit: existing.orbit || regenerated.orbit,
+    orbitParentNodeId: existing.orbitParentNodeId || regenerated.orbitParentNodeId,
+    orbitalAU: existing.orbitalAU || "",
+    zone: existing.zone,
+    name: existing.name || regenerated.name,
+    image: imageFromLayers(imageLayers) || savedImage(existing.image),
+    imageLayers,
+    moonRecords,
+  };
+  // Changing a world must not overwrite its separately editable moon records.
+  if (moonRecords.length) syncMoonSummary(world);
+  else {
+    world.moons = existing.moons;
+    world.moonTypes = existing.moonTypes;
+  }
+  return { world, missingImage };
+}
+
+function regenerateMoonForType(existing = {}, hostWorld = {}, index = 0, type = "") {
+  const regenerated = createMoonRecord({
+    hostWorld,
+    index,
+    summary: `${type} moon (moon-scale)`,
+    useConfiguredImage: true,
+  });
+  const { imageLayers, missingImage } = imageLayersForSelectedPlanetType(type, {
+    rings: regenerated.rings,
+    existingImage: existing.image,
+  });
+  return {
+    moon: {
+      ...regenerated,
+      id: existing.id || regenerated.id,
+      orbit: existing.orbit || regenerated.orbit,
+      name: existing.name || regenerated.name,
+      orbitParentNodeId: existing.orbitParentNodeId || regenerated.orbitParentNodeId,
+      image: imageFromLayers(imageLayers) || savedImage(existing.image),
+      imageLayers,
+    },
+    missingImage,
+  };
+}
+
 // Approximate habitable-zone center distance (AU) by spectral type, used to
 // anchor generated orbital distances.
 const HZ_CENTER_AU = {
@@ -2209,6 +2313,9 @@ export class StarSystemActorSheet extends ActorSheet {
     root.querySelectorAll("[data-ss-action]").forEach(button => {
       button.addEventListener("click", event => this._handleAction(event));
     });
+    root.querySelectorAll("select[data-ss-type-change]").forEach(select => {
+      select.addEventListener("change", event => this._handleTypeChange(event));
+    });
   }
 
   async _handleAction(event) {
@@ -2216,7 +2323,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const button = event.currentTarget;
     const action = button.dataset.ssAction;
     const form = button.closest("form");
-    const gmOnlyActions = new Set(["generate", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene"]);
+    const gmOnlyActions = new Set(["generate", "refresh-portrait", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene"]);
     if (gmOnlyActions.has(action) && !game.user?.isGM) {
       ui.notifications.warn("STA2e Toolkit: Only the GM can modify generated star system records.");
       return;
@@ -2241,6 +2348,27 @@ export class StarSystemActorSheet extends ActorSheet {
         "prototypeToken.texture.src": generatedImage,
       });
       await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, generated);
+      this.render(false);
+      return;
+    }
+
+    if (action === "refresh-portrait") {
+      const current = form ? this._dataFromForm(form) : { actorName: this.actor.name, starSystem: getStarSystemData(this.actor) };
+      const starSystem = normalizeStarSystemData(current.starSystem);
+      const portrait = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
+      const actorUpdate = {
+        name: current.actorName || this.actor.name,
+        "prototypeToken.name": current.actorName || this.actor.name,
+        "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
+      };
+      if (portrait) {
+        actorUpdate.img = portrait;
+        actorUpdate["prototypeToken.texture.src"] = portrait;
+      } else {
+        ui.notifications.warn("STA2e Toolkit: No star artwork is configured to build this system portrait.");
+      }
+      await this.actor.update(actorUpdate);
+      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, starSystem);
       this.render(false);
       return;
     }
@@ -2385,6 +2513,78 @@ export class StarSystemActorSheet extends ActorSheet {
       this.render(false);
       return;
     }
+  }
+
+  async _handleTypeChange(event) {
+    event.preventDefault();
+    const select = event.currentTarget;
+    const form = select?.closest("form");
+    if (!form) return;
+    if (!game.user?.isGM) {
+      ui.notifications.warn("STA2e Toolkit: Only the GM can modify generated star system records.");
+      this.render(false);
+      return;
+    }
+
+    const kind = select.dataset.ssTypeChange;
+    const type = clampText(select.value);
+    const current = this._dataFromForm(form);
+    const data = current.starSystem;
+    let missingImage = false;
+    let refreshPortrait = false;
+
+    if (kind === "star") {
+      const index = Number(select.dataset.index);
+      const star = data.stars?.[index];
+      if (!star || !type) return;
+      const regenerated = regenerateStarForType(star, type, index);
+      missingImage = regenerated.missingImage;
+      delete regenerated.missingImage;
+      data.stars[index] = regenerated;
+      syncStarDerivedFields(data);
+      if (index === 0) data.stellarAge = stellarAgeEstimate(regenerated);
+      refreshPortrait = true;
+    } else if (kind === "world") {
+      const index = Number(select.dataset.index);
+      const world = data.worlds?.[index];
+      if (!world || !type) return;
+      const result = regenerateWorldForType(world, type, data.stars?.[0]);
+      data.worlds[index] = result.world;
+      await bakePlanetImageForBody(data.worlds[index], { actorId: this.actor.id, kind: "world" });
+      missingImage = result.missingImage;
+    } else if (kind === "moon") {
+      const worldIndex = Number(select.dataset.index);
+      const moonIndex = Number(select.dataset.moonIndex);
+      const world = data.worlds?.[worldIndex];
+      const moon = world?.moonRecords?.[moonIndex];
+      if (!world || !moon || !type) return;
+      const result = regenerateMoonForType(moon, world, moonIndex, type);
+      world.moonRecords[moonIndex] = result.moon;
+      await bakePlanetImageForBody(world.moonRecords[moonIndex], { actorId: this.actor.id, kind: "moon" });
+      syncMoonSummary(world);
+      missingImage = result.missingImage;
+    } else return;
+
+    const starSystem = normalizeStarSystemData(data);
+    const actorName = current.actorName || this.actor.name;
+    const actorUpdate = {
+      name: actorName,
+      "prototypeToken.name": actorName,
+      "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
+    };
+    if (refreshPortrait) {
+      const portrait = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
+      if (portrait) {
+        actorUpdate.img = portrait;
+        actorUpdate["prototypeToken.texture.src"] = portrait;
+      }
+    }
+    await this.actor.update(actorUpdate);
+    await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, starSystem);
+    if (missingImage) {
+      ui.notifications.warn(`STA2e Toolkit: No configured ${kind} image exists for ${type}; the current custom image was retained.`);
+    }
+    this.render(false);
   }
 
   async _updateObject(event, _formData) {

@@ -1,8 +1,7 @@
 /**
  * sta2e-toolkit | tractor-beam-vfx.js
  *
- * Native Foundry/PIXI tractor beam preview effect.
- * This is intentionally independent from the live CombatHUD tractor flow.
+ * Native Foundry/PIXI tractor beam renderer for previews and live tractor locks.
  */
 
 import {
@@ -13,6 +12,7 @@ import {
 
 const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 910_000;
+const TRACTOR_TARGET_CAP_COVERAGE = 0.60;
 
 export const TRACTOR_BEAM_PRESETS = {
   starfleet: { label: "Starfleet Blue", color: "#44bbff" },
@@ -26,22 +26,14 @@ export const TRACTOR_BEAM_DEFAULTS = {
   preset: "starfleet",
   color: TRACTOR_BEAM_PRESETS.starfleet.color,
   placement: "above",
-  adaptiveSizing: true,
   duration: 6000,
-  sourceWidth: 54,
-  coneWidth: 260,
-  edgeFeather: 36,
-  targetBubble: true,
-  targetEnvelope: false,
   opacity: 0.55,
   pulseSpeed: 1.35,
-  lineCount: 9,
-  oscillationAmplitude: 28,
-  oscillationSpeed: 1.7,
 };
 
 export const TRACTOR_BEAM_WORLD_SETTING = "tractorBeamVfxWorldDefaults";
 export const TRACTOR_BEAM_CLIENT_SETTING = "tractorBeamVfxClientOverrides";
+export const TRACTOR_BEAM_RENDERER_SETTING = "tractorBeamAnimationRenderer";
 
 function _addBlend() {
   if (typeof PIXI?.BLEND_MODES?.ADD === "number") return PIXI.BLEND_MODES.ADD;
@@ -101,25 +93,6 @@ function _strokePath(g, points, width, color, alpha) {
   }
 }
 
-function _ring(g, x, y, rx, ry, width, color, alpha) {
-  if (typeof g.lineStyle === "function") {
-    g.lineStyle(width, color, alpha);
-    g.drawEllipse(x, y, rx, ry);
-    return;
-  }
-  g.ellipse(x, y, rx, ry).stroke({ width, color, alpha });
-}
-
-function _fillEllipse(g, x, y, rx, ry, color, alpha) {
-  if (typeof g.beginFill === "function") {
-    g.beginFill(color, alpha);
-    g.drawEllipse(x, y, rx, ry);
-    g.endFill();
-    return;
-  }
-  g.ellipse(x, y, rx, ry).fill({ color, alpha });
-}
-
 function _tokenCenter(token) {
   return token?.center ?? {
     x: (token?.x ?? 0) + (token?.w ?? 0) / 2,
@@ -132,65 +105,41 @@ function _isLiveToken(token) {
   return canvas.tokens.get(token.id) === token;
 }
 
-function _adaptiveConeWidth(targetToken) {
-  return Math.max(30, (targetToken?.w ?? 100) * 0.5);
+function _fitScale(fit, w, h, tw, th) {
+  switch (fit) {
+    case "fill":   return [w / tw, h / th];
+    case "cover":  { const s = Math.max(w / tw, h / th); return [s, s]; }
+    case "width":  { const s = w / tw; return [s, s]; }
+    case "height": { const s = h / th; return [s, s]; }
+    case "contain":
+    default:       { const s = Math.min(w / tw, h / th); return [s, s]; }
+  }
 }
 
-function _adaptiveEnvelopeConeWidth(targetToken, opts) {
-  const baseWidth = _adaptiveConeWidth(targetToken);
-  if (!opts?.targetBubble || !opts?.targetEnvelope) return baseWidth;
-  const { rx, ry } = _targetBubbleRadii(targetToken);
-  return Math.max(baseWidth, Math.min(rx, ry) * 2);
+function _hasUsableSilhouette(mask) {
+  const opaqueCount = mask?.opaqueSet?.size ?? mask?.opaque?.length ?? 0;
+  const total = (mask?.width ?? 0) * (mask?.height ?? 0);
+  // A fully opaque image gives us only the token rectangle, so use the
+  // rectangular fallback rather than pretending it has a hull contour.
+  return opaqueCount > 0 && total > 0 && opaqueCount < total;
 }
 
-function _targetBubbleRadii(targetToken) {
-  const width = Math.max(20, targetToken?.w ?? 100);
-  const height = Math.max(20, targetToken?.h ?? 100);
-  const padding = Math.max(10, Math.min(width, height) * 0.08);
+function _maskPixelToCanvas(token, mask, pixel) {
+  const center = _tokenCenter(token);
+  const texture = token?.document?.texture ?? {};
+  const [fx, fy] = _fitScale(texture.fit ?? "contain", token?.w ?? 1, token?.h ?? 1, mask.width, mask.height);
+  const anchorX = Number(texture.anchorX ?? 0.5);
+  const anchorY = Number(texture.anchorY ?? 0.5);
+  const scaleX = Number(texture.scaleX ?? 1) || 1;
+  const scaleY = Number(texture.scaleY ?? 1) || 1;
+  const rotation = Number(token?.document?.rotation ?? token?.rotation ?? 0) * (Math.PI / 180);
+  const localX = (pixel.x + 0.5 - anchorX * mask.width) * fx * scaleX;
+  const localY = (pixel.y + 0.5 - anchorY * mask.height) * fy * scaleY;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
   return {
-    rx: width / 2 + padding,
-    ry: height / 2 + padding,
-  };
-}
-
-function _targetBubbleBeamPoint(sourceCenter, targetToken) {
-  const targetCenter = _tokenCenter(targetToken);
-  const dx = targetCenter.x - sourceCenter.x;
-  const dy = targetCenter.y - sourceCenter.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1) return targetCenter;
-
-  const ux = dx / len;
-  const uy = dy / len;
-  const { rx, ry } = _targetBubbleRadii(targetToken);
-  const edgeDistance = 1 / Math.sqrt((ux * ux) / (rx * rx) + (uy * uy) / (ry * ry));
-  const overlap = Math.min(edgeDistance - 2, Math.max(18, Math.min(rx, ry) * 0.16));
-  const beamDistance = Math.max(2, edgeDistance - overlap);
-
-  return {
-    x: targetCenter.x - ux * beamDistance,
-    y: targetCenter.y - uy * beamDistance,
-  };
-}
-
-function _targetRectEdgePoint(sourceCenter, targetToken) {
-  const targetCenter = _tokenCenter(targetToken);
-  const dx = targetCenter.x - sourceCenter.x;
-  const dy = targetCenter.y - sourceCenter.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1) return targetCenter;
-
-  const ux = dx / len;
-  const uy = dy / len;
-  const halfW = Math.max(1, (targetToken?.w ?? 100) / 2);
-  const halfH = Math.max(1, (targetToken?.h ?? 100) / 2);
-  const edgeDistanceX = Math.abs(ux) > 0.0001 ? halfW / Math.abs(ux) : Infinity;
-  const edgeDistanceY = Math.abs(uy) > 0.0001 ? halfH / Math.abs(uy) : Infinity;
-  const edgeDistance = Math.min(edgeDistanceX, edgeDistanceY);
-
-  return {
-    x: targetCenter.x - ux * edgeDistance,
-    y: targetCenter.y - uy * edgeDistance,
+    x: center.x + localX * cos - localY * sin,
+    y: center.y + localX * sin + localY * cos,
   };
 }
 
@@ -255,16 +204,6 @@ function _alphaEdgePoint(token, mask, ux, uy, mode = "min") {
   return best;
 }
 
-function _targetEdgePoint(sourceCenter, targetToken, mask = null) {
-  const targetCenter = _tokenCenter(targetToken);
-  const dx = targetCenter.x - sourceCenter.x;
-  const dy = targetCenter.y - sourceCenter.y;
-  const len = Math.hypot(dx, dy);
-  const alphaPoint = len >= 1 ? _alphaEdgePoint(targetToken, mask, dx / len, dy / len, "min") : null;
-  return alphaPoint
-    ?? _targetRectEdgePoint(sourceCenter, targetToken);
-}
-
 function _sourceEdgePoint(sourceToken, targetCenter, mask = null) {
   const sourceCenter = _tokenCenter(sourceToken);
   const dx = targetCenter.x - sourceCenter.x;
@@ -284,6 +223,267 @@ function _sourceStartPoint(sourceToken, targetCenter, mask = null) {
     ?? _sourceEdgePoint(sourceToken, targetCenter, mask);
 }
 
+function _median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) * 0.5;
+}
+
+function _pointToSegmentDistance(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq < 0.0001) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = _clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq, 0, 1);
+  return Math.hypot(point.x - (start.x + dx * t), point.y - (start.y + dy * t));
+}
+
+// Keep only the bends that are visually meaningful at the token's current
+// scale. This avoids building the fan from every alpha-mask pixel.
+function _simplifyPolyline(points, tolerance) {
+  if (points.length <= 2) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = keep[points.length - 1] = 1;
+  const segments = [[0, points.length - 1]];
+
+  while (segments.length) {
+    const [startIndex, endIndex] = segments.pop();
+    let farthestIndex = -1;
+    let farthestDistance = tolerance;
+    for (let i = startIndex + 1; i < endIndex; i++) {
+      const distance = _pointToSegmentDistance(points[i], points[startIndex], points[endIndex]);
+      if (distance > farthestDistance) {
+        farthestDistance = distance;
+        farthestIndex = i;
+      }
+    }
+    if (farthestIndex >= 0) {
+      keep[farthestIndex] = 1;
+      segments.push([startIndex, farthestIndex], [farthestIndex, endIndex]);
+    }
+  }
+  return points.filter((_point, index) => keep[index]);
+}
+
+function _segmentsCross(a, b, c, d) {
+  const side = (start, end, point) => (end.x - start.x) * (point.y - start.y)
+    - (end.y - start.y) * (point.x - start.x);
+  const abC = side(a, b, c);
+  const abD = side(a, b, d);
+  const cdA = side(c, d, a);
+  const cdB = side(c, d, b);
+  return abC * abD < -0.0001 && cdA * cdB < -0.0001;
+}
+
+function _fanSelfIntersects(sourcePoint, contour) {
+  const polygon = [sourcePoint, ...contour];
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    for (let j = i + 1; j < polygon.length; j++) {
+      // Neighboring edges intentionally meet at a shared endpoint.
+      if (j === i || (i + 1) % polygon.length === j || (j + 1) % polygon.length === i) continue;
+      const c = polygon[j];
+      const d = polygon[(j + 1) % polygon.length];
+      if (_segmentsCross(a, b, c, d)) return true;
+    }
+  }
+  return false;
+}
+
+function _isValidFacingContour(contour, sourcePoint) {
+  if (!Array.isArray(contour) || contour.length < 2 || !sourcePoint) return false;
+  let span = 0;
+  for (let i = 0; i < contour.length; i++) {
+    const point = contour[i];
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
+    if (i) span += Math.hypot(point.x - contour[i - 1].x, point.y - contour[i - 1].y);
+  }
+  return span >= 2
+    && !contour.every(point => Math.hypot(point.x - sourcePoint.x, point.y - sourcePoint.y) < 1)
+    && !_fanSelfIntersects(sourcePoint, contour);
+}
+
+// Narrow the target cap to the central part of the hull it faces. This keeps
+// tractor locks visually focused instead of spanning the full long ship edge.
+function _limitFacingContourCoverage(sourcePoint, targetToken, contour, coverage = TRACTOR_TARGET_CAP_COVERAGE) {
+  if (!Array.isArray(contour) || contour.length < 2) return null;
+  const center = _tokenCenter(targetToken);
+  const dx = center.x - sourcePoint.x;
+  const dy = center.y - sourcePoint.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1) return null;
+  const px = -dy / length;
+  const py = dx / length;
+  const lateral = point => (point.x - sourcePoint.x) * px + (point.y - sourcePoint.y) * py;
+  const samples = contour.map(point => ({ point, lateral: lateral(point) }));
+  const minLateral = Math.min(...samples.map(sample => sample.lateral));
+  const maxLateral = Math.max(...samples.map(sample => sample.lateral));
+  const fullSpan = maxLateral - minLateral;
+  const desiredSpan = fullSpan * _clamp(coverage, 0.1, 1);
+  if (desiredSpan < 2 || desiredSpan >= fullSpan - 0.01) return contour;
+
+  const centerLateral = _clamp(lateral(center), minLateral + desiredSpan / 2, maxLateral - desiredSpan / 2);
+  const lower = centerLateral - desiredSpan / 2;
+  const upper = centerLateral + desiredSpan / 2;
+  const clipped = [];
+  const addPoint = point => {
+    const prior = clipped[clipped.length - 1];
+    if (!prior || Math.hypot(point.x - prior.x, point.y - prior.y) > 0.01) clipped.push(point);
+  };
+
+  for (let i = 0; i < samples.length - 1; i++) {
+    const current = samples[i];
+    const next = samples[i + 1];
+    if (i === 0 && current.lateral >= lower && current.lateral <= upper) addPoint(current.point);
+    const crossings = [lower, upper]
+      .filter(boundary => (current.lateral - boundary) * (next.lateral - boundary) < 0)
+      .map(boundary => ({
+        t: (boundary - current.lateral) / (next.lateral - current.lateral),
+      }))
+      .sort((a, b) => a.t - b.t);
+    for (const { t } of crossings) {
+      addPoint({
+        x: current.point.x + (next.point.x - current.point.x) * t,
+        y: current.point.y + (next.point.y - current.point.y) * t,
+      });
+    }
+    if (next.lateral >= lower && next.lateral <= upper) addPoint(next.point);
+  }
+  return _isValidFacingContour(clipped, sourcePoint) ? clipped : null;
+}
+
+// Build a clean source-facing contour. The alpha mask is deliberately sampled
+// in coarse lateral bins, then filtered and simplified, so anti-aliased hull
+// pixels and tiny transparent notches cannot turn into a serrated beam cap.
+function _targetFacingContour(sourcePoint, targetToken, mask) {
+  if (!_hasUsableSilhouette(mask)) return null;
+  const center = _tokenCenter(targetToken);
+  const dx = center.x - sourcePoint.x;
+  const dy = center.y - sourcePoint.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1) return null;
+  const ux = dx / length, uy = dy / length;
+  const px = -uy, py = ux;
+  const texture = targetToken?.document?.texture ?? {};
+  const [fx, fy] = _fitScale(texture.fit ?? "contain", targetToken?.w ?? 1, targetToken?.h ?? 1, mask.width, mask.height);
+  // Group roughly three mask pixels per slice. This stays adaptive to token
+  // scale while preserving broad features such as saucers and nacelles.
+  const binSize = Math.max(3, (Math.abs(fx) + Math.abs(fy)) * 1.5);
+  const bins = new Map();
+
+  for (const pixel of mask.opaque) {
+    const point = _maskPixelToCanvas(targetToken, mask, pixel);
+    const forward = (point.x - sourcePoint.x) * ux + (point.y - sourcePoint.y) * uy;
+    const lateral = (point.x - sourcePoint.x) * px + (point.y - sourcePoint.y) * py;
+    const key = Math.round(lateral / binSize);
+    const prior = bins.get(key);
+    if (!prior || forward < prior.forward) bins.set(key, { key, forward });
+  }
+
+  let profile = [...bins.values()].sort((a, b) => a.key - b.key);
+  if (profile.length < 2) return null;
+
+  // Ignore isolated bins caused by stray translucent pixels. Preserve very
+  // short profiles so an otherwise valid small token can still render.
+  if (profile.length > 2) {
+    profile = profile.filter((entry, index, entries) => {
+      const previous = entries[index - 1];
+      const next = entries[index + 1];
+      return (previous && entry.key - previous.key <= 2)
+        || (next && next.key - entry.key <= 2);
+    });
+  }
+  if (profile.length < 2) return null;
+
+  // Reconstruct small gaps caused by coarse alpha sampling so the cap is a
+  // continuous profile rather than a chain of tiny diagonal wedges.
+  const bridged = [profile[0]];
+  for (let i = 1; i < profile.length; i++) {
+    const previous = profile[i - 1];
+    const current = profile[i];
+    const gap = current.key - previous.key;
+    if (gap > 1 && gap <= 3) {
+      for (let step = 1; step < gap; step++) {
+        const ratio = step / gap;
+        bridged.push({
+          key: previous.key + step,
+          forward: previous.forward + (current.forward - previous.forward) * ratio,
+        });
+      }
+    }
+    bridged.push(current);
+  }
+
+  // Median filtering rejects single-bin spikes; a light weighted pass then
+  // rounds the remaining stair-steps without erasing major hull bends.
+  const medianProfile = bridged.map((entry, index) => ({
+    ...entry,
+    forward: _median(bridged
+      .slice(Math.max(0, index - 2), Math.min(bridged.length, index + 3))
+      .map(sample => sample.forward)),
+  }));
+  const smoothed = medianProfile.map((entry, index) => {
+    if (index === 0 || index === medianProfile.length - 1) return entry;
+    const previous = medianProfile[index - 1];
+    const next = medianProfile[index + 1];
+    return {
+      ...entry,
+      forward: (previous.forward + entry.forward * 2 + next.forward) * 0.25,
+    };
+  });
+
+  const contour = _simplifyPolyline(smoothed.map(entry => ({
+    x: sourcePoint.x + ux * entry.forward + px * entry.key * binSize,
+    y: sourcePoint.y + uy * entry.forward + py * entry.key * binSize,
+  })), Math.max(2, binSize * 0.85));
+  return _isValidFacingContour(contour, sourcePoint) ? contour : null;
+}
+
+function _targetRectFacingContour(sourcePoint, targetToken) {
+  const center = _tokenCenter(targetToken);
+  const dx = center.x - sourcePoint.x;
+  const dy = center.y - sourcePoint.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1) return null;
+  const ux = dx / length, uy = dy / length;
+  const px = -uy, py = ux;
+  const rotation = Number(targetToken?.document?.rotation ?? targetToken?.rotation ?? 0) * (Math.PI / 180);
+  const cos = Math.cos(rotation), sin = Math.sin(rotation);
+  const halfW = Math.max(1, (targetToken?.w ?? 1) / 2);
+  const halfH = Math.max(1, (targetToken?.h ?? 1) / 2);
+  const corners = [[-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]].map(([x, y]) => ({
+    x: center.x + x * cos - y * sin,
+    y: center.y + x * sin + y * cos,
+  }));
+
+  let edge = null;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i], b = corners[(i + 1) % corners.length];
+    const projection = ((a.x + b.x) * 0.5 - sourcePoint.x) * ux
+      + ((a.y + b.y) * 0.5 - sourcePoint.y) * uy;
+    if (!edge || projection < edge.projection) edge = { a, b, projection };
+  }
+  if (!edge) return null;
+  return ((edge.a.x - sourcePoint.x) * px + (edge.a.y - sourcePoint.y) * py)
+    <= ((edge.b.x - sourcePoint.x) * px + (edge.b.y - sourcePoint.y) * py)
+    ? [edge.a, edge.b] : [edge.b, edge.a];
+}
+
+function _drawFacingBeam(graphics, sourcePoint, contour, opts, elapsedSeconds) {
+  _clearGraphics(graphics);
+  if (!sourcePoint || !Array.isArray(contour) || contour.length < 2) return;
+  const color = _hexToInt(opts.color);
+  const pulse = 0.5 + 0.5 * Math.sin(elapsedSeconds * opts.pulseSpeed * Math.PI * 2);
+  const alpha = opts.opacity * (0.32 + pulse * 0.20);
+  const points = [sourcePoint.x, sourcePoint.y];
+  for (const point of contour) points.push(point.x, point.y);
+
+  _fillPolygon(graphics, points, color, alpha);
+  _strokePath(graphics, [...points, sourcePoint.x, sourcePoint.y], 1.5, color, alpha * 0.9);
+}
+
 function _resolveTokens() {
   const source = canvas.tokens?.controlled?.[0] ?? null;
   const target = Array.from(game.user?.targets ?? [])[0] ?? null;
@@ -293,234 +493,70 @@ function _resolveTokens() {
 function _readOptions(options = {}) {
   const preset = TRACTOR_BEAM_PRESETS[options.preset] ? options.preset : TRACTOR_BEAM_DEFAULTS.preset;
   const presetColor = TRACTOR_BEAM_PRESETS[preset]?.color ?? TRACTOR_BEAM_DEFAULTS.color;
-  const edgeFeather = Number(options.edgeFeather);
   return {
     preset,
     color: _normalizeHex(options.color, presetColor),
     placement: options.placement === "below" ? "below" : "above",
-    adaptiveSizing: options.adaptiveSizing !== false,
     duration: _clamp(Number(options.duration) || TRACTOR_BEAM_DEFAULTS.duration, 500, 60000),
-    sourceWidth: _clamp(Number(options.sourceWidth) || TRACTOR_BEAM_DEFAULTS.sourceWidth, 8, 400),
-    coneWidth: _clamp(Number(options.coneWidth) || TRACTOR_BEAM_DEFAULTS.coneWidth, 60, 900),
-    edgeFeather: _clamp(Number.isFinite(edgeFeather) ? edgeFeather : TRACTOR_BEAM_DEFAULTS.edgeFeather, 0, 180),
-    targetBubble: options.targetBubble !== false,
-    targetEnvelope: options.targetEnvelope === true,
     opacity: _clamp(Number(options.opacity) || TRACTOR_BEAM_DEFAULTS.opacity, 0.05, 1),
     pulseSpeed: _clamp(Number(options.pulseSpeed) || TRACTOR_BEAM_DEFAULTS.pulseSpeed, 0.1, 6),
-    lineCount: _clamp(Math.round(Number(options.lineCount) || TRACTOR_BEAM_DEFAULTS.lineCount), 1, 24),
-    oscillationAmplitude: _clamp(Number(options.oscillationAmplitude) || TRACTOR_BEAM_DEFAULTS.oscillationAmplitude, 0, 160),
-    oscillationSpeed: _clamp(Number(options.oscillationSpeed) || TRACTOR_BEAM_DEFAULTS.oscillationSpeed, 0, 8),
   };
-}
-
-function _drawBeam(glow, body, lines, rings, geometry, opts, elapsedSeconds) {
-  const color = _hexToInt(opts.color);
-  const len = geometry.length;
-  const targetHalf = Math.max(30, geometry.coneWidth / 2);
-  const sourceWidth = opts.adaptiveSizing ? 2 : opts.sourceWidth;
-  const sourceHalf = Math.max(1, Math.min(targetHalf * 0.85, sourceWidth / 2));
-  const feather = Math.max(0, opts.edgeFeather ?? 0);
-  const pulse = 0.5 + 0.5 * Math.sin(elapsedSeconds * opts.pulseSpeed * Math.PI * 2);
-  const alpha = opts.opacity * (0.72 + pulse * 0.28);
-  const scalePulse = 1 + (pulse - 0.5) * 0.10;
-
-  glow.scale.y = scalePulse;
-  body.scale.y = scalePulse;
-  lines.scale.y = scalePulse;
-
-  _clearGraphics(glow);
-  _clearGraphics(body);
-  _clearGraphics(lines);
-  _clearGraphics(rings);
-
-  const targetFadeDepth = feather > 0
-    ? Math.min(len * 0.34, Math.max(20, feather * 1.9 + 16))
-    : 0;
-  const targetFadeN = targetFadeDepth > 0 ? _clamp(targetFadeDepth / len, 0.02, 0.34) : 0;
-  const bodyEndN = 1 - targetFadeN;
-  const halfAt = n => sourceHalf + (targetHalf - sourceHalf) * n;
-
-  if (feather > 0) {
-    const capDepth = Math.min(len * 0.38, feather * 2.4 + 22);
-
-    for (let i = 4; i >= 1; i--) {
-      const t = i / 4;
-      const targetSpread = feather * t;
-      const capAlpha = alpha * (0.055 * (1 - t) + 0.018);
-      const innerN = capDepth / len;
-      const innerHalf = sourceHalf + (targetHalf - sourceHalf) * Math.max(0, 1 - innerN);
-      _fillPolygon(glow, [
-        len - capDepth, -innerHalf,
-        len, -(targetHalf + targetSpread),
-        len, targetHalf + targetSpread,
-        len - capDepth, innerHalf,
-      ], color, capAlpha);
-    }
-  }
-
-  const bodyEndX = len * bodyEndN;
-  const bodyEndHalf = halfAt(bodyEndN);
-
-  _fillPolygon(body, [
-    0, -sourceHalf,
-    bodyEndX, -bodyEndHalf,
-    bodyEndX, bodyEndHalf,
-    0, sourceHalf,
-  ], color, alpha * 0.20);
-
-  _fillPolygon(body, [
-    0, -sourceHalf * 0.55,
-    bodyEndX, -bodyEndHalf * 0.58,
-    bodyEndX, bodyEndHalf * 0.58,
-    0, sourceHalf * 0.55,
-  ], 0xffffff, alpha * 0.10);
-
-  if (targetFadeN > 0) {
-    const fadeSteps = 8;
-    for (let i = 0; i < fadeSteps; i++) {
-      const n0 = bodyEndN + (i / fadeSteps) * targetFadeN;
-      const n1 = bodyEndN + ((i + 1) / fadeSteps) * targetFadeN;
-      const x0 = len * n0;
-      const x1 = len * n1;
-      const half0 = halfAt(n0);
-      const half1 = halfAt(n1);
-      const fadeT = 1 - ((i + 1) / fadeSteps);
-      const fadeAlpha = alpha * 0.20 * (0.18 + 0.82 * (fadeT ** 1.45));
-      _fillPolygon(body, [
-        x0, -half0,
-        x1, -half1,
-        x1, half1,
-        x0, half0,
-      ], color, fadeAlpha);
-
-      _fillPolygon(body, [
-        x0, -half0 * 0.58,
-        x1, -half1 * 0.58,
-        x1, half1 * 0.58,
-        x0, half0 * 0.58,
-      ], 0xffffff, fadeAlpha * 0.50);
-    }
-  }
-
-  const edgeAlpha = alpha * (0.65 - Math.min(0.45, feather / 400));
-  _strokePath(body, [0, -sourceHalf, bodyEndX, -bodyEndHalf], 2, color, edgeAlpha);
-  _strokePath(body, [0, sourceHalf, bodyEndX, bodyEndHalf], 2, color, edgeAlpha);
-
-  const count = opts.lineCount;
-  for (let i = 0; i < count; i++) {
-    const centered = count === 1 ? 0 : (i / (count - 1)) * 2 - 1;
-    const targetY = centered * targetHalf * 0.78;
-    const points = [];
-    const phase = i * 0.72;
-    for (let s = 0; s <= 14; s++) {
-      const n = s / 14;
-      const x = len * n;
-      const beamN = x / len;
-      const localHalf = sourceHalf + (targetHalf - sourceHalf) * beamN;
-      const wave = Math.sin(elapsedSeconds * opts.oscillationSpeed * Math.PI * 2 + phase + n * Math.PI * 3.2);
-      const ripple = Math.sin(elapsedSeconds * opts.oscillationSpeed * Math.PI + phase * 1.7 + n * Math.PI * 7);
-      const y = _clamp(targetY * beamN + (wave * 0.75 + ripple * 0.25) * opts.oscillationAmplitude * beamN, -localHalf * 0.88, localHalf * 0.88);
-      points.push(x, y);
-    }
-    const bright = i % 3 === 0 ? 0xffffff : color;
-    const lineAlpha = alpha * (i % 3 === 0 ? 0.62 : 0.45);
-    _strokePath(lines, points, i % 3 === 0 ? 1.6 : 1.1, bright, lineAlpha);
-  }
-
-}
-
-function _drawTargetBubble(bubble, targetToken, opts, elapsedSeconds) {
-  const color = _hexToInt(opts.color);
-  const center = _tokenCenter(targetToken);
-  const { rx, ry } = _targetBubbleRadii(targetToken);
-  const padding = Math.max(6, Math.min(rx, ry) * 0.08);
-  const pulse = 0.5 + 0.5 * Math.sin(elapsedSeconds * opts.pulseSpeed * Math.PI * 2);
-  const alpha = opts.opacity * (0.72 + pulse * 0.28);
-  const doc = targetToken?.document ?? targetToken;
-
-  bubble.x = center.x;
-  bubble.y = center.y;
-  bubble.rotation = Number(doc?.rotation ?? targetToken?.rotation ?? 0) * (Math.PI / 180);
-
-  _clearGraphics(bubble);
-  _fillEllipse(bubble, 0, 0, rx, ry, color, alpha * 0.08);
-  _ring(bubble, 0, 0, rx, ry, 2, color, alpha * 0.34);
-  _ring(bubble, 0, 0, rx - padding, ry - padding, 1, 0xffffff, alpha * 0.18);
 }
 
 export class NativeTractorBeamVFX {
   static _active = null;
+  static _persistent = new Map();
 
   static play(sourceToken, targetToken, options = {}) {
     if (!sourceToken || !targetToken) return null;
-    NativeTractorBeamVFX.stopActive();
+    const persistentKey = options.persistentKey ?? null;
+    if (persistentKey) NativeTractorBeamVFX.stopPersistent(persistentKey);
+    else NativeTractorBeamVFX.stopActive();
 
     const opts = _readOptions(options);
     let sourceAlphaMask = null;
     let targetAlphaMask = null;
-    getTokenAlphaMask(tokenTextureSource(sourceToken)).then(mask => {
-      sourceAlphaMask = mask;
-    });
-    getTokenAlphaMask(tokenTextureSource(targetToken)).then(mask => {
-      targetAlphaMask = mask;
-    });
-    let sourcePoint = opts.adaptiveSizing
-      ? _sourceStartPoint(sourceToken, _tokenCenter(targetToken), sourceAlphaMask)
-      : _tokenCenter(sourceToken);
-    let targetEdge = opts.targetBubble
-      ? _targetBubbleBeamPoint(sourcePoint, targetToken)
-      : _targetEdgePoint(sourcePoint, targetToken, targetAlphaMask);
-    let dx = targetEdge.x - sourcePoint.x;
-    let dy = targetEdge.y - sourcePoint.y;
-    const length = Math.hypot(dx, dy);
-    if (length < 8) return null;
+    let sourceTextureSrc = null;
+    let targetTextureSrc = null;
+    const refreshMasks = () => {
+      const nextSourceSrc = tokenTextureSource(sourceToken);
+      if (nextSourceSrc !== sourceTextureSrc) {
+        sourceTextureSrc = nextSourceSrc;
+        sourceAlphaMask = null;
+        getTokenAlphaMask(nextSourceSrc).then(mask => {
+          if (sourceTextureSrc === nextSourceSrc) sourceAlphaMask = mask;
+        }).catch(() => {});
+      }
+      const nextTargetSrc = tokenTextureSource(targetToken);
+      if (nextTargetSrc !== targetTextureSrc) {
+        targetTextureSrc = nextTargetSrc;
+        targetAlphaMask = null;
+        getTokenAlphaMask(nextTargetSrc).then(mask => {
+          if (targetTextureSrc === nextTargetSrc) targetAlphaMask = mask;
+        }).catch(() => {});
+      }
+    };
+    refreshMasks();
+    let sourcePoint = _sourceStartPoint(sourceToken, _tokenCenter(targetToken), sourceAlphaMask);
+    let targetContour = _limitFacingContourCoverage(sourcePoint, targetToken,
+      _targetFacingContour(sourcePoint, targetToken, targetAlphaMask)
+        ?? _targetRectFacingContour(sourcePoint, targetToken));
+    if (!targetContour) return null;
 
     const layer = _effectLayer(opts.placement);
     const tokenZ = typeof sourceToken.zIndex === "number" ? sourceToken.zIndex : 0;
     const baseZ = opts.placement === "below"
       ? Math.min(-1000, tokenZ - 10_000)
       : Math.max(VFX_Z_BASE, tokenZ + 10_000);
-    const color = _hexToInt(opts.color);
-
     const container = new PIXI.Container();
-    container.x = sourcePoint.x;
-    container.y = sourcePoint.y;
-    container.rotation = Math.atan2(dy, dx);
     container.zIndex = baseZ;
     container.blendMode = _addBlend();
 
-    const initialConeWidth = opts.adaptiveSizing ? _adaptiveEnvelopeConeWidth(targetToken, opts) : opts.coneWidth;
-    const glow = new PIXI.Graphics();
     const body = new PIXI.Graphics();
-    const lines = new PIXI.Graphics();
-    const rings = new PIXI.Graphics();
-    glow.blendMode = _addBlend();
     body.blendMode = _addBlend();
-    lines.blendMode = _addBlend();
-    rings.blendMode = _addBlend();
-    container.addChild(glow, body, lines, rings);
-
-    try {
-      const GF = PIXI.filters?.GlowFilter ?? globalThis.PIXI?.filters?.GlowFilter;
-      if (GF) {
-        container.filters = [new GF({
-          distance: 12,
-          outerStrength: 1.9,
-          innerStrength: 0.25,
-          color,
-          quality: 0.35,
-        })];
-      }
-    } catch { /* optional */ }
+    container.addChild(body);
 
     layer.addChild(container);
-
-    const targetBubble = new PIXI.Graphics();
-    targetBubble.blendMode = _addBlend();
-    targetBubble.zIndex = baseZ + 1;
-    layer.addChild(targetBubble);
-
-    const geometry = { length, coneWidth: initialConeWidth };
     const started = performance.now();
     let stopped = false;
     let timeoutId = null;
@@ -532,50 +568,41 @@ export class NativeTractorBeamVFX {
         return;
       }
 
-      sourcePoint = opts.adaptiveSizing
-        ? _sourceStartPoint(sourceToken, _tokenCenter(targetToken), sourceAlphaMask)
-        : _tokenCenter(sourceToken);
-      targetEdge = opts.targetBubble
-        ? _targetBubbleBeamPoint(sourcePoint, targetToken)
-        : _targetEdgePoint(sourcePoint, targetToken, targetAlphaMask);
-      dx = targetEdge.x - sourcePoint.x;
-      dy = targetEdge.y - sourcePoint.y;
-      geometry.length = Math.hypot(dx, dy);
-      if (geometry.length < 8) {
+      refreshMasks();
+      sourcePoint = _sourceStartPoint(sourceToken, _tokenCenter(targetToken), sourceAlphaMask);
+      targetContour = _limitFacingContourCoverage(sourcePoint, targetToken,
+        _targetFacingContour(sourcePoint, targetToken, targetAlphaMask)
+          ?? _targetRectFacingContour(sourcePoint, targetToken));
+      if (!targetContour) {
         handle.stop();
         return;
       }
-      geometry.coneWidth = opts.adaptiveSizing ? _adaptiveEnvelopeConeWidth(targetToken, opts) : opts.coneWidth;
-      container.x = sourcePoint.x;
-      container.y = sourcePoint.y;
-      container.rotation = Math.atan2(dy, dx);
 
       const elapsedSeconds = (performance.now() - started) / 1000;
-      _drawBeam(glow, body, lines, rings, geometry, opts, elapsedSeconds);
-      if (opts.targetBubble) _drawTargetBubble(targetBubble, targetToken, opts, elapsedSeconds);
-      else _clearGraphics(targetBubble);
+      _drawFacingBeam(body, sourcePoint, targetContour, opts, elapsedSeconds);
     };
 
     const handle = {
       container,
-      targetBubble,
       stop: () => {
         if (stopped) return;
         stopped = true;
         if (timeoutId) window.clearTimeout(timeoutId);
         try { canvas.app.ticker.remove(tick); } catch { /* optional */ }
         try { container.parent?.removeChild(container); } catch { /* optional */ }
-        try { targetBubble.parent?.removeChild(targetBubble); } catch { /* optional */ }
         try { container.destroy({ children: true }); } catch { /* optional */ }
-        try { targetBubble.destroy(); } catch { /* optional */ }
         if (NativeTractorBeamVFX._active === handle) NativeTractorBeamVFX._active = null;
+        if (persistentKey && NativeTractorBeamVFX._persistent.get(persistentKey) === handle) {
+          NativeTractorBeamVFX._persistent.delete(persistentKey);
+        }
       },
     };
 
-    NativeTractorBeamVFX._active = handle;
+    if (persistentKey) NativeTractorBeamVFX._persistent.set(persistentKey, handle);
+    else NativeTractorBeamVFX._active = handle;
     canvas.app.ticker.add(tick);
     tick();
-    timeoutId = window.setTimeout(handle.stop, opts.duration);
+    if (!persistentKey) timeoutId = window.setTimeout(handle.stop, opts.duration);
     return handle;
   }
 
@@ -611,6 +638,14 @@ export class NativeTractorBeamVFX {
     NativeTractorBeamVFX._active?.stop?.();
   }
 
+  static stopPersistent(key) {
+    NativeTractorBeamVFX._persistent.get(key)?.stop?.();
+  }
+
+  static stopAllPersistent() {
+    for (const handle of [...NativeTractorBeamVFX._persistent.values()]) handle.stop?.();
+  }
+
   static hasActive() {
     return !!NativeTractorBeamVFX._active;
   }
@@ -626,6 +661,14 @@ export function getTractorBeamVfxPresets() {
 
 export function normalizeTractorBeamVfxSettings(options = {}) {
   return _readOptions({ ...TRACTOR_BEAM_DEFAULTS, ...options });
+}
+
+export function getTractorBeamAnimationRenderer() {
+  try {
+    return game.settings.get(MODULE, TRACTOR_BEAM_RENDERER_SETTING) === "pixi" ? "pixi" : "jb2a";
+  } catch {
+    return "jb2a";
+  }
 }
 
 export function getMergedTractorBeamVfxSettings() {
@@ -646,12 +689,61 @@ export function getMergedTractorBeamVfxSettings() {
 
 export async function saveTractorBeamVfxClientSettings(options = {}) {
   await game.settings.set(MODULE, TRACTOR_BEAM_CLIENT_SETTING, normalizeTractorBeamVfxSettings(options));
+  refreshPersistentTractorBeamVfx();
 }
 
 export async function saveTractorBeamVfxWorldSettings(options = {}) {
   await game.settings.set(MODULE, TRACTOR_BEAM_WORLD_SETTING, normalizeTractorBeamVfxSettings(options));
+  refreshPersistentTractorBeamVfx();
 }
 
 export async function resetTractorBeamVfxClientSettings() {
   await game.settings.set(MODULE, TRACTOR_BEAM_CLIENT_SETTING, {});
+  refreshPersistentTractorBeamVfx();
+}
+
+export function getPersistentTractorBeamKey(sourceToken) {
+  return `sta2e-tractor-beam-pixi-${sourceToken?.id ?? "unknown"}`;
+}
+
+export function refreshPersistentTractorBeamVfx() {
+  NativeTractorBeamVFX.stopAllPersistent();
+  if (!canvas?.ready) return;
+  const opts = getMergedTractorBeamVfxSettings();
+  const usePixiBeam = getTractorBeamAnimationRenderer() === "pixi";
+
+  if (!usePixiBeam) return;
+  for (const source of canvas.tokens?.placeables ?? []) {
+    const state = source.document?.getFlag(MODULE, "tractorBeam");
+    const target = state?.targetTokenId ? canvas.tokens?.get(state.targetTokenId) : null;
+    if (!target) continue;
+    NativeTractorBeamVFX.play(source, target, {
+      ...opts,
+      persistentKey: getPersistentTractorBeamKey(source),
+    });
+  }
+}
+
+let _tractorVfxHooksRegistered = false;
+
+export function registerTractorBeamVfxHooks() {
+  if (_tractorVfxHooksRegistered) return;
+  _tractorVfxHooksRegistered = true;
+
+  Hooks.on("canvasReady", () => refreshPersistentTractorBeamVfx());
+  Hooks.on("canvasTearDown", () => NativeTractorBeamVFX.stopAllPersistent());
+  Hooks.on("updateToken", (_tokenDoc, changes) => {
+    if (changes.flags?.[MODULE]?.tractorBeam !== undefined) {
+      refreshPersistentTractorBeamVfx();
+    }
+  });
+  Hooks.on("deleteToken", () => refreshPersistentTractorBeamVfx());
+  Hooks.on("updateSetting", setting => {
+    const key = setting?.key ?? "";
+    if (key === `${MODULE}.${TRACTOR_BEAM_WORLD_SETTING}`
+      || key === `${MODULE}.${TRACTOR_BEAM_CLIENT_SETTING}`
+      || key === `${MODULE}.${TRACTOR_BEAM_RENDERER_SETTING}`) {
+      refreshPersistentTractorBeamVfx();
+    }
+  });
 }

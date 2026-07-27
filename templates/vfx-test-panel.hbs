@@ -175,54 +175,9 @@
     </div>
 
     <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-adaptive">Adaptive</label>
-      <div class="sta2e-vfx-check">
-        <input id="sta2e-vfx-adaptive" type="checkbox" name="adaptiveSizing" {{#if adaptiveSizing}}checked{{/if}} />
-        <span>Auto size to target</span>
-      </div>
-      <span></span>
-    </div>
-
-    <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-target-bubble">Target Bubble</label>
-      <div class="sta2e-vfx-check">
-        <input id="sta2e-vfx-target-bubble" type="checkbox" name="targetBubble" {{#if targetBubble}}checked{{/if}} />
-        <span>Show lock field</span>
-      </div>
-      <span></span>
-    </div>
-
-    <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-target-envelope">Envelope Gaps</label>
-      <div class="sta2e-vfx-check">
-        <input id="sta2e-vfx-target-envelope" type="checkbox" name="targetEnvelope" {{#if targetEnvelope}}checked{{/if}} />
-        <span>Widen to lock field</span>
-      </div>
-      <span></span>
-    </div>
-
-    <div class="sta2e-vfx-row">
       <label for="sta2e-vfx-duration">Duration</label>
       <input id="sta2e-vfx-duration" type="range" min="500" max="20000" step="250" name="duration" value="{{values.duration}}" data-sync-range="duration" />
       <input type="number" min="500" max="60000" step="250" class="sta2e-vfx-number" value="{{values.duration}}" data-sync-number="duration" />
-    </div>
-
-    <div class="sta2e-vfx-row {{#if adaptiveSizing}}is-disabled{{/if}}" data-manual-width-row>
-      <label for="sta2e-vfx-source-width">Emitter Width</label>
-      <input id="sta2e-vfx-source-width" type="range" min="8" max="400" step="2" name="sourceWidth" value="{{values.sourceWidth}}" data-sync-range="sourceWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
-      <input type="number" min="8" max="400" step="2" class="sta2e-vfx-number" value="{{values.sourceWidth}}" data-sync-number="sourceWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
-    </div>
-
-    <div class="sta2e-vfx-row {{#if adaptiveSizing}}is-disabled{{/if}}" data-manual-width-row>
-      <label for="sta2e-vfx-cone-width">Cone Width</label>
-      <input id="sta2e-vfx-cone-width" type="range" min="60" max="900" step="10" name="coneWidth" value="{{values.coneWidth}}" data-sync-range="coneWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
-      <input type="number" min="60" max="900" step="10" class="sta2e-vfx-number" value="{{values.coneWidth}}" data-sync-number="coneWidth" data-manual-width {{#if adaptiveSizing}}disabled{{/if}} />
-    </div>
-
-    <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-edge-feather">Edge Feather</label>
-      <input id="sta2e-vfx-edge-feather" type="range" min="0" max="180" step="2" name="edgeFeather" value="{{values.edgeFeather}}" data-sync-range="edgeFeather" />
-      <input type="number" min="0" max="180" step="2" class="sta2e-vfx-number" value="{{values.edgeFeather}}" data-sync-number="edgeFeather" />
     </div>
 
     <div class="sta2e-vfx-row">
@@ -237,23 +192,6 @@
       <input type="number" min="0.1" max="6" step="0.05" class="sta2e-vfx-number" value="{{values.pulseSpeed}}" data-sync-number="pulseSpeed" />
     </div>
 
-    <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-lines">Line Count</label>
-      <input id="sta2e-vfx-lines" type="range" min="1" max="24" step="1" name="lineCount" value="{{values.lineCount}}" data-sync-range="lineCount" />
-      <input type="number" min="1" max="24" step="1" class="sta2e-vfx-number" value="{{values.lineCount}}" data-sync-number="lineCount" />
-    </div>
-
-    <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-amplitude">Oscillation</label>
-      <input id="sta2e-vfx-amplitude" type="range" min="0" max="160" step="2" name="oscillationAmplitude" value="{{values.oscillationAmplitude}}" data-sync-range="oscillationAmplitude" />
-      <input type="number" min="0" max="160" step="2" class="sta2e-vfx-number" value="{{values.oscillationAmplitude}}" data-sync-number="oscillationAmplitude" />
-    </div>
-
-    <div class="sta2e-vfx-row">
-      <label for="sta2e-vfx-osc-speed">Wave Speed</label>
-      <input id="sta2e-vfx-osc-speed" type="range" min="0" max="8" step="0.05" name="oscillationSpeed" value="{{values.oscillationSpeed}}" data-sync-range="oscillationSpeed" />
-      <input type="number" min="0" max="8" step="0.05" class="sta2e-vfx-number" value="{{values.oscillationSpeed}}" data-sync-number="oscillationSpeed" />
-    </div>
   </div>
 
   <div class="sta2e-vfx-actions">

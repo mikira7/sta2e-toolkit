@@ -19,7 +19,20 @@ const RING_MIN_RADIUS = 900;
 const RING_MIN_GAP = 450;
 const SCENE_MARGIN = 900;
 const SCENE_MIN_SIZE = 3000;
-const SCENE_MAX_SIZE = 15000;
+const SCENE_MAX_SIZE = 30000;
+const AU_RADIUS_PER_DECADE = 1800;
+const AU_SPAN_RADIUS_PER_DECADE = 1500;
+const BODY_WALL_SEGMENTS = 16;
+const STAR_WALL_RADIUS_SCALE = 0.75;
+const PLANET_WALL_RADIUS_SCALE = 0.9;
+// Keep this in sync with star-system-images.js, where ringed composites scale
+// the planet body to 68% of the full tile to make room for the ring artwork.
+const RINGED_PLANET_BODY_SCALE = 0.68;
+const BODY_CLEARANCE = 50;
+const MOON_TILE_SIZE = 80;
+const MOON_BODY_GAP = 60;
+const MOON_SEPARATION = 30;
+const PLACEMENT_ATTEMPTS = 48;
 
 function worldClassOf(value) {
   const match = String(value ?? "").match(/Class-([A-Z])/i);
@@ -29,6 +42,10 @@ function worldClassOf(value) {
 
 function isGasGiantClass(cls) {
   return ["I", "J", "S", "T"].includes(cls);
+}
+
+function hasPlanetaryRings(world) {
+  return String(world?.rings ?? "").trim().toLowerCase() === "yes";
 }
 
 function displayName(world, fallback = "Unknown body") {
@@ -60,6 +77,64 @@ function tileData({ src, cx, cy, size, sort, name, kind, type, rotation = 0 }) {
   };
 }
 
+/**
+ * A terrain wall loop prevents tokens from entering a stellar body while still
+ * allowing the partially-transparent line-of-sight behavior Foundry gives
+ * terrain walls. Use the runtime constants so this stays compatible with the
+ * Foundry version hosting the module.
+ */
+function terrainWallLoop({ cx, cy, radius, name, kind, type }) {
+  const normal = CONST.WALL_MOVEMENT_TYPES?.NORMAL ?? 1;
+  // In Foundry v14 movement uses WALL_MOVEMENT_TYPES, while light/sight/sound
+  // retain the Wall Sense values (Limited is 10, not restriction enum value 2).
+  const limited = CONST.WALL_SENSE_TYPES?.LIMITED ?? 10;
+  const walls = [];
+  for (let index = 0; index < BODY_WALL_SEGMENTS; index += 1) {
+    const start = (index / BODY_WALL_SEGMENTS) * Math.PI * 2;
+    const end = ((index + 1) / BODY_WALL_SEGMENTS) * Math.PI * 2;
+    walls.push({
+      c: [
+        Math.round(cx + Math.cos(start) * radius),
+        Math.round(cy + Math.sin(start) * radius),
+        Math.round(cx + Math.cos(end) * radius),
+        Math.round(cy + Math.sin(end) * radius),
+      ],
+      move: normal,
+      sight: limited,
+      light: limited,
+      sound: limited,
+      flags: bodyFlag(name, kind, type),
+    });
+  }
+  return walls;
+}
+
+/**
+ * Pick a point on an orbital circle that does not overlap an occupied body.
+ * The initial angle is tried first, then a deterministic spread of candidates
+ * is scored by clearance so generated maps stay readable even in multi-star
+ * systems whose local orbital centers are close together.
+ */
+function findClearOrbitalPosition({ cx, cy, orbitRadius, bodyRadius, preferredAngle, occupied = [] }) {
+  let best = null;
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  for (let attempt = 0; attempt < PLACEMENT_ATTEMPTS; attempt += 1) {
+    const angle = attempt === 0 ? preferredAngle : preferredAngle + attempt * goldenAngle;
+    const x = cx + Math.cos(angle) * orbitRadius;
+    const y = cy + Math.sin(angle) * orbitRadius;
+    const clearance = occupied.reduce((minimum, other) => {
+      const distance = Math.hypot(x - other.x, y - other.y);
+      return Math.min(minimum, distance - bodyRadius - other.radius - BODY_CLEARANCE);
+    }, Infinity);
+    const candidate = { x, y, angle, clearance };
+    if (clearance >= 0) return candidate;
+    if (!best || clearance > best.clearance) best = candidate;
+  }
+  // Extremely crowded systems may have no fully clear point at this radius;
+  // retain the candidate with the largest separation instead of stacking tiles.
+  return best ?? { x: cx, y: cy, angle: preferredAngle, clearance: -Infinity };
+}
+
 function shadowRotationAwayFrom(cx, cy, bodyX, bodyY) {
   const angle = Math.atan2(bodyY - cy, bodyX - cx) * 180 / Math.PI;
   return Math.round(angle - 90);
@@ -72,11 +147,18 @@ function shadowRotationAwayFrom(cx, cy, bodyX, bodyY) {
 function computeRingRadii(aus) {
   const n = aus.length;
   if (!n) return [];
-  if (n === 1) return [RING_MIN_RADIUS + RING_MIN_GAP];
   const min = Math.max(aus[0], 1e-6);
   const max = Math.max(aus[n - 1], min * 1.01);
   const span = Math.log(max / min);
-  const outerTarget = Math.min(RING_MIN_RADIUS + (n - 1) * 750, (SCENE_MAX_SIZE / 2) - SCENE_MARGIN);
+  const absoluteDecades = Math.max(0, Math.log10(max));
+  const spanDecades = Math.max(0, Math.log10(max / min));
+  const densityTarget = RING_MIN_RADIUS + Math.max(1, n - 1) * RING_MIN_GAP;
+  const auTarget = RING_MIN_RADIUS + Math.max(
+    absoluteDecades * AU_RADIUS_PER_DECADE,
+    spanDecades * AU_SPAN_RADIUS_PER_DECADE,
+  );
+  const outerTarget = Math.min(Math.max(densityTarget, auTarget), (SCENE_MAX_SIZE / 2) - SCENE_MARGIN);
+  if (n === 1) return [outerTarget];
   const radii = aus.map(au => {
     const t = span > 0 ? Math.log(Math.max(au, min) / min) / span : 0;
     return RING_MIN_RADIUS + (outerTarget - RING_MIN_RADIUS) * t;
@@ -280,6 +362,31 @@ async function buildScene(actor, data, background) {
     });
   }
 
+  // Resolve world positions before drawing anything. Worlds around separate
+  // stellar parents can otherwise land on top of each other by chance.
+  const occupiedBodies = nodes
+    .filter(node => node.type === "star")
+    .map(node => {
+      const star = data.stars.find(row => row.id === node.starId);
+      const pos = positions.get(node.id) ?? { x: 0, y: 0 };
+      return { x: pos.x, y: pos.y, radius: starTileSize(star, node) / 2 };
+    });
+  for (const layout of worldLayouts) {
+    const cls = worldClassOf(layout.world.type);
+    if (cls === "Belt") continue;
+    const parentPos = positions.get(layout.parentId) ?? { x: 0, y: 0 };
+    const placement = findClearOrbitalPosition({
+      cx: parentPos.x,
+      cy: parentPos.y,
+      orbitRadius: layout.radius,
+      bodyRadius: planetTileSize(cls) / 2,
+      preferredAngle: layout.angle,
+      occupied: occupiedBodies,
+    });
+    layout.angle = placement.angle;
+    occupiedBodies.push({ x: placement.x, y: placement.y, radius: planetTileSize(cls) / 2 });
+  }
+
   const bounds = { minX: -GRID, minY: -GRID, maxX: GRID, maxY: GRID };
   const includeBounds = (x, y, pad = 0) => {
     bounds.minX = Math.min(bounds.minX, x - pad);
@@ -310,7 +417,7 @@ async function buildScene(actor, data, background) {
     height: size,
     padding: 0,
     grid: { type: CONST.GRID_TYPES.GRIDLESS, size: GRID, distance: 1, units: "" },
-    tokenVision: false,
+    tokenVision: true,
     fog: { exploration: false },
     environment: { globalLight: { enabled: true } },
     flags: { [MODULE_ID]: { [SCENE_ACTOR_FLAG]: actor.id, starSystemGeneratedAt: Date.now() } },
@@ -333,6 +440,7 @@ async function buildScene(actor, data, background) {
 
   const tiles = [];
   const drawings = [];
+  const walls = [];
 
   // ── Stars at their hierarchy positions ───────────────────────────────────
   nodes.filter(node => node.type === "star").forEach((node, i) => {
@@ -343,6 +451,8 @@ async function buildScene(actor, data, background) {
     const size = starTileSize(star, node);
     const sx = pos.x + offsetX;
     const sy = pos.y + offsetY;
+    const name = `${displayName({ name: data.designation }, "System")} - ${nodeLabel(node, data)} - ${label}`;
+    walls.push(...terrainWallLoop({ cx: sx, cy: sy, radius: (size / 2) * STAR_WALL_RADIUS_SCALE, name, kind: "star", type: label }));
     if (src) {
       tiles.push(tileData({
         src,
@@ -350,7 +460,7 @@ async function buildScene(actor, data, background) {
         cy: sy,
         size,
         sort: 100 + i,
-        name: `${displayName({ name: data.designation }, "System")} - ${nodeLabel(node, data)} - ${label}`,
+        name,
         kind: "star",
         type: label,
       }));
@@ -431,6 +541,10 @@ async function buildScene(actor, data, background) {
     const psize = planetTileSize(cls);
     const src = String(world.image ?? "").trim() || pickStarSystemImage("planet", cls);
     const rotation = shadowRotationAwayFrom(pcx, pcy, px, py);
+    const wallRadiusScale = hasPlanetaryRings(world)
+      ? PLANET_WALL_RADIUS_SCALE * RINGED_PLANET_BODY_SCALE
+      : PLANET_WALL_RADIUS_SCALE;
+    walls.push(...terrainWallLoop({ cx: px, cy: py, radius: (psize / 2) * wallRadiusScale, name, kind: "planet", type: world.type }));
     if (src) {
       tiles.push(tileData({
         src,
@@ -456,34 +570,45 @@ async function buildScene(actor, data, background) {
       });
     }
 
-    // Moons fan out from the planet, away from the star.
+    // Moons fan out from the planet, away from the star, while avoiding the
+    // host and all previously laid out stellar bodies.
     const moons = Array.isArray(world.moonRecords) ? world.moonRecords : [];
     moons.forEach((moon, k) => {
       const moonAngle = angle + (k - (moons.length - 1) / 2) * 0.45;
-      const moonRadius = psize / 2 + 90 + k * 30;
-      const mx = px + Math.cos(moonAngle) * moonRadius;
-      const my = py + Math.sin(moonAngle) * moonRadius;
+      const moonRadius = psize / 2 + MOON_TILE_SIZE / 2 + MOON_BODY_GAP + k * (MOON_TILE_SIZE + MOON_SEPARATION);
+      const moonSrc = String(moon.image ?? "").trim() || pickStarSystemImage("planet", worldClassOf(moon.type));
+      if (!moonSrc) return;
+      const moonPlacement = findClearOrbitalPosition({
+        cx: px - offsetX,
+        cy: py - offsetY,
+        orbitRadius: moonRadius,
+        bodyRadius: MOON_TILE_SIZE / 2,
+        preferredAngle: moonAngle,
+        occupied: occupiedBodies,
+      });
+      const mx = moonPlacement.x + offsetX;
+      const my = moonPlacement.y + offsetY;
       const lightPos = positions.get(moon.orbitParentNodeId) ?? parentPos;
       const lightX = lightPos.x + offsetX;
       const lightY = lightPos.y + offsetY;
-      const moonSrc = String(moon.image ?? "").trim() || pickStarSystemImage("planet", worldClassOf(moon.type));
-      if (!moonSrc) return;
       tiles.push(tileData({
         src: moonSrc,
         cx: mx,
         cy: my,
-        size: 80,
+        size: MOON_TILE_SIZE,
         sort: 300,
         name: displayName(moon, `${name} moon`),
         kind: "moon",
         type: moon.type,
         rotation: shadowRotationAwayFrom(lightX, lightY, mx, my),
       }));
+      occupiedBodies.push({ x: moonPlacement.x, y: moonPlacement.y, radius: MOON_TILE_SIZE / 2 });
     });
   });
 
   if (tiles.length) await scene.createEmbeddedDocuments("Tile", tiles);
   if (drawings.length) await scene.createEmbeddedDocuments("Drawing", drawings);
+  if (walls.length) await scene.createEmbeddedDocuments("Wall", walls);
 
   return scene;
 }

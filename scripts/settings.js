@@ -5,6 +5,7 @@
 import { EffectConfigMenu } from "./effect-config.js";
 import {
   TRACTOR_BEAM_CLIENT_SETTING,
+  TRACTOR_BEAM_RENDERER_SETTING,
   TRACTOR_BEAM_WORLD_SETTING,
 } from "./tractor-beam-vfx.js";
 import { NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
@@ -989,6 +990,19 @@ export function registerSettings() {
     config: false,
     type: Object,
     default: {},
+  });
+
+  game.settings.register("sta2e-toolkit", TRACTOR_BEAM_RENDERER_SETTING, {
+    name: "Tractor Beam Animation Renderer",
+    hint: "Choose the persistent live tractor-beam visual. JB2A uses the configured Sequencer asset; PIXI draws a native beam from the host emitter to the target's facing hull edge.",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      jb2a: "JB2A / Sequencer",
+      pixi: "Native PIXI",
+    },
+    default: "jb2a",
   });
 
   game.settings.register("sta2e-toolkit", TRACTOR_BEAM_CLIENT_SETTING, {
