@@ -958,11 +958,34 @@ export function registerSettings() {
     scope: "world", config: false, type: String, default: "", filePicker: "audio"
   });
 
-  // Warp effect sound
+  // Warp effect sounds — depart is the boom as the ship jumps to warp, arrive
+  // plays as it drops back out at the destination.
   game.settings.register("sta2e-toolkit", "sndWarpEngage", {
-    name: "Warp Sound — Engage",
-    hint: "Audio file played when the warp engage animation fires (the 'flash' sound).",
+    name: "Warp Sound — Depart",
+    hint: "Audio file played as the ship jumps to warp (the boom).",
     scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndWarpArrive", {
+    name: "Warp Sound — Arrive",
+    hint: "Audio file played as the ship drops out of warp at its destination.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  // The ship waits hidden at the far end until the corridor animation actually
+  // finishes; this is only the ceiling on that wait, so a missing asset can't
+  // hang the jump and a GM who finds the arrival slow can cut it short.
+  game.settings.register("sta2e-toolkit", "timingWarpCorridor", {
+    name: "Warp Corridor Max Wait (ms)",
+    hint: "Longest the ship stays hidden waiting for the corridor animation to finish before dropping out of warp.",
+    scope: "world", config: false, type: Number, default: 2000,
+  });
+
+  // Ship spawner dialog state. Per-client so two GMs do not fight over the
+  // formation they each prefer; config:false because the dialog is the UI.
+  game.settings.register("sta2e-toolkit", "shipSpawnerPrefs", {
+    scope: "client", config: false, type: Object,
+    default: { pattern: "circle", spacing: 350, snap: true, delay: 300 },
   });
 
   // Tractor beam sound

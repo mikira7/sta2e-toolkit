@@ -18,6 +18,8 @@ import {
   formatKlingonDate, formatRomulanDate,
 } from "./stardate-calc.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { SPAWN_PATTERNS, calcSpawnOffsets, scatterMaxRadius } from "./spawn-patterns.js";
+import { getWildcardImage } from "./token-spawn-utils.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -909,32 +911,8 @@ async function _removeBeamGroup(groupId) {
   await _setBeamGroups(updated);
 }
 
-// ── Wildcard image helpers ────────────────────────────────────────────────────
-
-async function _getWildcardImages(wildcardPath) {
-  const lastSlash = wildcardPath.lastIndexOf("/");
-  const directory = wildcardPath.substring(0, lastSlash);
-  const pattern   = wildcardPath.substring(lastSlash + 1);
-  try {
-    const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
-    const response = await FP.browse("data", directory);
-    if (response?.files) {
-      const regex = new RegExp("^" + pattern.replace("*", ".*") + "$");
-      return response.files.filter(f => regex.test(f.split("/").pop()));
-    }
-  } catch (e) {
-    console.warn("STA2e Transporter | wildcard browse failed:", e);
-  }
-  return [];
-}
-
-async function _getWildcardImage(wildcardPath) {
-  try {
-    const images = await _getWildcardImages(wildcardPath);
-    if (images?.length > 0) return images[Math.floor(Math.random() * images.length)];
-  } catch { /* fall through */ }
-  return wildcardPath;
-}
+// Wildcard image resolution lives in token-spawn-utils.js — shared with the
+// ship spawner, which builds tokens from prototypes the same way.
 
 // ── Beam out ──────────────────────────────────────────────────────────────────
 
@@ -1019,67 +997,16 @@ function _drawDashedCircle(g, cx, cy, radius) {
 }
 
 /**
- * Calculate the top-left spawn position for each token under the chosen pattern.
+ * Top-left spawn position for each token under the chosen pattern.
  * cx/cy is the canvas point the user clicked (= the orbit / layout centre).
+ *
+ * Geometry lives in spawn-patterns.js, shared with the ship spawner. No heading
+ * is passed: beamed-in personnel have no formation facing, so the aligned
+ * patterns render in their unrotated local frame here.
  */
-
-function _scatterMaxRadius(total) {
-  const gridSize = canvas.grid?.size ?? 100;
-  return Math.max(gridSize * 1.5 * Math.sqrt(total), gridSize * 1.5);
-}
-
 function _calcSpawnPositions(pattern, total, cx, cy, spacing) {
-  if (pattern === "line") {
-    const step       = spacing / 2;
-    const totalWidth = (total - 1) * step;
-    return Array.from({ length: total }, (_, i) => ({
-      x: cx - totalWidth / 2 + i * step,
-      y: cy,
-    }));
-  }
-  if (pattern === "scatter") {
-    const gridSize  = canvas.grid?.size ?? 100;
-    const maxRadius = _scatterMaxRadius(total);
-    const minDist   = gridSize * 0.5;
-    const minSep    = gridSize * 1.1;
-    const placed    = [];
-    for (let i = 0; i < total; i++) {
-      let pos;
-      let attempts = 0;
-      do {
-        const angle = Math.random() * 2 * Math.PI;
-        const dist  = minDist + Math.random() * (maxRadius - minDist);
-        pos = { x: cx + dist * Math.cos(angle), y: cy + dist * Math.sin(angle) };
-        attempts++;
-      } while (attempts < 50 && placed.some(p => Math.hypot(p.x - pos.x, p.y - pos.y) < minSep));
-      placed.push(pos);
-    }
-    return placed;
-  }
-  if (pattern === "formation") {
-    // Wedge: 1 lead → 2 flanking → 3 rear, centred vertically on click
-    const step = spacing / 2;
-    const raw  = [];
-    let remaining = total;
-    let row = 0;
-    while (remaining > 0) {
-      const cols = Math.min(row + 1, remaining);
-      const rowW = (cols - 1) * step;
-      for (let c = 0; c < cols; c++) {
-        raw.push({ x: -rowW / 2 + c * step, y: row * step });
-      }
-      remaining -= cols;
-      row++;
-    }
-    const maxY = raw[raw.length - 1]?.y ?? 0;
-    return raw.map(p => ({ x: cx + p.x, y: cy + p.y - maxY / 2 }));
-  }
-  // circle (default)
-  const radius = spacing * Math.sqrt(total) / (2 * Math.PI);
-  return Array.from({ length: total }, (_, i) => {
-    const angle = (i / total) * 2 * Math.PI;
-    return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
-  });
+  return calcSpawnOffsets(pattern, total, spacing)
+    .map(o => ({ x: cx + o.x, y: cy + o.y }));
 }
 
 /**
@@ -1216,8 +1143,8 @@ async function _beamInQueue(selectedTokens, transporterType, spacing, effects, p
     spawnPositions = placed;
   } else {
     // Single first-click — [Q] cycles through all patterns incl. individual, [RMB/Esc] aborts
-    const CYCLE  = ["circle", "line", "formation", "scatter", "individual"];
-    const LABELS = { circle: "Circle", line: "Line", formation: "Formation", scatter: "Scatter", individual: "Individual" };
+    const CYCLE  = Object.keys(SPAWN_PATTERNS);
+    const LABELS = SPAWN_PATTERNS;
 
     const indicator = _createBeamIndicator();
     const firstClick = await new Promise(resolve => {
@@ -1232,7 +1159,7 @@ async function _beamInQueue(selectedTokens, transporterType, spacing, effects, p
           indicator.moveTo(p.x - 8, p.y); indicator.lineTo(p.x + 8, p.y);
           indicator.moveTo(p.x, p.y - 8); indicator.lineTo(p.x, p.y + 8);
         } else if (currentPattern === "scatter") {
-          const scatterRadius = _scatterMaxRadius(total);
+          const scatterRadius = scatterMaxRadius(total);
           indicator.lineStyle(1, indicatorColor, 0.35);
           _drawDashedCircle(indicator, p.x, p.y, scatterRadius);
           indicator.lineStyle(1, indicatorColor, 0.4);
@@ -1298,7 +1225,7 @@ async function _beamInQueue(selectedTokens, transporterType, spacing, effects, p
 
     const proto = actor.prototypeToken;
     let img     = proto.texture?.src ?? proto.img;
-    if (info.isWildcard) img = await _getWildcardImage(info.wildcardPath);
+    if (info.isWildcard) img = await getWildcardImage(info.wildcardPath);
 
     let newTokenData = foundry.utils.mergeObject(proto.toObject(), {
       name: info.displayName, x, y, alpha: 0, actorId: actor.id,
@@ -1370,8 +1297,8 @@ async function _spawnGroupEntries(group, transporterType, spacing, effects, patt
     spawnPositions = placed;
     panTarget = placed[0];
   } else {
-    const CYCLE  = ["circle", "line", "formation", "scatter", "individual"];
-    const LABELS = { circle: "Circle", line: "Line", formation: "Formation", scatter: "Scatter", individual: "Individual" };
+    const CYCLE  = Object.keys(SPAWN_PATTERNS);
+    const LABELS = SPAWN_PATTERNS;
 
     const indicator = _createBeamIndicator();
     const firstClick = await new Promise(resolve => {
@@ -1385,7 +1312,7 @@ async function _spawnGroupEntries(group, transporterType, spacing, effects, patt
           indicator.moveTo(p.x - 8, p.y); indicator.lineTo(p.x + 8, p.y);
           indicator.moveTo(p.x, p.y - 8); indicator.lineTo(p.x, p.y + 8);
         } else if (currentPattern === "scatter") {
-          const scatterRadius = _scatterMaxRadius(total);
+          const scatterRadius = scatterMaxRadius(total);
           indicator.lineStyle(1, indicatorColor, 0.35);
           _drawDashedCircle(indicator, p.x, p.y, scatterRadius);
           indicator.lineStyle(1, indicatorColor, 0.4);
@@ -1453,7 +1380,7 @@ async function _spawnGroupEntries(group, transporterType, spacing, effects, patt
 
     const proto = actor.prototypeToken;
     let img     = entry.resolvedImg ?? proto.texture?.src ?? proto.img;
-    if (entry.isWildcard && !entry.resolvedImg) img = await _getWildcardImage(entry.wildcardPath);
+    if (entry.isWildcard && !entry.resolvedImg) img = await getWildcardImage(entry.wildcardPath);
 
     let newTokenData = foundry.utils.mergeObject(proto.toObject(), {
       name: entry.name, x, y, alpha: 0, actorId: actor.id,
@@ -1983,11 +1910,9 @@ function _buildInnerHTML(groups, transporterEffects, adjustedSpacing, gridScaleF
                 <div>
                   <div class="sta2e-tp-label">Beam-In Pattern</div>
                   <select id="sta2e-tp-pattern" class="sta2e-tp-select">
-                    <option value="circle">Circle</option>
-                    <option value="line">Line</option>
-                    <option value="formation">Formation</option>
-                    <option value="scatter">Scattered</option>
-                    <option value="individual">Individual</option>
+                    ${Object.entries(SPAWN_PATTERNS)
+                      .map(([key, label]) => `<option value="${key}">${label}</option>`)
+                      .join("")}
                   </select>
                 </div>
               </div>

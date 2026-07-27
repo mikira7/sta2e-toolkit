@@ -21,6 +21,7 @@ import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
+import { openShipSpawner } from "./ship-spawner.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
 import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
 import { TraitManager } from "./trait-manager.js";
@@ -34,6 +35,8 @@ import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
+import { registerShipWarpHud } from "./ship-warp-hud.js";
+import { playNativeWarpFlash } from "./warp-jump-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
 import { ZoneMovementLog } from "./zone-movement-log.js";
@@ -308,6 +311,7 @@ Hooks.once("init", () => {
   registerMomentumSpend();
   registerMomentumTracker();
   registerZoneTokenConfig();
+  registerShipWarpHud();
   registerHullDecals();
   registerTraitItemSheetFields();
   registerStarSystemActorSheet();
@@ -767,6 +771,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.checkOpposedTaskForTokens = checkOpposedTaskForTokens; // standalone opposed-task check (used by npc-roller side-panel path)
   game.sta2eToolkit.EffectConfigMenu = EffectConfigMenu; // class ref for external access
   game.sta2eToolkit.openTransporter = openTransporter;
+  game.sta2eToolkit.openShipSpawner = openShipSpawner;
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
   game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.traitManager    = traitManager;
@@ -1060,6 +1065,19 @@ Hooks.once("ready", async () => {
     if (msg.action === "stopEngineTrailVfx") {
       _remoteEngineTrails.get(msg.tokenId)?.stop?.();
       _remoteEngineTrails.delete(msg.tokenId);
+      return;
+    }
+
+    // Warp flash / corridor — same deal as the engine trail, and only sent when
+    // the native PIXI path is in use (Sequencer routes its own effects).
+    // Coordinates are explicit because the arrival flash fires right after a
+    // teleport, when a remote client could still resolve the token's pre-jump
+    // position. x2/y2 carry the far end of the corridor.
+    if (msg.action === "warpFlashVfx") {
+      playNativeWarpFlash({
+        x: msg.x, y: msg.y, x2: msg.x2, y2: msg.y2,
+        radius: msg.radius, heading: msg.heading, phase: msg.phase,
+      });
       return;
     }
 

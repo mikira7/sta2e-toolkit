@@ -5,6 +5,13 @@
 import { getStationOfficers } from "../crew-manifest.js";
 import { spawnEngineTrail } from "../engine-trail-vfx.js";
 import { getSceneZones, getZonePathWithCosts } from "../zone-data.js";
+import {
+  playWarpFlash,
+  playWarpCorridor,
+  getWarpCorridorMaxWaitMs,
+  WARP_DEPART_MS,
+  WARP_ARRIVE_MS,
+} from "../warp-jump-vfx.js";
 
 export async function promptShipCardDestination({ overlayId, title, color, tokenId = null, actorId = null, maxZones = null }) {
   return await new Promise(resolve => {
@@ -234,7 +241,6 @@ const ACTION_ENGINE_TRAIL_MAX_MS = 8000;
 // so keep these coarse and let Foundry tween between waypoints. Intermediate
 // waypoints carry `sta2eScriptedMove: true` so main.js skips per-step zone
 // BFS / cover / movement-log work; zone logic runs once on the final update.
-const ACTION_TRAIL_STEP_MS = 60;
 const IMPULSE_BEZIER_STEP_MS = 60;
 const SCRIPTED_STEP_OPTIONS = Object.freeze({
   animate: true,
@@ -245,6 +251,64 @@ function _scriptedStepOptions(durationMs) {
   return {
     ...SCRIPTED_STEP_OPTIONS,
     animation: { duration: durationMs, easing: "linear" },
+  };
+}
+
+// Same thing with a chosen easing — used by the warp run-up / run-out, which
+// are single eased glides rather than a stream of linear waypoints.
+function _scriptedGlideOptions(durationMs, easing) {
+  return {
+    ...SCRIPTED_STEP_OPTIONS,
+    animation: { duration: durationMs, easing },
+  };
+}
+
+// ── Warp jump geometry ───────────────────────────────────────────────────────
+// A warp jump is a teleport, not a flight. The ship turns to face its
+// destination, takes a short accelerating run-up along that heading, flashes
+// out, reappears just SHORT of the destination, and glides the last stretch to
+// a stop — so it decelerates out of warp onto the exact snapped square.
+//
+// Both run distances are capped as a fraction of the total trip: a two-square
+// hop must not overshoot itself and snap backwards.
+const WARP_RUN_IN_SQUARES   = 0.75;
+const WARP_RUN_OUT_SQUARES  = 1.0;
+const WARP_RUN_MAX_FRACTION = 0.25;
+const WARP_RUN_IN_MS   = 320;
+const WARP_RUN_OUT_MS  = 380;
+const WARP_FADE_OUT_MS = 200;
+const WARP_FADE_IN_MS  = 160;
+
+/**
+ * Unit heading plus clamped run-in / run-out distances for a warp jump.
+ * @returns {{ux:number, uy:number, dist:number, heading:number, runIn:number, runOut:number}}
+ */
+function _warpVector(from, to) {
+  const gridSize = canvas?.grid?.size ?? 100;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  const heading = Math.atan2(dy, dx);
+  if (dist < 1) {
+    return { ux: Math.cos(heading), uy: Math.sin(heading), dist, heading, runIn: 0, runOut: 0 };
+  }
+  const cap = dist * WARP_RUN_MAX_FRACTION;
+  return {
+    ux: dx / dist,
+    uy: dy / dist,
+    dist,
+    heading,
+    runIn:  Math.min(WARP_RUN_IN_SQUARES  * gridSize, cap),
+    runOut: Math.min(WARP_RUN_OUT_SQUARES * gridSize, cap),
+  };
+}
+
+/** Half the token's rendered footprint — converts top-left coords to a centre. */
+function _tokenHalfSize(tok) {
+  const gridSize = canvas?.grid?.size ?? 100;
+  return {
+    halfW: ((tok.document.width  ?? 1) * gridSize) / 2,
+    halfH: ((tok.document.height ?? 1) * gridSize) / 2,
   };
 }
 
@@ -386,7 +450,6 @@ export async function runImpulseEngageCard(payload, destination) {
 
 export async function runWarpEngageCard(payload, destination) {
   const tok = getCardShipToken(payload);
-  const warpSound = game.settings.get("sta2e-toolkit", "sndWarpEngage") ?? "";
   const startPosition = { x: tok.x, y: tok.y };
   const startOrigin = tok.center ?? { x: tok.x + tok.w / 2, y: tok.y + tok.h / 2 };
   const finalDestination = normalizeShipDestination(tok, destination);
@@ -409,59 +472,176 @@ export async function runWarpEngageCard(payload, destination) {
     await tok.document.update({ rotation: targetRotation });
   } catch(e) { console.warn("STA2e | warp rotate:", e); }
 
-  try {
-    if (window.Sequence) {
-      new window.Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
-      if (warpSound) new window.Sequence().sound().file(warpSound).volume(0.8).play();
-    }
-  } catch(e) { console.warn("STA2e | warp flash:", e); }
-  await new Promise(r => setTimeout(r, 1000));
+  const vec = _warpVector(startPosition, finalDestination);
+  const { halfW, halfH } = _tokenHalfSize(tok);
 
-  const trail = broadcastEngineTrail(tok, "warp", {
-    emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
-    drift: false,
-  });
-  const warpTravelMs = _distanceDurationMs(startPosition, finalDestination, {
-    base: 700,
-    perSquare: 120,
-    min: 900,
-    max: 4200,
-  });
-  const warpSteps = Math.round(_clampNumber(warpTravelMs / ACTION_TRAIL_STEP_MS, 8, 48));
-  const warpStepMs = Math.max(16, Math.round(warpTravelMs / warpSteps));
-  for (let i = 1; i <= warpSteps; i++) {
-    const t = i / warpSteps;
-    await tok.document.update({
-      x: startPosition.x + (finalDestination.x - startPosition.x) * t,
-      y: startPosition.y + (finalDestination.y - startPosition.y) * t,
-      rotation: targetRotation,
-    }, _scriptedStepOptions(warpStepMs));
-    await new Promise(r => setTimeout(r, warpStepMs));
+  // The ship is invisible between the two flashes. If anything throws in that
+  // window it must not be left that way, so everything below runs under a
+  // finally that restores alpha and lifts the zone-log suppression.
+  try {
+    // ── 1. Run-up — a single accelerating lunge along the heading ──────────
+    const departTrail = broadcastEngineTrail(tok, "warp", {
+      emitDuration: 900,
+      drift: false,
+    });
+    const launchPoint = {
+      x: startPosition.x + vec.ux * vec.runIn,
+      y: startPosition.y + vec.uy * vec.runIn,
+    };
+    if (vec.runIn > 0) {
+      await tok.document.update(
+        { x: launchPoint.x, y: launchPoint.y },
+        _scriptedGlideOptions(WARP_RUN_IN_MS, "easeInCircle")
+      );
+      await new Promise(r => setTimeout(r, WARP_RUN_IN_MS));
+    }
+
+    // ── 2. Flash out ───────────────────────────────────────────────────────
+    playWarpFlash(tok, "depart", {
+      heading: vec.heading,
+      x: launchPoint.x + halfW,
+      y: launchPoint.y + halfH,
+      soundKey: "sndWarpEngage",
+    });
+    await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
+    departTrail?.stop?.();
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FADE_OUT_MS)));
+
+    // ── 3. The jump — one update, no waypoints. Land short of the destination
+    //       by the run-out distance so the glide below finishes exactly on it.
+    const arrivalPoint = {
+      x: finalDestination.x - vec.ux * vec.runOut,
+      y: finalDestination.y - vec.uy * vec.runOut,
+    };
+
+    // The corridor spans the jump itself. Start it, then move the (still
+    // invisible) ship to the far end while it plays.
+    const corridor = playWarpCorridor(
+      { x: launchPoint.x  + halfW, y: launchPoint.y  + halfH },
+      { x: arrivalPoint.x + halfW, y: arrivalPoint.y + halfH },
+      { width: Math.max(halfW, halfH) }
+    );
+
+    await tok.document.update(
+      { x: arrivalPoint.x, y: arrivalPoint.y, rotation: targetRotation, alpha: 0 },
+      { animate: false, teleport: true, sta2eScriptedMove: true }
+    );
+
+    // Wait on the corridor effect itself rather than a guessed delay — a JB2A
+    // asset has load latency before its first frame, so a fixed hold let the
+    // ship reappear before the strand had started drawing. The race caps the
+    // wait: a missing or hung asset must never strand the ship invisible.
+    await Promise.race([
+      corridor.catch(() => {}),
+      new Promise(r => setTimeout(r, getWarpCorridorMaxWaitMs())),
+    ]);
+
+    // ── 4. Flash in ────────────────────────────────────────────────────────
+    playWarpFlash(tok, "arrive", {
+      heading: vec.heading,
+      x: arrivalPoint.x + halfW,
+      y: arrivalPoint.y + halfH,
+      soundKey: "sndWarpArrive",
+    });
+    await tok.document.update({ alpha: 1 }, { animate: true, animation: { duration: WARP_FADE_IN_MS } });
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FADE_IN_MS)));
+
+    // ── 5. Run-out — decelerate onto the snapped destination ───────────────
+    if (vec.runOut > 0) {
+      const arriveTrail = broadcastEngineTrail(tok, "warp", {
+        emitDuration: 600,
+        drift: false,
+      });
+      await tok.document.update(
+        { x: finalDestination.x, y: finalDestination.y },
+        _scriptedGlideOptions(WARP_RUN_OUT_MS, "easeOutCircle")
+      );
+      await new Promise(r => setTimeout(r, WARP_RUN_OUT_MS));
+      arriveTrail?.stop?.();
+    } else {
+      await tok.document.update({ x: finalDestination.x, y: finalDestination.y });
+    }
+
+    // Suppression is lifted in the finally; post the single zone movement log
+    // for the whole jump only when it actually completed.
+    game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
+    game.sta2eToolkit?.zoneMovementLog?.onTokenMove(
+      tok.document, startOrigin,
+      { x: finalDestination.x, y: finalDestination.y }
+    );
+  } finally {
+    game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
+    try {
+      if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
+    } catch { /* token may have been deleted mid-jump */ }
   }
-  await tok.document.update({ x: finalDestination.x, y: finalDestination.y });
-  await new Promise(r => setTimeout(r, _distanceTrailTailMs(startPosition, finalDestination)));
-  trail?.stop?.();
+}
 
-  // Lift suppression and post a single zone movement log for the full move.
-  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
-  game.sta2eToolkit?.zoneMovementLog?.onTokenMove(
-    tok.document, startOrigin,
-    { x: finalDestination.x, y: finalDestination.y }
-  );
+/**
+ * Warp a token in where it already stands — the arrival half of a warp jump,
+ * for ships that materialise into the scene rather than travelling to it.
+ *
+ * The token must already exist at its **final** position with `alpha: 0`. This
+ * teleports it back along `heading` while it is invisible, flashes it in there,
+ * fades it up, and glides it forward onto the position it started at — so the
+ * ship decelerates out of warp onto the exact square the caller chose.
+ *
+ * @param {Token}  tok      Canvas token, already placed and invisible
+ * @param {number} heading  Direction of travel in radians (canvas bearing)
+ */
+export async function runShipWarpArrival(tok, heading) {
+  const gridSize    = canvas?.grid?.size ?? 100;
+  const destination = { x: tok.document.x, y: tok.document.y };
+  const { halfW, halfH } = _tokenHalfSize(tok);
 
+  // Computed directly rather than through _warpVector: with no trip distance,
+  // its WARP_RUN_MAX_FRACTION cap collapses the run-out to zero and the ship
+  // would simply pop in. Large ships get a proportionally longer run so the
+  // deceleration reads at any hull size.
+  const runOut = Math.max(gridSize, halfW, halfH);
+  const ux = Math.cos(heading);
+  const uy = Math.sin(heading);
+  const arrival = {
+    x: destination.x - ux * runOut,
+    y: destination.y - uy * runOut,
+  };
+
+  // Everything below happens while the ship is invisible. If any of it throws
+  // the token must not be left that way — same guard as runWarpEngageCard.
   try {
-    if (window.Sequence) {
-      new window.Sequence().effect().atLocation(tok).scale(0.7).fadeIn(200).fadeOut(300).play();
-    }
-  } catch(e) { console.warn("STA2e | warp exit:", e); }
-  await new Promise(r => setTimeout(r, 300));
-  await tok.document.update({ alpha: 1 });
+    await tok.document.update(
+      { x: arrival.x, y: arrival.y },
+      { animate: false, teleport: true, sta2eScriptedMove: true }
+    );
 
+    playWarpFlash(tok, "arrive", {
+      heading,
+      x: arrival.x + halfW,
+      y: arrival.y + halfH,
+      soundKey: "sndWarpArrive",
+    });
+    await tok.document.update({ alpha: 1 }, { animate: true, animation: { duration: WARP_FADE_IN_MS } });
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FADE_IN_MS)));
+
+    const arriveTrail = broadcastEngineTrail(tok, "warp", {
+      emitDuration: 600,
+      drift: false,
+    });
+    await tok.document.update(
+      { x: destination.x, y: destination.y },
+      _scriptedGlideOptions(WARP_RUN_OUT_MS, "easeOutCircle")
+    );
+    await new Promise(r => setTimeout(r, WARP_RUN_OUT_MS));
+    arriveTrail?.stop?.();
+  } finally {
+    try {
+      if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
+    } catch { /* token may have been deleted mid-arrival */ }
+  }
 }
 
 export async function runWarpFleeCard(payload) {
   const tok = getCardShipToken(payload);
-  const warpSound = game.settings.get("sta2e-toolkit", "sndWarpEngage") ?? "";
 
   const gridSize  = canvas.grid?.size ?? 100;
   const tokW      = (tok.document.width  ?? 1) * gridSize;
@@ -500,43 +680,56 @@ export async function runWarpFleeCard(payload) {
     await tok.document.update({ rotation: targetRotation });
   } catch(e) { console.warn("STA2e | warp-flee rotate:", e); }
 
-  try {
-    if (warpSound && window.Sequence) {
-      new window.Sequence().sound().file(warpSound).volume(0.8).play();
-    }
-  } catch(e) { console.warn("STA2e | warp-flee flash:", e); }
-  await new Promise(r => setTimeout(r, 600));
-
+  // Same departure beat as an engage jump — run-up, flash, gone. The ship
+  // never crosses the map; it warps out from where it stands.
   const startX = tok.x;
   const startY = tok.y;
-  const fleeTravelMs = _distanceDurationMs({ x: startX, y: startY }, { x: destX, y: destY }, {
-    base: 650,
-    perSquare: 100,
-    min: 700,
-    max: 3600,
-  });
-  const steps = Math.round(_clampNumber(fleeTravelMs / ACTION_TRAIL_STEP_MS, 6, 40));
-  const MOVE_STEP_MS = Math.max(16, Math.round(fleeTravelMs / steps));
-  const dxStep = (destX - startX) / steps;
-  const dyStep = (destY - startY) / steps;
+  const vec = _warpVector({ x: startX, y: startY }, { x: destX, y: destY });
+  const { halfW, halfH } = _tokenHalfSize(tok);
+
+  // No zone log for a ship leaving the map — suppress cards for the whole exit.
+  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
+
   const trail = broadcastEngineTrail(tok, "warp", {
-    emitDuration: ACTION_ENGINE_TRAIL_MAX_MS,
+    emitDuration: 900,
     drift: false,
   });
-  // No zone log for a ship leaving the map — suppress cards during the flight.
-  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
-  for (let i = 1; i <= steps; i++) {
-    const alpha = Math.max(0, 1 - i / steps);
+  const launchPoint = {
+    x: startX + vec.ux * vec.runIn,
+    y: startY + vec.uy * vec.runIn,
+  };
+  if (vec.runIn > 0) {
     await tok.document.update(
-      { x: startX + dxStep * i, y: startY + dyStep * i, alpha },
-      _scriptedStepOptions(MOVE_STEP_MS)
+      { x: launchPoint.x, y: launchPoint.y },
+      _scriptedGlideOptions(WARP_RUN_IN_MS, "easeInCircle")
     );
-    await new Promise(r => setTimeout(r, MOVE_STEP_MS));
+    await new Promise(r => setTimeout(r, WARP_RUN_IN_MS));
   }
 
-  await new Promise(r => setTimeout(r, _distanceTrailTailMs({ x: startX, y: startY }, { x: destX, y: destY })));
+  playWarpFlash(tok, "depart", {
+    heading: vec.heading,
+    x: launchPoint.x + halfW,
+    y: launchPoint.y + halfH,
+    soundKey: "sndWarpEngage",
+  });
+  // Corridor runs off the edge of the map — the ship is leaving, not arriving.
+  playWarpCorridor(
+    { x: launchPoint.x + halfW, y: launchPoint.y + halfH },
+    { x: destX + halfW,         y: destY + halfH },
+    { width: Math.max(halfW, halfH) }
+  );
+  await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
   trail?.stop?.();
+  await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FADE_OUT_MS)));
+
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
-  await tok.document.delete();
+  try {
+    await tok.document.delete();
+  } catch (err) {
+    // Deletion failed — don't strand an invisible ship on the map.
+    console.error("STA2e | warp flee delete failed:", err);
+    try { await tok.document.update({ alpha: 1 }); } catch { /**/ }
+    throw err;
+  }
 }
 

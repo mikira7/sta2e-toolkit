@@ -202,12 +202,27 @@ export function pickStarSystemBackground() {
 // portrait and token instead of showing only the primary. The composite is
 // drawn on an offscreen canvas with additive ("lighter") blending — star art on
 // black or transparent backgrounds merges naturally — then uploaded to the
-// world's data directory under a per-actor filename that is overwritten in
-// place, so rerolling a system never accumulates extra files. Foundry has no
-// client-side file-delete API, so a stable overwritten name is the only way to
-// keep the folder bounded. A `?h=<comboHash>` query string on the stored path
-// cache-busts client textures after an overwrite and lets repeat saves of the
-// same combination skip the upload entirely.
+// world's data directory.
+//
+// Naming has to satisfy two things at once. Foundry v14 has no client-side file
+// delete (the server's `manageFiles` socket only does browseFiles /
+// createDirectory / configurePath), so a content-addressed name would leave one
+// orphaned file per reroll — click Generate fifty times, get fifty files. But a
+// single overwritten name is not safe either: hosted setups (The Forge) serve
+// world assets through a CDN, and a rewritten file at the same base path kept
+// being served stale until a hard refresh.
+//
+// So: a small fixed ring of slots per actor, `<actorId>-<slot>.webp`, plus the
+// `?h=<comboHash>` cache-bust. Each regeneration rotates to the next slot, so
+// the base path always differs from the one currently on screen even if a cache
+// ignores query strings, while the file count per actor is capped at
+// _COMPOSITE_SLOTS. Unchanged art short-circuits before rotating, so repeated
+// saves neither re-upload nor consume slots.
+
+const _COMPOSITE_SLOTS = 4;
+// Salt the hash so changes to the layout or draw code below force a new URL for
+// art that is otherwise unchanged. The planet compositor does the same.
+const _STAR_COMPOSITE_VERSION = "v2";
 
 // "actorId:hash" -> uploaded path, per session (avoids re-uploading on every sheet save)
 const _compositeCache = new Map();
@@ -241,6 +256,32 @@ function _hashPaths(paths) {
   return hash.toString(16);
 }
 
+/**
+ * Slot number encoded in an existing composite path, or -1 if it uses none of
+ * our current names. Callers rotate off this so the next upload never lands on
+ * the filename a client is displaying right now.
+ *
+ * @param {string} knownPath
+ * @param {string} stem  filename without the `-<slot>.webp` suffix
+ * @returns {number}
+ */
+function _compositeSlotOf(knownPath, stem) {
+  const name = String(knownPath ?? "").split("?")[0].split("/").pop() ?? "";
+  if (!name.startsWith(`${stem}-`)) return -1;
+  const slot = Number(name.slice(stem.length + 1).replace(/\.webp$/i, ""));
+  return Number.isInteger(slot) && slot >= 0 ? slot : -1;
+}
+
+/**
+ * Drop cached entries pointing at a filename we are about to overwrite, so a
+ * later save cannot hand back a path whose bytes have since been replaced.
+ */
+function _evictCachedFile(cache, fileName) {
+  for (const [key, value] of cache) {
+    if (String(value).includes(fileName)) cache.delete(key);
+  }
+}
+
 function _loadCompositeImage(path) {
   return new Promise(resolve => {
     const img = new Image();
@@ -253,10 +294,11 @@ function _loadCompositeImage(path) {
 
 /**
  * Compose 2+ star images into a single portrait and upload it to the world's
- * data directory. The file is named after the owning actor and overwritten on
- * every regeneration, so each multi-star system keeps exactly one file on
- * disk. Returns the uploaded path (with a `?h=<hash>` cache-bust), or "" on
- * any failure so callers can fall back to the primary star image.
+ * data directory. Writes to the next slot in this actor's fixed ring of
+ * filenames (see the note above the layout table), so a changed portrait always
+ * lands on a URL no client has cached while the file count stays capped.
+ * Returns the uploaded path, or "" on any failure so callers can fall back to
+ * the primary star image.
  *
  * @param {string[]} paths              star image paths, primary first
  * @param {object} [options]
@@ -274,11 +316,12 @@ export async function composeStarSystemImage(paths, { actorId = "", knownPath = 
     // Uploading needs file permissions — players without them keep the fallback.
     if (!(game.user?.isGM || game.user?.can?.("FILES_UPLOAD"))) return "";
 
-    const hash = _hashPaths(list);
-    const fileName = `sta2e-stars-${id}.webp`;
+    const hash = _hashPaths([...list, _STAR_COMPOSITE_VERSION]);
+    const stem = `sta2e-stars-${id}`;
     const cacheKey = `${id}:${hash}`;
     const known = String(knownPath ?? "");
-    if (known.includes(fileName) && known.endsWith(`?h=${hash}`)) return known;
+    // Art unchanged: keep the current file untouched — no upload, no rotation.
+    if (known.includes(`${stem}-`) && known.endsWith(`?h=${hash}`)) return known;
     if (_compositeCache.has(cacheKey)) return _compositeCache.get(cacheKey);
 
     const results = await Promise.all(list.map(_loadCompositeImage));
@@ -319,6 +362,11 @@ export async function composeStarSystemImage(paths, { actorId = "", knownPath = 
     const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
     const dir = `worlds/${game.world.id}/sta2e-star-composites`;
     try { await FP.createDirectory("data", dir); } catch { /* already exists */ }
+    // Rotate off whatever slot is on screen now, capping this actor at
+    // _COMPOSITE_SLOTS files however many times the GM rerolls.
+    const slot = (_compositeSlotOf(known, stem) + 1) % _COMPOSITE_SLOTS;
+    const fileName = `${stem}-${slot}.webp`;
+    _evictCachedFile(_compositeCache, fileName);
     const file = new File([blob], fileName, { type: "image/webp" });
     const result = await FP.upload("data", dir, file, {}, { notify: false });
     if (!result?.path) return "";
@@ -388,6 +436,9 @@ export async function composeStarSystemPlanetImage(layers = {}, { actorId = "", 
       ring,
     ].filter(Boolean);
     const hash = _hashPaths([...paths, _PLANET_COMPOSITE_VERSION, String(_RINGED_PLANET_SCALE)]);
+    // One file per body, overwritten in place. Unlike the star portrait this is
+    // not rotated: a system can hold dozens of worlds and moons, and multiplying
+    // every one of them by a slot ring costs far more than it buys.
     const fileName = `sta2e-${_sanitizeFilePart(kind)}-${id}-${body}.webp`;
     const cacheKey = `${id}:${body}:${hash}`;
     const known = String(knownPath ?? "");

@@ -288,6 +288,15 @@ export class ToolkitWidget {
         () => game.sta2eToolkit?.openTransporter(),
       ));
 
+      // Ship Spawner button — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-rocket",
+        game.i18n.localize("STA2E.Widget.Button.ShipSpawner.Label"),
+        game.i18n.localize("STA2E.Widget.Button.ShipSpawner.Hint"),
+        LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openShipSpawner?.(),
+      ));
+
       // VFX Test button — GM only
       btnContainer.appendChild(mkBtn(
         "fas fa-wand-magic-sparkles",

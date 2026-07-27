@@ -2200,18 +2200,19 @@ export async function createStarSystemActor({ folderId = null, data = null } = {
 }
 
 /**
- * One-time repair: move star system actors off old content-hashed composite
- * paths (sta2e-stars-<hash>.webp, one orphaned file per reroll) onto the
- * per-actor overwritten scheme (sta2e-stars-<actorId>.webp?h=<hash>). Once no
- * actor references an old-style path, everything in the composites folder
- * except sta2e-stars-<actorId>.webp files can be deleted manually. Cheap
- * no-op on every subsequent ready.
+ * One-time repair: move star system actors onto the current composite naming
+ * scheme, `sta2e-stars-<actorId>-<slot>.webp?h=<comboHash>`. That supersedes
+ * the globally content-hashed `sta2e-stars-<hash>.webp` (one orphaned file per
+ * reroll) and the single per-actor file overwritten in place, which hosted CDNs
+ * kept serving stale until a hard refresh. Cheap no-op on every subsequent
+ * ready.
  */
 export async function migrateStarSystemCompositeImages() {
   if (!game.user?.isGM) return;
   const stale = (game.actors ?? []).filter(actor => {
     const img = String(actor?.img ?? "");
-    if (!img.includes("sta2e-star-composites/") || img.includes("?h=")) return false;
+    if (!img.includes("sta2e-star-composites/")) return false;
+    if (img.includes(`sta2e-stars-${actor.id}-`) && img.includes("?h=")) return false;
     return !!getStarSystemData(actor)?.isStarSystem;
   });
   if (!stale.length) return;
@@ -2227,8 +2228,8 @@ export async function migrateStarSystemCompositeImages() {
     }
   }
   ui.notifications?.info(
-    "STA2e Toolkit: Star system portraits now reuse one file per system. "
-    + `Old files in worlds/${game.world.id}/sta2e-star-composites/ that are not named after an actor id can be deleted to free space.`
+    "STA2e Toolkit: Star system portraits were rebuilt under cache-safe filenames. "
+    + `Files in worlds/${game.world.id}/sta2e-star-composites/ that no actor references can be deleted to free space.`
   );
 }
 

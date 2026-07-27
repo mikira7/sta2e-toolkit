@@ -265,6 +265,8 @@
   "STA2E.Widget.Button.TaskMaker.Hint": "Open Task Maker (Shift+M)",
   "STA2E.Widget.Button.Transporter.Label": "Transporter",
   "STA2E.Widget.Button.Transporter.Hint": "Open Transporter Control (Shift+B)",
+  "STA2E.Widget.Button.ShipSpawner.Label": "Ship Spawner",
+  "STA2E.Widget.Button.ShipSpawner.Hint": "Warp a fleet of ships into the scene (GM only)",
   "STA2E.Widget.Button.VfxTest.Label": "VFX Test",
   "STA2E.Widget.Button.VfxTest.Hint": "Open the native VFX test panel",
   "STA2E.ShipVfxAnchors.Title": "Ship VFX Anchors",
