@@ -7,7 +7,7 @@
  */
 
 import { getStarSystemData, ensureOrbitalDistances } from "./star-system-sheet.js";
-import { pickStarSystemImage, getStarSystemBackgrounds } from "./star-system-images.js";
+import { pickStarSystemImage, getStarSystemBackgrounds, starTypeKey } from "./star-system-images.js";
 
 const MODULE_ID = "sta2e-toolkit";
 export const SCENE_ACTOR_FLAG = "starSystemSceneActor";
@@ -178,12 +178,10 @@ function planetTileSize(cls) {
 
 const ROOT_ORBITAL_NODE_ID = "root";
 
+// Scene tiles always need art, so unrecognised types fall back to a Type-G sun
+// rather than the sheet's empty-string default.
 function starTypeKeyOf(star) {
-  const text = String(star?.spectralType || star?.classification || "").trim();
-  if (/white\s+dwarf/i.test(text)) return "White Dwarf";
-  if (/t-?tauri/i.test(text)) return "T-Tauri";
-  const match = text.match(/^[A-Z]/i);
-  return match ? match[0].toUpperCase() : "G";
+  return starTypeKey(star, { fallback: "G" });
 }
 
 function escapeHtml(value) {

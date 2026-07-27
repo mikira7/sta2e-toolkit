@@ -23,6 +23,50 @@ export const STAR_SYSTEM_STAR_IMAGE_TYPES = [
   { key: "T-Tauri", label: "T-Tauri" },
 ];
 
+// Visually similar types to borrow art from when a star pool has no images.
+// Without this an unconfigured pool resolves to "" and callers silently keep
+// whatever image the star already had — a Type-L sprite left on a White Dwarf,
+// for example. Ordered nearest-match first.
+const STAR_TYPE_IMAGE_FALLBACKS = {
+  "White Dwarf": ["A", "B"],
+  "T-Tauri": ["M", "K"],
+  L: ["Y", "T", "M"],
+  Y: ["L", "T", "M"],
+  T: ["L", "Y", "M"],
+  O: ["B"],
+  B: ["O", "A"],
+  A: ["B", "F"],
+  F: ["G", "A"],
+  G: ["F", "K"],
+  K: ["G", "M"],
+  M: ["K"],
+};
+
+const STAR_TYPE_KEYS = new Set(STAR_SYSTEM_STAR_IMAGE_TYPES.map(type => type.key));
+
+/**
+ * Canonical spectral-type -> image pool key. Accepts a star record or a raw
+ * type/classification string. Shared by the sheet and the scene builder so both
+ * resolve the same art for the same star.
+ *
+ * @param {object|string} starOrType
+ * @param {object} [options]
+ * @param {string} [options.fallback] key to return when nothing matches
+ * @returns {string}
+ */
+export function starTypeKey(starOrType, { fallback = "" } = {}) {
+  const source = typeof starOrType === "string"
+    ? starOrType
+    : starOrType?.spectralType || starOrType?.classification || "";
+  const text = String(source ?? "").trim();
+  if (/white\s+dwarf/i.test(text)) return "White Dwarf";
+  if (/t-?tauri/i.test(text)) return "T-Tauri";
+  if (STAR_TYPE_KEYS.has(text)) return text;
+  const match = text.match(/^[A-Z]/i);
+  const letter = match ? match[0].toUpperCase() : "";
+  return STAR_TYPE_KEYS.has(letter) ? letter : fallback;
+}
+
 export const STAR_SYSTEM_PLANET_IMAGE_TYPES = [
   { key: "A", label: "Class-A Geothermal" },
   { key: "B", label: "Class-B Geomorteus" },
@@ -90,10 +134,41 @@ export function imagesForStarSystemType(kind, key) {
   return cleanImageList(group?.[String(key ?? "").trim()]);
 }
 
+/**
+ * A star type's own pool key followed by the types it may borrow art from.
+ *
+ * @param {string} key
+ * @returns {string[]}
+ */
+export function starImagePoolChain(key) {
+  const primary = String(key ?? "").trim();
+  return [primary, ...(STAR_TYPE_IMAGE_FALLBACKS[primary] ?? [])];
+}
+
 export function pickStarSystemImage(kind, key) {
-  const images = imagesForStarSystemType(kind, key);
-  if (!images.length) return "";
-  return images[Math.floor(Math.random() * images.length)] ?? "";
+  const chain = kind === "star" ? starImagePoolChain(key) : [key];
+  for (const candidate of chain) {
+    const images = imagesForStarSystemType(kind, candidate);
+    if (images.length) return images[Math.floor(Math.random() * images.length)] ?? "";
+  }
+  return "";
+}
+
+/**
+ * Star type keys whose configured pool contains `path`. Lets callers tell art
+ * that came out of a pool (safe to re-pick when the star's type no longer
+ * matches) from art a GM typed in by hand (must be preserved).
+ *
+ * @param {string} path
+ * @returns {string[]}
+ */
+export function starPoolsContaining(path) {
+  const wanted = String(path ?? "").trim();
+  if (!wanted) return [];
+  const stars = getStarSystemImageData().stars;
+  return Object.entries(stars)
+    .filter(([_key, images]) => images.includes(wanted))
+    .map(([key]) => key);
 }
 
 export function imagesForStarSystemOverlay(kind, key = "") {
@@ -206,7 +281,15 @@ export async function composeStarSystemImage(paths, { actorId = "", knownPath = 
     if (known.includes(fileName) && known.endsWith(`?h=${hash}`)) return known;
     if (_compositeCache.has(cacheKey)) return _compositeCache.get(cacheKey);
 
-    const loaded = (await Promise.all(list.map(_loadCompositeImage))).filter(Boolean);
+    const results = await Promise.all(list.map(_loadCompositeImage));
+    const failed = list.filter((_path, i) => !results[i]);
+    if (failed.length) {
+      console.warn("STA2e Toolkit | star art failed to load, excluded from composite:", failed);
+    }
+    // A missing primary must not silently promote a companion to the whole
+    // portrait — bail so the caller can warn instead.
+    if (!results[0]) return "";
+    const loaded = results.filter(Boolean);
     if (loaded.length < 2) return "";
 
     const SIZE = 512;

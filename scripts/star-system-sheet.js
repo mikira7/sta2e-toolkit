@@ -9,6 +9,10 @@ import {
   pickStarSystemOverlay,
   composeStarSystemImage,
   composeStarSystemPlanetImage,
+  imagesForStarSystemType,
+  starImagePoolChain,
+  starPoolsContaining,
+  starTypeKey,
 } from "./star-system-images.js";
 
 export const STAR_SYSTEM_FLAG = "starSystem";
@@ -773,18 +777,6 @@ function chatDetailHtml(label, html, fallback = "Unknown") {
     </div>`;
 }
 
-function starTypeKey(starOrType) {
-  const source = typeof starOrType === "string"
-    ? starOrType
-    : starOrType?.spectralType || starOrType?.classification || "";
-  const text = String(source ?? "").trim();
-  if (/white\s+dwarf/i.test(text)) return "White Dwarf";
-  if (/t-?tauri/i.test(text)) return "T-Tauri";
-  if (STAR_TYPE_DESCRIPTIONS[text]) return text;
-  const match = text.match(/^[A-Z]/i);
-  return match ? match[0].toUpperCase() : "";
-}
-
 function starTypeDescription(starOrType) {
   const key = starTypeKey(starOrType);
   return STAR_TYPE_DESCRIPTIONS[key] ?? "Unusual or custom stellar classification. Use the listed survey notes and local hazards as the source of truth.";
@@ -822,6 +814,43 @@ function starImageForType(starOrType) {
 }
 
 /**
+ * True when `path` came out of a star image pool that no longer matches this
+ * spectral type — i.e. art left over from a previous type, or from another
+ * machine's pool configuration. Paths in no pool at all are treated as custom
+ * art a GM entered by hand and are never re-picked.
+ *
+ * Borrowed fallback art counts as valid only while the type's own pool is
+ * empty, so it stops re-rolling on every save but is still replaced the moment
+ * proper art is configured for that type.
+ *
+ * @param {string} path
+ * @param {string} spectralType
+ * @returns {boolean}
+ */
+function isStaleStarImage(path, spectralType) {
+  const owners = starPoolsContaining(path);
+  if (!owners.length) return false;
+  const key = starTypeKey(spectralType);
+  if (owners.includes(key)) return false;
+  if (imagesForStarSystemType("star", key).length) return true;
+  const chain = starImagePoolChain(key);
+  return !owners.some(owner => chain.includes(owner));
+}
+
+/**
+ * Warn once about stars left without art after a generate or reroll. Silent
+ * gaps here are what let a portrait fall back to another star's sprite.
+ */
+function warnMissingStarArt(starSystem) {
+  const missing = (starSystem?.stars ?? [])
+    .filter(star => star.spectralType && !savedImage(star.image))
+    .map(star => star.spectralType);
+  if (!missing.length) return;
+  const types = Array.from(new Set(missing)).join(", ");
+  ui.notifications?.warn(`STA2e Toolkit: No star image is configured for ${types}; those stars have no artwork.`);
+}
+
+/**
  * Portrait/token image for a star system. Single-star systems use that star's
  * image; multi-star systems get a composite of all star images (primary large,
  * companions arranged around it), stored as one per-actor file overwritten on
@@ -829,7 +858,11 @@ function starImageForType(starOrType) {
  * can't be built (missing art, no actor id, no upload permission, error).
  */
 async function resolveStarSystemPortraitImage(starSystem, { actorId = "", knownPath = "" } = {}) {
-  const starImages = (starSystem?.stars ?? []).map(s => savedImage(s?.image)).filter(Boolean);
+  const stars = starSystem?.stars ?? [];
+  // The primary anchors the portrait. If it has no art, bail rather than let a
+  // companion's sprite silently stand in for the whole system.
+  if (stars.length && !savedImage(stars[0]?.image)) return "";
+  const starImages = stars.map(s => savedImage(s?.image)).filter(Boolean);
   if (!starImages.length) return "";
   if (starImages.length === 1) return starImages[0];
   const composite = await composeStarSystemImage(starImages, { actorId, knownPath });
@@ -1399,7 +1432,11 @@ export function normalizeStarSystemData(raw = {}) {
     }
     if (star.spectralType) {
       star.classification = `${star.spectralType}${star.subdivision}${star.luminosityType}`;
-      if (!star.image) star.image = starImageForType(star.spectralType);
+      // Re-pick art that is blank or belongs to a different type's pool, so a
+      // star always shows its own type's art on this machine's configuration.
+      if (!star.image || isStaleStarImage(star.image, star.spectralType)) {
+        star.image = starImageForType(star.spectralType) || star.image;
+      }
     }
     return star;
   });
@@ -1781,6 +1818,9 @@ function regenerateStarForType(existing = {}, spectralType = "", index = 0) {
   const subdivision = noLuminosity ? "" : spectralSubdivision();
   const luminosityType = noLuminosity ? "" : rollTable(LUMINOSITY_TABLE);
   const image = starImageForType(type);
+  // Only fall back to the star's existing art when it is custom; pool art from
+  // the old type would otherwise stick around and misrepresent the new one.
+  const retained = isStaleStarImage(existing.image, type) ? "" : savedImage(existing.image);
   return {
     ...regenerated,
     id: existing.id || regenerated.id,
@@ -1790,7 +1830,7 @@ function regenerateStarForType(existing = {}, spectralType = "", index = 0) {
     luminosityType,
     classification: `${type}${subdivision}${luminosityType}`,
     notes: starNotes(type, luminosityType, false),
-    image: image || savedImage(existing.image),
+    image: image || retained,
     orbitParentNodeId: existing.orbitParentNodeId,
     orbitalAU: existing.orbitalAU,
     orbitalAngle: existing.orbitalAngle,
@@ -2323,7 +2363,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const button = event.currentTarget;
     const action = button.dataset.ssAction;
     const form = button.closest("form");
-    const gmOnlyActions = new Set(["generate", "refresh-portrait", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene"]);
+    const gmOnlyActions = new Set(["generate", "refresh-portrait", "refresh-star-art", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene"]);
     if (gmOnlyActions.has(action) && !game.user?.isGM) {
       ui.notifications.warn("STA2e Toolkit: Only the GM can modify generated star system records.");
       return;
@@ -2348,6 +2388,34 @@ export class StarSystemActorSheet extends ActorSheet {
         "prototypeToken.texture.src": generatedImage,
       });
       await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, generated);
+      warnMissingStarArt(generated);
+      this.render(false);
+      return;
+    }
+
+    if (action === "refresh-star-art") {
+      // Clears every star's baked path so normalize re-picks from this
+      // machine's pools. The membership check in normalizeStarSystemData can
+      // only repair art it recognises; art from another install's pack belongs
+      // to no local pool and needs this explicit reset.
+      const current = form ? this._dataFromForm(form) : { actorName: this.actor.name, starSystem: getStarSystemData(this.actor) };
+      const data = current.starSystem;
+      for (const star of data.stars ?? []) star.image = "";
+      const starSystem = normalizeStarSystemData(data);
+      const actorName = current.actorName || this.actor.name;
+      const actorUpdate = {
+        name: actorName,
+        "prototypeToken.name": actorName,
+        "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
+      };
+      const portrait = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
+      if (portrait) {
+        actorUpdate.img = portrait;
+        actorUpdate["prototypeToken.texture.src"] = portrait;
+      }
+      await this.actor.update(actorUpdate);
+      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, starSystem);
+      warnMissingStarArt(starSystem);
       this.render(false);
       return;
     }
@@ -2509,6 +2577,7 @@ export class StarSystemActorSheet extends ActorSheet {
       if (starsChanged) {
         const image = await resolveStarSystemPortraitImage(normalized, { actorId: this.actor.id, knownPath: this.actor.img });
         if (image) await this.actor.update({ img: image, "prototypeToken.texture.src": image });
+        warnMissingStarArt(normalized);
       }
       this.render(false);
       return;
