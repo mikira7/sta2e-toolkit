@@ -34,6 +34,7 @@ import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
+import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
 import { ZoneMovementLog } from "./zone-movement-log.js";
 import { ZoneHazard } from "./zone-hazard.js";
@@ -1892,12 +1893,49 @@ Hooks.on("renderSceneConfig", (app, html) => {
 });
 
 // ---------------------------------------------------------------------------
+// renderSceneConfig — inject "STA2e Display" section into scene config.
+// Uses the native flag form path so Foundry persists it on submit.
+// ---------------------------------------------------------------------------
+
+Hooks.on("renderSceneConfig", (app, html) => {
+  if (!game.user.isGM) return;
+
+  const root = html instanceof HTMLElement ? html : (html[0] ?? html);
+  if (root.querySelector(".sta2e-display-fieldset")) return;
+
+  const scene = app.document ?? app.object;
+  if (!scene) return;
+
+  const hideElevation = scene.getFlag("sta2e-toolkit", "hideTokenElevation") === true;
+
+  const section = document.createElement("fieldset");
+  section.className = "sta2e-display-fieldset";
+  section.innerHTML = `
+    <legend>STA2e Display</legend>
+    <div class="form-group">
+      <label>Hide Token Elevation Text</label>
+      <input type="checkbox" name="flags.sta2e-toolkit.hideTokenElevation" ${hideElevation ? "checked" : ""}/>
+      <p class="notes">Hide the elevation text badge drawn beneath tokens on this scene. The module setting of the same name hides it on every scene.</p>
+    </div>`;
+
+  const basicsTab = root.querySelector('.tab[data-tab="basics"]')
+    ?? root.querySelector('section[data-tab="basics"]');
+
+  if (basicsTab) basicsTab.appendChild(section);
+  else (root.querySelector("form") ?? root).appendChild(section);
+  app.setPosition?.({ height: "auto" });
+});
+
+// ---------------------------------------------------------------------------
 // Token drag ruler — patch Token prototype once in "init" (before canvas loads)
 // ---------------------------------------------------------------------------
 
 Hooks.once("setup", () => {
   // Register obscured-zone token visibility via libWrapper (must run at setup time).
   registerZoneVisibilityWrap();
+
+  // Patch Token._getTooltipText so the elevation badge can be hidden.
+  registerTokenElevationDisplay();
 
   // Patch Token._onDragLeftStart and _onDragLeftDrop to feed the ZoneDragRuler
   const TokenClass = foundry.canvas?.placeables?.Token ?? Token;

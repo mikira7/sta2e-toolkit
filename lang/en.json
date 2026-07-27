@@ -121,6 +121,8 @@
   "STA2E.Settings.EffectConfig.Name": "Sounds & Animations",
   "STA2E.Settings.EffectConfig.Label": "Configure Sounds & Animations",
   "STA2E.Settings.EffectConfig.Hint": "Set audio paths and animation overrides for weapons and tasks.",
+  "STA2E.Settings.HideTokenElevation.Name": "Hide Token Elevation Text",
+  "STA2E.Settings.HideTokenElevation.Hint": "Hide the elevation text badge drawn beneath tokens on all scenes. Can also be enabled for a single scene via Scene Config.",
   "STA2E.Settings.ShowZoneBorders.Name": "Show Zone Borders During Play",
   "STA2E.Settings.ShowZoneBorders.Hint": "When enabled (default), zone borders and labels are visible to all players on scenes that have zones. Disable to hide zones entirely during play.",
   "STA2E.Settings.ZoneRulerOverride.Name": "Zone-Aware Ruler",

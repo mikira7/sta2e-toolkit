@@ -10,6 +10,7 @@ import {
 } from "./tractor-beam-vfx.js";
 import { NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
 import { resyncAllHullDecals, refreshAllHullDecals } from "./hull-decals.js";
+import { refreshAllTokenElevationTooltips } from "./token-elevation-display.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
 import { CharacterCreatorConfig, CHARACTER_CREATOR_DEFAULT_DATA } from "./character-creator.js";
 import {
@@ -504,6 +505,18 @@ export function registerSettings() {
     config: false,
     type: String,
     default: ""
+  });
+
+  // ── Token Display ────────────────────────────────────────────────────────
+
+  game.settings.register("sta2e-toolkit", "hideTokenElevation", {
+    name:    "STA2E.Settings.HideTokenElevation.Name",
+    hint:    "STA2E.Settings.HideTokenElevation.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+    onChange: () => refreshAllTokenElevationTooltips(),
   });
 
   // ── JB2A Tier ────────────────────────────────────────────────────────────
