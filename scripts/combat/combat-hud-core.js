@@ -41,7 +41,7 @@ import {
   openNpcRoller, openPlayerRoller,
   PlayerRollCallbacks, rollPool, clearStationAssistFlag, buildPlayerRollCardHtml,
   clearCompletedBridgeTaskMinors,
-  diePipHtml, dsnShowPool,
+  dsnShowPool, wireCardDieSelection,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
   taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
   callOutTargetsSourceForActor, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum,
@@ -16756,6 +16756,127 @@ export async function lockTractorBeam(sourceToken, targetToken) {
 }
 
 /**
+ * Establish a tractor lock: flag both tokens, start the persistent beam effect,
+ * and — when towing — snap the target behind the host and hand movement to Token
+ * Attacher.
+ *
+ * Shared by the ENGAGE button on the TRACTOR BEAM LOCKED chat card and the GM
+ * Ship Command palette on the Token HUD. The tow/attach sequence is fiddly
+ * enough that it must live in exactly one place.
+ *
+ * @param {Token}   sourceTok            - The ship projecting the beam
+ * @param {Token}   targetTok            - The ship being locked
+ * @param {object}  [options]
+ * @param {boolean} [options.towTarget]  - Attach the target so it follows the host
+ * @param {boolean} [options.announce]   - Post the TRACTOR BEAM ACTIVE chat card
+ */
+export async function applyTractorBeamLock(sourceTok, targetTok, { towTarget = false, announce = true } = {}) {
+  // Break-free difficulty comes from the host's Structure, matching the roll-driven
+  // path in _handleTractorBeam (the HUD path has no card payload to read it from).
+  const tractorStr = sourceTok?.actor?.system?.systems?.structure?.value ?? 0;
+
+  // Flag both tokens
+  await CombatHUD.engageTractorBeam(sourceTok, targetTok, { towTarget });
+
+  // Remove any glow left by a tractor lock created before native PIXI
+  // rendering replaced the source-token filter.
+  try { await TokenMagic.deleteFilters(sourceTok, "tractorBeam"); } catch { /* optional */ }
+
+  // Play the configured persistent tractor beam effect.
+  await CombatHUD.playTractorBeamEffect(sourceTok, targetTok);
+
+  if (towTarget) {
+    // Snap target to behind the source immediately. Call it again after a
+    // short delay because Foundry may grid-snap the first update.
+    const snapBehind = async (animate = true) => {
+      const gridSize = canvas.grid?.size ?? 100;
+      const srcW     = (sourceTok.document.width  ?? 1) * gridSize;
+      const srcH     = (sourceTok.document.height ?? 1) * gridSize;
+      const tgtW     = (targetTok.document.width  ?? 1) * gridSize;
+      const tgtH     = (targetTok.document.height ?? 1) * gridSize;
+      const srcRot   = sourceTok.document.rotation ?? 0;
+      const towDist  = srcW * 0.5 + tgtW * 0.5 + gridSize * 0.2;
+      const rotRad   = (srcRot * Math.PI) / 180;
+      const behindX  = (sourceTok.x + srcW / 2) + Math.sin(rotRad) * towDist - tgtW / 2;
+      const behindY  = (sourceTok.y + srcH / 2) - Math.cos(rotRad) * towDist - tgtH / 2;
+      await targetTok.document.update({ x: behindX, y: behindY, rotation: srcRot },
+        { animate }).catch(() => {});
+    };
+    await snapBehind(false);
+    // Attach after the second snap so Token Attacher captures the final
+    // behind-host offset and handles subsequent movement natively.
+    setTimeout(async () => {
+      await snapBehind(false);
+      if (_taAvailable()) {
+        try {
+          await window.tokenAttacher.attachElementToToken(targetTok, sourceTok, true);
+          // Record that TA is managing movement so the hook fallback skips this pair.
+          await sourceTok.document.setFlag("sta2e-toolkit", "tractorBeam", {
+            ...sourceTok.document.getFlag("sta2e-toolkit", "tractorBeam"),
+            usesTA: true,
+          });
+        } catch(e) { console.warn("STA2e | TA attach failed:", e); }
+      }
+    }, 300);
+  }
+
+  if (announce) {
+    ChatMessage.create({
+      content: lcarsCard("🔗 TRACTOR BEAM ACTIVE", LC.primary, `
+        <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
+          margin-bottom:4px;font-family:${LC.font};">${sourceTok.name}</div>
+        <div style="font-size:13px;color:${LC.primary};font-weight:700;
+          font-family:${LC.font};margin-bottom:4px;">
+          🔗 ${targetTok.name} locked in tractor beam
+        </div>
+        <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};line-height:1.5;">
+          ${towTarget
+            ? "Target follows source token movement."
+            : "Visual tractor lock established; target is not attached or moved."}
+          Break-free: Engines + Conn vs Difficulty ${tractorStr}.
+          Release manually via the Tractor Beam action or the HUD status badge.
+        </div>`),
+      speaker: { alias: "STA2e Toolkit" },
+    });
+  }
+
+  game.sta2eToolkit?.combatHud?._refresh?.();
+}
+
+/**
+ * Drop a tractor lock and optionally announce it. The detach/unflag/stop-VFX work
+ * all lives in CombatHUD.releaseTractorBeam; this only adds the chat card.
+ *
+ * @param {Token}   sourceTok          - The ship projecting the beam
+ * @param {Token}   targetTok          - The ship being released (may be null if gone)
+ * @param {object}  [options]
+ * @param {boolean} [options.announce] - Post the TRACTOR BEAM RELEASED chat card
+ */
+export async function applyTractorBeamRelease(sourceTok, targetTok, { announce = true } = {}) {
+  // Read the name before releasing — the flag is the only record left if the
+  // target token has already been removed from the scene.
+  const targetName = targetTok?.name
+    ?? CombatHUD.getTractorBeamState(sourceTok)?.targetName
+    ?? "its target";
+
+  await CombatHUD.releaseTractorBeam(sourceTok, targetTok);
+
+  if (announce) {
+    ChatMessage.create({
+      content: lcarsCard("🔗 TRACTOR BEAM RELEASED", LC.textDim, `
+        <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
+          margin-bottom:4px;font-family:${LC.font};">${sourceTok?.name ?? "Ship"}</div>
+        <div style="font-size:13px;color:${LC.text};font-family:${LC.font};">
+          Tractor beam disengaged from ${targetName}.
+        </div>`),
+      speaker: { alias: "STA2e Toolkit" },
+    });
+  }
+
+  game.sta2eToolkit?.combatHud?._refresh?.();
+}
+
+/**
  * Apply the outcome of a Warp roll made from the character-sheet combat task
  * panel. Posts WARP FAILED on failure. On success, clears Reserve Power and
  * posts the WARP ENGAGED card (also posts a failure card if Reserve Power is
@@ -17338,8 +17459,7 @@ export async function applyDirectForOfficer(shipActor, shipToken, officerActor) 
  * @param {boolean} passed    - Whether the task roll succeeded
  */
 export async function handleCloakActivateResult(shipActor, shipToken, passed) {
-  const LC   = getLcTokens();
-  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const LC = getLcTokens();
 
   if (!passed) {
     ChatMessage.create({
@@ -17375,6 +17495,25 @@ export async function handleCloakActivateResult(shipActor, shipToken, passed) {
 
   await CombatHUD.clearReservePower(shipActor);
 
+  await applyCloakEngage(shipActor, shipToken);
+}
+
+/**
+ * Run the cloaking-device engage sequence: shimmer → invisible + hidden → chat card.
+ *
+ * Deliberately gate-free — no Reserve Power check and no officer requirement. Those
+ * belong to the roll-driven callers (handleCloakActivateResult, _handleCloakToggle);
+ * the GM Ship Command palette calls this directly to cloak with no ceremony.
+ *
+ * @param {Actor}   shipActor          - The ship actor
+ * @param {Token}   shipToken          - The ship's canvas Token placeable
+ * @param {object}  [options]
+ * @param {boolean} [options.announce] - Post the CLOAKING DEVICE ENGAGED chat card
+ */
+export async function applyCloakEngage(shipActor, shipToken, { announce = true } = {}) {
+  const LC   = getLcTokens();
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
   // ── Shimmer → cloak ──────────────────────────────────────────────────────
   const _shimmerParams = [{
     filterType: "distortion", filterId: "sta2e-cloak-shimmer",
@@ -17385,7 +17524,7 @@ export async function handleCloakActivateResult(shipActor, shipToken, passed) {
       maskSpriteY: { active: true, speed: 0.07, animType: "move" },
     },
   }];
-  if (window.TokenMagic) await TokenMagic.addUpdateFilters(shipToken, _shimmerParams);
+  if (window.TokenMagic) try { await TokenMagic.addUpdateFilters(shipToken, _shimmerParams); } catch {}
 
   try {
     const path = game.settings.get("sta2e-toolkit", "sndCloak");
@@ -17400,29 +17539,34 @@ export async function handleCloakActivateResult(shipActor, shipToken, passed) {
   await wait(200);
   if (window.TokenMagic) try { await TokenMagic.deleteFilters(shipToken, "sta2e-cloak-shimmer"); } catch {}
 
-  ChatMessage.create({
-    content: lcarsCard("🔇 CLOAKING DEVICE ENGAGED", "#aa44ff", `
-      <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-        <strong>${shipToken.name}</strong> has engaged its cloaking device.<br>
-        <span style="color:${LC.textDim};font-size:9px;">
-          Shields are down. Cannot attack or be targeted while cloaked.<br>
-          Deactivating requires a minor action.
-        </span>
-      </div>`),
-    speaker: ChatMessage.getSpeaker({ token: shipToken.document }),
-  });
+  if (announce) {
+    ChatMessage.create({
+      content: lcarsCard("🔇 CLOAKING DEVICE ENGAGED", "#aa44ff", `
+        <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
+          <strong>${shipToken.name}</strong> has engaged its cloaking device.<br>
+          <span style="color:${LC.textDim};font-size:9px;">
+            Shields are down. Cannot attack or be targeted while cloaked.<br>
+            Deactivating requires a minor action.
+          </span>
+        </div>`),
+      speaker: ChatMessage.getSpeaker({ token: shipToken.document }),
+    });
+  }
 
   game.sta2eToolkit?.combatHud?._refresh();
 }
 
 /**
  * Instantly deactivate the cloaking device (minor action — no roll required).
- * Called from the character sheet's Minor Actions panel when the ship is already cloaked.
+ * Called from the character sheet's Minor Actions panel when the ship is already
+ * cloaked, and from the GM Ship Command palette on the Token HUD.
  *
- * @param {Actor}  shipActor - The ship actor
- * @param {Token}  shipToken - The ship's canvas Token placeable
+ * @param {Actor}   shipActor          - The ship actor
+ * @param {Token}   shipToken          - The ship's canvas Token placeable
+ * @param {object}  [options]
+ * @param {boolean} [options.announce] - Post the CLOAKING DEVICE DISENGAGED chat card
  */
-export async function applyCloakDeactivateForOfficer(shipActor, shipToken) {
+export async function applyCloakDeactivateForOfficer(shipActor, shipToken, { announce = true } = {}) {
   const LC   = getLcTokens();
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -17450,14 +17594,16 @@ export async function applyCloakDeactivateForOfficer(shipActor, shipToken) {
   await wait(800);
   if (window.TokenMagic) try { await TokenMagic.deleteFilters(shipToken, "sta2e-cloak-shimmer"); } catch {}
 
-  ChatMessage.create({
-    content: lcarsCard("👁 CLOAKING DEVICE DISENGAGED", "#aa44ff", `
-      <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-        <strong>${shipToken.name}</strong> has decloaked.<br>
-        <span style="color:${LC.textDim};font-size:9px;">Shields may now be raised.</span>
-      </div>`),
-    speaker: ChatMessage.getSpeaker({ token: shipToken.document }),
-  });
+  if (announce) {
+    ChatMessage.create({
+      content: lcarsCard("👁 CLOAKING DEVICE DISENGAGED", "#aa44ff", `
+        <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
+          <strong>${shipToken.name}</strong> has decloaked.<br>
+          <span style="color:${LC.textDim};font-size:9px;">Shields may now be raised.</span>
+        </div>`),
+      speaker: ChatMessage.getSpeaker({ token: shipToken.document }),
+    });
+  }
 
   game.sta2eToolkit?.combatHud?._refresh();
 }
@@ -17991,12 +18137,146 @@ export async function handleOfficerTaskResult(taskKey, shipActor, shipToken, off
   }
 }
 
+// ── In-card reroll die selection ─────────────────────────────────────────────
+//
+// Reroll abilities on the Working Results card arm themselves rather than opening
+// a dialog: the dice already drawn on the card become clickable, the chosen ones
+// tint yellow, and an inline tray offers Confirm / Cancel. Selection is DOM-only;
+// nothing is written to the message until the reroll fires.
+//
+// Only one ability can be armed at a time across the whole chat log.
+
+let _cardArmedSelection = null;
+
+function _disarmCardSelection() {
+  const armed = _cardArmedSelection;
+  if (!armed) return;
+  _cardArmedSelection = null;
+  try { armed.selection?.teardown(); } catch (err) {
+    console.warn("STA2e Toolkit | die selection teardown failed:", err);
+  }
+  armed.tray?.remove();
+  for (const [btn, cssText, innerHTML] of armed.restore) {
+    // A button the ability spent (disabled, relabelled "Used"/"✓ Rerolled") keeps
+    // its spent look — only the armed/dimmed styling is rolled back.
+    if (btn.disabled) continue;
+    btn.style.cssText = cssText;
+    btn.innerHTML     = innerHTML;
+  }
+}
+
+/**
+ * Arm an in-card ability so the player can pick dice directly on the chat card.
+ *
+ * @param {HTMLElement} html      the rendered chat message element
+ * @param {object}      opts
+ * @param {HTMLElement} opts.armBtn       the ability button that was clicked
+ * @param {Array<{pool:string,index:number}>} opts.eligible dice that may be picked
+ * @param {string}      opts.hint          instruction line shown in the tray
+ * @param {string}      opts.confirmLabel  tray confirm button label
+ * @param {boolean}     [opts.multi]       allow multiple dice
+ * @param {number}      [opts.max]         selection cap when multi
+ * @param {Function}    opts.onConfirm     async (selected) => false to stay armed
+ */
+function _armCardSelection(html, {
+  armBtn, eligible, hint, confirmLabel, multi = false, max = 1, onConfirm,
+}) {
+  // Clicking the armed ability again disarms it.
+  if (_cardArmedSelection?.armBtn === armBtn) { _disarmCardSelection(); return; }
+  _disarmCardSelection();
+
+  if (!eligible.length) {
+    ui.notifications.warn("No eligible dice to reroll.");
+    return;
+  }
+
+  const siblings = Array.from(html.querySelectorAll(".sta2e-player-reroll, .sta2e-make-own-luck"));
+  const restore  = siblings.map(btn => [btn, btn.style.cssText, btn.innerHTML]);
+
+  for (const btn of siblings) {
+    if (btn === armBtn) continue;
+    btn.style.opacity = "0.4";
+  }
+  // The armed ability, the tray and the selected dice all read yellow, so it is
+  // obvious which ability the highlighted dice belong to.
+  armBtn.style.background  = "rgba(255,255,255,0.06)";
+  armBtn.style.borderColor = LC.yellow;
+  armBtn.style.color       = LC.yellow;
+  armBtn.innerHTML = `▶ ${armBtn.innerHTML}`;
+
+  const btnStyle = (accent, strong) => `flex:1;padding:5px 8px;
+    background:${strong ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)"};
+    border:1px solid ${accent};border-radius:2px;cursor:pointer;
+    font-family:${LC.font};font-size:10px;font-weight:700;
+    color:${accent};letter-spacing:0.06em;`;
+
+  const tray = document.createElement("div");
+  tray.className = "sta2e-reroll-tray";
+  tray.style.cssText = `margin-top:5px;padding:5px 6px;
+    background:rgba(255,255,255,0.04);border:1px solid ${LC.yellow};
+    border-radius:2px;font-family:${LC.font};`;
+  tray.innerHTML = `
+    <div style="font-size:8px;color:${LC.yellow};letter-spacing:0.08em;
+      text-transform:uppercase;margin-bottom:5px;text-align:center;">${hint}</div>
+    <div style="display:flex;gap:5px;">
+      <button type="button" class="sta2e-tray-confirm" style="${btnStyle(LC.yellow, true)}">${confirmLabel}</button>
+      <button type="button" class="sta2e-tray-cancel" style="${btnStyle(LC.textDim, false)}">Cancel</button>
+    </div>`;
+  (armBtn.closest(".sta2e-working-actions") ?? armBtn.parentElement).appendChild(tray);
+
+  const confirmBtn = tray.querySelector(".sta2e-tray-confirm");
+  const cancelBtn  = tray.querySelector(".sta2e-tray-cancel");
+
+  const setConfirmEnabled = (enabled, count) => {
+    confirmBtn.disabled     = !enabled;
+    confirmBtn.style.opacity = enabled ? "1" : "0.4";
+    confirmBtn.style.cursor  = enabled ? "pointer" : "default";
+    confirmBtn.textContent   = multi && count > 0 ? `${confirmLabel} (${count})` : confirmLabel;
+  };
+
+  const selection = wireCardDieSelection(html, {
+    eligible, multi, max,
+    onChange: sel => setConfirmEnabled(sel.length > 0, sel.length),
+  });
+
+  _cardArmedSelection = { armBtn, tray, selection, restore };
+
+  let busy = false;
+  confirmBtn.addEventListener("click", async () => {
+    if (busy || confirmBtn.disabled) return;
+    const selected = selection.getSelected();
+    if (!selected.length) return;
+    busy = true;
+    confirmBtn.disabled = true;
+    confirmBtn.style.opacity = "0.4";
+    try {
+      const outcome = await onConfirm(selected);
+      if (outcome === false) {
+        busy = false;
+        setConfirmEnabled(true, selected.length);
+        return;
+      }
+      _disarmCardSelection();
+    } catch (err) {
+      console.error("STA2e Toolkit | in-card reroll failed:", err);
+      ui.notifications.error("Reroll failed — see console.");
+      busy = false;
+      setConfirmEnabled(true, selected.length);
+    }
+  });
+
+  cancelBtn.addEventListener("click", () => _disarmCardSelection());
+}
+
 // ── renderChatMessageHTML hook ───────────────────────────────────────────────
 // v13: passes (message, htmlElement) — no jQuery wrapper
 // Ground injury buttons are visible to ALL users (players choose to avoid/take).
 // Ship damage buttons are GM-only.
 
 Hooks.on("renderChatMessageHTML", (message, html) => {
+  // A re-render replaces the card DOM — drop any selection armed on the old nodes.
+  if (_cardArmedSelection && !_cardArmedSelection.armBtn.isConnected) _cardArmedSelection = null;
+
   const toolkitFlags = message.flags?.["sta2e-toolkit"] ?? {};
 
   if (toolkitFlags.playerRollCard || toolkitFlags.assistCard) {
@@ -18702,156 +18982,136 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return;
         }
 
-        const makeDieLabel = (d, i) => {
-          const pip = diePipHtml(d, i, "picker");
-          return `<label style="display:flex;gap:8px;align-items:center;padding:4px 6px;cursor:pointer;
-            border:1px solid ${LC.borderDim};border-radius:2px;background:${LC.panel};">
-            <input type="radio" name="luck-die" value="${i}"
-              style="cursor:pointer;accent-color:${LC.primary};flex-shrink:0;"/>
-            ${pip}
-          </label>`;
-        };
-        const choice = failedDice.length === 1
-          ? failedDice[0].i
-          : await foundry.applications.api.DialogV2.wait({
-              window: { title: `${payload.makeYourOwnLuckSource ?? "Make Your Own Luck"} - Select Die` },
-              content: `<div style="padding:6px 10px;font-family:${LC.font};">
-                <p style="font-size:11px;color:${LC.textDim};margin-bottom:8px;">
-                  Suffer 1 Stress to change one failed task die to ${payload.crewTarget ?? "the target"}.
-                </p>
-                <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                  ${failedDice.map(({ d, i }) => makeDieLabel(d, i)).join("")}
-                </div>
-              </div>`,
-              buttons: [
-                {
-                  action: "confirm",
-                  label: "Use Talent",
-                  icon: "fas fa-bolt",
-                  default: true,
-                  callback: (_event, _button, dlg) => {
-                    const input = dlg.element.querySelector("input[name='luck-die']:checked");
-                    return input ? parseInt(input.value, 10) : null;
-                  },
-                },
-                { action: "cancel", label: "Cancel", icon: "fas fa-times" },
-              ],
-            });
-        if (choice === null || choice === undefined || choice === "cancel") return;
-
-        const actor = payload.actorId
-          ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(payload.actorId))
-          : null;
-        const canApplyStressDirect = !!(
-          game.user.isGM
-          || actor?.canUserModify?.(game.user, "update")
-          || actor?.isOwner
-        );
-        let stressAlreadyApplied = false;
-        let stressResult = null;
-        if (canApplyStressDirect) {
-          try {
-            stressResult = await _applyMakeYourOwnLuckStress(actor);
-            stressAlreadyApplied = !!stressResult;
-          } catch (err) {
-            if (game.user.isGM) throw err;
-            console.warn("STA2e Toolkit | Make Your Own Luck direct stress update failed; asking GM client.", err);
-            stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
-            stressAlreadyApplied = false;
-          }
-        } else {
-          stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
-        }
-        if (!stressResult) return;
-
-        const target = Math.min(20, Math.max(1, Number(payload.crewTarget ?? 1) || 1));
-        const compThresh = payload.compThresh ?? 20;
-        const critThresh = payload.crewCritThresh ?? 1;
-        const newCrewDice = [...(payload.crewDice ?? [])];
-        const changedDie = {
-          ...(newCrewDice[choice] ?? {}),
-          value: target,
-          success: true,
-          crit: target <= critThresh,
-          complication: target >= compThresh,
-          critThreshold: critThresh,
-          makeYourOwnLuckForced: true,
-        };
-        newCrewDice[choice] = changedDie;
-
-        const countCrewSuccesses = (dice = []) => dice.reduce((sum, die) => {
-          if (!die?.success) return sum;
-          return sum + (die.crit ? 2 : 1);
-        }, 0);
-        let newRollData = {
-          ...payload,
-          crewDice: newCrewDice,
-          crewFailed: (countCrewSuccesses(newCrewDice) + _rollResultAutoSuccesses(payload)) === 0,
-          makeYourOwnLuckUsed: true,
-          makeYourOwnLuckDieIndex: choice,
-          makeYourOwnLuckStress: stressResult,
-        };
-
-        if (!newRollData.crewFailed && newRollData.shipAssist && (newRollData.shipDice?.length ?? 0) === 0) {
-          const shipTarget = newRollData.shipTarget ?? 11;
-          const shipCritThresh = newRollData.shipCritThresh ?? 1;
-          const shipDiceCount = newRollData.advancedSensorsActive ? 2 : 1;
-          newRollData.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(newRollData);
-          if (newRollData.communicationsOfficerShipAssistActive) {
-            newRollData.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
-          } else if (newRollData.reservePower) {
-            const forced = {
-              value: 1,
-              success: true,
-              crit: true,
-              complication: false,
-              critThreshold: shipCritThresh,
-              reservePowerForced: true,
-            };
-            const rest = shipDiceCount > 1
-              ? rollPool(shipDiceCount - 1, shipTarget, compThresh, shipCritThresh)
-                .map(d => ({ ...d, reservePowerComp: d.complication }))
-              : [];
-            newRollData.shipDice = [forced, ...rest];
+        const applyLuck = async (choice) => {
+          const actor = payload.actorId
+            ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(payload.actorId))
+            : null;
+          const canApplyStressDirect = !!(
+            game.user.isGM
+            || actor?.canUserModify?.(game.user, "update")
+            || actor?.isOwner
+          );
+          let stressAlreadyApplied = false;
+          let stressResult = null;
+          if (canApplyStressDirect) {
+            try {
+              stressResult = await _applyMakeYourOwnLuckStress(actor);
+              stressAlreadyApplied = !!stressResult;
+            } catch (err) {
+              if (game.user.isGM) throw err;
+              console.warn("STA2e Toolkit | Make Your Own Luck direct stress update failed; asking GM client.", err);
+              stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
+              stressAlreadyApplied = false;
+            }
           } else {
-            newRollData.shipDice = rollPool(shipDiceCount, shipTarget, compThresh, shipCritThresh);
+            stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
           }
-          const diceToShow = (newRollData.shipDice ?? []).filter(d => !d.communicationsOfficerForced);
-          if (diceToShow.length) {
-            const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
-            const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
-            await dsnShowPool(diceToShow, speaker);
-          }
-        }
+          // Stress refused — leave the selection armed so the player can retry.
+          if (!stressResult) return false;
 
-        btn.disabled = true;
-        btn.style.opacity = "0.5";
-        btn.style.cursor = "default";
-        btn.textContent = "Used";
-        const canUpdateMessageDirect = game.user.isGM || message.author?.id === game.user.id;
-        const emitMakeYourOwnLuckUpdate = () => {
-          game.socket.emit("module.sta2e-toolkit", {
-            action: "applyMakeYourOwnLuckTaskRoll",
-            messageId: message.id,
-            requesterUserId: game.user.id,
-            newRollData,
-            stressAlreadyApplied,
-          });
-        };
-        if (canUpdateMessageDirect && stressAlreadyApplied) {
-          try {
-            await message.update({
-              content: buildPlayerRollCardHtml(newRollData),
-              "flags.sta2e-toolkit.rollData": newRollData,
+          const target = Math.min(20, Math.max(1, Number(payload.crewTarget ?? 1) || 1));
+          const compThresh = payload.compThresh ?? 20;
+          const critThresh = payload.crewCritThresh ?? 1;
+          const newCrewDice = [...(payload.crewDice ?? [])];
+          const changedDie = {
+            ...(newCrewDice[choice] ?? {}),
+            value: target,
+            success: true,
+            crit: target <= critThresh,
+            complication: target >= compThresh,
+            critThreshold: critThresh,
+            makeYourOwnLuckForced: true,
+          };
+          newCrewDice[choice] = changedDie;
+
+          const countCrewSuccesses = (dice = []) => dice.reduce((sum, die) => {
+            if (!die?.success) return sum;
+            return sum + (die.crit ? 2 : 1);
+          }, 0);
+          let newRollData = {
+            ...payload,
+            crewDice: newCrewDice,
+            crewFailed: (countCrewSuccesses(newCrewDice) + _rollResultAutoSuccesses(payload)) === 0,
+            makeYourOwnLuckUsed: true,
+            makeYourOwnLuckDieIndex: choice,
+            makeYourOwnLuckStress: stressResult,
+          };
+
+          if (!newRollData.crewFailed && newRollData.shipAssist && (newRollData.shipDice?.length ?? 0) === 0) {
+            const shipTarget = newRollData.shipTarget ?? 11;
+            const shipCritThresh = newRollData.shipCritThresh ?? 1;
+            const shipDiceCount = newRollData.advancedSensorsActive ? 2 : 1;
+            newRollData.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(newRollData);
+            if (newRollData.communicationsOfficerShipAssistActive) {
+              newRollData.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
+            } else if (newRollData.reservePower) {
+              const forced = {
+                value: 1,
+                success: true,
+                crit: true,
+                complication: false,
+                critThreshold: shipCritThresh,
+                reservePowerForced: true,
+              };
+              const rest = shipDiceCount > 1
+                ? rollPool(shipDiceCount - 1, shipTarget, compThresh, shipCritThresh)
+                  .map(d => ({ ...d, reservePowerComp: d.complication }))
+                : [];
+              newRollData.shipDice = [forced, ...rest];
+            } else {
+              newRollData.shipDice = rollPool(shipDiceCount, shipTarget, compThresh, shipCritThresh);
+            }
+            const diceToShow = (newRollData.shipDice ?? []).filter(d => !d.communicationsOfficerForced);
+            if (diceToShow.length) {
+              const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
+              const speaker = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
+              await dsnShowPool(diceToShow, speaker);
+            }
+          }
+
+          btn.disabled = true;
+          btn.style.opacity = "0.5";
+          btn.style.cursor = "default";
+          btn.textContent = "Used";
+          const canUpdateMessageDirect = game.user.isGM || message.author?.id === game.user.id;
+          const emitMakeYourOwnLuckUpdate = () => {
+            game.socket.emit("module.sta2e-toolkit", {
+              action: "applyMakeYourOwnLuckTaskRoll",
+              messageId: message.id,
+              requesterUserId: game.user.id,
+              newRollData,
+              stressAlreadyApplied,
             });
-          } catch (err) {
-            if (game.user.isGM) throw err;
-            console.warn("STA2e Toolkit | Make Your Own Luck direct card update failed; asking GM client.", err);
+          };
+          if (canUpdateMessageDirect && stressAlreadyApplied) {
+            try {
+              await message.update({
+                content: buildPlayerRollCardHtml(newRollData),
+                "flags.sta2e-toolkit.rollData": newRollData,
+              });
+            } catch (err) {
+              if (game.user.isGM) throw err;
+              console.warn("STA2e Toolkit | Make Your Own Luck direct card update failed; asking GM client.", err);
+              emitMakeYourOwnLuckUpdate();
+            }
+          } else {
             emitMakeYourOwnLuckUpdate();
           }
-        } else {
-          emitMakeYourOwnLuckUpdate();
+        };
+
+        // Only one failed die — no selection step needed.
+        if (failedDice.length === 1) {
+          await applyLuck(failedDice[0].i);
+          return;
         }
+
+        _armCardSelection(html, {
+          armBtn: btn,
+          eligible: failedDice.map(({ i }) => ({ pool: "crew", index: i })),
+          hint: `${payload.makeYourOwnLuckSource ?? "Make Your Own Luck"} — click one failed die to change to ${payload.crewTarget ?? "the target"} (1 Stress)`,
+          confirmLabel: "⚡ Use Talent",
+          onConfirm: async ([pick]) => applyLuck(pick.index),
+        });
       } catch (err) {
         console.error("STA2e Toolkit | Make Your Own Luck error:", err);
         ui.notifications.error("Make Your Own Luck failed - see console.");
@@ -18940,88 +19200,50 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return { rollData: nextRollData, newShipDice: [...nextRollData.shipDice] };
         };
 
-        // Technical Expertise: pick ONE die from crew OR ship pool
+        // Technical Expertise: pick ONE die from crew OR ship pool, on the card
         if (isTechExpertise) {
-          if (crewDice.length === 0 && (payload.shipDice ?? []).length === 0) {
+          const teEligible = [
+            ...crewDice.map((_d, i) => ({ pool: "crew", index: i })),
+            ...(payload.shipDice ?? [])
+              .map((d, i) => ({ d, i }))
+              .filter(({ d }) => !d.communicationsOfficerForced)
+              .map(({ i }) => ({ pool: "ship", index: i })),
+          ];
+          if (teEligible.length === 0) {
             ui.notifications.warn("No dice to reroll.");
             return;
           }
-          const makeDieLabel = (d, pool, i) => {
-            const pip = diePipHtml(d, i, "picker");
-            return `<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 5px;
-              cursor:pointer;border:1px solid ${LC.borderDim};border-radius:2px;background:${LC.panel};">
-              <input type="radio" name="reroll-die" value="${pool}:${i}"
-                style="cursor:pointer;accent-color:${LC.secondary};flex-shrink:0;"/>
-              ${pip}
-            </label>`;
-          };
-          const crewSection = crewDice.length > 0 ? `
-            <div style="margin-bottom:8px;">
-              <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;
-                letter-spacing:0.1em;border-bottom:1px solid ${LC.borderDim};
-                padding-bottom:3px;margin-bottom:5px;">
-                👤 Crew Dice
-              </div>
-              <div style="display:flex;flex-wrap:wrap;gap:5px;">
-                ${crewDice.map((d, i) => makeDieLabel(d, "crew", i)).join("")}
-              </div>
-            </div>` : "";
-          const teShipDice = (payload.shipDice ?? []).map((d, i) => ({ d, i }))
-            .filter(({ d }) => !d.communicationsOfficerForced);
-          const shipSection = teShipDice.length > 0 ? `
-            <div>
-              <div style="font-size:8px;color:${LC.secondary};text-transform:uppercase;
-                letter-spacing:0.1em;border-bottom:1px solid ${LC.borderDim};
-                padding-bottom:3px;margin-bottom:5px;">
-                🚀 Ship Dice
-              </div>
-              <div style="display:flex;flex-wrap:wrap;gap:5px;">
-                ${teShipDice.map(({ d, i }) => makeDieLabel(d, "ship", i)).join("")}
-              </div>
-            </div>` : "";
-          const teResult = await foundry.applications.api.DialogV2.wait({
-            window: { title: `${abilityLabel} — Select Die to Reroll` },
-            content: `<div style="padding:6px 10px;font-family:${LC.font};">
-              <p style="font-size:11px;color:${LC.textDim};margin-bottom:10px;">
-                Select one die to reroll (Computers / Sensors only):
-              </p>
-              ${crewSection}${shipSection}
-            </div>`,
-            buttons: [
-              {
-                action: "confirm", label: "Reroll", icon: "fas fa-dice", default: true,
-                callback: (_e, _b, dlg) => {
-                  const inp = dlg.element.querySelector("input[name='reroll-die']:checked");
-                  return inp ? inp.value : null;
-                },
-              },
-              { action: "cancel", label: "Cancel", icon: "fas fa-times" },
-            ],
-          });
-          if (!teResult || teResult === "cancel") return;
-          const [tePool, teIdxStr] = teResult.split(":");
-          const teIdx = parseInt(teIdxStr, 10);
-          const teTarget = tePool === "ship" ? (payload.shipTarget ?? 11) : crewTarget;
-          const [newDie] = rollPool(1, teTarget, payload.compThresh ?? 20, critThresh);
-          const newCrewDice = [...crewDice];
-          const newShipDice = [...(payload.shipDice ?? [])];
-          if (tePool === "ship") { newShipDice[teIdx] = newDie; }
-          else                  { newCrewDice[teIdx]  = newDie; }
-          let newRollData = { ...payload, crewDice: newCrewDice, shipDice: newShipDice, techExpertiseUsed: true };
-          let bonusShipDice = [];
-          if (tePool !== "ship") {
-            const synced = syncAssistStateAfterCrewReroll(newRollData);
-            newRollData = synced.rollData;
-            bonusShipDice = synced.newShipDice;
-          }
-          await dsnShowPool(
-            [newDie, ...bonusShipDice],
-            canvas.tokens?.get(payload.tokenId) ? ChatMessage.getSpeaker({ token: canvas.tokens.get(payload.tokenId) }) : null
-          );
-          btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "default"; btn.textContent = "✓ Rerolled";
-          await message.update({
-            content: buildPlayerRollCardHtml(newRollData),
-            "flags.sta2e-toolkit.rollData": newRollData,
+
+          _armCardSelection(html, {
+            armBtn: btn,
+            eligible: teEligible,
+            hint: `${abilityLabel} — click one die to reroll (Computers / Sensors only)`,
+            confirmLabel: "🎲 Reroll",
+            onConfirm: async ([pick]) => {
+              const tePool = pick.pool;
+              const teIdx  = pick.index;
+              const teTarget = tePool === "ship" ? (payload.shipTarget ?? 11) : crewTarget;
+              const [newDie] = rollPool(1, teTarget, payload.compThresh ?? 20, critThresh);
+              const newCrewDice = [...crewDice];
+              const newShipDice = [...(payload.shipDice ?? [])];
+              if (tePool === "ship") { newShipDice[teIdx] = newDie; }
+              else                  { newCrewDice[teIdx]  = newDie; }
+              let newRollData = { ...payload, crewDice: newCrewDice, shipDice: newShipDice, techExpertiseUsed: true };
+              let bonusShipDice = [];
+              if (tePool !== "ship") {
+                const synced = syncAssistStateAfterCrewReroll(newRollData);
+                newRollData = synced.rollData;
+                bonusShipDice = synced.newShipDice;
+              }
+              await dsnShowPool(
+                [newDie, ...bonusShipDice],
+                canvas.tokens?.get(payload.tokenId) ? ChatMessage.getSpeaker({ token: canvas.tokens.get(payload.tokenId) }) : null
+              );
+              await message.update({
+                content: buildPlayerRollCardHtml(newRollData),
+                "flags.sta2e-toolkit.rollData": newRollData,
+              });
+            },
           });
           return;
         }
@@ -19031,141 +19253,105 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return;
         }
 
-        // Build die picker — checkboxes for Determination or multi-reroll Aim; radio for single-die
-        const dieOptions = crewDice.map((d, i) => {
-          const pip = diePipHtml(d, i, "picker");  // renders d20 visual, no reroll hint (not a button)
-          return `<label style="display:flex;gap:8px;align-items:center;padding:4px 6px;cursor:pointer;
-            border:1px solid ${LC.borderDim};border-radius:2px;background:${LC.panel};">
-            <input type="${useCheckbox ? "checkbox" : "radio"}" name="reroll-die" value="${i}"
-              style="cursor:pointer;accent-color:${LC.secondary};flex-shrink:0;"/>
-            ${pip}
-          </label>`;
-        }).join("");
-
         const selectHint = isDet
-          ? "Select one or more dice to reroll:"
+          ? "click one or more dice to reroll"
           : isAim && aimRemaining > 1
-            ? `Select up to ${aimRemaining} dice to reroll:`
-            : "Select one die to reroll:";
+            ? `click up to ${aimRemaining} dice to reroll`
+            : "click one die to reroll";
 
-        const result = await foundry.applications.api.DialogV2.wait({
-          window: { title: `${abilityLabel} — Select Die to Reroll` },
-          content: `<div style="padding:6px 10px;font-family:${LC.font};">
-            <p style="font-size:11px;color:${LC.textDim};margin-bottom:8px;">${selectHint}</p>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;">${dieOptions}</div>
-          </div>`,
-          buttons: [
-            {
-              action: "confirm",
-              label:  "Reroll",
-              icon:   "fas fa-dice",
-              default: true,
-              callback: (_event, _btn, dlg) => {
-                const inputs = dlg.element.querySelectorAll("input[name='reroll-die']:checked");
-                return Array.from(inputs).map(inp => parseInt(inp.value));
-              },
-            },
-            { action: "cancel", label: "Cancel", icon: "fas fa-times" },
-          ],
-          render: (_event, dlg) => {
-            if (!(isAim && aimRemaining > 1)) return;
-            const inputs = Array.from(dlg.element.querySelectorAll("input[name='reroll-die']"));
-            const syncLimit = () => {
-              const checkedCount = inputs.filter(inp => inp.checked).length;
-              for (const inp of inputs) {
-                inp.disabled = !inp.checked && checkedCount >= aimRemaining;
-              }
+        const maxSelect = isDet
+          ? Math.max(1, crewDice.length)
+          : (isAim && aimRemaining > 1) ? aimRemaining : 1;
+
+        _armCardSelection(html, {
+          armBtn: btn,
+          eligible: crewDice.map((_d, i) => ({ pool: "crew", index: i })),
+          hint: `${abilityLabel} — ${selectHint}`,
+          confirmLabel: "🎲 Reroll",
+          multi: useCheckbox,
+          max: maxSelect,
+          onConfirm: async selected => {
+            const selectedIndices = selected.map(s => s.index);
+            const cappedIndices = isAim
+              ? selectedIndices.slice(0, Math.max(1, aimRemaining))
+              : selectedIndices;
+            if (isAim && selectedIndices.length > cappedIndices.length) {
+              ui.notifications.warn(`Aim allows rerolling up to ${aimRemaining} die${aimRemaining !== 1 ? "s" : ""}.`);
+            }
+
+            // Costs are paid before rerolling — a refusal leaves the selection armed.
+            if (isChiefEngineer) {
+              const paid = await _spendRollDataMomentumLike(payload, 1, "Chief Engineer reroll");
+              if (!paid) return false;
+            }
+            if (isAdaptAndExcel) {
+              const stressActorId = payload.officerActorId ?? payload.actorId ?? null;
+              const actor = stressActorId
+                ? (stressActorId === payload.actorId
+                  ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(stressActorId))
+                  : game.actors.get(stressActorId))
+                : null;
+              const stressResult = await _applyMakeYourOwnLuckStress(actor);
+              if (!stressResult) return false;
+            }
+
+            // Reroll each selected die index
+            const newCrewDice  = [...crewDice];
+            const rerolledDice = [];
+            for (const idx of cappedIndices) {
+              const [newDie] = rollPool(1, crewTarget, compThresh, critThresh);
+              newCrewDice[idx] = newDie;
+              rerolledDice.push(newDie);
+            }
+
+            // Show Dice So Nice animation for the rerolled dice
+            if (rerolledDice.length > 0) {
+              const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
+              const speaker  = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
+              await dsnShowPool(rerolledDice, speaker);
+            }
+
+            // Mark ability as used
+            const usedFlagMap = {
+              talent:        "talentRerollUsed",
+              advisor:       "advisorRerollUsed",
+              system:        "systemRerollUsed",
+              shipTalent:    "shipTalentRerollUsed",
+              detReroll:     "detRerollUsed",
+              ts:            "tsRerollUsed",
+              cs:            "csRerollUsed",
+              chiefEngineer:  "chiefEngineerRerollUsed",
+              adaptAndExcel:  "adaptAndExcelRerollUsed",
+              genericReroll: "genericRerollUsed",
             };
-            inputs.forEach(inp => inp.addEventListener("change", syncLimit));
-            syncLimit();
+            const usedFlag = usedFlagMap[ability] ?? null;
+
+            // Aim increments a counter by however many dice were actually rerolled
+            const selectedCount = cappedIndices.length;
+            const aimOverride = ability === "aim"
+              ? { aimRerollsUsed: (payload.aimRerollsUsed ?? 0) + selectedCount }
+              : {};
+
+            let newRollData = {
+              ...payload,
+              crewDice: newCrewDice,
+              ...(usedFlag ? { [usedFlag]: true } : {}),
+              ...aimOverride,
+            };
+            const synced = syncAssistStateAfterCrewReroll(newRollData);
+            newRollData = synced.rollData;
+
+            if (synced.newShipDice.length > 0) {
+              const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
+              const speaker  = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
+              await dsnShowPool(synced.newShipDice, speaker);
+            }
+
+            await message.update({
+              content: buildPlayerRollCardHtml(newRollData),
+              "flags.sta2e-toolkit.rollData": newRollData,
+            });
           },
-        });
-
-        if (!result || result === "cancel" || (Array.isArray(result) && result.length === 0)) return;
-
-        const selectedIndices = Array.isArray(result) ? result : [result];
-        const cappedIndices = isAim
-          ? selectedIndices.slice(0, Math.max(1, aimRemaining))
-          : selectedIndices;
-        if (isAim && selectedIndices.length > cappedIndices.length) {
-          ui.notifications.warn(`Aim allows rerolling up to ${aimRemaining} die${aimRemaining !== 1 ? "s" : ""}.`);
-        }
-
-        if (isChiefEngineer) {
-          const paid = await _spendRollDataMomentumLike(payload, 1, "Chief Engineer reroll");
-          if (!paid) return;
-        }
-        if (isAdaptAndExcel) {
-          const stressActorId = payload.officerActorId ?? payload.actorId ?? null;
-          const actor = stressActorId
-            ? (stressActorId === payload.actorId
-              ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(stressActorId))
-              : game.actors.get(stressActorId))
-            : null;
-          const stressResult = await _applyMakeYourOwnLuckStress(actor);
-          if (!stressResult) return;
-        }
-
-        // Reroll each selected die index
-        const newCrewDice  = [...crewDice];
-        const rerolledDice = [];
-        for (const idx of cappedIndices) {
-          const [newDie] = rollPool(1, crewTarget, compThresh, critThresh);
-          newCrewDice[idx] = newDie;
-          rerolledDice.push(newDie);
-        }
-
-        // Show Dice So Nice animation for the rerolled dice
-        if (rerolledDice.length > 0) {
-          const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
-          const speaker  = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
-          await dsnShowPool(rerolledDice, speaker);
-        }
-
-        // Mark ability as used
-        const usedFlagMap = {
-          talent:        "talentRerollUsed",
-          advisor:       "advisorRerollUsed",
-          system:        "systemRerollUsed",
-          shipTalent:    "shipTalentRerollUsed",
-          detReroll:     "detRerollUsed",
-          ts:            "tsRerollUsed",
-          cs:            "csRerollUsed",
-          chiefEngineer:  "chiefEngineerRerollUsed",
-          adaptAndExcel:  "adaptAndExcelRerollUsed",
-          genericReroll: "genericRerollUsed",
-        };
-        const usedFlag = usedFlagMap[ability] ?? null;
-
-        // Aim increments a counter by however many dice were actually rerolled
-        const selectedCount = cappedIndices.length;
-        const aimOverride = ability === "aim"
-          ? { aimRerollsUsed: (payload.aimRerollsUsed ?? 0) + selectedCount }
-          : {};
-
-        let newRollData = {
-          ...payload,
-          crewDice: newCrewDice,
-          ...(usedFlag ? { [usedFlag]: true } : {}),
-          ...aimOverride,
-        };
-        const synced = syncAssistStateAfterCrewReroll(newRollData);
-        newRollData = synced.rollData;
-
-        btn.disabled      = true;
-        btn.style.opacity = "0.5";
-        btn.style.cursor  = "default";
-        btn.textContent   = "✓ Rerolled";
-
-        if (synced.newShipDice.length > 0) {
-          const tokenObj = canvas.tokens?.get(payload.tokenId) ?? null;
-          const speaker  = tokenObj ? ChatMessage.getSpeaker({ token: tokenObj }) : null;
-          await dsnShowPool(synced.newShipDice, speaker);
-        }
-
-        await message.update({
-          content: buildPlayerRollCardHtml(newRollData),
-          "flags.sta2e-toolkit.rollData": newRollData,
         });
       } catch(err) {
         console.error("STA2e Toolkit | player reroll error:", err);
@@ -21102,70 +21288,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           btn.style.borderColor = LC.green;
           if (towToggle) towToggle.disabled = true;
 
-          // Flag both tokens
-          await CombatHUD.engageTractorBeam(sourceTok, targetTok, { towTarget });
-
-          // Remove any glow left by a tractor lock created before native PIXI
-          // rendering replaced the source-token filter.
-          try { await TokenMagic.deleteFilters(sourceTok, "tractorBeam"); } catch { /* optional */ }
-
-          // Play the configured persistent tractor beam effect.
-          await CombatHUD.playTractorBeamEffect(sourceTok, targetTok);
-
-          if (towTarget) {
-            // Snap target to behind the source immediately. Call it again after a
-            // short delay because Foundry may grid-snap the first update.
-            const snapBehind = async (animate = true) => {
-              const gridSize = canvas.grid?.size ?? 100;
-              const srcW     = (sourceTok.document.width  ?? 1) * gridSize;
-              const srcH     = (sourceTok.document.height ?? 1) * gridSize;
-              const tgtW     = (targetTok.document.width  ?? 1) * gridSize;
-              const tgtH     = (targetTok.document.height ?? 1) * gridSize;
-              const srcRot   = sourceTok.document.rotation ?? 0;
-              const towDist  = srcW * 0.5 + tgtW * 0.5 + gridSize * 0.2;
-              const rotRad   = (srcRot * Math.PI) / 180;
-              const behindX  = (sourceTok.x + srcW / 2) + Math.sin(rotRad) * towDist - tgtW / 2;
-              const behindY  = (sourceTok.y + srcH / 2) - Math.cos(rotRad) * towDist - tgtH / 2;
-              await targetTok.document.update({ x: behindX, y: behindY, rotation: srcRot },
-                { animate }).catch(() => {});
-            };
-            await snapBehind(false);
-            // Attach after the second snap so Token Attacher captures the final
-            // behind-host offset and handles subsequent movement natively.
-            setTimeout(async () => {
-              await snapBehind(false);
-              if (_taAvailable()) {
-                try {
-                  await window.tokenAttacher.attachElementToToken(targetTok, sourceTok, true);
-                  // Record that TA is managing movement so the hook fallback skips this pair.
-                  await sourceTok.document.setFlag("sta2e-toolkit", "tractorBeam", {
-                    ...sourceTok.document.getFlag("sta2e-toolkit", "tractorBeam"),
-                    usesTA: true,
-                  });
-                } catch(e) { console.warn("STA2e | TA attach failed:", e); }
-              }
-            }, 300);
-          }
-
-          ChatMessage.create({
-            content: lcarsCard("🔗 TRACTOR BEAM ACTIVE", LC.primary, `
-              <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-                margin-bottom:4px;font-family:${LC.font};">${payload.sourceName}</div>
-              <div style="font-size:13px;color:${LC.primary};font-weight:700;
-                font-family:${LC.font};margin-bottom:4px;">
-                🔗 ${payload.targetName} locked in tractor beam
-              </div>
-              <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};line-height:1.5;">
-                ${towTarget
-                  ? "Target follows source token movement."
-                  : "Visual tractor lock established; target is not attached or moved."}
-                Break-free: Engines + Conn vs Difficulty ${payload.tractorStr}.
-                Release manually via the Tractor Beam action or the HUD status badge.
-              </div>`),
-            speaker: { alias: "STA2e Toolkit" },
-          });
-
-          game.sta2eToolkit?.combatHud?._refresh?.();
+          await applyTractorBeamLock(sourceTok, targetTok, { towTarget });
 
         } catch(err) {
           console.error("STA2e Toolkit | Tractor beam engage:", err);
@@ -21181,21 +21304,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           const payload   = JSON.parse(decodeURIComponent(btn.dataset.payload));
           const sourceTok = canvas.tokens?.get(payload.sourceTokenId);
           const targetTok = canvas.tokens?.get(payload.targetTokenId);
-          await CombatHUD.releaseTractorBeam(sourceTok, targetTok);
           btn.textContent  = "✕ Released";
           btn.style.opacity = "0.5";
           const engageBtn = btn.parentElement?.querySelector(".sta2e-tractor-engage");
           if (engageBtn) { engageBtn.disabled = true; engageBtn.style.opacity = "0.4"; }
-          ChatMessage.create({
-            content: lcarsCard("🔗 TRACTOR BEAM RELEASED", LC.textDim, `
-              <div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-                margin-bottom:4px;font-family:${LC.font};">${payload.sourceName}</div>
-              <div style="font-size:13px;color:${LC.text};font-family:${LC.font};">
-                Tractor beam disengaged from ${payload.targetName}.
-              </div>`),
-            speaker: { alias: "STA2e Toolkit" },
-          });
-          game.sta2eToolkit?.combatHud?._refresh?.();
+
+          await applyTractorBeamRelease(sourceTok, targetTok);
         } catch(err) {
           console.error("STA2e Toolkit | Tractor release:", err);
         }

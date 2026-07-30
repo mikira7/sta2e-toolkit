@@ -35,6 +35,7 @@ export function findRoleAbilityTalent(actor, names = []) {
 }
 
 export function hasCloakingDevice(actor) {
+  if (!actor?.items) return false;
   return actor.items.some(i =>
     i.name.toLowerCase().includes("cloaking device")
   );

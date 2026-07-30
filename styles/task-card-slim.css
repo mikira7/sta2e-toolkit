@@ -1,0 +1,271 @@
+/*
+ * sta2e-toolkit | task-card-slim.css
+ *
+ * Geometry for the slim LCARS task-roll card skin (scripts/task-card-slim.js).
+ * Colours come from the --tc-* custom properties the renderer stamps on the
+ * root via getLcCssVars("tc"), so all eight era/faction themes are covered
+ * without a rule per theme.
+ *
+ * ── Two hard rules ───────────────────────────────────────────────────────────
+ * 1. NO `!important` anywhere in this file. The card's buttons and dice are
+ *    inline-styled on purpose (see the header comment in task-card-slim.js):
+ *    _armCardSelection() in combat/combat-hud-core.js round-trips a button
+ *    through `style.cssText` when a reroll is armed and disarmed, and it paints
+ *    dice via el.style.*. Stylesheet declarations that outrank those inline
+ *    styles would leave buttons stuck looking armed and dice stuck highlighted.
+ * 2. Never set background / border-color / color / opacity on
+ *    .sta2e-player-reroll or .sta2e-make-own-luck — combat-hud-core.js owns
+ *    those four properties while an ability is armed. Hover below therefore
+ *    uses only filter and box-shadow, which nothing sets inline.
+ */
+
+.sta2e-slim-task-card {
+  position: relative;
+  overflow: hidden;
+  padding-left: 13px;
+  background: var(--tc-bg);
+  border: 1px solid var(--tc-border);
+  border-radius: 16px 3px 3px 16px;
+  font-family: var(--tc-font);
+  color: var(--tc-text);
+}
+
+/* Absolute, not a grid row-span: section count varies and non-owners lose whole
+   sections, so a top:0/bottom:0 bar is the only layout immune to that. */
+.tcs-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  border-radius: 14px 0 0 14px;
+  background: linear-gradient(
+    180deg,
+    var(--tc-primary) 0 38%,
+    var(--tc-secondary) 38% 68%,
+    var(--tc-tertiary) 68% 100%
+  );
+}
+
+/* Faint scanline wash over the whole card. pointer-events:none so it never
+   intercepts a click meant for a die or a button. */
+.sta2e-slim-task-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.14;
+  mix-blend-mode: screen;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.035) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+/* ── Elbow header ─────────────────────────────────────────────────────────── */
+/* Negative left margin pulls the bar out over the spine so the two read as one
+   continuous LCARS elbow. --tcs-a is the per-card accent (primary / secondary /
+   pass / fail) set inline by the renderer. */
+.tcs-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -13px;
+  padding: 2px 8px 2px 15px;
+  background: var(--tcs-a);
+  color: var(--tc-bg);
+  border-radius: 0 3px 12px 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tcs-head-cap {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 9px;
+  background: var(--tc-bg);
+  border-radius: 0 0 7px 0;
+  opacity: 0.55;
+}
+
+.tcs-head-title {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tcs-head-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  opacity: 0.78;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tcs-head-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  opacity: 0.8;
+  font-size: 8px;
+}
+
+/* ── Dice rows ────────────────────────────────────────────────────────────── */
+/* flex-wrap means a large pool drops to its own line in a narrow sidebar rather
+   than squashing the label — no media query needed. */
+.tcs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 6px 2px 0;
+  border-top: 1px solid var(--tc-border-dim);
+}
+
+.tcs-row-label {
+  flex: 1 1 90px;
+  min-width: 0;
+  font-size: 8px;
+  line-height: 1.25;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tc-text-dim);
+}
+
+.tcs-row-sub {
+  display: block;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+
+.tcs-row-dice {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+/* ── Resource rows ────────────────────────────────────────────────────────── */
+.tcs-row--res .tcs-res {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Note chips ───────────────────────────────────────────────────────────── */
+.tcs-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+  padding: 3px 6px 3px 0;
+  border-top: 1px solid var(--tc-border-dim);
+}
+
+.tcs-note {
+  padding: 0 6px;
+  border-radius: 7px;
+  font-size: 8px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tc-secondary);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 0 1px var(--tc-border-dim);
+}
+
+.tcs-note--bonus {
+  color: var(--tc-tertiary);
+}
+
+.tcs-note--trait {
+  color: var(--tc-text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ── Segmented rule ───────────────────────────────────────────────────────── */
+.tcs-rule {
+  height: 1px;
+  margin: 1px 0;
+  background: linear-gradient(
+    90deg,
+    var(--tc-primary) 0 20px,
+    var(--tc-border-dim) 20px 100%
+  );
+}
+
+/* ── Stat pills ───────────────────────────────────────────────────────────── */
+/* --tcs-v is the per-cell colour, set inline from the same statCells array the
+   classic grid uses, so the 4-vs-5 column logic carries over untouched. */
+.tcs-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 6px 3px 0;
+}
+
+.tcs-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 1px var(--tcs-v);
+}
+
+.tcs-pill em {
+  font-size: 7px;
+  font-style: normal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tc-text-dim);
+}
+
+.tcs-pill b {
+  font-size: 11px;
+  line-height: 17px;
+  font-weight: 700;
+  color: var(--tcs-v);
+}
+
+.tcs-pill--result b {
+  letter-spacing: 0.1em;
+}
+
+/* ── Action rows ──────────────────────────────────────────────────────────── */
+/* The flex lives here and never on .sta2e-working-actions itself — the reroll
+   tray is appended to the wrapper, and must land below the buttons. */
+.tcs-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Hover: filter + box-shadow only, so it works over the buttons' inline styles
+   and does not fight the armed state. See rule 2 in the header comment. */
+.sta2e-slim-task-card button:hover:not(:disabled) {
+  filter: brightness(1.28);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.14);
+}
+
+.sta2e-slim-task-card button:disabled {
+  cursor: default;
+}
+
+/* Popped-out chat has the width to keep label and dice on one line. */
+.chat-popout .sta2e-slim-task-card .tcs-row {
+  flex-wrap: nowrap;
+}
+
+/* ENT-panel's primary is near-white; ease the tracking so the dark-on-light
+   elbow text stays legible. */
+.sta2e-slim-task-card[data-theme="ent-panel"] .tcs-head {
+  letter-spacing: 0.12em;
+}

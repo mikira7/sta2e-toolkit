@@ -857,6 +857,25 @@ export function registerSettings() {
     default: true,
   });
 
+  // ── Task roll card style ─────────────────────────────────────────────────
+  // classic → the original full-height Working Results card
+  // slim    → same content, LCARS chrome: elbow header, left spine, pill stats
+  // Read at render time in buildPlayerRollCardHtml. Cards store their rendered
+  // HTML, so an existing card keeps the skin it was posted with until something
+  // (reroll / assist / edit / confirm) rebuilds it.
+  game.settings.register("sta2e-toolkit", "taskCardStyle", {
+    name:    "Task Roll Card Style",
+    hint:    "Visual skin for the interactive Working Results task-roll chat card. Classic is the original full-height layout. Slim keeps every section but packs it into LCARS chrome — elbow header, left spine, pill stat readout, smaller dice. Cards already in the chat log keep the style they were posted with.",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      classic: "Classic (full height)",
+      slim:    "Slim LCARS (experimental)",
+    },
+    default: "classic",
+  });
+
   // ── Character sheet roller override ──────────────────────────────────────
   game.settings.register("sta2e-toolkit", "overrideSheetRoller", {
     name:    "STA2E.Settings.OverrideSheetRoller.Name",

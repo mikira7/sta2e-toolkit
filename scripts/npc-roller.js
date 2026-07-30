@@ -34,6 +34,7 @@ import {
   findChiefOfSecurityTalent,
   hasChiefTacticalOfficer,
 } from "./combat/combat-definitions.js";
+import { renderSlimTaskCard } from "./task-card-slim.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -611,6 +612,147 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
   }
 
   return `<div title="${tooltip}" style="${wrapStyle}">${inner}</div>`;
+}
+
+// ── In-card die selection (Working Results chat card) ─────────────────────────
+//
+// The chat card's dice are tagged `.sta2e-card-die[data-pool][data-index]` by the
+// diceRow renderer in buildPlayerRollCardHtml. Reroll abilities on the card arm
+// themselves and then let the player click those dice directly — no dialog, no
+// radio buttons. Selection lives purely in the DOM; nothing is written to the
+// message until the reroll actually fires.
+//
+// The d20 backdrop is Foundry's icons/svg/d20-grey.svg — a single #AAAAAA path on
+// a transparent background — so a sepia+saturate filter chain tints it gold. The
+// era theme's LC.yellow comes through in the glow, outline and box-shadow.
+
+/**
+ * Paint a card die in one of three states.
+ * @param {HTMLElement} el     the `.sta2e-card-die` wrapper span
+ * @param {"idle"|"eligible"|"selected"|"capped"} state
+ */
+export function setCardDieState(el, state) {
+  if (!el) return;
+  const img = el.querySelector("img");
+  switch (state) {
+    case "selected":
+      el.style.cursor     = "pointer";
+      el.style.outline    = `1px solid ${LC.yellow}`;
+      el.style.boxShadow  = `0 0 6px ${LC.yellow}`;
+      el.style.opacity    = "1";
+      if (img) {
+        img.style.opacity = "0.8";
+        img.style.filter  =
+          `sepia(1) saturate(6) hue-rotate(4deg) brightness(1.15) drop-shadow(0 0 5px ${LC.yellow})`;
+      }
+      break;
+    case "eligible":
+      el.style.cursor     = "pointer";
+      el.style.outline    = `1px solid ${LC.borderDim}`;
+      el.style.boxShadow  = "none";
+      el.style.opacity    = "1";
+      if (img) { img.style.opacity = "0.35"; img.style.filter = "none"; }
+      break;
+    case "capped":
+      // Eligible but unselectable because the selection limit is reached.
+      el.style.cursor     = "default";
+      el.style.outline    = `1px solid ${LC.borderDim}`;
+      el.style.boxShadow  = "none";
+      el.style.opacity    = "0.45";
+      if (img) { img.style.opacity = "0.35"; img.style.filter = "none"; }
+      break;
+    default:
+      el.style.cursor     = "default";
+      el.style.outline    = "none";
+      el.style.boxShadow  = "none";
+      el.style.opacity    = "1";
+      if (img) { img.style.opacity = "0.2"; img.style.filter = "none"; }
+  }
+}
+
+/**
+ * Make a set of card dice clickable for reroll selection.
+ *
+ * @param {HTMLElement} root         element containing the rendered chat card
+ * @param {object}      opts
+ * @param {Array<{pool:string,index:number}>} opts.eligible  dice the player may pick
+ * @param {boolean}     [opts.multi] allow more than one selection
+ * @param {number}      [opts.max]   selection cap when multi
+ * @param {Function}    [opts.onChange] called with the selected [{pool,index}] after every change
+ * @returns {{ teardown: Function, getSelected: Function }}
+ */
+export function wireCardDieSelection(root, { eligible = [], multi = false, max = 1, onChange } = {}) {
+  const limit    = multi ? Math.max(1, max) : 1;
+  const entries  = [];   // { el, pool, index }
+  const selected = new Set();   // keys into `entries` by "pool:index"
+
+  const keyOf = (pool, index) => `${pool}:${index}`;
+
+  for (const { pool, index } of eligible) {
+    const el = root.querySelector(`.sta2e-card-die[data-pool="${pool}"][data-index="${index}"]`);
+    if (el) entries.push({ el, pool, index });
+  }
+
+  // Single-select never dims the unpicked dice — clicking one just swaps the choice.
+  const atCap = () => multi && selected.size >= limit;
+
+  const repaint = () => {
+    const capped = atCap();
+    for (const { el, pool, index } of entries) {
+      const isSel = selected.has(keyOf(pool, index));
+      setCardDieState(el, isSel ? "selected" : (capped ? "capped" : "eligible"));
+    }
+    onChange?.(getSelected());
+  };
+
+  const getSelected = () => entries
+    .filter(({ pool, index }) => selected.has(keyOf(pool, index)))
+    .map(({ pool, index }) => ({ pool, index }));
+
+  const listeners = [];
+  const on = (el, type, fn) => { el.addEventListener(type, fn); listeners.push([el, type, fn]); };
+
+  for (const entry of entries) {
+    const { el, pool, index } = entry;
+    const key = keyOf(pool, index);
+
+    on(el, "click", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (selected.has(key)) selected.delete(key);
+      else {
+        if (selected.size >= limit) {
+          if (!multi) selected.clear();   // single-select swaps to the new die
+          else return;                    // multi-select at cap — ignore
+        }
+        selected.add(key);
+      }
+      repaint();
+    });
+
+    on(el, "mouseenter", () => {
+      if (selected.has(key) || atCap()) return;
+      const img = el.querySelector("img");
+      if (img) img.style.opacity = "0.55";
+      el.style.outline = `1px solid ${LC.yellow}`;
+    });
+    on(el, "mouseleave", () => {
+      if (selected.has(key)) return;
+      setCardDieState(el, atCap() ? "capped" : "eligible");
+    });
+  }
+
+  repaint();
+
+  return {
+    getSelected,
+    teardown: () => {
+      for (const [el, type, fn] of listeners) el.removeEventListener(type, fn);
+      listeners.length = 0;
+      for (const { el } of entries) setCardDieState(el, "idle");
+      selected.clear();
+    },
+  };
 }
 
 // ── Result summary row ─────────────────────────────────────────────────────────
@@ -3019,27 +3161,37 @@ export function buildPlayerRollCardHtml(rollData) {
     : "";
 
   // Inline dice-row renderer (matches buildChatCard style)
-  const diceRow = dice => {
+  // poolKey tags each die so in-card reroll selection can find it (see wireCardDieSelection).
+  // opts.size / opts.fontSize let the slim skin draw the same die markup smaller;
+  // the defaults reproduce the classic 32px die byte-for-byte.
+  const diceRow = (dice, poolKey = "crew", opts = {}) => {
+    const dieSize  = opts.size ?? 32;
+    const dieFont  = opts.fontSize ?? 11;
+    const critFont = Math.max(6, dieFont - 4);
+    const scFont   = Math.max(6, dieFont - 3);
     if (!dice || dice.length === 0) return `<span style="font-size:9px;color:${LC.textDim};">—</span>`;
     return `<div style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;">
-      ${dice.map(d => {
+      ${dice.map((d, i) => {
       const isSuccessComplication = !!d.success && !!d.complication && !d.crit;
       const txtColor = d.crit ? LC.primary : isSuccessComplication ? LC.red : d.success ? LC.green : d.complication ? LC.red : "#aaaaaa";
       const lbl = d.crit
         ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
-               <span style="font-size:7px;letter-spacing:-1px;color:${txtColor};">★★</span>
-               <span style="font-size:11px;">${d.value}</span>
+               <span style="font-size:${critFont}px;letter-spacing:-1px;color:${txtColor};">★★</span>
+               <span style="font-size:${dieFont}px;">${d.value}</span>
              </span>`
         : isSuccessComplication
           ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
-                 <span style="font-size:8px;letter-spacing:-1px;color:${LC.green};">*</span>
-                 <span style="font-size:11px;">${d.value}</span>
+                 <span style="font-size:${scFont}px;letter-spacing:-1px;color:${LC.green};">*</span>
+                 <span style="font-size:${dieFont}px;">${d.value}</span>
                </span>`
-          : `<span style="font-size:11px;">${d.value}</span>`;
-      return `<span style="position:relative;display:inline-flex;align-items:center;
-            justify-content:center;width:32px;height:32px;vertical-align:middle;">
+          : `<span style="font-size:${dieFont}px;">${d.value}</span>`;
+      return `<span class="sta2e-card-die" data-pool="${poolKey}" data-index="${i}"
+          style="position:relative;display:inline-flex;align-items:center;
+            justify-content:center;width:${dieSize}px;height:${dieSize}px;vertical-align:middle;
+            border-radius:3px;">
           <img src="icons/svg/d20-grey.svg"
-            style="position:absolute;top:0;left:0;width:32px;height:32px;opacity:0.2;pointer-events:none;" alt=""/>
+            style="position:absolute;top:0;left:0;width:${dieSize}px;height:${dieSize}px;opacity:0.2;pointer-events:none;
+              transition:opacity 0.12s, filter 0.12s;" alt=""/>
           <span style="position:relative;z-index:1;color:${txtColor};font-weight:700;
             font-family:${LC.font};text-shadow:0 1px 2px rgba(0,0,0,0.9);pointer-events:none;">
             ${lbl}
@@ -3069,7 +3221,8 @@ export function buildPlayerRollCardHtml(rollData) {
   // When interactive payment is off we fall back to always-valid (no way to verify resource).
   const interactiveActive = game.settings.get("sta2e-toolkit", "interactiveDicePayment");
   const _spent = rollData.paymentSpent ?? {};
-  const renderResourceTokens = (label, count, type, color) => {
+  // `size` lets the slim skin draw smaller pips; 21 reproduces the classic token.
+  const renderResourceTokens = (label, count, type, color, size = 21) => {
     const numeric = Number(count ?? 0);
     const total = Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
     if (!total) return "";
@@ -3078,7 +3231,7 @@ export function buildPlayerRollCardHtml(rollData) {
       : "modules/sta2e-toolkit/assets/threat.svg";
     const tokens = Array.from({ length: total }, () => `
         <img src="${src}" alt="" title="${label}"
-          style="width:21px;height:21px;border-radius:50%;object-fit:contain;
+          style="width:${size}px;height:${size}px;border-radius:50%;object-fit:contain;
             filter:drop-shadow(0 0 2px ${color});flex:0 0 auto;" />`).join("");
     return `<span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;">
         <span style="font-size:9px;color:${LC.textDim};font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${label}</span>
@@ -3150,6 +3303,120 @@ export function buildPlayerRollCardHtml(rollData) {
     ? `${totalSuccesses >= (difficulty ?? 0) ? "⚡ Resolve HIT" : "✗ Resolve MISS"} (${totalSuccesses} succ.)`
     : `✓ Confirm Results (${totalSuccesses} success${totalSuccesses !== 1 ? "es" : ""})`;
 
+  // ── Slim LCARS skin ────────────────────────────────────────────────────────
+  // Same content, tighter chrome. The view is assembled inside this branch on
+  // purpose: six of its fields are computed inline inside the classic template
+  // below, so building them unconditionally would run — and risk throwing in —
+  // new code on the classic path, which must stay byte-identical.
+  let cardStyle = "classic";
+  try { cardStyle = game.settings.get(MODULE, "taskCardStyle") ?? "classic"; } catch { /* pre-init */ }
+  if (cardStyle === "slim") {
+    const showShipBlock = !crewFailed && (shipDice ?? []).length > 0;
+    return renderSlimTaskCard({
+      rollData, diceRow, renderResourceTokens, p,
+      headerAccent: confirmed ? passColor : (isAssistRoll ? LC.secondary : LC.primary),
+      passColor, passed, finalResultLabel,
+      contextLeftLabel, contextRightLabel,
+      crewDiceHeading,
+      interactiveActive, showMakeYourOwnLuck, rerollButtons, canGmEditCard, confirmLabel,
+
+      shipDiceHeading: [
+        shipName ?? null,
+        (shipSystemKey && shipDeptKey)
+          ? `${_systemLabel(shipSystemKey)} + ${_deptLabel(shipDeptKey)}`
+          : "Ship",
+        `(target: ${shipTarget ?? "—"})`,
+      ].filter(Boolean).join(" · "),
+
+      namedAssistBlocks: (crewFailed ? [] : (namedAssistDice ?? [])).map(d => ({
+        die: d,
+        heading: `🤝 ${d.officerName ?? "Assist"} — Assist Die`,
+        subHeading: ((d.shipSystemKey && d.shipDeptKey) || (d.attrKey && d.discKey))
+          ? [
+              d.shipName ?? null,
+              (d.shipSystemKey && d.shipDeptKey)
+                ? `${_systemLabel(d.shipSystemKey)} + ${_deptLabel(d.shipDeptKey)}`
+                : `${ATTR_LABELS[d.attrKey] ?? d.attrKey} + ${DISC_LABELS[d.discKey] ?? d.discKey}`,
+            ].filter(Boolean).join(" · ")
+          : "",
+      })),
+
+      // Every classic note strip, in one wrapping chip group. The two ship
+      // badges keep the classic gate (they only show with the ship dice block);
+      // the Make Your Own Luck note is the else-branch of the luck button.
+      noteStrips: [
+        showShipBlock && advancedSensorsActive
+          ? { tone: "note", text: "★ Advanced Sensor Suites" } : null,
+        showShipBlock && communicationsOfficerShipAssistActive
+          ? { tone: "note", text: `${communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1` } : null,
+        persistentUsed
+          ? { tone: "note", text: `Persistent: +${persistentAutoSuccesses ?? 1} success, +${persistentAutoComplications ?? 1} complication` } : null,
+        rollData.showOffSelected
+          ? { tone: "note", text: `${rollData.showOffSource ?? "Show-Off"}: +1 Difficulty, +2 bonus Momentum on success` } : null,
+        rollData.meticulousUsed
+          ? { tone: "note", text: `${rollData.meticulousSource ?? "Meticulous"}: one die set to 1, +1 interval` } : null,
+        rollData.percussiveMaintenanceUsed
+          ? { tone: "note", text: `${rollData.percussiveMaintenanceSource ?? "Percussive Maintenance"}: +1 Threat, Daring for Control, -1 interval on success` } : null,
+        rollData.flightControllerActive
+          ? { tone: "note", text: `${rollData.flightControllerSource ?? "Flight Controller"}: using Conn for this task` } : null,
+        rollData.chiefEngineerRerollUsed
+          ? { tone: "note", text: `${rollData.chiefEngineerSource ?? "Chief Engineer"}: spent 1 Momentum to reroll a d20` } : null,
+        rollData.adaptAndExcelRerollUsed
+          ? { tone: "note", text: `${rollData.adaptAndExcelSource ?? "Adapt and Excel"}: suffered 1 Stress to reroll a d20` } : null,
+        (!showMakeYourOwnLuck && makeYourOwnLuckUsed)
+          ? { tone: "note", text: `${makeYourOwnLuckSource ?? "Make Your Own Luck"} used - rerolls unavailable for this task` } : null,
+        callOutTargetsPotential > 0
+          ? { tone: "bonus", text: `Call Out Targets: +${callOutTargetsPotential} bonus Momentum on success` } : null,
+        planOfActionPotential > 0
+          ? { tone: "bonus", text: `Plan of Action: +${planOfActionPotential} bonus Momentum on success` } : null,
+        flightControllerPotential > 0
+          ? { tone: "bonus", text: `Flight Controller: +${flightControllerPotential} bonus Momentum on success` } : null,
+        chiefMedicalPotential > 0
+          ? { tone: "bonus", text: `Chief Medical Officer: +${chiefMedicalPotential} bonus Momentum on success` } : null,
+      ].filter(Boolean),
+
+      // Raw trait data rather than traitSummaryHtml(), which bakes in the
+      // classic card's padding. The slim renderer escapes these itself.
+      traitNotes: (rollData.appliedTraitEffects ?? []).map(e => ({
+        name: e.traitName, label: e.label, value: e.value,
+      })),
+
+      // Same array the classic grid maps over, so the 4-vs-5 column logic and
+      // the Result special-case carry over unchanged.
+      statCells: [
+        ["Successes", displaySuccesses, LC.tertiary],
+        ["Difficulty", difficulty ?? 0, LC.text],
+        [poolLabel, displayMomentum, poolColor],
+        ...(totalComplications > 0 ? [["Complic.", totalComplications, LC.red]] : []),
+        ["Result", confirmed ? finalResultLabel : (passed ? "PASS" : "FAIL"), passColor],
+      ],
+
+      spentVisible: (_spent.momentum ?? 0) > 0 || (_spent.threat ?? 0) > 0 || (_spent.personalThreat ?? 0) > 0,
+      spentGroups: [
+        ["Momentum", _spent.momentum, "momentum", LC.tertiary],
+        ["Threat", _spent.threat, "threat", LC.red],
+        ["Personal Threat", _spent.personalThreat, "threat", LC.secondary],
+      ],
+      gained: {
+        visible: !!(confirmed && displayMomentum > 0 && !noPoolButton),
+        label: poolLabel,
+        amount: displayMomentum,
+        type: groundIsNpc ? "threat" : "momentum",
+        color: LC.secondary,
+        autoBanked: !!rollData.autoBanked,
+        banked: rollData.trackerBanked ?? displayMomentum,
+        floating: rollData.trackerFloat ?? 0,
+      },
+      poolButton: {
+        visible: !!(confirmed && displayMomentum > 0 && !noPoolButton && !rollData.autoBanked),
+        pool: generatedPool,
+        amount: displayMomentum,
+        tokenId: rollData.tokenId ?? "",
+        label: `Add ${poolLabel} to Pool (+${displayMomentum})`,
+      },
+    });
+  }
+
   return `
 <div style="background:${LC.bg};border:1px solid ${LC.border};border-radius:3px;overflow:hidden;font-family:${LC.font};">
   <div style="background:${confirmed ? passColor : (isAssistRoll ? LC.secondary : LC.primary)};color:${LC.bg};font-size:9px;font-weight:700;
@@ -3173,7 +3440,7 @@ export function buildPlayerRollCardHtml(rollData) {
         </div>`
       : !groundMode ? `<div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
           letter-spacing:0.08em;margin-bottom:3px;text-align:center;">${crewDiceHeading}</div>` : ""}
-    ${diceRow(crewDice ?? [])}
+    ${diceRow(crewDice ?? [], "crew")}
   </div>
 
   ${!crewFailed && (namedAssistDice ?? []).length > 0 ? (namedAssistDice).map(d => `
@@ -3193,14 +3460,14 @@ export function buildPlayerRollCardHtml(rollData) {
             : null,
       ].filter(Boolean).join(" · ")}
     </div>` : ""}
-    ${diceRow([d])}
+    ${diceRow([d], "named-assist")}
   </div>`).join("") : ""}
 
   ${!crewFailed && (apAssistDice ?? []).length > 0 ? `
   <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:3px;text-align:center;">⚡ Helm — Attack Pattern</div>
-    ${diceRow(apAssistDice)}
+    ${diceRow(apAssistDice, "ap-assist")}
   </div>` : ""}
 
   ${!crewFailed && (shipDice ?? []).length > 0 ? `
@@ -3216,7 +3483,7 @@ export function buildPlayerRollCardHtml(rollData) {
       }</div>
     ${advancedSensorsActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">★ Advanced Sensor Suites</div>` : ""}
     ${communicationsOfficerShipAssistActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">${communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1</div>` : ""}
-    ${diceRow(shipDice)}
+    ${diceRow(shipDice, "ship")}
   </div>` : ""}
 
   ${persistentUsed ? `

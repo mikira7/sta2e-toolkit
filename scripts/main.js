@@ -35,7 +35,7 @@ import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
-import { registerShipWarpHud } from "./ship-warp-hud.js";
+import { registerShipCommandHud } from "./ship-command-hud.js";
 import { playNativeWarpFlash } from "./warp-jump-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
@@ -311,7 +311,7 @@ Hooks.once("init", () => {
   registerMomentumSpend();
   registerMomentumTracker();
   registerZoneTokenConfig();
-  registerShipWarpHud();
+  registerShipCommandHud();
   registerHullDecals();
   registerTraitItemSheetFields();
   registerStarSystemActorSheet();
