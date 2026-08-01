@@ -18,6 +18,7 @@ import {
   StarSystemImagesConfig,
   normalizeStarSystemImageData,
 } from "./star-system-images.js";
+import { SFX_SETTING, SfxBoardConfig } from "./sfx-board.js";
 
 export function registerSettings() {
 
@@ -72,6 +73,44 @@ export function registerSettings() {
     config:  false,
     type:    Object,
     default: normalizeStarSystemImageData(),
+  });
+
+  // ── Audio SFX Board ─────────────────────────────────────────────────────
+  game.settings.registerMenu("sta2e-toolkit", "sfxBoardMenu", {
+    name:       "STA2E.Settings.SfxBoard.Name",
+    label:      "STA2E.Settings.SfxBoard.Label",
+    hint:       "STA2E.Settings.SfxBoard.Hint",
+    icon:       "fas fa-volume-high",
+    type:       SfxBoardConfig,
+    restricted: true,
+  });
+
+  // Internal — SFX entries: { entries: [{ id, label, path, volume, players }] }
+  game.settings.register("sta2e-toolkit", SFX_SETTING, {
+    name:    "Audio SFX Entries",
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: { entries: [] },
+  });
+
+  game.settings.register("sta2e-toolkit", "sfxWidgetEnabled", {
+    name:     "STA2E.Settings.SfxWidgetEnabled.Name",
+    hint:     "STA2E.Settings.SfxWidgetEnabled.Hint",
+    scope:    "client",
+    config:   true,
+    type:     Boolean,
+    default:  true,
+    onChange: () => game.sta2eToolkit?.sfxWidget?.refresh?.(),
+  });
+
+  // Internal — per-user button arrangement for the SFX widget.
+  game.settings.register("sta2e-toolkit", "sfxWidgetLayout", {
+    name:    "SFX Widget Layout",
+    scope:   "client",
+    config:  false,
+    type:    Object,
+    default: { order: [], hidden: [], columns: 2 },
   });
 
   game.settings.register("sta2e-toolkit", "poolTrackerMode", {

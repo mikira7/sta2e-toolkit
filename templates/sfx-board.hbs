@@ -1,0 +1,47 @@
+{{!-- sta2e-toolkit | Audio SFX Board settings --}}
+<form class="sta2e-sfx-cfg-root">
+  <header class="sta2e-sfx-cfg-header">
+    <h2>Audio SFX Board</h2>
+    <p>Sounds listed here appear as buttons in the SFX widget docked beside the hotbar. Clicking a button plays the sound for everyone at the table. Tick <strong>Players</strong> to let non-GM users see and trigger it.</p>
+  </header>
+
+  <div class="sta2e-sfx-cfg-columns">
+    <span>Name</span>
+    <span>Audio File</span>
+    <span></span>
+    <span></span>
+    <span>Volume</span>
+    <span title="Players can use this sound">Players</span>
+    <span></span>
+  </div>
+
+  <div class="sta2e-sfx-cfg-list">
+    {{#each entries}}
+    <div class="sta2e-sfx-cfg-row" data-sfx-entry data-sfx-id="{{id}}">
+      <input type="text" data-sfx-label value="{{label}}" placeholder="Sound name" />
+      <input type="text" data-sfx-path value="{{path}}" placeholder="path/to/sound.ogg" />
+      <button type="button" data-browse-sfx title="Browse audio"><i class="fas fa-folder-open"></i></button>
+      <button type="button" data-action="previewSfx" title="Preview (you only)"><i class="fas fa-play"></i></button>
+      <div class="sta2e-sfx-cfg-volume">
+        <input type="range" data-sfx-volume min="0" max="100" step="5" value="{{volumePct}}" />
+        <span data-sfx-volume-readout>{{volumePct}}%</span>
+      </div>
+      <label class="sta2e-sfx-cfg-players" title="Players can use this sound">
+        <input type="checkbox" data-sfx-players {{#if players}}checked{{/if}} />
+      </label>
+      <button type="button" data-action="deleteSfx" title="Remove sound"><i class="fas fa-trash"></i></button>
+    </div>
+    {{else}}
+    <div class="sta2e-sfx-cfg-empty">No sounds configured.</div>
+    {{/each}}
+  </div>
+
+  <div class="sta2e-sfx-cfg-add">
+    <button type="button" data-action="addSfx"><i class="fas fa-plus"></i> Add Sound</button>
+  </div>
+
+  <footer class="sta2e-sfx-cfg-footer">
+    <button type="button" data-action="save"><i class="fas fa-save"></i> Save</button>
+    <button type="button" data-action="cancel"><i class="fas fa-times"></i> Cancel</button>
+  </footer>
+</form>

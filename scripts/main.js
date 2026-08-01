@@ -23,6 +23,7 @@ import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { openShipSpawner } from "./ship-spawner.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
+import { SfxWidget } from "./sfx-widget.js";
 import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
 import { TraitManager } from "./trait-manager.js";
 import { LcarsActionRing } from "./lcars-action-ring.js";
@@ -677,6 +678,7 @@ Hooks.once("ready", async () => {
   const alertHud        = new AlertHUD();
   const combatHud       = new CombatHUD();
   const toolkitWidget   = new ToolkitWidget();
+  const sfxWidget       = new SfxWidget();
   const poolTracker     = new ToolkitPoolTracker();
   const traitManager    = new TraitManager();
   const lcarsRing       = new LcarsActionRing();
@@ -773,6 +775,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openTransporter = openTransporter;
   game.sta2eToolkit.openShipSpawner = openShipSpawner;
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
+  game.sta2eToolkit.sfxWidget       = sfxWidget;
   game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.traitManager    = traitManager;
   game.sta2eToolkit.lcarsRing       = lcarsRing;
@@ -810,6 +813,11 @@ Hooks.once("ready", async () => {
     lcarsRing.init();
   } catch (err) {
     console.error("STA2e Toolkit | LCARS action ring init failed:", err);
+  }
+  try {
+    sfxWidget.init();
+  } catch (err) {
+    console.error("STA2e Toolkit | SFX widget init failed:", err);
   }
 
   // Zone toolbar has no canvas dependency — create it now so it is always available.
@@ -1081,11 +1089,19 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // GM saved the SFX board — rebuild every client's button grid. Cosmetic and
+    // touches no documents, so it runs on ALL receivers with no GM gate.
+    if (msg.action === "sfxBoardUpdated") {
+      game.sta2eToolkit?.sfxWidget?.refresh?.();
+      return;
+    }
+
     if (msg.action === "renderHUD") {
       game.sta2eToolkit?.hud?.render();
       game.sta2eToolkit?.alertHud?._refreshTheme();
       game.sta2eToolkit?.combatHud?._refresh?.();
       game.sta2eToolkit?.lcarsRing?.refresh?.();
+      game.sta2eToolkit?.sfxWidget?.refresh?.();
       _applySheetTheme();   // re-inject sheet CSS on every client when theme changes
     }
 

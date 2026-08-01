@@ -37,6 +37,8 @@ export class ToolkitAPI {
     game.sta2eToolkit?.combatHud?._refresh?.();
     // Re-render the action ring so it follows the active campaign theme.
     game.sta2eToolkit?.lcarsRing?.refresh?.();
+    // Re-stamp the SFX board's LCARS tokens so its buttons follow the theme.
+    game.sta2eToolkit?.sfxWidget?.refresh?.();
     // Re-inject sheet CSS on the local (GM) client immediately
     game.sta2eToolkit?.refreshSheetTheme?.();
     // Socket message re-applies sheet CSS on all player clients too (see main.js renderHUD handler)

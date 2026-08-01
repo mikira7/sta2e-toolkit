@@ -228,6 +228,18 @@ export class ToolkitWidget {
     btnContainer.appendChild(sepTraits);
 
     btnContainer.appendChild(mkBtn(
+      "fas fa-volume-high",
+      game.i18n.localize("STA2E.Widget.Button.SfxBoard.Label"),
+      game.i18n.localize("STA2E.Widget.Button.SfxBoard.Hint"),
+      LC.secondary,
+      () => game.sta2eToolkit?.sfxWidget?.toggle(),
+    ));
+
+    const sepSfx = document.createElement("div");
+    sepSfx.style.cssText = `height: 1px; background: ${LC.borderDim}; margin: 2px 8px;`;
+    btnContainer.appendChild(sepSfx);
+
+    btnContainer.appendChild(mkBtn(
       "fas fa-user-astronaut",
       game.i18n.localize("STA2E.Widget.Button.CharacterCreator.Label"),
       game.i18n.localize("STA2E.Widget.Button.CharacterCreator.Hint"),
