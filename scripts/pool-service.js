@@ -272,19 +272,37 @@ function _refreshPoolUis() {
   try { game.STATracker?.constructor?.UpdateTracker?.(); } catch {}
 }
 
-export function readPool(pool) {
+/**
+ * Read a pool, returning null when no source can be read.
+ *
+ * readPool() masks every failure as 0, which is fine for display but is
+ * destructive when the value is about to be persisted: an unready STA tracker
+ * makes momentum *and* threat both read 0, and that 0 then overwrites real
+ * campaign data. Callers that persist must use this and skip the write on null.
+ */
+export function readPoolRaw(pool) {
   const key = _key(pool);
   if (_isToolkitPool(key)) {
-    try { return Number(game.settings.get(MODULE, key)) || 0; }
-    catch { return 0; }
+    try {
+      const v = game.settings.get(MODULE, key);
+      return v == null ? null : (Number(v) || 0);
+    } catch { return null; }
   }
   const Tracker = _tracker();
   if (Tracker?.ValueOf) {
-    try { return Number(Tracker.ValueOf(key)) || 0; }
-    catch { /* fall through */ }
+    try {
+      const v = Tracker.ValueOf(key);
+      if (v != null && Number.isFinite(Number(v))) return Number(v);
+    } catch { /* fall through */ }
   }
-  try { return Number(game.settings.get("sta", key)) || 0; }
-  catch { return 0; }
+  try {
+    const v = game.settings.get("sta", key);
+    return v == null ? null : (Number(v) || 0);
+  } catch { return null; }
+}
+
+export function readPool(pool) {
+  return readPoolRaw(pool) ?? 0;
 }
 
 export function poolLimit(pool) {

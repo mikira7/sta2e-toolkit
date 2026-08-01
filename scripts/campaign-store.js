@@ -13,7 +13,12 @@ import {
   advanceCustomStardate,
   advanceCalendarTime,
 } from "./stardate-calc.js";
-import { readPool, setPool } from "./pool-service.js";
+import { readPoolRaw, setPool } from "./pool-service.js";
+
+// How long to keep the auto-sync guard held after writing the live pools, so
+// updateSetting hooks that arrive late (hosted servers, multiple clients) can't
+// snapshot a half-applied tracker back into the campaign.
+const POOL_SETTLE_MS = 500;
 
 // ---------------------------------------------------------------------------
 // Default campaign template
@@ -32,6 +37,10 @@ function defaultCampaign(overrides = {}) {
     savedMomentum: null,    // saved pool value (null = never saved)
     savedThreat: null,      // saved pool value (null = never saved)
     savedAlliedNpcMomentum: null,
+    // Redundant copy of the previous saved pools, rolled over on every change.
+    // { momentum, threat, alliedNpcMomentum, ts } — restorable from the
+    // Campaign Manager if a snapshot is ever lost.
+    poolsBackup: null,
     ...overrides
   };
 }
@@ -42,9 +51,21 @@ function defaultCampaign(overrides = {}) {
 
 export class CampaignStore {
 
-  // Flag set during setActiveCampaign to suppress the updateSetting hook
-  // from calling syncPoolsFromTracker() while we are mid-restore.
-  _isSwitchingCampaign = false;
+  // Depth counter held while pools are being restored, to suppress the
+  // updateSetting hook from calling syncPoolsFromTracker() mid-restore.
+  // A counter rather than a boolean so overlapping restores cannot clear
+  // each other's guard.
+  _switchDepth = 0;
+
+  // Serializes campaign switches so two overlapping calls run in order
+  // instead of interleaving their save/restore phases.
+  _switchQueue = Promise.resolve();
+
+  // Serializes writes to the campaigns setting. Every mutation is a full
+  // read-modify-write of one settings blob, so concurrent writers built from
+  // stale snapshots silently clobber each other's fields — on Forge, where
+  // every write is a network round-trip, that overlap is the norm.
+  _writeQueue = Promise.resolve();
 
   // --- Read -----------------------------------------------------------------
 
@@ -77,46 +98,105 @@ export class CampaignStore {
 
   // --- Write ----------------------------------------------------------------
 
-  /** Save the full campaigns array. Triggers HUD re-render via settings onChange. */
-  async _saveCampaigns(campaigns) {
-    await game.settings.set("sta2e-toolkit", "campaigns", { list: campaigns });
-    game.sta2eToolkit?.broadcastHUDRender();
+  /**
+   * Serialize a mutation of the campaigns setting.
+   * The mutator receives a *fresh* read taken inside the critical section, so
+   * no caller can write from a snapshot taken before an earlier write landed.
+   * @param {(campaigns: object[]) => object[]|null} mutator  return null to skip the write
+   */
+  async _mutateCampaigns(mutator) {
+    const run = this._writeQueue.then(async () => {
+      const next = mutator(this.getCampaigns());
+      if (!next) return;
+      await game.settings.set("sta2e-toolkit", "campaigns", { list: next });
+      game.sta2eToolkit?.broadcastHUDRender();
+    });
+    this._writeQueue = run.catch(err =>
+      console.error("STA2e Toolkit | campaigns write failed:", err));
+    return run;
   }
 
   /**
    * @param {string} id
    * @param {object} [opts]
-   * @param {boolean} [opts.deferRestore=false]  When true, the pool restore is
-   *   scheduled via setTimeout so all other canvasReady hooks (including the STA
-   *   system's own) finish before we write to sta.momentum / sta.threat.
+   * @param {boolean} [opts.deferRestore=false]  When true, the pool restore waits
+   *   a tick so all other canvasReady hooks (including the STA system's own)
+   *   finish before we write to sta.momentum / sta.threat.
    *   Use this on the canvasReady scene-pin path to avoid a race condition.
    */
   async setActiveCampaign(id, { deferRestore = false } = {}) {
-    const previousId = this.getActiveCampaignId();
+    // Queue whole switches: two overlapping calls used to skip the second's
+    // pre-switch save and clear each other's guard mid-restore.
+    const run = this._switchQueue.then(() => this._doSetActiveCampaign(id, { deferRestore }));
+    this._switchQueue = run.catch(err =>
+      console.error("STA2e Toolkit | campaign switch failed:", err));
+    return run;
+  }
+
+  async _doSetActiveCampaign(id, { deferRestore = false } = {}) {
+    // Resolve the outgoing campaign the same way the auto-sync hook does, so
+    // scene-pinned worlds save into the campaign that is actually in effect.
+    const previousId = this.getActiveCampaign()?.id ?? this.getActiveCampaignId();
+
     // Explicitly save current pools before we leave — this is the primary save
     // path and is reliable regardless of whether the updateSetting hook fired.
-    await this.syncPoolsFromTracker(previousId);
+    // force: this save must never be suppressed by the guard below.
+    await this.syncPoolsFromTracker(previousId, { force: true });
 
     // Suppress the updateSetting hook during restore so the in-progress write
     // to sta.momentum/sta.threat doesn't call syncPoolsFromTracker() again and
     // overwrite the incoming campaign's data with a mid-flight value.
-    this._isSwitchingCampaign = true;
+    this._switchDepth++;
     try {
       await game.settings.set("sta2e-toolkit", "activeCampaign", id);
-      if (!deferRestore) {
-        await this._silentRestorePools(id);
-        this._isSwitchingCampaign = false;
-      } else {
-        // Release the flag immediately so normal pool-change hooks resume,
-        // then restore after a short delay once all scene hooks have settled.
-        this._isSwitchingCampaign = false;
-        setTimeout(() => this._silentRestorePools(id), 250);
-      }
-    } catch (err) {
-      this._isSwitchingCampaign = false;
-      throw err;
+      // Let the other canvasReady hooks settle before we touch the tracker.
+      if (deferRestore) await new Promise(r => setTimeout(r, 250));
+      await this._silentRestorePools(id, { nullPolicy: "zero" });
+      // Hold the guard while late updateSetting hooks from the restore land —
+      // on a high-latency host these arrive after the awaits resolve.
+      await new Promise(r => setTimeout(r, POOL_SETTLE_MS));
+    } finally {
+      this._switchDepth--;
     }
     game.sta2eToolkit?.broadcastHUDRender();
+    // Tell other clients to drop any in-progress pool edit — otherwise a
+    // focused field commits its stale value over the pools we just restored.
+    game.sta2eToolkit?.poolTracker?.refresh?.({ discardEdits: true });
+    try {
+      game.socket?.emit("module.sta2e-toolkit", { action: "campaignSwitched" });
+    } catch { /* socket unavailable — local refresh above still applies */ }
+  }
+
+  /**
+   * Re-assert the active campaign's pools onto the live tracker without
+   * treating it as a switch. Used on canvasReady, where a missing snapshot
+   * must be left alone rather than written through as 0.
+   * @param {string} id
+   */
+  async restoreActivePools(id) {
+    this._switchDepth++;
+    try {
+      await this._silentRestorePools(id, { nullPolicy: "skip" });
+      await new Promise(r => setTimeout(r, POOL_SETTLE_MS));
+    } finally {
+      this._switchDepth--;
+    }
+  }
+
+  /**
+   * Write a single pool to the live tracker without the auto-sync hook
+   * bouncing a half-applied state back into the campaign.
+   * @param {"momentum"|"threat"|"alliedNpcMomentum"} pool
+   * @param {number} value
+   */
+  async setLivePool(pool, value) {
+    this._switchDepth++;
+    try {
+      await CampaignStore._setPoolValue(pool, value);
+      await new Promise(r => setTimeout(r, POOL_SETTLE_MS));
+    } finally {
+      this._switchDepth--;
+    }
   }
 
   // --- Pool auto-sync ----------------------------------------------------------
@@ -130,10 +210,18 @@ export class CampaignStore {
   // The public savePools() / restorePools(id) below are still available for
   // macros that want explicit control with user-facing notifications.
 
-  // Pool read/write helpers keep campaign sync pointed at shared STA values.
-  static _getPoolValue(key) {
-    return readPool(key);
-  }
+  // Entry point for the updateSetting hook. Debounced so a single roll's
+  // momentum-spend + threat-add coalesce into one campaigns write instead of
+  // several racing ones, and so duplicate hook storms are absorbed.
+  _debouncedSync = foundry.utils.debounce(
+    () => this.syncPoolsFromTracker().catch(err =>
+      console.error("STA2e Toolkit | pool sync failed:", err)),
+    200
+  );
+
+  // Pool write helper keeps campaign sync pointed at shared STA values.
+  // Reads go through readPoolRaw() so an unready tracker can be detected
+  // rather than silently read as 0.
   static async _setPoolValue(key, value) {
     await setPool(key, value, { source: "campaign", notify: false });
   }
@@ -146,42 +234,143 @@ export class CampaignStore {
    * Read the live pool values and save them onto the active campaign.
    * Silent — called automatically by the updateSetting hook on every pool change,
    * and explicitly by setActiveCampaign before switching.
+   * @param {string|null} campaignId
+   * @param {object} [opts]
+   * @param {boolean} [opts.force=false]  Bypass the mid-restore guard. Only the
+   *   explicit pre-switch save should use this.
    */
-  async syncPoolsFromTracker(campaignId = null) {
+  async syncPoolsFromTracker(campaignId = null, { force = false } = {}) {
+    // Never persist during startup — the trackers aren't populated yet.
+    if (!game.ready) return;
     if (!CampaignStore._canWriteSettings()) return;
-    // Skip if we're mid-switch — the restore write would trigger this hook and
+    // Skip if we're mid-restore — the restore write would trigger this hook and
     // overwrite the incoming campaign's stored values with the outgoing ones.
-    if (this._isSwitchingCampaign) return;
+    if (this._switchDepth > 0 && !force) return;
     const campaign = campaignId ? this.getCampaignById(campaignId) : this.getActiveCampaign();
     if (!campaign) return;
 
-    const savedMomentum = CampaignStore._getPoolValue("momentum");
-    const savedThreat   = CampaignStore._getPoolValue("threat");
-    const savedAlliedNpcMomentum = CampaignStore._getPoolValue("alliedNpcMomentum");
-    await this.updateCampaign(campaign.id, { savedMomentum, savedThreat, savedAlliedNpcMomentum });
+    const savedMomentum = readPoolRaw("momentum");
+    const savedThreat   = readPoolRaw("threat");
+    const savedAlliedNpcMomentum = readPoolRaw("alliedNpcMomentum");
+
+    // An unreadable source (STA tracker not initialised yet, settings throw)
+    // reads as 0 for *every* pool at once. Skipping the save is always safer
+    // than writing that phantom 0 over real campaign data.
+    if (savedMomentum === null || savedThreat === null || savedAlliedNpcMomentum === null) {
+      console.warn("STA2e Toolkit | pool sync skipped: tracker not readable");
+      return;
+    }
+
+    console.debug(`STA2e Toolkit | pool save → "${campaign.name}"`,
+      { savedMomentum, savedThreat, savedAlliedNpcMomentum });
+    await this.savePoolSnapshot(campaign.id, {
+      savedMomentum, savedThreat, savedAlliedNpcMomentum
+    });
+  }
+
+  /**
+   * Write a pool snapshot onto a campaign, rolling the values it replaces into
+   * poolsBackup so a bad write is always one click from recovery.
+   * @param {string} id
+   * @param {{savedMomentum:number, savedThreat:number, savedAlliedNpcMomentum:number}} pools
+   */
+  async savePoolSnapshot(id, pools) {
+    await this._mutateCampaigns(list => list.map(c => {
+      if (c.id !== id) return c;
+      const hadValues = (c.savedMomentum !== null && c.savedMomentum !== undefined)
+                     || (c.savedThreat   !== null && c.savedThreat   !== undefined);
+      const changed = c.savedMomentum !== pools.savedMomentum
+                   || c.savedThreat   !== pools.savedThreat
+                   || c.savedAlliedNpcMomentum !== pools.savedAlliedNpcMomentum;
+      const poolsBackup = (hadValues && changed)
+        ? {
+            momentum: c.savedMomentum,
+            threat: c.savedThreat,
+            alliedNpcMomentum: c.savedAlliedNpcMomentum,
+            ts: Date.now(),
+          }
+        : (c.poolsBackup ?? null);
+      return { ...c, ...pools, poolsBackup };
+    }));
   }
 
   /**
    * Push the savedMomentum/savedThreat from the given campaign into the live
    * tracker.  Silent — called automatically by setActiveCampaign.
-   * Null values (campaign never played) default to 0 so the tracker always
-   * reflects the incoming campaign rather than carrying over stale pool values.
    * Uses the toolkit pool service, which preserves the shared STA values.
    * @param {string} id
+   * @param {object} [opts]
+   * @param {"zero"|"skip"} [opts.nullPolicy="zero"]  What to do with a pool the
+   *   campaign has never saved. "zero" (a real switch) starts the incoming
+   *   campaign clean rather than carrying over the outgoing one's pools;
+   *   "skip" (a re-assert of the already-active campaign, e.g. canvasReady)
+   *   leaves the live tracker alone.
    */
-  async _silentRestorePools(id) {
+  async _silentRestorePools(id, { nullPolicy = "zero" } = {}) {
     const campaign = this.getCampaignById(id);
     if (!campaign) return;
 
-    // Default null → 0 so every campaign switch sets the tracker, even for
-    // campaigns that have never had pools explicitly saved.
-    const momentum = campaign.savedMomentum ?? 0;
-    const threat   = campaign.savedThreat   ?? 0;
-    const alliedNpcMomentum = campaign.savedAlliedNpcMomentum ?? 0;
+    const resolve = v => (v ?? (nullPolicy === "zero" ? 0 : null));
+    const momentum = resolve(campaign.savedMomentum);
+    const threat   = resolve(campaign.savedThreat);
+    const alliedNpcMomentum = resolve(campaign.savedAlliedNpcMomentum);
 
-    await CampaignStore._setPoolValue("momentum", momentum);
-    await CampaignStore._setPoolValue("threat",   threat);
-    await CampaignStore._setPoolValue("alliedNpcMomentum", alliedNpcMomentum);
+    if (momentum !== null) await CampaignStore._setPoolValue("momentum", momentum);
+    if (threat   !== null) await CampaignStore._setPoolValue("threat",   threat);
+    if (alliedNpcMomentum !== null) {
+      await CampaignStore._setPoolValue("alliedNpcMomentum", alliedNpcMomentum);
+    }
+
+    // Persist the resolved values so a null never lingers and can't trigger
+    // another zeroing restore later.
+    if (nullPolicy === "zero") {
+      await this.savePoolSnapshot(id, {
+        savedMomentum: momentum,
+        savedThreat: threat,
+        savedAlliedNpcMomentum: alliedNpcMomentum,
+      });
+    }
+  }
+
+  /**
+   * Set one saved pool field on a campaign, journalling the values it replaces
+   * so a mistyped edit is as recoverable as an automatic save.
+   * @param {string} id
+   * @param {"savedMomentum"|"savedThreat"|"savedAlliedNpcMomentum"} field
+   * @param {number|null} value  null marks the pool as never saved
+   */
+  async setCampaignPoolField(id, field, value) {
+    await this._mutateCampaigns(list => list.map(c => {
+      if (c.id !== id) return c;
+      if (c[field] === value) return c;
+      return {
+        ...c,
+        [field]: value,
+        poolsBackup: {
+          momentum: c.savedMomentum ?? null,
+          threat: c.savedThreat ?? null,
+          alliedNpcMomentum: c.savedAlliedNpcMomentum ?? null,
+          ts: Date.now(),
+        },
+      };
+    }));
+  }
+
+  /** Restore a campaign's poolsBackup into its saved pools. */
+  async restorePoolBackup(id) {
+    const campaign = this.getCampaignById(id);
+    const backup = campaign?.poolsBackup;
+    if (!backup) return false;
+
+    await this.savePoolSnapshot(id, {
+      savedMomentum: backup.momentum ?? 0,
+      savedThreat: backup.threat ?? 0,
+      savedAlliedNpcMomentum: backup.alliedNpcMomentum ?? 0,
+    });
+    if (id === this.getActiveCampaignId()) {
+      await this.restoreActivePools(id);
+    }
+    return true;
   }
 
   // --- Public pool helpers (for macros) ----------------------------------------
@@ -214,7 +403,7 @@ export class CampaignStore {
       ui.notifications.warn(`STA2e Toolkit: No saved pools found for "${campaign.name}".`);
       return;
     }
-    await this._silentRestorePools(id);
+    await this.restoreActivePools(id);
     ui.notifications.info(
       `STA2e Toolkit: Restored pools for "${campaign.name}" - Momentum ${savedMomentum ?? "-"}, Threat ${savedThreat ?? "-"}, Allied NPC Momentum ${savedAlliedNpcMomentum ?? "-"}.`
     );
@@ -227,11 +416,15 @@ export class CampaignStore {
    */
   async addCampaign(data = {}) {
     const campaign = defaultCampaign(data);
-    const campaigns = [...this.getCampaigns(), campaign];
-    await this._saveCampaigns(campaigns);
+    let count = 0;
+    await this._mutateCampaigns(list => {
+      const next = [...list, campaign];
+      count = next.length;
+      return next;
+    });
 
     // Auto-select if this is the first campaign
-    if (campaigns.length === 1) {
+    if (count === 1) {
       await this.setActiveCampaign(campaign.id);
     }
     return campaign;
@@ -243,10 +436,9 @@ export class CampaignStore {
    * @param {object} updates  partial campaign fields
    */
   async updateCampaign(id, updates) {
-    const campaigns = this.getCampaigns().map(c =>
-      c.id === id ? { ...c, ...updates } : c
+    await this._mutateCampaigns(list =>
+      list.map(c => (c.id === id ? { ...c, ...updates } : c))
     );
-    await this._saveCampaigns(campaigns);
   }
 
   /**
@@ -255,11 +447,14 @@ export class CampaignStore {
    * @param {string} id
    */
   async deleteCampaign(id) {
-    const campaigns = this.getCampaigns().filter(c => c.id !== id);
-    await this._saveCampaigns(campaigns);
+    let remaining = [];
+    await this._mutateCampaigns(list => {
+      remaining = list.filter(c => c.id !== id);
+      return remaining;
+    });
 
     if (this.getActiveCampaignId() === id) {
-      await this.setActiveCampaign(campaigns[0]?.id ?? "");
+      await this.setActiveCampaign(remaining[0]?.id ?? "");
     }
   }
 
@@ -268,9 +463,13 @@ export class CampaignStore {
    * @param {string[]} orderedIds  campaign ids in desired order
    */
   async reorderCampaigns(orderedIds) {
-    const map = Object.fromEntries(this.getCampaigns().map(c => [c.id, c]));
-    const campaigns = orderedIds.map(id => map[id]).filter(Boolean);
-    await this._saveCampaigns(campaigns);
+    await this._mutateCampaigns(list => {
+      const map = Object.fromEntries(list.map(c => [c.id, c]));
+      const ordered = orderedIds.map(id => map[id]).filter(Boolean);
+      // Don't drop campaigns created while the drag was in flight.
+      const missing = list.filter(c => !orderedIds.includes(c.id));
+      return [...ordered, ...missing];
+    });
   }
 
   // --- Time Advancement -----------------------------------------------------
@@ -352,23 +551,29 @@ export class CampaignStore {
    *   difficultyBase, responderActorId, initiatorActorId, options, ts }
    */
   async pushRecentOpposedTask(snapshot) {
-    const campaign = this.getActiveCampaign();
-    if (!campaign) return;
-    const list = Array.isArray(campaign.recentOpposed) ? [...campaign.recentOpposed] : [];
+    const id = this.getActiveCampaign()?.id;
+    if (!id) return;
     // De-dupe: drop any earlier entry with the same pair of actor ids + task name
     const key = `${snapshot.responderActorId ?? ""}|${snapshot.initiatorActorId ?? ""}|${snapshot.taskName ?? ""}`;
-    const filtered = list.filter(s =>
-      `${s.responderActorId ?? ""}|${s.initiatorActorId ?? ""}|${s.taskName ?? ""}` !== key);
-    filtered.unshift({ ...snapshot, ts: Date.now() });
-    if (filtered.length > CampaignStore.RECENT_OPPOSED_MAX)
-      filtered.length = CampaignStore.RECENT_OPPOSED_MAX;
-    await this.updateCampaign(campaign.id, { recentOpposed: filtered });
+    // The list is rebuilt inside the queue so this can't revive a stale copy of
+    // the campaign's other fields (pools especially) over a concurrent write.
+    await this._mutateCampaigns(list => list.map(c => {
+      if (c.id !== id) return c;
+      const filtered = (Array.isArray(c.recentOpposed) ? c.recentOpposed : []).filter(s =>
+        `${s.responderActorId ?? ""}|${s.initiatorActorId ?? ""}|${s.taskName ?? ""}` !== key);
+      filtered.unshift({ ...snapshot, ts: Date.now() });
+      if (filtered.length > CampaignStore.RECENT_OPPOSED_MAX)
+        filtered.length = CampaignStore.RECENT_OPPOSED_MAX;
+      return { ...c, recentOpposed: filtered };
+    }));
   }
 
   /** Remove all recent opposed-task entries from the active campaign. */
   async clearRecentOpposedTasks() {
-    const campaign = this.getActiveCampaign();
-    if (!campaign) return;
-    await this.updateCampaign(campaign.id, { recentOpposed: [] });
+    const id = this.getActiveCampaign()?.id;
+    if (!id) return;
+    await this._mutateCampaigns(list =>
+      list.map(c => (c.id === id ? { ...c, recentOpposed: [] } : c))
+    );
   }
 }

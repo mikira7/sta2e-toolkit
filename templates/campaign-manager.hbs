@@ -88,6 +88,72 @@
 
       </div>{{!-- .sta2e-manager__sub-row --}}
 
+      {{!-- Row 3: saved Momentum / Threat / Allied NPC Momentum --}}
+      <div class="sta2e-manager__pool-row">
+
+        <span class="sta2e-manager__pool-heading">Pools</span>
+
+        <div class="sta2e-manager__field-group">
+          <label class="sta2e-manager__field-label">Momentum</label>
+          <input
+            class="sta2e-manager__pool-input"
+            type="number"
+            min="0"
+            value="{{momentumDisplay}}"
+            placeholder="—"
+            data-campaign-pool="{{id}}"
+            data-pool="momentum"
+            title="Saved Momentum — blank means never saved"
+          />
+        </div>
+
+        <div class="sta2e-manager__field-group">
+          <label class="sta2e-manager__field-label">Threat</label>
+          <input
+            class="sta2e-manager__pool-input"
+            type="number"
+            min="0"
+            value="{{threatDisplay}}"
+            placeholder="—"
+            data-campaign-pool="{{id}}"
+            data-pool="threat"
+            title="Saved Threat — blank means never saved"
+          />
+        </div>
+
+        <div class="sta2e-manager__field-group">
+          <label class="sta2e-manager__field-label">Allied</label>
+          <input
+            class="sta2e-manager__pool-input"
+            type="number"
+            min="0"
+            value="{{alliedDisplay}}"
+            placeholder="—"
+            data-campaign-pool="{{id}}"
+            data-pool="alliedNpcMomentum"
+            title="Saved Allied NPC Momentum — blank means never saved"
+          />
+        </div>
+
+        {{#if isActive}}
+        <span class="sta2e-manager__pool-live" title="These pools are live in the tracker right now">● LIVE</span>
+        {{/if}}
+
+        {{#if hasBackup}}
+        <span class="sta2e-manager__pool-backup" title="Previous saved values">
+          prev M{{poolsBackup.momentum}} / T{{poolsBackup.threat}}
+        </span>
+        <button
+          type="button"
+          class="sta2e-manager__pool-restore"
+          data-action="restorePoolBackup"
+          data-restore-pools="{{id}}"
+          title="Restore the previous saved values"
+        >↺</button>
+        {{/if}}
+
+      </div>{{!-- .sta2e-manager__pool-row --}}
+
     </li>
     {{/each}}
   </ul>

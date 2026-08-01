@@ -133,8 +133,16 @@ export class ToolkitPoolTracker {
     if (this._el) this._el.hidden = true;
   }
 
-  refresh() {
+  /**
+   * @param {object} [opts]
+   * @param {boolean} [opts.discardEdits=false]  Abandon any in-progress inline
+   *   edit before refreshing. Used when the change came from elsewhere (a
+   *   campaign switch, another client): otherwise the focused field is skipped
+   *   below and its stale value is committed back over the new one on blur.
+   */
+  refresh({ discardEdits = false } = {}) {
     if (!this._el) return;
+    if (discardEdits) this._discardInlineEdits();
     const momentum = this._el.querySelector('[data-pool-value="momentum"]');
     const threat = this._el.querySelector('[data-pool-value="threat"]');
     const allied = this._el.querySelector('[data-pool-value="alliedNpcMomentum"]');
@@ -155,6 +163,20 @@ export class ToolkitPoolTracker {
     if (alliedSection) alliedSection.hidden = !showAllied;
     this._el.classList.toggle("sta2e-pool-tracker--has-allied", showAllied);
     this._refreshControls();
+  }
+
+  /** Drop any in-progress inline edit so refresh() won't skip that field. */
+  _discardInlineEdits() {
+    if (!this._el) return;
+    this._el.querySelectorAll("[data-pool-value]").forEach(input => {
+      if (input.dataset.editing !== "1") return;
+      delete input.dataset.editing;
+      if (document.activeElement === input) {
+        // Same contract as the Escape key: leave without committing.
+        input.dataset.skipNextBlurApply = "1";
+        input.blur();
+      }
+    });
   }
 
   _build() {

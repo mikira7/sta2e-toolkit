@@ -816,7 +816,7 @@
 .sta2e-manager__row {
   display: grid;
   grid-template-columns: 18px 1fr 24px;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   align-items: center;
   gap: 4px 6px;
   padding: 6px 8px;
@@ -898,6 +898,70 @@
 .sta2e-manager__rate-input:focus { outline: none; border-color: rgba(99,179,237,0.6); }
 
 .sta2e-manager__era-hint  { font-size: 10px; color: #3a5a72; white-space: nowrap; text-align: center; }
+
+/* Pool row: saved Momentum / Threat / Allied NPC Momentum per campaign */
+.sta2e-manager__pool-row {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(99,179,237,0.1);
+}
+
+.sta2e-manager__pool-heading {
+  font-size: 9px;
+  color: #3a5a72;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-bottom: 4px;
+}
+
+.sta2e-manager__pool-input {
+  background: rgba(10,20,35,0.6);
+  border: 1px solid rgba(99,179,237,0.2);
+  border-radius: 3px;
+  color: #f0a43a;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 5px;
+  width: 58px;
+  box-sizing: border-box;
+}
+.sta2e-manager__pool-input:focus { outline: none; border-color: rgba(99,179,237,0.6); }
+.sta2e-manager__pool-input::placeholder { color: #3a5a72; }
+
+.sta2e-manager__pool-live {
+  font-size: 9px;
+  color: #4ad991;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  padding-bottom: 4px;
+}
+
+.sta2e-manager__pool-backup {
+  font-size: 10px;
+  color: #3a5a72;
+  white-space: nowrap;
+  margin-left: auto;
+  padding-bottom: 4px;
+}
+
+.sta2e-manager__pool-restore {
+  background: transparent;
+  border: 1px solid rgba(99,179,237,0.2);
+  border-radius: 3px;
+  color: #63b3ed;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px;
+  margin-bottom: 2px;
+}
+.sta2e-manager__pool-restore:hover { border-color: rgba(99,179,237,0.6); color: #f0a43a; }
 
 .sta2e-manager__delete-btn {
   background: transparent;

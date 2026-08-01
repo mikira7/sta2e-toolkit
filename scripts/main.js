@@ -861,13 +861,15 @@ Hooks.once("ready", async () => {
     // Auto-save pool values to the active campaign whenever the STA tracker changes.
     // This keeps savedMomentum/savedThreat current so that switching campaigns
     // (via scene pin or switchCampaign) restores the right values.
+    // Gated on the responsible GM, not merely "can write settings" — otherwise a
+    // second connected GM doubles every campaigns write and the two race.
     if (
       (setting.key === "sta.momentum"
         || setting.key === "sta.threat"
         || setting.key === "sta2e-toolkit.alliedNpcMomentum")
-      && _canWriteWorldSettings()
+      && _isResponsibleGM()
     ) {
-      game.sta2eToolkit?.campaignStore?.syncPoolsFromTracker?.();
+      game.sta2eToolkit?.campaignStore?._debouncedSync?.();
     }
   });
 
@@ -1108,6 +1110,13 @@ Hooks.once("ready", async () => {
     else if (msg.action === "refreshPoolTracker") {
       game.sta2eToolkit?.poolTracker?.applyMode?.();
       game.sta2eToolkit?.poolTracker?.refresh?.();
+    }
+
+    // The active campaign changed and its pools have just been restored.
+    // Abandon any half-typed pool edit so it can't be committed back over the
+    // restored values on blur.
+    else if (msg.action === "campaignSwitched") {
+      game.sta2eToolkit?.poolTracker?.refresh?.({ discardEdits: true });
     }
 
     else if (msg.action === "starSystemPrompt") {
@@ -1766,9 +1775,11 @@ Hooks.on("canvasReady", async () => {
   // No pin on this scene (or player client) — re-render with current active.
   // On the GM client, also restore the active campaign's saved pools so the
   // tracker reflects wherever that campaign left off.
-  if (game.user.isGM) {
+  // Re-assert, not a switch: a campaign with no saved pools is left alone here
+  // rather than having 0 written through on every scene change.
+  if (_isResponsibleGM()) {
     const activeId = toolkit.campaignStore.getActiveCampaignId();
-    if (activeId) await toolkit.campaignStore._silentRestorePools(activeId);
+    if (activeId) await toolkit.campaignStore.restoreActivePools(activeId);
   }
   toolkit.hud?.render();
 

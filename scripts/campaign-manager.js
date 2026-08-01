@@ -15,8 +15,9 @@ export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
     window: { title: "Campaign Manager", resizable: true },
     position: { width: 720, height: "auto" },
     actions: {
-      addCampaign:    CampaignManager._onAddCampaign,
-      deleteCampaign: CampaignManager._onDeleteCampaign,
+      addCampaign:       CampaignManager._onAddCampaign,
+      deleteCampaign:    CampaignManager._onDeleteCampaign,
+      restorePoolBackup: CampaignManager._onRestorePoolBackup,
     }
   };
 
@@ -24,14 +25,26 @@ export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
     manager: { template: "modules/sta2e-toolkit/templates/campaign-manager.hbs" }
   };
 
+  /** Pool fields render "" (showing the — placeholder) when never saved, so a
+   *  missing snapshot is visibly different from a genuine 0. */
+  static _poolDisplay(value) {
+    return value === null || value === undefined ? "" : String(value);
+  }
+
   async _prepareContext(_options) {
     const store = game.sta2eToolkit.campaignStore;
+    const activeId = store.getActiveCampaignId();
     return {
       campaigns: store.getCampaigns().map(c => ({
         ...c,
         eraLabel: { tng: "TNG/DS9/VOY", tos: "TOS/TMP", ent: "ENT Era", klingon: "Klingon", romulan: "Romulan", custom: "Custom" }[c.era] ?? "TNG",
         isCustom: c.era === "custom",
-        isENT: c.era === "ent"
+        isENT: c.era === "ent",
+        isActive: c.id === activeId,
+        momentumDisplay: CampaignManager._poolDisplay(c.savedMomentum),
+        threatDisplay:   CampaignManager._poolDisplay(c.savedThreat),
+        alliedDisplay:   CampaignManager._poolDisplay(c.savedAlliedNpcMomentum),
+        hasBackup: !!c.poolsBackup,
       }))
     };
   }
@@ -96,8 +109,47 @@ export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
       });
     });
 
+    // Inline pool edits — saved Momentum / Threat / Allied NPC Momentum.
+    // Blank commits null ("never saved"); a number commits that value, and
+    // pushes it to the live tracker when this is the active campaign.
+    el.querySelectorAll("[data-campaign-pool]").forEach(input => {
+      input.addEventListener("change", async (e) => {
+        const id   = e.target.dataset.campaignPool;
+        const pool = e.target.dataset.pool;
+        const raw  = e.target.value.trim();
+        const val  = raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0);
+        const field = {
+          momentum: "savedMomentum",
+          threat: "savedThreat",
+          alliedNpcMomentum: "savedAlliedNpcMomentum",
+        }[pool];
+        if (!field) return;
+
+        await store.setCampaignPoolField(id, field, val);
+        if (val !== null && id === store.getActiveCampaignId()) {
+          await store.setLivePool(pool, val);
+        }
+        this.render({ force: true });
+      });
+    });
+
+    // Keep the dialog in step with pool changes made from the tracker.
+    if (!this._campaignsHook) {
+      this._campaignsHook = Hooks.on("updateSetting", (setting) => {
+        if (setting.key === "sta2e-toolkit.campaigns") this.render();
+      });
+    }
+
     // Drag-to-reorder
     this._activateDragSort(el);
+  }
+
+  _onClose(options) {
+    if (this._campaignsHook) {
+      Hooks.off("updateSetting", this._campaignsHook);
+      this._campaignsHook = null;
+    }
+    return super._onClose(options);
   }
 
   _activateDragSort(el) {
@@ -160,5 +212,20 @@ export class CampaignManager extends HandlebarsApplicationMixin(ApplicationV2) {
       await store.deleteCampaign(id);
       this.render({ force: true });
     }
+  }
+
+  static async _onRestorePoolBackup(event, target) {
+    const id = target.dataset.restorePools;
+    const store = game.sta2eToolkit.campaignStore;
+    const backup = store.getCampaignById(id)?.poolsBackup;
+    if (!backup) return;
+
+    const restored = await store.restorePoolBackup(id);
+    if (restored) {
+      ui.notifications.info(
+        `STA2e Toolkit: Restored previous pools - Momentum ${backup.momentum ?? "-"}, Threat ${backup.threat ?? "-"}.`
+      );
+    }
+    this.render({ force: true });
   }
 }
