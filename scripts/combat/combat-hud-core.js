@@ -81,7 +81,7 @@ import {
 } from "../token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonesForToken } from "../zone-data.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "../weapon-range.js";
-import { makeSpendContext, actorHasIntenseTalent, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
+import { makeSpendContext, intenseBonusMomentum, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
 import { createTracker, getActiveTracker } from "../momentum-tracker.js";
 import { clearHullDecals, hasHullDecals } from "../hull-decals.js";
 import { postTaskRequestCard } from "../task-maker.js";
@@ -19404,6 +19404,20 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const effectiveDifficulty = taskDifficulty(payload);
         const passed   = totalSuccesses >= effectiveDifficulty;
 
+        // Actor document to test for the Andorian Intense species ability. Prefer
+        // the acting officer: on the HUD-roller ship path `actorId` IS the ship
+        // actor, which never carries the talent.
+        const _intenseActor = game.actors.get(payload.officerActorId ?? actorId) ?? null;
+        // Andorian Intense: on a successful task, +1 bonus momentum per extra d20
+        // PURCHASED (extra dice cost a cumulative 1/3/6 coins), so long as at least
+        // one coin was Threat. Momentum may fund the rest. Not bankable.
+        const _intenseBonusFor = (subject) => intenseBonusMomentum({
+          slots: payload.paymentSlots,
+          hasFreeExtraDie: payload.hasFreeExtraDie,
+          passed,
+          actor: subject,
+        });
+
         // When this is a defense roll, trigger the opposed task resolution so the
         // attacker's roller opens automatically with the defender's success count
         // as the locked difficulty (minimum 0).
@@ -19413,15 +19427,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         //   same resolution logic on their end.
         if (!skipCompletionEffects && noPoolButton && taskLabel?.includes("Defense")) {
           const _successes = Math.max(0, totalSuccesses);
-          const _defenseRollingActor = payload.officerActorId
-            ? game.actors.get(payload.officerActorId)
-            : game.actors.get(actorId);
-          const _defenseThreatBought = passed
-            ? (payload.paymentSlots ?? []).filter(s => s === "threat" || s === "poolThreat" || s === "personalThreat").length
-            : 0;
-          const _defenseIntenseBonus = (passed && _defenseThreatBought > 0 && _defenseRollingActor && actorHasIntenseTalent(_defenseRollingActor))
-            ? _defenseThreatBought
-            : 0;
+          const _defenseRollingActor = _intenseActor;
+          const _defenseIntenseBonus = _intenseBonusFor(_defenseRollingActor);
           const _defenseIsNpcRoll = groundMode
             ? groundIsNpc
             : (playerMode ? false : CombatHUD.isNpcShip(game.actors.get(actorId)));
@@ -19480,12 +19487,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         // Compute Andorian Intense bonus from threat-purchased d20s.
         const _trackerPool = generatedPool;
         const _trackerOwner = (groundMode ? (tokenObj?.actor ?? game.actors.get(actorId)) : shipActor) ?? null;
-        const _trackerThreatBought = passed
-          ? (payload.paymentSlots ?? []).filter(s => s === "threat" || s === "poolThreat" || s === "personalThreat").length
-          : 0;
         const _trackerCharActor = game.actors.get(actorId) ?? null;
-        const _trackerIntenseBonus = (passed && _trackerThreatBought > 0 && _trackerCharActor && actorHasIntenseTalent(_trackerCharActor))
-          ? _trackerThreatBought : 0;
+        const _trackerIntenseBonus = _intenseBonusFor(_intenseActor);
         const _trackerShowOffBonus = showOffBonusMomentum(payload, passed);
         const _trackerCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
         const _trackerPlanOfActionBonus = passed
@@ -19749,11 +19752,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               // Float = unbankable overflow returned by createTracker.
               const _wq = weapon.system?.qualities ?? {};
               const _floatingMomentum = _trackerFloat;
-              const _threatBought = (payload.paymentSlots ?? []).filter(s =>
-                s === "threat" || s === "poolThreat" || s === "personalThreat"
-              ).length;
-              const _intenseBonus = (passed && _threatBought > 0 && charActor && actorHasIntenseTalent(charActor))
-                ? _threatBought : 0;
+              const _intenseBonus = _intenseBonusFor(charActor);
               const _callOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
               const _planOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], charActor) : 0;
               const _chiefMedicalSpendBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
@@ -19817,17 +19816,12 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             weaponContext.shipTokenId = _weaponTokenObj.id;
             // Floating momentum = the unbankable overflow from createTracker.
             const _shipFloating = _trackerFloat;
-            // Andorian Intense: +1 bonus mom per d20 purchased by adding Threat.
-            const _shipThreatBought = (payload.paymentSlots ?? []).filter(s =>
-              s === "threat" || s === "poolThreat" || s === "personalThreat"
-            ).length;
-            // Use the character actor (PC making the roll) for the talent check, not the ship actor.
-            const _intenseSubject = game.actors.get(actorId) ?? null;
-            const _shipIntenseBonus = (passed && _shipThreatBought > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
-              ? _shipThreatBought : 0;
+            // Andorian Intense — check the character actor (PC making the roll),
+            // never the ship actor.
+            const _shipIntenseBonus = _intenseBonusFor(_intenseActor);
             const _shipShowOffBonus = showOffBonusMomentum(payload, passed);
             const _shipCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
-            const _shipPlanOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _intenseSubject ?? shipActor) : 0;
+            const _shipPlanOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], game.actors.get(actorId) ?? shipActor) : 0;
             const _shipChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
             const _shipModeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon);
             await CombatHUD.resolveShipAttack(_weaponTokenObj, weapon, passed, {

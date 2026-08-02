@@ -16,7 +16,7 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
-import { actorHasIntenseTalent } from "./momentum-spend.js";
+import { intenseBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
 import { adjustPool, readPool } from "./pool-service.js";
 import {
@@ -473,26 +473,41 @@ export function communicationsOfficerShipDie(critThreshold = 1) {
  * Builds a synthetic Roll with the already-computed values so DSN can animate
  * them without re-rolling. Silently no-ops if DSN is unavailable or disabled.
  *
+ * IMPORTANT — this deliberately does NOT wait for the animation to finish, and
+ * never throws. Callers post the task chat card immediately after awaiting this,
+ * so any DSN failure used to take the card with it: on macOS/WebKit a lost WebGL
+ * context leaves showForRoll() pending forever, and the card silently never
+ * posted for anyone. The animation is purely cosmetic — die values come from
+ * rollPool()'s Math.random(), and the Roll built here is only a puppet to feed
+ * DSN — so nothing downstream depends on it. Do not re-add the await.
+ *
  * @param {Array<{value:number}>} dice  - Pre-rolled die objects
  * @param {object|null}           speaker - ChatMessage speaker (for DSN sync)
  */
 export async function dsnShowPool(dice, speaker = null) {
-  if (!game.dice3d) return;                                          // DSN not installed
-  if (!game.settings.get("sta2e-toolkit", "useDiceSoNice")) return; // user disabled
+  try {
+    if (!dice?.length) return;                                       // nothing to animate
+    if (!game.dice3d) return;                                        // DSN not installed
+    if (!game.settings.get("sta2e-toolkit", "useDiceSoNice")) return; // user disabled
 
-  // Build a Roll whose terms contain the pre-rolled values
-  const roll = new Roll(`${dice.length}d20`);
-  await roll.evaluate({ minimize: true });   // evaluate to initialise term structure
+    // Build a Roll whose terms contain the pre-rolled values
+    const roll = new Roll(`${dice.length}d20`);
+    await roll.evaluate({ minimize: true });   // evaluate to initialise term structure
 
-  // Overwrite minimized values with our actual results
-  const term = roll.terms[0];               // DiceTerm
-  term.results.forEach((r, i) => {
-    r.result = dice[i]?.value ?? r.result;
-    r.active = true;
-  });
-  roll._total = dice.reduce((s, d) => s + d.value, 0);
+    // Overwrite minimized values with our actual results
+    const term = roll.terms[0];               // DiceTerm
+    term.results.forEach((r, i) => {
+      r.result = dice[i]?.value ?? r.result;
+      r.active = true;
+    });
+    roll._total = dice.reduce((s, d) => s + d.value, 0);
 
-  await game.dice3d.showForRoll(roll, game.user, true, null, false, null, speaker);
+    // Fire and forget — see the note above. The dice tumble while the card posts.
+    Promise.resolve(game.dice3d.showForRoll(roll, game.user, true, null, false, null, speaker))
+      .catch(err => console.warn("STA2e Toolkit | Dice So Nice animation failed:", err));
+  } catch (err) {
+    console.warn("STA2e Toolkit | Dice So Nice setup failed:", err);
+  }
 }
 
 // ── Die pip rendering — uses Foundry's icons/svg/d20-grey.svg + CSS filters ──
@@ -4538,7 +4553,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       suppressWeaponResolution: state.suppressWeaponResolution ?? false,
       // Snapshot of payment slots — used by downstream consumers (e.g. damage
       // card spend panel) to detect Threat-purchased d20s for Andorian Intense.
+      // hasFreeExtraDie shifts the coins→dice thresholds, so it must travel too.
       paymentSlots: Array.isArray(state.paymentSlots) ? [...state.paymentSlots] : [],
+      hasFreeExtraDie: !!state.hasFreeExtraDie,
       callOutTargetsSources: state.callOutTargetsSources ?? [],
     };
 
@@ -4554,6 +4571,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           rollData,        // stored for clean retrieval without HTML parsing
         },
       },
+    }).catch(err => {
+      console.error("STA2e Toolkit | failed to post task card:", err);
+      ui.notifications?.error("STA2e Toolkit: could not post the task card — see console (F12).");
     });
     consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
       console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
@@ -4604,6 +4624,13 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       }
       state.traitDifficultyDirections ??= {};
     }
+
+    // Actor document to test for the Andorian Intense species ability.
+    // state.officer is a plain stats object ({ id, name, attributes, ... }) with
+    // no .items, so it must be resolved to the real Actor first. Falling back to
+    // `actor` is safe: in officer mode that is the ship, which never has Intense.
+    const _intenseSubjectActor = () =>
+      (state.officer?.id ? game.actors.get(state.officer.id) : null) ?? actor ?? null;
 
     dialog = new foundry.applications.api.DialogV2({
       window: {
@@ -4660,12 +4687,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 ...state.shipDice,
               ]) + autoSuccesses(state);
               const _hitMomentum = Math.max(0, _hitSuccesses - effectiveDifficulty);
-              const _hitThreatBought = (state.paymentSlots ?? []).filter(s =>
-                s === "threat" || s === "poolThreat" || s === "personalThreat"
-              ).length;
-              const _hitIntenseSubject = state.officer ?? actor ?? null;
-              const _hitIntenseBonus = (isHit && _hitThreatBought > 0 && _hitIntenseSubject && actorHasIntenseTalent(_hitIntenseSubject))
-                ? _hitThreatBought : 0;
+              const _hitIntenseBonus = intenseBonusMomentum({
+                slots: state.paymentSlots,
+                hasFreeExtraDie: state.hasFreeExtraDie,
+                passed: isHit,
+                actor: _intenseSubjectActor(),
+              });
               const _hitShowOffBonus = showOffBonusMomentum(state, isHit);
               const _hitCallOutTargetsBonus = callOutTargetsBonusMomentum(state, isHit);
               const _hitPlanOfActionBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
@@ -4698,6 +4725,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               ChatMessage.create({
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
+              }).catch(err => {
+                console.error("STA2e Toolkit | failed to post task card:", err);
+                ui.notifications?.error("STA2e Toolkit: could not post the task card — see console (F12).");
               });
               consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
                 console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
@@ -4759,15 +4789,16 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // (computed earlier in this callback). The full overflow has already
               // been split into banked (to pool) + float (to tracker) above.
               const _floatingMomentum = state.trackerFloat ?? 0;
-              // Andorian Intense talent: +1 bonus momentum per d20 purchased by adding
-              // to Threat (i.e. paymentSlot type "threat"/"poolThreat"/"personalThreat"),
-              // on a successful task. Bonus may not be saved to the pool.
-              const _threatBoughtDice = (state.paymentSlots ?? []).filter(s =>
-                s === "threat" || s === "poolThreat" || s === "personalThreat"
-              ).length;
-              const _intenseSubject = state.officer ?? actor ?? null;
-              const _intenseTalentBonus = (isHit && _threatBoughtDice > 0 && _intenseSubject && actorHasIntenseTalent(_intenseSubject))
-                ? _threatBoughtDice : 0;
+              // Andorian Intense talent: on a successful task, +1 bonus momentum per
+              // extra d20 PURCHASED (extra dice cost a cumulative 1/3/6 coins), so long
+              // as at least one coin was Threat ("threat"/"poolThreat"/"personalThreat").
+              // Momentum may fund the rest of the cost. Bonus is not bankable.
+              const _intenseTalentBonus = intenseBonusMomentum({
+                slots: state.paymentSlots,
+                hasFreeExtraDie: state.hasFreeExtraDie,
+                passed: isHit,
+                actor: _intenseSubjectActor(),
+              });
               const _showOffTalentBonus = showOffBonusMomentum(state, isHit);
               const _callOutTargetsTalentBonus = callOutTargetsBonusMomentum(state, isHit);
               const _planOfActionTalentBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
@@ -4820,12 +4851,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prPassed = _prSuccesses >= _prDifficulty;
               const _prMomentum = Math.max(0, _prSuccesses - _prDifficulty);
               const _prComplications = _prAllDice.filter(d => d.complication).length + autoComplications(state);
-              const _prThreatBought = (state.paymentSlots ?? []).filter(s =>
-                s === "threat" || s === "poolThreat" || s === "personalThreat"
-              ).length;
-              const _prIntenseSubject = state.officer ?? actor ?? null;
-              const _prIntenseBonus = (_prPassed && _prThreatBought > 0 && _prIntenseSubject && actorHasIntenseTalent(_prIntenseSubject))
-                ? _prThreatBought : 0;
+              const _prIntenseBonus = intenseBonusMomentum({
+                slots: state.paymentSlots,
+                hasFreeExtraDie: state.hasFreeExtraDie,
+                passed: _prPassed,
+                actor: _intenseSubjectActor(),
+              });
               const _prShowOffBonus = showOffBonusMomentum(state, _prPassed);
               const _prCallOutTargetsBonus = callOutTargetsBonusMomentum(state, _prPassed);
               const _prPlanOfActionBonus = _prPassed ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
@@ -4854,6 +4885,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               ChatMessage.create({
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
+              }).catch(err => {
+                console.error("STA2e Toolkit | failed to post task card:", err);
+                ui.notifications?.error("STA2e Toolkit: could not post the task card — see console (F12).");
               });
               consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
                 console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
@@ -4909,6 +4943,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                         </div>
                       </div>`,
                   speaker: ChatMessage.getSpeaker({ token }),
+                }).catch(err => {
+                  console.error("STA2e Toolkit | failed to post Rally card:", err);
+                  ui.notifications?.error("STA2e Toolkit: could not post the Rally card — see console (F12).");
                 });
               }
             },
@@ -4922,6 +4959,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               ChatMessage.create({
                 content: buildChatCard(actor.name, state),
                 speaker: ChatMessage.getSpeaker({ token }),
+              }).catch(err => {
+                console.error("STA2e Toolkit | failed to post task card:", err);
+                ui.notifications?.error("STA2e Toolkit: could not post the task card — see console (F12).");
               });
               consumeSingleTaskTraits(state.appliedTraitEffects ?? []).catch(err =>
                 console.warn("STA2e Toolkit | single-task trait cleanup failed:", err));
@@ -4953,7 +4993,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 speaker: ChatMessage.getSpeaker({ token }),
               });
               const speaker = ChatMessage.getSpeaker({ token });
-              (async () => { await _doRoll(state, speaker); openDialog(); })();
+              // finally: the DialogV2 has already closed by now, so a throw here
+              // would otherwise leave the user with no dialog and no chat card.
+              (async () => {
+                try {
+                  await _doRoll(state, speaker);
+                } catch (err) {
+                  console.error("STA2e Toolkit | task roll failed:", err);
+                  ui.notifications?.error("STA2e Toolkit: task roll failed — see console (F12).");
+                } finally {
+                  openDialog();
+                }
+              })();
             },
           },
           {
@@ -4979,7 +5030,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               }
               const speaker = ChatMessage.getSpeaker({ token });
               _readSetupInputs(state, dlg.element ?? dlg, _shipDataRef.systems, _shipDataRef.depts);
-              (async () => { await _doRoll(state, speaker); openDialog(); })();
+              // finally: the DialogV2 has already closed by now, so a throw here
+              // would otherwise leave the user with no dialog and no chat card.
+              (async () => {
+                try {
+                  await _doRoll(state, speaker);
+                } catch (err) {
+                  console.error("STA2e Toolkit | task roll failed:", err);
+                  ui.notifications?.error("STA2e Toolkit: task roll failed — see console (F12).");
+                } finally {
+                  openDialog();
+                }
+              })();
             },
           },
           {
@@ -5883,6 +5945,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
 
     // Compute dice count from current slot state — called before every re-render
     // so the display is always in sync with the slots.
+    // Thresholds here are mirrored by the quick-fill slider's `coinsFor` map below
+    // and by paidExtraDiceFromSlots() in momentum-spend.js — update all three together.
     const _calcDiceFromSlots = () => {
       const isFree = state.hasFreeExtraDie;
       const filled = state.paymentSlots.filter(s => s !== null).length;
@@ -5943,7 +6007,8 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         state.easyFillValue = targetExtra;
 
         // Coins needed to achieve N purchased extra dice above the base 2.
-        // (These thresholds mirror _calcDiceFromSlots in reverse.)
+        // (These thresholds mirror _calcDiceFromSlots in reverse; they are also
+        // mirrored by paidExtraDiceFromSlots() in momentum-spend.js.)
         const isFree   = state.hasFreeExtraDie;
         const coinsFor = isFree ? [0, 0, 2, 5] : [0, 1, 3, 6];
         const need     = coinsFor[targetExtra] ?? 0;

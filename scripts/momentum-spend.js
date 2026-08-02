@@ -57,6 +57,49 @@ export function actorHasIntenseTalent(actor) {
   return false;
 }
 
+const THREAT_SLOT_TYPES = new Set(["threat", "poolThreat", "personalThreat"]);
+
+/**
+ * Extra d20s actually PAID for by the coins sitting in `slots`.
+ *
+ * Extra-d20 cost is cumulative: 1 / 3 / 6 coins for the 1st / 2nd / 3rd extra
+ * die (0 / 2 / 5 when the first extra die is free). The free die is NOT counted
+ * here — no resource bought it.
+ *
+ * Keep in lockstep with `_calcDiceFromSlots` (npc-roller.js) and its reverse
+ * map in the quick-fill slider; a threshold change must update all three.
+ *
+ * @param {Array<string|null>} slots - Payment slot array; nulls are empty slots.
+ * @param {boolean} hasFreeExtraDie
+ * @returns {number} 0-3
+ */
+export function paidExtraDiceFromSlots(slots = [], hasFreeExtraDie = false) {
+  const filled = (Array.isArray(slots) ? slots : []).filter(s => s != null).length;
+  const thresholds = hasFreeExtraDie ? [2, 5] : [1, 3, 6];
+  return thresholds.reduce((n, t) => n + (filled >= t ? 1 : 0), 0);
+}
+
+/**
+ * Andorian Intense species ability: on a successful task, bonus Momentum equals
+ * the number of extra d20s purchased — not the number of coins spent — provided
+ * at least one Threat coin funded the purchase. Momentum may cover the rest of
+ * the cost without reducing the bonus (e.g. 2 Threat + 1 Momentum buys the 2nd
+ * extra die and still grants 2). The bonus may not be saved to the pool.
+ *
+ * @param {object}  ctx
+ * @param {Array}   ctx.slots - state.paymentSlots / payload.paymentSlots.
+ * @param {boolean} ctx.hasFreeExtraDie
+ * @param {boolean} ctx.passed - Task succeeded.
+ * @param {Actor|null} ctx.actor - The Actor document to test for the talent.
+ * @returns {number} 0-3
+ */
+export function intenseBonusMomentum({ slots = [], hasFreeExtraDie = false, passed = false, actor = null } = {}) {
+  if (!passed || !actor || !actorHasIntenseTalent(actor)) return 0;
+  const list = Array.isArray(slots) ? slots : [];
+  if (!list.some(s => THREAT_SLOT_TYPES.has(s))) return 0;
+  return paidExtraDiceFromSlots(list, hasFreeExtraDie);
+}
+
 // ─── Spend-context construction ──────────────────────────────────────────────
 
 /**
