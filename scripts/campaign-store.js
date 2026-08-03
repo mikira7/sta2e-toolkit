@@ -67,6 +67,13 @@ export class CampaignStore {
   // every write is a network round-trip, that overlap is the norm.
   _writeQueue = Promise.resolve();
 
+  // The campaign whose pools are currently loaded into the live tracker.
+  // Deliberately NOT getActiveCampaign(), which resolves the current scene's
+  // pin first: the scene-pin auto-switch runs from canvasReady, when
+  // canvas.scene is already the *incoming* scene, so that lookup names the
+  // campaign we are switching to rather than the one leaving.
+  _effectiveCampaignId = null;
+
   // --- Read -----------------------------------------------------------------
 
   /** @returns {object[]} all campaigns */
@@ -94,6 +101,21 @@ export class CampaignStore {
   /** @returns {object|null} */
   getCampaignById(id) {
     return this.getCampaigns().find(c => c.id === id) ?? null;
+  }
+
+  /**
+   * The campaign that owns the values currently sitting in the live tracker —
+   * the only correct target for a pool save.
+   *
+   * Falls back to the raw activeCampaign setting rather than getActiveCampaign():
+   * that setting is written only by _doSetActiveCampaign and is never influenced
+   * by the current scene, so on a cold client it still names the last campaign
+   * switched to. Consulting the scene pin here is what caused the incoming
+   * campaign to be saved over with the outgoing campaign's pools.
+   * @returns {string}
+   */
+  _getPoolOwnerId() {
+    return this._effectiveCampaignId ?? this.getActiveCampaignId();
   }
 
   // --- Write ----------------------------------------------------------------
@@ -134,14 +156,19 @@ export class CampaignStore {
   }
 
   async _doSetActiveCampaign(id, { deferRestore = false } = {}) {
-    // Resolve the outgoing campaign the same way the auto-sync hook does, so
-    // scene-pinned worlds save into the campaign that is actually in effect.
-    const previousId = this.getActiveCampaign()?.id ?? this.getActiveCampaignId();
+    // Resolve the outgoing campaign from pool ownership, never from the scene
+    // pin: on the canvasReady pin path canvas.scene is already the incoming
+    // scene, so a pin lookup here names the campaign we are switching *to* and
+    // this save would stamp the outgoing pools onto it.
+    const previousId = this._getPoolOwnerId();
 
     // Explicitly save current pools before we leave — this is the primary save
     // path and is reliable regardless of whether the updateSetting hook fired.
     // force: this save must never be suppressed by the guard below.
-    await this.syncPoolsFromTracker(previousId, { force: true });
+    // Runs even when previousId === id (a re-assert): the values belong to that
+    // campaign either way, and the save flushes an edit the 200ms debounce
+    // hasn't landed yet before the restore below overwrites the tracker.
+    if (previousId) await this.syncPoolsFromTracker(previousId, { force: true });
 
     // Suppress the updateSetting hook during restore so the in-progress write
     // to sta.momentum/sta.threat doesn't call syncPoolsFromTracker() again and
@@ -246,7 +273,10 @@ export class CampaignStore {
     // Skip if we're mid-restore — the restore write would trigger this hook and
     // overwrite the incoming campaign's stored values with the outgoing ones.
     if (this._switchDepth > 0 && !force) return;
-    const campaign = campaignId ? this.getCampaignById(campaignId) : this.getActiveCampaign();
+    // No id means the debounced updateSetting hook: target whoever owns the
+    // live pools. Resolving via the scene pin would misfile every edit made
+    // after a dropdown switch on a pinned scene.
+    const campaign = this.getCampaignById(campaignId ?? this._getPoolOwnerId());
     if (!campaign) return;
 
     const savedMomentum = readPoolRaw("momentum");
@@ -321,6 +351,11 @@ export class CampaignStore {
       await CampaignStore._setPoolValue("alliedNpcMomentum", alliedNpcMomentum);
     }
 
+    // The tracker now holds this campaign's pools — it owns any later save.
+    // Every restore path (switch, canvasReady re-assert, backup restore) lands
+    // here, so this one assignment keeps ownership current for all of them.
+    this._effectiveCampaignId = id;
+
     // Persist the resolved values so a null never lingers and can't trigger
     // another zeroing restore later.
     if (nullPolicy === "zero") {
@@ -380,10 +415,12 @@ export class CampaignStore {
    * Shows a notification — use this from macros when you want explicit control.
    */
   async savePoolsToActiveCampaign() {
-    const campaign = this.getActiveCampaign();
-    if (!campaign) return;
+    // Report against the pool owner, which is what syncPoolsFromTracker() writes
+    // to — getActiveCampaign() could name a different, scene-pinned campaign.
+    const ownerId = this._getPoolOwnerId();
+    if (!this.getCampaignById(ownerId)) return;
     await this.syncPoolsFromTracker();
-    const c = this.getActiveCampaign(); // re-fetch after save
+    const c = this.getCampaignById(ownerId); // re-fetch after save
     ui.notifications.info(
       `STA2e Toolkit: Saved pools for "${c.name}" - Momentum ${c.savedMomentum ?? 0}, Threat ${c.savedThreat ?? 0}, Allied NPC Momentum ${c.savedAlliedNpcMomentum ?? 0}.`
     );
