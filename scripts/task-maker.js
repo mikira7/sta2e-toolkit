@@ -4,7 +4,8 @@
  */
 
 import { getAssignedShips, normalizeAssignedShips, readOfficerStats } from "./crew-manifest.js";
-import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens, inputStyle, labelStyle, pillStyle, selectStyle } from "./lcars-theme.js";
+import { buildOpposedPanelHtml, defaultOpposedState, readOpposedPanelState, wireOpposedPanel } from "./opposed-panel.js";
 import { decrementTracker } from "./momentum-tracker.js";
 import { readTrackerState } from "./momentum-spend.js";
 import { openNpcRoller } from "./npc-roller.js";
@@ -17,6 +18,7 @@ const EXTENDED_TASK_FLAG = "extendedTask";
 const LAST_SETTINGS_KEY = "taskMakerLastSettings";
 const RECENT_EXTENDED_KEY = "taskMakerRecentExtended";
 const RECENT_EXTENDED_MAX = 5;
+const TASK_MODES = ["task", "extended", "opposed"];
 
 function readLastSettings() {
   try {
@@ -400,8 +402,11 @@ function defaultState(prefill = {}) {
     shipDeptKey: defaultDept,
     traits: Array.isArray(prefill.traits) ? prefill.traits : [],
     reactorAction: prefill.reactorAction ?? null,
-    mode: prefill.mode === "extended" ? "extended" : "task",
+    mode: TASK_MODES.includes(prefill.mode) ? prefill.mode : "task",
     extendedTask: defaultExtendedConfig(prefill.extendedTask ?? prefill),
+    // Falling back to the bare prefill lets openOpposedTaskSetup({defenderActorId, ...})
+    // and the /opposed command's flat payload work without double-wrapping.
+    opposed: defaultOpposedState(prefill.opposed ?? prefill),
   };
 }
 
@@ -424,6 +429,23 @@ export function openTaskMakerSetup(prefill = {}) {
         default: true,
         callback: async (_event, _button, dlg) => {
           readDialogState(dlg.element, state);
+          // Checked before the character guard below — an opposed task has two
+          // actor slots of its own and never needs the shared character slot.
+          if (state.mode === "opposed") {
+            if (!state.opposed.defenderActorId || !state.opposed.attackerActorId) {
+              ui.notifications.warn("STA2e Toolkit: Assign both Defender and Attacker.");
+              return false;
+            }
+            // startOpposedTask honours opts.kind and lets our options object win
+            // the merge; its recent-snapshot bookkeeping replaces saveLastSettings,
+            // which would otherwise persist a bogus actor-less "task" entry.
+            await game.sta2eToolkit?.startOpposedTask?.({
+              ...state.opposed,
+              taskName: state.taskName.trim() || "Opposed Task",
+              flavor: state.flavor,
+            });
+            return;
+          }
           if (!state.actorId) {
             ui.notifications.warn("STA2e Toolkit: Assign a character for this task.");
             return false;
@@ -437,6 +459,22 @@ export function openTaskMakerSetup(prefill = {}) {
     rejectClose: false,
   });
   dialog.render({ force: true }).then(() => wireDialog(dialog.element, state));
+}
+
+/**
+ * Open the Task Maker directly on its Opposed Task tab.
+ *
+ * Kept under the original name so every existing entry point — Shift+O, the
+ * /opposed chat command, the toolkit widget button, and
+ * game.sta2eToolkit.openOpposedTaskSetup — keeps working unchanged.
+ */
+export function openOpposedTaskSetup(prefill = {}) {
+  openTaskMakerSetup({
+    mode: "opposed",
+    opposed: prefill,
+    taskName: prefill.taskName ?? "",
+    flavor: prefill.flavor ?? "",
+  });
 }
 
 function buildDialogHtml(state) {
@@ -516,37 +554,35 @@ function buildDialogHtml(state) {
 
       ${traitPanelHtml(state)}
       ${extendedTaskPanelHtml(state)}
+      ${buildOpposedPanelHtml(state)}
     </div>
   `;
 }
 
 function taskModeToggleHtml(state) {
-  const normalActive = state.mode !== "extended";
-  const extendedActive = state.mode === "extended";
-  const option = (mode, label, active, color) => `
-    <button type="button" class="tmk-mode-toggle" data-mode="${mode}"
-      style="flex:1;padding:7px 10px;background:${active ? color : LC.bg};color:${active ? LC.bg : LC.text};
-      border:1px solid ${color};border-radius:10px 3px 10px 3px;font-family:${LC.font};font-size:10px;
-      font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;">
-      ${label}
-    </button>`;
+  const option = (mode, label) => {
+    const active = state.mode === mode;
+    const color = modeAccent(mode);
+    return `
+      <button type="button" class="tmk-mode-toggle" data-mode="${mode}"
+        style="flex:1;padding:7px 10px;background:${active ? color : LC.bg};color:${active ? LC.bg : LC.text};
+        border:1px solid ${color};border-radius:10px 3px 10px 3px;font-family:${LC.font};font-size:10px;
+        font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;">
+        ${label}
+      </button>`;
+  };
   return `
     <div class="tmk-mode-panel" style="display:flex;gap:6px;border:1px solid ${LC.border};background:${LC.panel};padding:6px;border-radius:16px 3px 16px 3px;">
-      ${option("task", "Normal Task", normalActive, LC.primary)}
-      ${option("extended", "Extended Task", extendedActive, LC.secondary)}
+      ${option("task", "Normal Task")}
+      ${option("extended", "Extended Task")}
+      ${option("opposed", "Opposed Task")}
     </div>`;
 }
 
-function inputStyle(extra = "") {
-  return `width:100%;background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};padding:8px 10px;border-radius:12px 3px 12px 3px;font-family:${LC.font};font-size:12px;${extra}`;
-}
-
-function selectStyle() {
-  return `background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};padding:8px 10px;border-radius:12px 3px 12px 3px;font-family:${LC.font};`;
-}
-
-function labelStyle() {
-  return `display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${LC.textDim};`;
+function modeAccent(mode) {
+  if (mode === "extended") return LC.secondary;
+  if (mode === "opposed") return LC.tertiary;
+  return LC.primary;
 }
 
 function actorSlotHtml(actor, state) {
@@ -572,10 +608,6 @@ function actorSlotHtml(actor, state) {
         <button type="button" class="tmk-actor-pick" data-source="list" style="${pillStyle(LC.tertiary)}">List...</button>
       </div>
     </div>`;
-}
-
-function pillStyle(color) {
-  return `flex:1;background:${LC.bg};color:${LC.text};border:1px solid ${LC.border};padding:4px 6px;border-radius:999px;font-size:9px;cursor:pointer;letter-spacing:0.06em;text-transform:uppercase;--tmk-button-accent:${color};`;
 }
 
 function shipSystemOptions(ship, selectedKey) {
@@ -955,7 +987,8 @@ function breakthroughConfigRowHtml(bp, index, workMax) {
 function readDialogState(root, state) {
   state.taskName = root.querySelector(".tmk-task-name")?.value ?? "";
   state.flavor = root.querySelector(".tmk-flavor")?.value ?? "";
-  state.mode = root.querySelector(".tmk-extended-panel")?.style?.display === "none" ? "task" : "extended";
+  // `state.mode` is authoritative — it used to be re-derived from the extended
+  // panel's display style, which cannot distinguish three tabs.
   state.attrKey = root.querySelector(".tmk-attr")?.value ?? "presence";
   state.discKey = root.querySelector(".tmk-disc")?.value ?? "command";
   state.difficulty = clampInt(root.querySelector(".tmk-difficulty")?.value, 0, 99, 1);
@@ -965,6 +998,7 @@ function readDialogState(root, state) {
   state.shipSystemKey = root.querySelector(".tmk-ship-system")?.value || state.shipSystemKey || null;
   state.shipDeptKey = root.querySelector(".tmk-ship-dept")?.value || state.shipDeptKey || null;
   readExtendedTaskState(root, state);
+  readOpposedPanelState(root, state);
 }
 
 function readExtendedTaskState(root, state) {
@@ -1016,6 +1050,7 @@ function wireDialog(root, state) {
   wireShipFields(root, state);
   wireTraitPanel(root, state);
   wireExtendedTaskPanel(root, state);
+  wireOpposedPanel(root, state, { readState: readDialogState, rerender: rerenderDialog });
   wireReuseButton(root, state);
   applyModeVisibility(root, state);
 }
@@ -1096,28 +1131,54 @@ function openReuseHistoryPicker(choices = []) {
   });
 }
 
+// Which panels each tab shows, and the display value to restore them with.
+// Task Name and Notes are deliberately absent — they are shared by all tabs.
+const MODE_PANELS = [
+  [".tmk-actor-slot",      ["task", "extended"],  "block"],
+  [".tmk-params-grid",     ["task", "extended"],  "grid"],
+  [".tmk-difficulty-cell", ["task"],              "flex"],
+  [".tmk-ship-panel",      ["task", "extended"],  "block"],
+  [".tmk-trait-panel",     ["task", "extended"],  "block"],
+  [".tmk-extended-panel",  ["extended"],          "flex"],
+  [".tmk-opposed-panel",   ["opposed"],           "flex"],
+  // The Opposed tab carries its own Reuse Last / Recent toolbar.
+  [".tmk-reuse-last",      ["task", "extended"],  "inline-block"],
+];
+
 function applyModeVisibility(root, state) {
-  const extended = state.mode === "extended";
-  const panel = root.querySelector(".tmk-extended-panel");
-  if (panel) panel.style.display = extended ? "flex" : "none";
+  for (const [selector, modes, shown] of MODE_PANELS) {
+    const el = root.querySelector(selector);
+    if (el) el.style.display = modes.includes(state.mode) ? shown : "none";
+  }
   const grid = root.querySelector(".tmk-params-grid");
-  if (grid) grid.style.gridTemplateColumns = extended ? "1fr 1fr 1fr" : "1fr 1fr 100px 1fr";
-  const diffCell = root.querySelector(".tmk-difficulty-cell");
-  if (diffCell) diffCell.style.display = extended ? "none" : "flex";
+  if (grid) grid.style.gridTemplateColumns = state.mode === "extended" ? "1fr 1fr 1fr" : "1fr 1fr 100px 1fr";
+  refreshModeToggleStyles(root, state);
+}
+
+// Kept alongside applyModeVisibility rather than in the click handler so the tab
+// bar stays in sync when refreshExtendedTaskPanel repaints the extended panel.
+function refreshModeToggleStyles(root, state) {
+  root.querySelectorAll(".tmk-mode-toggle").forEach(btn => {
+    const active = btn.dataset.mode === state.mode;
+    const color = modeAccent(btn.dataset.mode);
+    btn.style.background = active ? color : LC.bg;
+    btn.style.color = active ? LC.bg : LC.text;
+  });
 }
 
 function wireTaskMode(root, state) {
+  // refreshExtendedTaskPanel re-calls this without replacing the toggle buttons,
+  // so guard against stacking a second listener on every one of them.  The flag
+  // lives on the toggle panel, not on root: rerenderDialog swaps the panel out
+  // (clearing the flag) but leaves root in place.
+  const modePanel = root.querySelector(".tmk-mode-panel");
+  if (!modePanel || modePanel.dataset.tmkModeWired === "1") return;
+  modePanel.dataset.tmkModeWired = "1";
   root.querySelectorAll(".tmk-mode-toggle").forEach(btn => {
     btn.addEventListener("click", () => {
       readDialogState(root, state);
-      state.mode = btn.dataset.mode === "extended" ? "extended" : "task";
+      state.mode = TASK_MODES.includes(btn.dataset.mode) ? btn.dataset.mode : "task";
       applyModeVisibility(root, state);
-      root.querySelectorAll(".tmk-mode-toggle").forEach(other => {
-        const active = other.dataset.mode === state.mode;
-        const color = other.dataset.mode === "extended" ? LC.secondary : LC.primary;
-        other.style.background = active ? color : LC.bg;
-        other.style.color = active ? LC.bg : LC.text;
-      });
     });
   });
 }

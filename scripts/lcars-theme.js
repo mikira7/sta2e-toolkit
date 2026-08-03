@@ -129,6 +129,30 @@ export function getLcCssVars(prefix = "lc", tokens = getLcTokens()) {
   return Object.entries(pairs).map(([key, value]) => `--${prefix}-${key}:${value};`).join("");
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Inline style builders
+//
+// Shared by the dialogs that build their markup as inline-styled HTML strings
+// (Task Maker and its Opposed tab). They resolve LC tokens at call time, so
+// they must be invoked during render, never cached at module load.
+// ─────────────────────────────────────────────────────────────────────────
+
+export function inputStyle(extra = "", tokens = getLcTokens()) {
+  return `width:100%;background:${tokens.panel};color:${tokens.text};border:1px solid ${tokens.border};padding:8px 10px;border-radius:12px 3px 12px 3px;font-family:${tokens.font};font-size:12px;${extra}`;
+}
+
+export function selectStyle(extra = "", tokens = getLcTokens()) {
+  return `background:${tokens.panel};color:${tokens.text};border:1px solid ${tokens.border};padding:8px 10px;border-radius:12px 3px 12px 3px;font-family:${tokens.font};${extra}`;
+}
+
+export function labelStyle(extra = "", tokens = getLcTokens()) {
+  return `display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${tokens.textDim};${extra}`;
+}
+
+export function pillStyle(color, prefix = "tmk", tokens = getLcTokens()) {
+  return `flex:1;background:${tokens.bg};color:${tokens.text};border:1px solid ${tokens.border};padding:4px 6px;border-radius:999px;font-size:9px;cursor:pointer;letter-spacing:0.06em;text-transform:uppercase;--${prefix}-button-accent:${color};`;
+}
+
 export const THEME_NAMES = {
   blue: "Starfleet Blue",
   "lcars-tng": "LCARS TNG Classic",

@@ -51,14 +51,14 @@ import {
 } from "./character-creator.js";
 import { cleanHardWrappedParagraphs, openTextFormatter } from "./text-formatter.js";
 import {
-  openOpposedTaskSetup,
   startOpposedTask,
   startGroundCombatOpposedTask,
   startStarshipCombatOpposedTask,
   wireOpposedTaskCard,
   applyOpposedRollResult,
 } from "./opposed-task.js";
-import { applyExtendedTaskExtraWork, applyExtendedTaskIntervalExhaust, applyExtendedTaskIntervalSpend, applyExtendedTaskResult, openTaskMakerSetup, wireTaskRequestCard } from "./task-maker.js";
+// openOpposedTaskSetup now opens the Task Maker on its Opposed Task tab.
+import { applyExtendedTaskExtraWork, applyExtendedTaskIntervalExhaust, applyExtendedTaskIntervalSpend, applyExtendedTaskResult, openOpposedTaskSetup, openTaskMakerSetup, wireTaskRequestCard } from "./task-maker.js";
 import { clearTokenLocalHullDecals, registerHullDecals } from "./hull-decals.js";
 import { registerMomentumSpend } from "./momentum-spend.js";
 import { registerMomentumTracker, decrementTracker, endTracker, _gmCreateTracker, setTrackerBucket } from "./momentum-tracker.js";
