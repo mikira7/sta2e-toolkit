@@ -3023,6 +3023,8 @@ function _applySheetRollerOverride(app, html) {
         const dot = knob.querySelector("span");
         if (dot) dot.style.transform = `translateX(${next === "player" ? "6px" : "-6px"})`;
       }
+      game.socket?.emit("module.sta2e-toolkit", { action: "refreshPoolTracker" });
+      game.sta2eToolkit?.poolTracker?.refresh?.();
     });
   };
   if (actor?.type === "character" && !html.querySelector(".sta2e-assign-ships-btn")) {

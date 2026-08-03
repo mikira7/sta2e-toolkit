@@ -43,18 +43,29 @@ function assetPath(pool) {
   return `modules/${MODULE}/assets/${pool === "alliedNpcMomentum" ? "momentum" : pool}.svg`;
 }
 
-function actorIsAlliedNpc(actor) {
-  if (!actor) return false;
-  if (actor.getFlag?.(MODULE, "isAlliedNpc")) return true;
-  if (actor.isToken) {
-    const baseActor = game.actors?.get?.(actor.id ?? actor._id);
-    if (baseActor?.getFlag?.(MODULE, "isAlliedNpc")) return true;
-  }
-  return false;
+/**
+ * Which Momentum pool an allied NPC draws from.
+ * @returns {"allied"|"player"|null} null when the actor isn't an allied NPC.
+ */
+function alliedMomentumSource(actor) {
+  if (!actor) return null;
+  const baseActor = actor.isToken ? game.actors?.get?.(actor.id ?? actor._id) : null;
+  const isAllied = actor.getFlag?.(MODULE, "isAlliedNpc")
+    ?? baseActor?.getFlag?.(MODULE, "isAlliedNpc");
+  if (!isAllied) return null;
+  return actor.getFlag?.(MODULE, "alliedMomentumSource")
+    ?? baseActor?.getFlag?.(MODULE, "alliedMomentumSource")
+    ?? "allied";
 }
 
-function sceneHasAlliedNpcToken() {
-  return !!canvas?.tokens?.placeables?.some(token => actorIsAlliedNpc(token.actor));
+/**
+ * Allied NPCs set to the player pool never touch alliedNpcMomentum, so they
+ * shouldn't keep the tracker's allied section on screen.
+ */
+function sceneHasAlliedPoolToken() {
+  return !!canvas?.tokens?.placeables?.some(
+    token => alliedMomentumSource(token.actor) === "allied"
+  );
 }
 
 export class ToolkitPoolTracker {
@@ -93,7 +104,10 @@ export class ToolkitPoolTracker {
         Hooks.on("deleteToken", () => this.refresh());
         Hooks.on("updateToken", () => this.refresh());
         Hooks.on("updateActor", (_actor, changed) => {
-          if (foundry.utils.hasProperty(changed, `flags.${MODULE}.isAlliedNpc`)) {
+          if (
+            foundry.utils.hasProperty(changed, `flags.${MODULE}.isAlliedNpc`)
+            || foundry.utils.hasProperty(changed, `flags.${MODULE}.alliedMomentumSource`)
+          ) {
             this.refresh();
           }
         });
@@ -159,7 +173,7 @@ export class ToolkitPoolTracker {
       allied.value = String(readPool("alliedNpcMomentum"));
       allied.dataset.committedValue = allied.value;
     }
-    const showAllied = showAlliedNpcMomentumTracker() && sceneHasAlliedNpcToken();
+    const showAllied = showAlliedNpcMomentumTracker() && sceneHasAlliedPoolToken();
     if (alliedSection) alliedSection.hidden = !showAllied;
     this._el.classList.toggle("sta2e-pool-tracker--has-allied", showAllied);
     this._refreshControls();
