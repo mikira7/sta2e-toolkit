@@ -18560,6 +18560,16 @@ function _armCardSelection(html, {
   cancelBtn.addEventListener("click", () => _disarmCardSelection());
 }
 
+/**
+ * Is a Working Results resolution button reserved for the GM?
+ * Backed by the world settings gmOnlySucceedAtCost / gmOnlyConfirmResults.
+ * Read defensively — the hook can fire before settings are registered.
+ */
+function _taskButtonIsGmOnly(isSucceedAtCost) {
+  const key = isSucceedAtCost ? "gmOnlySucceedAtCost" : "gmOnlyConfirmResults";
+  try { return game.settings.get("sta2e-toolkit", key) === true; } catch { return false; }
+}
+
 // ── renderChatMessageHTML hook ───────────────────────────────────────────────
 // v13: passes (message, htmlElement) — no jQuery wrapper
 // Ground injury buttons are visible to ALL users (players choose to avoid/take).
@@ -19681,7 +19691,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
   });
 
   // ── Player ship — Confirm Results (Working Results card) ──────────────────
-  // Available to ALL users — any player can confirm (typically the acting officer).
+  // Available to ALL users by default — any player can confirm (typically the acting
+  // officer). The world settings gmOnlyConfirmResults / gmOnlySucceedAtCost reserve
+  // either button for the GM.
   // Succeed at Cost shares this handler: it is the same resolution with the task
   // forced to a pass and one extra complication, so nothing downstream forks.
   html.querySelectorAll(".sta2e-player-confirm, .sta2e-succeed-at-cost").forEach(btn => {
@@ -19695,7 +19707,23 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       btn.title         = "Results already confirmed";
       return;
     }
+    // Reserved for the GM by world setting — leave the button in place but dead,
+    // so players can see the card is waiting on the GM rather than the row vanishing.
+    if (!game.user.isGM && _taskButtonIsGmOnly(isSucceedAtCost)) {
+      btn.disabled      = true;
+      btn.style.opacity = "0.4";
+      btn.style.cursor  = "not-allowed";
+      btn.textContent   = isSucceedAtCost ? "⚠ Succeed at a Cost — GM only"
+                                          : "🔒 Awaiting GM confirmation";
+      btn.title         = "The GM resolves this task.";
+      return;
+    }
     btn.addEventListener("click", async () => {
+      // Re-check: the GM may have enabled the restriction after this card rendered.
+      if (!game.user.isGM && _taskButtonIsGmOnly(isSucceedAtCost)) {
+        ui.notifications?.warn("The GM resolves this task.");
+        return;
+      }
       // Lock every button in this action row — Confirm and Succeed at Cost are
       // siblings and only one of them may resolve the card.
       const confirmRow = btn.closest(".sta2e-working-actions") ?? null;

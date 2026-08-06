@@ -956,6 +956,28 @@ export function registerSettings() {
     default: "classic",
   });
 
+  // ── Task card resolution permissions ─────────────────────────────────────
+  // Enforced per-client in the renderChatMessageHTML hook in
+  // combat/combat-hud-core.js. Like `playersCanSetAlert`, this is a UI filter
+  // rather than a security boundary — world settings are world-readable.
+  game.settings.register("sta2e-toolkit", "gmOnlySucceedAtCost", {
+    name:    "GM Only — Succeed at a Cost",
+    hint:    "Only the GM may press \"Succeed at a Cost\" on a Working Results task card. Players see the button greyed out. The GM narrates the cost, so this keeps that call at the GM's table.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
+
+  game.settings.register("sta2e-toolkit", "gmOnlyConfirmResults", {
+    name:    "GM Only — Confirm Results",
+    hint:    "Only the GM may press \"Confirm Results\" to close out a Working Results task card. Players may still spend Momentum, reroll and assist; the GM performs the final confirmation.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
+
   // ── Character sheet roller override ──────────────────────────────────────
   game.settings.register("sta2e-toolkit", "overrideSheetRoller", {
     name:    "STA2E.Settings.OverrideSheetRoller.Name",
