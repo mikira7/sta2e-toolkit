@@ -804,7 +804,8 @@ export class LcarsActionRing {
   _npcShipStationCategories(context, station) {
     if (context?.kind !== "npc-starship" || !station) return [];
     const actionEntries = type => (station[type] ?? [])
-      .filter(action => !!action.key && !action.isInfo)
+      .filter(action => !!action.key && !action.isInfo
+        && CombatHUD.isActionAvailable(action, context.ship))
       .map(action => ({ kind: "action", action, station }));
     const weapons = context.ship.items
       .filter(item => item.type === "starshipweapon2e")

@@ -855,6 +855,79 @@
   </div>
   {{/if}}
 
+  {{#if isTractorTab}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading">
+      <span>Tractor Beam Settings</span>
+      <button type="button" data-reset-tractor title="Reset this ship's tractor beam settings"><i class="fas fa-undo"></i> Reset</button>
+    </div>
+    <div class="sta2e-anchor-value">
+      Place emitter points on the hull below. Beam look is global by default &mdash; tick Override to give this ship its own color and rays. Requires the Tractor Beam Animation Renderer set to Native PIXI.
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-override" title="Use this ship's settings instead of the global VFX Test Panel values">Override</label>
+        <input id="sta2e-tractor-override" type="checkbox" data-tractor-setting="override" {{#if activeTractorSettings.override}}checked{{/if}} />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-colormode">Color</label>
+        <select id="sta2e-tractor-colormode" data-tractor-setting="colorMode">
+          {{#each tractorColorModeOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-customcolor">Custom Hex</label>
+        <div class="sta2e-vfx-color-control">
+          <input id="sta2e-tractor-customcolor" type="text" value="{{activeTractorSettings.customColor}}" placeholder="#44bbff or blank" data-tractor-setting="customColor" data-hex-color-text />
+          <input class="sta2e-vfx-color-swatch" type="color" value="{{tractorPickerColor}}" title="Tractor beam custom color" data-hex-color-picker data-hex-color-scope="tractor" data-hex-color-key="customColor" />
+        </div>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Resolved</label>
+        <span class="sta2e-anchor-value"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid rgba(255,255,255,0.4);background:{{resolvedTractorColor}};"></span> {{resolvedTractorColor}}</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-opacity" title="Overall beam opacity">Opacity</label>
+        <input id="sta2e-tractor-opacity" type="number" min="0.05" max="1" step="0.05" value="{{activeTractorSettings.opacity}}" data-tractor-setting="opacity" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-pulse" title="Whole-beam pulse rate in cycles per second">Pulse Speed</label>
+        <input id="sta2e-tractor-pulse" type="number" min="0.1" max="6" step="0.05" value="{{activeTractorSettings.pulseSpeed}}" data-tractor-setting="pulseSpeed" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-raylines" title="Draw rays fanning out from the emitter">Rays</label>
+        <input id="sta2e-tractor-raylines" type="checkbox" data-tractor-setting="rayLines" {{#if activeTractorSettings.rayLines}}checked{{/if}} />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-raycount" title="How many rays inside the beam">Ray Count</label>
+        <input id="sta2e-tractor-raycount" type="number" min="0" max="24" step="1" value="{{activeTractorSettings.rayCount}}" data-tractor-setting="rayCount" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-raywidth" title="Ray core thickness in pixels">Ray Width</label>
+        <input id="sta2e-tractor-raywidth" type="number" min="0.5" max="10" step="0.1" value="{{activeTractorSettings.rayWidth}}" data-tractor-setting="rayWidth" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-rayfeather" title="Softness of the ray edges (0 = crisp line)">Ray Feather</label>
+        <input id="sta2e-tractor-rayfeather" type="number" min="0" max="1" step="0.05" value="{{activeTractorSettings.rayFeather}}" data-tractor-setting="rayFeather" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-rayspeed" title="Ray breathing rate in cycles per second">Ray Speed</label>
+        <input id="sta2e-tractor-rayspeed" type="number" min="0.05" max="4" step="0.05" value="{{activeTractorSettings.raySpeed}}" data-tractor-setting="raySpeed" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-rayopacity" title="Ray brightness relative to the beam">Ray Opacity</label>
+        <input id="sta2e-tractor-rayopacity" type="number" min="0" max="1" step="0.05" value="{{activeTractorSettings.rayOpacity}}" data-tractor-setting="rayOpacity" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-tractor-rayshade" title="How much darker the rays are than the beam color">Ray Darkness</label>
+        <input id="sta2e-tractor-rayshade" type="number" min="0.1" max="1" step="0.05" value="{{activeTractorSettings.rayShade}}" data-tractor-setting="rayShade" />
+      </div>
+    </div>
+  </div>
+  {{/if}}
+
   {{#if isEngineTab}}
   <div class="sta2e-vfx-settings">
     <div class="sta2e-vfx-settings-heading">

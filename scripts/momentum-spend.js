@@ -6,12 +6,17 @@
  * momentum (manual input + auto from Andorian Intense talent), Versatile
  * X bonus momentum (ship weapons), and the shared pool — and auto-deducts
  * in that order when the user spends on Extra Damage, Devastating Attack,
- * Secondary Target, or Trait Creation.
+ * Secondary Target, or Persistent Rounds.
+ *
+ * Trait creation is deliberately NOT a row here — it lives on the Momentum
+ * Overflow Tracker card (`momentum-tracker.js`), which actually builds the
+ * trait rather than just charging for it.
  *
  * Plumbed in via:
  *   - Damage-card builders stamp `flags.sta2e-toolkit.spendContext` on the
  *     ChatMessage carrying { floatingMomentum, qualities, scope,
- *     attackerIsNpc, attackerActorId, attackerTokenId, intenseTalentBonus }.
+ *     attackerIsNpc, attackerActorId, attackerTokenId, intenseTalentBonus,
+ *     chiefTacticalOfficer }.
  *   - The `renderChatMessageHTML` hook in `wireSpendPanels` injects the
  *     panel UI above the existing damage controls.
  *   - The Apply Damage button consumes the spend before invoking
@@ -112,6 +117,10 @@ export function intenseBonusMomentum({ slots = [], hasFreeExtraDie = false, pass
  * @param {string|null} [ctx.attackerActorId]
  * @param {string|null} [ctx.attackerTokenId]
  * @param {number} [ctx.intenseTalentBonus] - Pre-computed Andorian Intense bonus.
+ * @param {boolean} [ctx.chiefTacticalOfficer] - Attacker's Tactical officer has the
+ *   Chief Tactical Officer role ability: −1 to the bonus-damage cost. Kept at the
+ *   top level rather than inside `qualities` because it is an officer ability, not
+ *   a weapon quality.
  */
 export function makeSpendContext({
   floatingMomentum = 0,
@@ -123,6 +132,7 @@ export function makeSpendContext({
   intenseTalentBonus = 0,
   trackerMessageId = null,
   momentumPool = null,
+  chiefTacticalOfficer = false,
 } = {}) {
   return {
     floatingMomentum: Math.max(0, floatingMomentum | 0),
@@ -143,6 +153,7 @@ export function makeSpendContext({
     intenseTalentBonus: Math.max(0, intenseTalentBonus | 0),
     trackerMessageId: trackerMessageId ?? null,
     momentumPool: momentumPool === "alliedNpcMomentum" ? "alliedNpcMomentum" : null,
+    chiefTacticalOfficer: !!chiefTacticalOfficer,
   };
 }
 
@@ -180,16 +191,18 @@ export function readTrackerState(messageId, attackerActorId = null) {
 
 // ─── Cost rules ──────────────────────────────────────────────────────────────
 
-function extraDamageCost(qualities) { return (qualities.depleting || qualities.intense) ? 1 : 2; }
+/**
+ * Momentum per point of bonus damage. Intense and Depleting each halve the
+ * base cost; Chief Tactical Officer takes another 1 off. The two do not stack
+ * and the cost never drops below 1 — a free point of damage is never correct.
+ */
+function extraDamageCost(qualities, hasChiefTactical = false) {
+  const base = (qualities.depleting || qualities.intense) ? 1 : 2;
+  return (hasChiefTactical && qualities.isShip) ? Math.max(1, base - 1) : base;
+}
 function devastatingCost(qualities) { return qualities.spread ? 1 : 2; }
 const SECONDARY_TARGET_COST = 1;
-const TRAIT_CREATION_COST = 2;
 const PERSISTENT_ROUND_COST = 1;
-
-// What spends versatile bonus momentum is allowed to fund.
-function versatileEligible(spendKey) {
-  return spendKey === "extraDamage" || spendKey === "devastating" || spendKey === "trait";
-}
 
 // ─── Panel HTML ──────────────────────────────────────────────────────────────
 
@@ -224,13 +237,18 @@ function lcars() {
  * Encodes spendContext into a data attribute so the wire-up handler can
  * mutate the sibling `sta2e-extra-damage` input + payload on apply.
  */
-function buildSpendPanelHtml(spendCtx, targetTokenId) {
+function buildSpendPanelHtml(spendCtx, targetTokenId, { isSecondaryAreaTarget = false } = {}) {
   const LC = lcars();
   const q = spendCtx.qualities;
-  const showSecondary   = q.area;
-  const showTrait       = q.isShip;
+  // Area: 1 Momentum per target beyond the first. Ground attacks damage every
+  // token the attacker targeted, so each target row past the first carries its
+  // own Area cost — pay only for the ones you actually apply. Ship attacks
+  // never reach this (their spend context hardcodes `area: false`); secondary
+  // ships are picked on the card and charged by _applyAreaSecondaryTargets.
+  const areaSecondaryCost = (q.area && isSecondaryAreaTarget) ? SECONDARY_TARGET_COST : 0;
   const showPersistent  = q.isShip && q.persistent;
-  const extraCost = extraDamageCost(q);
+  const hasChiefTactical = !!spendCtx.chiefTacticalOfficer && q.isShip;
+  const extraCost = extraDamageCost(q, hasChiefTactical);
   const groundMax = !q.isShip ? 2 : null;
 
   const sourceDefault = spendCtx.momentumPool === "alliedNpcMomentum" ? "momentum" : (spendCtx.attackerIsNpc ? "threat" : "momentum");
@@ -250,8 +268,7 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
     targetTokenId,
     sourceDefault,
     extraCost,
-    secondaryCost: SECONDARY_TARGET_COST,
-    traitCost: TRAIT_CREATION_COST,
+    areaSecondaryCost,
     persistentCost: PERSISTENT_ROUND_COST,
     groundMax,
   }));
@@ -267,6 +284,25 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
       <input class="sta2e-spend-input" data-key="${key}" type="number" min="0" ${max !== null ? `max="${max}"` : ""} value="0" style="${inputStyle}"/>
     </div>`;
 
+  // Bonus damage gets a slider instead of a number box — its ceiling is what
+  // the crew can actually pay for, recomputed live in `recomputeSpend`.
+  const stepStyle = `width:20px;padding:0;line-height:16px;background:rgba(255,153,0,0.10);border:1px solid ${LC.border};border-radius:2px;color:${LC.primary};font-size:12px;font-weight:700;cursor:pointer;font-family:${LC.font};`;
+  const rowSlider = (key, label, costLabel) => `
+    <div class="sta2e-spend-row sta2e-spend-row-slider" data-key="${key}" style="margin-top:3px;">
+      <div style="display:flex;align-items:center;gap:4px;">
+        <label style="${labelStyle}flex:1;">${label}</label>
+        <span class="sta2e-spend-cost-label" style="${labelStyle}">${costLabel}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;margin-top:2px;">
+        <button type="button" class="sta2e-spend-step" data-key="${key}" data-delta="-1" style="${stepStyle}">−</button>
+        <input class="sta2e-spend-slider" data-key="${key}" type="range" min="0" max="0" step="1" value="0"
+          style="flex:1;min-width:60px;accent-color:${LC.primary};cursor:pointer;"/>
+        <button type="button" class="sta2e-spend-step" data-key="${key}" data-delta="1" style="${stepStyle}">+</button>
+        <strong class="sta2e-spend-slider-val" style="min-width:14px;text-align:center;font-size:12px;color:${LC.tertiary};font-family:${LC.font};">0</strong>
+      </div>
+      <div class="sta2e-spend-slider-readout" style="${labelStyle}margin-top:2px;">COST 0 · TOTAL —</div>
+    </div>`;
+
   return `
   <div class="sta2e-spend-panel" data-spend="${dataBlob}" style="margin-top:5px;padding:5px 6px;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(255,153,0,0.03);">
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;align-items:center;">
@@ -277,11 +313,17 @@ function buildSpendPanelHtml(spendCtx, targetTokenId) {
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;align-items:center;">
       <span class="sta2e-spend-chip" data-bucket="bonus" style="${chipStyle(intenseBonus > 0)}" title="Bonus momentum (e.g. talents, advantages, Andorian Intense). Cannot be saved to pool. Edits sync to the Overflow Tracker.">BONUS <input class="sta2e-spend-bonus-input" type="number" min="0" value="${intenseBonus}" style="${inputStyle}width:36px;margin-left:3px;"/></span>
-      ${versatile > 0 ? `<span class="sta2e-spend-chip" data-bucket="versatile" style="${chipStyle(true)}" title="Versatile X bonus momentum — only Extra Damage, Devastating Attack, or Trait Creation.">VERSATILE <strong class="sta2e-spend-chip-val">${versatile}</strong></span>` : ""}
+      ${versatile > 0 ? `<span class="sta2e-spend-chip" data-bucket="versatile" style="${chipStyle(true)}" title="Versatile X bonus momentum — only Extra Damage or Devastating Attack.">VERSATILE <strong class="sta2e-spend-chip-val">${versatile}</strong></span>` : ""}
+      ${hasChiefTactical ? `<span class="sta2e-spend-chip" data-bucket="cto" style="${chipStyle(true)}" title="Chief Tactical Officer — bonus damage costs 1 less Momentum. Does not stack with Intense or Depleting, and never drops below 1.">CTO −1</span>` : ""}
     </div>
-    ${rowBase("extraDamage",  `Extra Damage Die${groundMax ? ` (max ${groundMax})` : ""}`, `${extraCost}/die`, groundMax)}
-    ${rowBase("secondary",    `Secondary Target (Area)`,                                     `${SECONDARY_TARGET_COST}`, 1, showSecondary)}
-    ${rowBase("trait",        `Create Trait`,                                                `${TRAIT_CREATION_COST}`,   3, showTrait)}
+    <div class="sta2e-spend-row sta2e-spend-row-fixed" data-key="areaSecondary"
+      style="display:none;align-items:center;gap:4px;margin-top:2px;"
+      title="Area: ${SECONDARY_TARGET_COST} ${sourceDefault === "threat" ? "Threat" : "Momentum"} for each target beyond the first. Charged when this damage is applied.">
+      <label class="sta2e-spend-area-label" style="${labelStyle}flex:1;">Secondary Target (Area)</label>
+      <span style="${labelStyle}">${SECONDARY_TARGET_COST} each</span>
+      <strong class="sta2e-spend-area-cost" style="min-width:38px;text-align:center;font-size:11px;color:${LC.primary};font-family:${LC.font};">0</strong>
+    </div>
+    ${rowSlider("extraDamage", `Extra Damage Die${groundMax ? ` (max ${groundMax})` : ""}`, `${extraCost}/die`)}
     ${rowBase("persistent",   `Persistent Rounds`,                                           `${PERSISTENT_ROUND_COST}/round`, 3, showPersistent)}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px;gap:6px;flex-wrap:wrap;">
       <div style="display:flex;gap:6px;align-items:center;">
@@ -306,27 +348,11 @@ function recomputeSpend(panelEl) {
   const q = ctx.qualities;
 
   const getQty = (key) => {
-    const inp = panelEl.querySelector(`.sta2e-spend-input[data-key="${key}"]`);
+    const inp = panelEl.querySelector(`.sta2e-spend-input[data-key="${key}"], .sta2e-spend-slider[data-key="${key}"]`);
     return Math.max(0, parseInt(inp?.value ?? "0") || 0);
   };
   const bonusInput = panelEl.querySelector(".sta2e-spend-bonus-input");
   const bonusAvail = Math.max(0, parseInt(bonusInput?.value ?? "0") || 0);
-
-  // Per-spend cost & versatile-eligibility
-  const spends = [
-    { key: "extraDamage", qty: getQty("extraDamage"), cost: blob.extraCost,     versatileOk: true },
-    { key: "secondary",   qty: getQty("secondary"),   cost: blob.secondaryCost,  versatileOk: false },
-    { key: "trait",       qty: getQty("trait"),       cost: blob.traitCost,      versatileOk: true },
-    { key: "persistent",  qty: getQty("persistent"),  cost: blob.persistentCost, versatileOk: false },
-  ];
-
-  let needVersatile = 0;
-  let needGeneral = 0;
-  for (const s of spends) {
-    const total = s.qty * s.cost;
-    if (s.versatileOk) needVersatile += total;
-    else                needGeneral  += total;
-  }
 
   // Live tracker state — re-read each recompute so chips reflect any
   // decrements from other spend events on the same tracker. Falls back to
@@ -337,6 +363,62 @@ function recomputeSpend(panelEl) {
   const versatileAvail = tracker.versatile || ctx.qualities.versatile || 0;
   // Bonus input may have been edited up from the tracker's seed value.
   const bonusAvailEffective = Math.max(bonusAvail, bonusFromTracker);
+
+  const sourceChoice = panelEl.querySelector(".sta2e-spend-source:checked")?.value ?? blob.sourceDefault;
+  const source = sourceChoice === "momentum" ? (ctx.momentumPool ?? "momentum") : sourceChoice;
+  const poolAvail = readPool(source);
+
+  // ── Bonus-damage slider ceiling ────────────────────────────────────────────
+  // The slider can never be dragged past what the crew can actually pay for,
+  // which is what makes the Chief Tactical Officer spend "repeatable up to
+  // available Momentum". Versatile only funds bonus damage; the other rows
+  // draw on the general buckets first, so they shrink the ceiling.
+  // Fixed, non-negotiable costs compete with the slider for the same buckets.
+  const areaSecondaryCost = areaSecondaryCostFor(panelEl, blob, q);
+  const otherCost = areaSecondaryCost
+                  + getQty("persistent") * blob.persistentCost;
+
+  // Reflect the Area cost in the panel so it is never a hidden charge.
+  const areaRow = panelEl.querySelector('.sta2e-spend-row[data-key="areaSecondary"]');
+  if (areaRow) {
+    areaRow.style.display = areaSecondaryCost > 0 ? "flex" : "none";
+    const costEl = areaRow.querySelector(".sta2e-spend-area-cost");
+    if (costEl) costEl.textContent = String(areaSecondaryCost);
+    const labelEl = areaRow.querySelector(".sta2e-spend-area-label");
+    if (labelEl) {
+      labelEl.textContent = areaSecondaryCost > 1
+        ? `Secondary Targets (Area) × ${areaSecondaryCost / SECONDARY_TARGET_COST}`
+        : "Secondary Target (Area)";
+    }
+  }
+  const generalAvail = floatAvail + bonusAvailEffective + poolAvail;
+  const affordableFor = versatileAvail + Math.max(0, generalAvail - otherCost);
+  let sliderMax = Math.floor(affordableFor / Math.max(1, blob.extraCost));
+  if (blob.groundMax !== null) sliderMax = Math.min(blob.groundMax, sliderMax);
+
+  const slider = panelEl.querySelector('.sta2e-spend-slider[data-key="extraDamage"]');
+  if (slider) {
+    slider.max = String(sliderMax);
+    // Clamp down when the ceiling drops (source switched, bonus lowered,
+    // another row bought). The browser does not do this for us.
+    if ((parseInt(slider.value) || 0) > sliderMax) slider.value = String(sliderMax);
+  }
+
+  // Per-spend cost & versatile-eligibility. `areaSecondary` is a fixed 1 for
+  // every target past the first on an Area attack — no quantity to choose.
+  const spends = [
+    { key: "extraDamage",   qty: getQty("extraDamage"), cost: blob.extraCost,      versatileOk: true },
+    { key: "areaSecondary", qty: areaSecondaryCost > 0 ? 1 : 0, cost: areaSecondaryCost, versatileOk: false },
+    { key: "persistent",    qty: getQty("persistent"),  cost: blob.persistentCost, versatileOk: false },
+  ];
+
+  let needVersatile = 0;
+  let needGeneral = 0;
+  for (const s of spends) {
+    const total = s.qty * s.cost;
+    if (s.versatileOk) needVersatile += total;
+    else                needGeneral  += total;
+  }
 
   // Consume order: versatile (eligible only) → tracker float → bonus → pool
   let versatileUsed = Math.min(versatileAvail, needVersatile);
@@ -349,15 +431,23 @@ function recomputeSpend(panelEl) {
   const bonusUsed = Math.min(bonusAvailEffective, remaining);
   remaining -= bonusUsed;
 
-  const sourceChoice = panelEl.querySelector(".sta2e-spend-source:checked")?.value ?? blob.sourceDefault;
-  const source = sourceChoice === "momentum" ? (ctx.momentumPool ?? "momentum") : sourceChoice;
-  const poolAvail = readPool(source);
   const poolUsed = Math.min(poolAvail, remaining);
   remaining -= poolUsed;
 
   // Update FLOAT chip display so users see live tracker state
   const floatChipVal = panelEl.querySelector(".sta2e-spend-float-val");
   if (floatChipVal) floatChipVal.textContent = String(floatAvail);
+
+  // ── Slider readout: cost only. The card's own Extra/Total boxes show what
+  // the target ends up taking, so repeating it here would just duplicate it.
+  const extraDice = spends.find(s => s.key === "extraDamage").qty;
+  const sliderVal = panelEl.querySelector(".sta2e-spend-slider-val");
+  if (sliderVal) sliderVal.textContent = String(extraDice);
+  const readout = panelEl.querySelector(".sta2e-spend-slider-readout");
+  if (readout) {
+    const poolWord = source === "threat" ? "THREAT" : (ctx.momentumPool === "alliedNpcMomentum" ? "ALLY MOM" : "MOM");
+    readout.textContent = `COST ${extraDice * blob.extraCost} ${poolWord}`;
+  }
 
   const tally = panelEl.querySelector(".sta2e-spend-tally");
   if (tally) {
@@ -384,11 +474,34 @@ function recomputeSpend(panelEl) {
     // any spent over the seed came from the user's manual top-up (no tracker).
     bonusFromTrackerSpent: Math.min(bonusUsed, bonusFromTracker),
     insufficient: remaining > 0,
-    extraDice: spends.find(s => s.key === "extraDamage").qty,
-    secondary: spends.find(s => s.key === "secondary").qty > 0,
-    trait: spends.find(s => s.key === "trait").qty,
+    extraDice,
+    areaSecondaryCost,
     persistentRounds: spends.find(s => s.key === "persistent").qty,
   };
+}
+
+/** The damage-card controls block this panel was injected above. */
+function siblingControls(panelEl) {
+  return panelEl.parentElement?.querySelector(".sta2e-damage-controls, .sta2e-ground-controls") ?? null;
+}
+
+/**
+ * Momentum owed for Area secondary targets on this row.
+ *
+ * Ship: the card carries a live checkbox list of additional ships, so the cost
+ * tracks whatever is ticked right now — 1 each. Reading the DOM rather than the
+ * spend context is deliberate; the count changes after the card was built.
+ *
+ * Ground: every targeted token already has its own damage row, so each row past
+ * the first owes a flat 1, fixed at panel-build time.
+ */
+function areaSecondaryCostFor(panelEl, blob, qualities) {
+  if (qualities.isShip) {
+    const controls = siblingControls(panelEl);
+    const checked = controls?.querySelectorAll(".sta2e-main-area-target:checked").length ?? 0;
+    return checked * SECONDARY_TARGET_COST;
+  }
+  return Math.max(0, Number(blob.areaSecondaryCost) || 0);
 }
 
 /**
@@ -404,7 +517,7 @@ export function wireSpendPanel(html) {
     panel.dataset.wired = "1";
 
     // Stop drag/click bubbling on inputs/labels (chat messages eat input)
-    panel.querySelectorAll("input,label,.sta2e-spend-chip").forEach(el => {
+    panel.querySelectorAll("input,label,button,.sta2e-spend-chip").forEach(el => {
       el.addEventListener("mousedown", e => e.stopPropagation());
       el.addEventListener("click",     e => e.stopPropagation());
     });
@@ -415,7 +528,7 @@ export function wireSpendPanel(html) {
       // still applies the bonus to finalDamage / potency.
       // Ship damage card → `.sta2e-damage-controls` + `.sta2e-extra-damage` + `.sta2e-apply-damage`
       // Ground damage card → `.sta2e-ground-controls` + `.sta2e-ground-adj` + `.sta2e-apply-injury`
-      const controls = panel.parentElement?.querySelector(".sta2e-damage-controls, .sta2e-ground-controls");
+      const controls = siblingControls(panel);
       const extraInput = controls?.querySelector(".sta2e-extra-damage, .sta2e-ground-adj");
       const applyBtn = controls?.querySelector(".sta2e-apply-damage, .sta2e-apply-injury");
       if (extraInput) {
@@ -477,11 +590,34 @@ export function wireSpendPanel(html) {
       bonusInput.addEventListener("blur",   syncBonusToTracker);
     }
 
-    panel.querySelectorAll(".sta2e-spend-input,.sta2e-spend-bonus-input,.sta2e-spend-source")
+    panel.querySelectorAll(".sta2e-spend-input,.sta2e-spend-slider,.sta2e-spend-bonus-input,.sta2e-spend-source")
       .forEach(el => {
         el.addEventListener("input",  update);
         el.addEventListener("change", update);
       });
+
+    // −/+ buttons nudge the slider. recomputeSpend re-derives and enforces the
+    // ceiling on every update, so clamping here only avoids a visible overshoot.
+    panel.querySelectorAll(".sta2e-spend-step").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const target = panel.querySelector(`.sta2e-spend-slider[data-key="${btn.dataset.key}"]`);
+        if (!target) return;
+        // Refresh the ceiling first — pool/tracker state may have moved since
+        // the card rendered, and a stale max of 0 would swallow the click.
+        update();
+        const delta = parseInt(btn.dataset.delta) || 0;
+        const max = parseInt(target.max) || 0;
+        target.value = String(Math.max(0, Math.min(max, (parseInt(target.value) || 0) + delta)));
+        update();
+      });
+    });
+
+    // Ship Area: the secondary-ship checkboxes live on the card, not in this
+    // panel, but they drive a real Momentum cost — so the panel has to recompute
+    // when they change. Spread/Area toggles clear the list, so watch them too.
+    siblingControls(panel)
+      ?.querySelectorAll(".sta2e-main-area-target, .sta2e-main-area-enabled, .sta2e-main-spread-enabled")
+      .forEach(el => el.addEventListener("change", update));
 
     update();
   });
@@ -604,7 +740,11 @@ export function injectSpendPanels(message, html) {
       const basePayload = inp?.dataset?.basePayload;
       if (basePayload) targetTokenId = JSON.parse(decodeURIComponent(basePayload))?.tokenId ?? null;
     } catch { /* ignore */ }
-    const panelHtml = buildSpendPanelHtml(spendCtx, targetTokenId ?? `idx${idx}`);
+    // Every target row past the first is a secondary Area target and carries
+    // the 1-per-extra-target Area cost.
+    const panelHtml = buildSpendPanelHtml(spendCtx, targetTokenId ?? `idx${idx}`, {
+      isSecondaryAreaTarget: idx > 0,
+    });
     controls.insertAdjacentHTML("beforebegin", panelHtml);
   });
 

@@ -37,6 +37,7 @@ import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerShipCommandHud } from "./ship-command-hud.js";
+import { registerTokenWeaponHud } from "./token-weapon-hud.js";
 import { playNativeWarpFlash } from "./warp-jump-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
@@ -313,6 +314,7 @@ Hooks.once("init", () => {
   registerMomentumTracker();
   registerZoneTokenConfig();
   registerShipCommandHud();
+  registerTokenWeaponHud();
   registerHullDecals();
   registerTraitItemSheetFields();
   registerStarSystemActorSheet();
@@ -1263,6 +1265,15 @@ Hooks.once("ready", async () => {
         game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
       } catch (e) {
         console.error("STA2e Toolkit | clearChiefSecurityAttackPenalty via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "applyPiercingSalvo" && _isResponsibleGM()) {
+      // The player already paid; only the message rewrite needs GM ownership.
+      try {
+        await CombatHUD.applyPiercingSalvoToDamageCard(msg.damageMessageId, msg.salvoMessageId ?? null);
+      } catch (e) {
+        console.error("STA2e Toolkit | applyPiercingSalvo via socket failed:", e);
       }
     }
 
@@ -3047,7 +3058,9 @@ function _applySheetRollerOverride(app, html) {
     if (nameField) {
       const isNpc   = actor.getFlag("sta2e-toolkit", "isNpcShip")   ?? false;
       const isAlliedNpc = actor.getFlag("sta2e-toolkit", "isAlliedNpc") ?? false;
-      const quality = actor.getFlag("sta2e-toolkit", "crewQuality") ?? "proficient";
+      // Through CombatHUD so an unlinked token's own crew quality is read and
+      // written where the Combat HUD's crew-quality row expects it.
+      const quality = CombatHUD.getCrewQuality(actor);
 
       const CREW_QUALITIES = [
         { key: "basic",       label: "Basic"       },
@@ -3111,7 +3124,7 @@ function _applySheetRollerOverride(app, html) {
       block.querySelectorAll('input[name="sta2e-crewQuality"]').forEach(radio => {
         radio.addEventListener("change", async (ev) => {
           if (ev.target.checked)
-            await actor.setFlag("sta2e-toolkit", "crewQuality", ev.target.value);
+            await CombatHUD.setCrewQuality(actor, ev.target.value);
         });
       });
 
@@ -3343,6 +3356,9 @@ function _applySheetRollerOverride(app, html) {
           } : null,
           applyDirect: (shipActor, shipToken) =>
             applyDirectForOfficer(shipActor, shipToken, actor),
+          // False for NPC/allied NPC ships when the GM leaves them on the RAW
+          // "NPC ships do not have Reserve Power" default — hides Regain Power.
+          shipUsesReservePower: CombatHUD.shipUsesReservePower(combatCtx.shipActor),
           // Cloaking Device — Tactical station only, if the ship carries the talent
           shipHasCloakingDevice: _isTactical && hasCloakingDevice(combatCtx.shipActor),
           cloakingDeviceActive:  _isTactical

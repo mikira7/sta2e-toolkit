@@ -10,7 +10,7 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 9;
+const SHIP_VFX_ANCHORS_VERSION = 10;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -302,6 +302,47 @@ export function normalizeShipEngineTrailSettings(settings = {}) {
     warpThreshold: Math.round(_clampNumber(settings?.warpThreshold, DEFAULT_ENGINE_TRAIL_SHARED.warpThreshold, 1, 50) * 10) / 10,
     impulse: _normalizeEngineModeSettings(settings?.impulse, "impulse"),
     warp: _normalizeEngineModeSettings(settings?.warp, "warp"),
+  };
+}
+
+// Per-ship tractor beam overrides. These mirror TRACTOR_BEAM_DEFAULTS in
+// tractor-beam-vfx.js rather than importing them: that module imports this one,
+// and a cycle would break the emitter anchor helpers it pulls at load time.
+// The values only seed a fresh per-ship block — while `override` is false the
+// global VFX Test Panel settings are used untouched.
+export const DEFAULT_SHIP_TRACTOR_BEAM_SETTINGS = Object.freeze({
+  override: false,
+  colorMode: "auto",
+  customColor: "",
+  opacity: 0.55,
+  pulseSpeed: 1.35,
+  rayLines: true,
+  rayCount: 5,
+  rayWidth: 2.4,
+  rayFeather: 0.7,
+  raySpeed: 0.8,
+  rayOpacity: 0.85,
+  rayShade: 0.55,
+});
+
+const TRACTOR_COLOR_MODES = Object.freeze(["auto", "custom"]);
+
+export function normalizeShipTractorBeamSettings(settings = {}) {
+  const d = DEFAULT_SHIP_TRACTOR_BEAM_SETTINGS;
+  const mode = String(settings?.colorMode ?? "").toLowerCase();
+  return {
+    override: settings?.override === true,
+    colorMode: TRACTOR_COLOR_MODES.includes(mode) ? mode : d.colorMode,
+    customColor: _normalizeHexColor(settings?.customColor),
+    opacity: Math.round(_clampNumber(settings?.opacity, d.opacity, 0.05, 1) * 100) / 100,
+    pulseSpeed: Math.round(_clampNumber(settings?.pulseSpeed, d.pulseSpeed, 0.1, 6) * 100) / 100,
+    rayLines: settings?.rayLines !== false,
+    rayCount: Math.round(_clampNumber(settings?.rayCount, d.rayCount, 0, 24)),
+    rayWidth: Math.round(_clampNumber(settings?.rayWidth, d.rayWidth, 0.5, 10) * 10) / 10,
+    rayFeather: Math.round(_clampNumber(settings?.rayFeather, d.rayFeather, 0, 1) * 100) / 100,
+    raySpeed: Math.round(_clampNumber(settings?.raySpeed, d.raySpeed, 0.05, 4) * 100) / 100,
+    rayOpacity: Math.round(_clampNumber(settings?.rayOpacity, d.rayOpacity, 0, 1) * 100) / 100,
+    rayShade: Math.round(_clampNumber(settings?.rayShade, d.rayShade, 0.1, 1) * 100) / 100,
   };
 }
 
@@ -633,6 +674,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       weaponVfx,
       shieldImpact: normalizeShipShieldImpactSettings(data?.settings?.shieldImpact),
       engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
+      tractorBeam: normalizeShipTractorBeamSettings(data?.settings?.tractorBeam),
     },
   };
 }
@@ -674,6 +716,10 @@ export function getShipEngineTrailSettings(actorOrToken) {
   return normalizeShipEngineTrailSettings(getShipVfxAnchors(actorOrToken)?.settings?.engineTrail);
 }
 
+export function getShipTractorBeamSettings(actorOrToken) {
+  return normalizeShipTractorBeamSettings(getShipVfxAnchors(actorOrToken)?.settings?.tractorBeam);
+}
+
 // Map a placed engine emitter (normalized image anchor) to a live canvas point,
 // honoring token rotation / flip / fit — reuses the weapon anchor math.
 export function shipEngineEmitterToCanvasPoint(token, anchor) {
@@ -689,6 +735,34 @@ export function shipEngineFacingToCanvasDeg(token, facingDeg) {
   return _normalizeDegrees(local - 90 + _tokenRotationDeg(token));
 }
 
+const FACTION_TESTS = [
+  { key: "klingon", test: /klingon/ },
+  { key: "romulan", test: /romulan/ },
+  { key: "cardassian", test: /cardassian/ },
+  { key: "borg", test: /\bborg\b/ },
+  { key: "dominion", test: /dominion|jem'?hadar|founder/ },
+  { key: "ferengi", test: /ferengi/ },
+  { key: "tos", test: /\b(tos|constitution|enterprise nx|nx-0|tos[- ]?era)\b/ },
+];
+
+// Guesses a ship's faction from its name, its traits text field and any child
+// trait Items. Returns null for Federation / anything unrecognised.
+export function resolveActorFactionKey(actorOrToken) {
+  const actor = _resolveActor(actorOrToken);
+  if (!actor) return null;
+  const traitItems = [];
+  for (const item of actor.items ?? []) {
+    if (item?.type === "trait" && item.name) traitItems.push(item.name);
+  }
+  const haystack = [actor.name, actor.system?.traits, ...traitItems]
+    .filter(Boolean).join(" ").toLowerCase();
+
+  for (const faction of FACTION_TESTS) {
+    if (faction.test.test(haystack)) return faction.key;
+  }
+  return null;
+}
+
 // Faction / era aware exhaust color. Custom hex wins; otherwise a warm impulse
 // glow and cool warp streak, tinted by the ship's faction guessed from its name.
 export function resolveEngineTrailColorHex(actorOrToken, kind, modeSettings = null) {
@@ -699,29 +773,39 @@ export function resolveEngineTrailColorHex(actorOrToken, kind, modeSettings = nu
   if (settings?.colorMode === "custom" && _normalizeHexColor(settings.customColor)) {
     return settings.customColor.toLowerCase();
   }
-  const actor = _resolveActor(actorOrToken);
-  const haystack = [
-    actor?.name,
-    actor?.system?.traits,
-    Array.isArray(actor?.system?.traits) ? actor.system.traits.join(" ") : "",
-  ].filter(Boolean).join(" ").toLowerCase();
 
-  const FACTIONS = [
-    { test: /klingon/, impulse: "#ff3b2e", warp: "#ff6a4a" },
-    { test: /romulan/, impulse: "#2ad17a", warp: "#8affc0" },
-    { test: /cardassian/, impulse: "#ffae42", warp: "#ffd089" },
-    { test: /\bborg\b/, impulse: "#6aff4a", warp: "#b6ff9a" },
-    { test: /dominion|jem'?hadar|founder/, impulse: "#7a5cff", warp: "#b9a9ff" },
-    { test: /ferengi/, impulse: "#ff9a2a", warp: "#ffc46a" },
-  ];
-  for (const faction of FACTIONS) {
-    if (faction.test.test(haystack)) return k === "warp" ? faction.warp : faction.impulse;
-  }
-  // Federation / default. TOS-era ships read warmer.
-  if (/\b(tos|constitution|enterprise nx|nx-0|tos[- ]?era)\b/.test(haystack)) {
-    return k === "warp" ? "#ffe7a0" : "#ffd24a";
-  }
+  const FACTION_COLORS = {
+    klingon:    { impulse: "#ff3b2e", warp: "#ff6a4a" },
+    romulan:    { impulse: "#2ad17a", warp: "#8affc0" },
+    cardassian: { impulse: "#ffae42", warp: "#ffd089" },
+    borg:       { impulse: "#6aff4a", warp: "#b6ff9a" },
+    dominion:   { impulse: "#7a5cff", warp: "#b9a9ff" },
+    ferengi:    { impulse: "#ff9a2a", warp: "#ffc46a" },
+    // Federation / default. TOS-era ships read warmer.
+    tos:        { impulse: "#ffd24a", warp: "#ffe7a0" },
+  };
+  const faction = FACTION_COLORS[resolveActorFactionKey(actorOrToken)];
+  if (faction) return k === "warp" ? faction.warp : faction.impulse;
   return k === "warp" ? "#aad4ff" : "#ff7a2a";
+}
+
+// Tractor beam tint per faction. A separate palette from the exhaust colors
+// above — a beam body reads differently from an engine glow. Federation and
+// anything unrecognised keep the Starfleet blue the beam has always used.
+export const TRACTOR_BEAM_FALLBACK_COLOR = "#44bbff";
+
+export const TRACTOR_FACTION_COLORS = Object.freeze({
+  klingon:    "#ff4433",
+  romulan:    "#33dd88",
+  borg:       "#55ee55",
+  cardassian: "#ffb43c",
+  ferengi:    "#ffc94a",
+  dominion:   "#8a7cff",
+  tos:        "#ffd27a",
+});
+
+export function resolveTractorFactionColorHex(actorOrToken) {
+  return TRACTOR_FACTION_COLORS[resolveActorFactionKey(actorOrToken)] ?? TRACTOR_BEAM_FALLBACK_COLOR;
 }
 
 export function shipLocalOffsetToCanvasDelta(token, sourceOffset) {
@@ -1347,6 +1431,61 @@ export function getClosestShipArrayCurvePoint(token, weapon, targetPoint, steps 
   return getClosestShipArrayCurveMatch(token, weapon, targetPoint, steps, settingsOverride, options)?.point ?? null;
 }
 
+// How far along the array curve each extra strike in a volley walks, as a
+// fraction of the whole curve.
+export const ARRAY_CURVE_REPEAT_STEP = 0.05;
+
+// Point at an arbitrary curve parameter, lerped between the two nearest
+// samples. sampleShipArrayCurve emits samples evenly spaced in t, so the index
+// fraction is the curve parameter.
+export function sampleShipArrayCurvePointAtT(samples, t) {
+  if (!Array.isArray(samples) || !samples.length) return null;
+  if (samples.length === 1) return samples[0];
+  const clamped = Math.max(0, Math.min(1, Number(t) || 0));
+  const scaled = clamped * (samples.length - 1);
+  const index = Math.min(samples.length - 2, Math.floor(scaled));
+  const localT = scaled - index;
+  const a = samples[index];
+  const b = samples[index + 1];
+  return {
+    x: a.x + ((b.x - a.x) * localT),
+    y: a.y + ((b.y - a.y) * localT),
+    t: clamped,
+  };
+}
+
+// Random +/- step along the curve. A step that would run off either end is
+// reflected rather than clamped, so a shot aimed near the tip of the array
+// still moves instead of piling up on the same point.
+function _stepArrayCurveT(t, step = ARRAY_CURVE_REPEAT_STEP) {
+  const base = Math.max(0, Math.min(1, Number(t) || 0));
+  const size = Math.abs(Number(step) || ARRAY_CURVE_REPEAT_STEP);
+  const direction = Math.random() < 0.5 ? -1 : 1;
+  let next = base + (direction * size);
+  if (next < 0 || next > 1) next = base - (direction * size);
+  return Math.max(0, Math.min(1, next));
+}
+
+// Walks the emitter point along the array spine across a volley. `walk` is a
+// caller-owned `{ t: null }` that lives for one target: the opening strike sits
+// at the curve point closest to the target (today's behaviour), and every extra
+// strike steps ARRAY_CURVE_REPEAT_STEP away from where the previous beam left,
+// so the array visibly sweeps instead of firing from one spot. Returns null when
+// the ship has no array curve so callers can keep their existing fallback.
+export function advanceShipArrayCurveWalk(token, weapon, targetPoint, walk, settingsOverride = null, step = ARRAY_CURVE_REPEAT_STEP) {
+  const match = getClosestShipArrayCurveMatch(token, weapon, targetPoint, undefined, settingsOverride);
+  if (!match) return null;
+  const state = walk ?? {};
+  if (!Number.isFinite(state.t)) {
+    state.t = match.t;
+    return match.point;
+  }
+  state.t = _stepArrayCurveT(state.t, step);
+  const point = sampleShipArrayCurvePointAtT(match.samples, state.t);
+  if (!point) return match.point;
+  return { ...point, layer: match.point?.layer };
+}
+
 export function getShipHitLocationAnchors(actorOrToken, systemKey) {
   const normalizedSystem = _normalizeSystemKey(systemKey);
   return (getShipVfxAnchors(actorOrToken).anchors.hitLocations ?? [])
@@ -1660,6 +1799,51 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _isEngineTab() {
     const tab = this._resolveActiveTab();
     return tab === "engineImpulse" || tab === "engineWarp";
+  }
+
+  _isTractorTab() {
+    return this._resolveActiveTab() === "tractor";
+  }
+
+  _activeTractorBeamSettings() {
+    return normalizeShipTractorBeamSettings(this._anchors.settings?.tractorBeam);
+  }
+
+  _setTractorBeamSettings(settings) {
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      settings: {
+        ...(this._anchors.settings ?? {}),
+        tractorBeam: normalizeShipTractorBeamSettings(settings),
+      },
+    });
+  }
+
+  _readTractorSettingsFromForm() {
+    if (!this._isTractorTab() || !this.element) return null;
+    const current = this._activeTractorBeamSettings();
+    const read = (key, fallback) => this.element.querySelector(`[data-tractor-setting="${key}"]`)?.value ?? fallback;
+    const checked = (key, fallback) => {
+      const el = this.element.querySelector(`[data-tractor-setting="${key}"]`);
+      return el ? el.checked === true : fallback;
+    };
+    this._setTractorBeamSettings({
+      ...current,
+      override: checked("override", current.override),
+      colorMode: read("colorMode", current.colorMode),
+      customColor: read("customColor", current.customColor),
+      opacity: _number(read("opacity", current.opacity), current.opacity),
+      pulseSpeed: _number(read("pulseSpeed", current.pulseSpeed), current.pulseSpeed),
+      rayLines: checked("rayLines", current.rayLines),
+      rayCount: _number(read("rayCount", current.rayCount), current.rayCount),
+      rayWidth: _number(read("rayWidth", current.rayWidth), current.rayWidth),
+      rayFeather: _number(read("rayFeather", current.rayFeather), current.rayFeather),
+      raySpeed: _number(read("raySpeed", current.raySpeed), current.raySpeed),
+      rayOpacity: _number(read("rayOpacity", current.rayOpacity), current.rayOpacity),
+      rayShade: _number(read("rayShade", current.rayShade), current.rayShade),
+    });
+    return this._activeTractorBeamSettings();
   }
 
   _activeEngineKind() {
@@ -2359,6 +2543,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const resolvedEngineColor = isEngineTab
       ? resolveEngineTrailColorHex(this.actor, engineKind, activeEngineModeSettings)
       : null;
+    const isTractorTab = this._isTractorTab();
+    const activeTractorSettings = isTractorTab ? this._activeTractorBeamSettings() : null;
+    // What the beam will actually use: a per-ship custom hex, else the faction
+    // tint, else the Starfleet default the global settings fall back to.
+    const resolvedTractorColor = isTractorTab
+      ? (activeTractorSettings.colorMode === "custom" && activeTractorSettings.customColor
+        ? activeTractorSettings.customColor
+        : resolveTractorFactionColorHex(this.actor))
+      : null;
     const activePointKind = isHitLocationsTab ? "hit location" : "emitter";
     const activeZones = isHitLocationsTab ? this._activeZones() : [];
     const activeZoneRows = isHitLocationsTab ? this._zoneContext(activeZones) : [];
@@ -2387,6 +2580,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       activeWeaponSettings,
       activeEmitterArcControls,
       showEmitterArcSettings: !!activeEmitterArcControls,
+      isTractorTab,
+      activeTractorSettings,
+      resolvedTractorColor,
+      tractorPickerColor: activeTractorSettings?.customColor || resolvedTractorColor || "#44bbff",
+      tractorColorModeOptions: isTractorTab ? TRACTOR_COLOR_MODES.map(value => ({
+        value,
+        label: value === "custom" ? "Custom Hex" : "Auto by Faction",
+        selected: value === (activeTractorSettings?.colorMode ?? "auto"),
+      })) : [],
       isEngineTab,
       engineKind,
       engineKindLabel: engineKind === "warp" ? "Warp" : "Impulse",
@@ -2687,6 +2889,22 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         const key = input.dataset.engineSetting;
         if (key === "colorMode" || key === "enabled") this.render({ force: true });
       });
+    });
+
+    el.querySelectorAll("[data-tractor-setting]").forEach(input => {
+      input.addEventListener("input", () => this._readTractorSettingsFromForm());
+      input.addEventListener("change", () => {
+        this._readTractorSettingsFromForm();
+        // The resolved swatch and the override state change what is shown.
+        const key = input.dataset.tractorSetting;
+        if (key === "colorMode" || key === "override" || key === "customColor") this.render({ force: true });
+      });
+    });
+
+    el.querySelector("[data-reset-tractor]")?.addEventListener("click", event => {
+      event.preventDefault();
+      this._setTractorBeamSettings(DEFAULT_SHIP_TRACTOR_BEAM_SETTINGS);
+      this.render({ force: true });
     });
 
     el.querySelector("[data-reset-engine]")?.addEventListener("click", event => {
@@ -3136,6 +3354,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     if (!game.user?.isGM || !this.actor) return;
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
+    this._readTractorSettingsFromForm();
     this._anchors = await _saveShipVfxAnchors(this.actor, {
       ...this._anchors,
       textureSrc: this.textureSrc,
@@ -3178,6 +3397,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   static _onExport(_event, _target) {
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
+    this._readTractorSettingsFromForm();
     const payload = {
       module: MODULE,
       type: SHIP_VFX_ANCHORS_FLAG,

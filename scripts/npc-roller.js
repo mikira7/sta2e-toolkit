@@ -113,6 +113,9 @@ export function callOutTargetsSourceForActor(actor, name = null) {
 }
 
 export function callOutTargetsBonusMomentum(source, passed) {
+  // The assist die that carried Call Out Targets does not count when the main
+  // pool scored 0 successes, so neither does its bonus Momentum.
+  if (source?.crewFailed) return 0;
   if (!passed || (!source?.weaponContext && !source?.callOutTargetsEligible)) return 0;
   const sources = Array.isArray(source?.callOutTargetsSources) ? source.callOutTargetsSources : [];
   return sources.length * 2;
@@ -123,6 +126,87 @@ function countComplicationsTotal(crewDice, crewAssistDice, shipDice, reservePowe
   const crewCompls = countComplications([...crewDice, ...crewAssistDice]);
   const shipCompls = shipDice.filter(d => d.complication).length;
   return crewCompls + (reservePower ? shipCompls * 2 : shipCompls);
+}
+
+// ── Assist scoring ────────────────────────────────────────────────────────────
+// Assist dice ALWAYS roll — named officers, the generic crew assist die, the
+// Attack Pattern helm die and the ship assist die, even when the main pool
+// scores nothing. Their SUCCESSES only count if the main pool scored at least
+// one success (`crewFailed` is false); their COMPLICATIONS always count.
+
+/** Shown on every card flavour when the assist gate is closed. */
+export const ASSIST_GATE_NOTE =
+  "Main pool scored 0 successes — assist and ship successes do not count. Complications still apply.";
+
+/** Every assist pool that rides alongside the main crew pool. */
+export function assistDicePools(source) {
+  return [
+    ...(source?.crewAssistDice ?? []),
+    ...(source?.namedAssistDice ?? []),
+    ...(source?.apAssistDice ?? []),
+  ];
+}
+
+/** Dice whose successes count toward the task total. */
+export function scoringDice(source) {
+  const crew = source?.crewDice ?? [];
+  if (source?.crewFailed) return [...crew];
+  return [...crew, ...assistDicePools(source), ...(source?.shipDice ?? [])];
+}
+
+/** Every die that was actually rolled — used for complications and display. */
+export function allRolledDice(source) {
+  return [
+    ...(source?.crewDice ?? []),
+    ...assistDicePools(source),
+    ...(source?.shipDice ?? []),
+  ];
+}
+
+/** Task success total, with the assist gate applied. */
+export function rollSuccessTotal(source) {
+  return countSuccesses(scoringDice(source)) + autoSuccesses(source);
+}
+
+/** Task complication total — every pool, always, Reserve Power doubling included. */
+export function rollComplicationTotal(source) {
+  return countComplicationsTotal(
+    source?.crewDice ?? [],
+    assistDicePools(source),
+    source?.shipDice ?? [],
+    source?.reservePower,
+  ) + autoComplications(source) + succeedAtCostComplications(source);
+}
+
+// ── Succeed at Cost ───────────────────────────────────────────────────────────
+// A failed task can instead be resolved as a success that costs one extra
+// complication. No trait is created — the GM narrates the cost. Never offered
+// on opposed tasks (either side) or on the Rally task, which posts its own card.
+
+/** Shown on a card that was resolved by succeeding at cost. */
+export const SUCCEED_AT_COST_NOTE =
+  "Succeeded at Cost — the task succeeds and gains 1 extra complication. The GM narrates the cost.";
+
+/** Succeed at Cost adds one complication on top of anything rolled. */
+export function succeedAtCostComplications(source) {
+  return source?.succeedAtCost ? 1 : 0;
+}
+
+/** Did the task succeed? Succeed at Cost forces a pass. */
+export function rollPassed(source) {
+  return !!source?.succeedAtCost || rollSuccessTotal(source) >= taskDifficulty(source);
+}
+
+/** Whether the Succeed at Cost button should be offered on this card. */
+export function canSucceedAtCost(source) {
+  if (!source || source.confirmed || source.isAssistRoll || source.succeedAtCost) return false;
+  if (source.rallyContext) return false;
+  // Opposed tasks — all four ways a roll gets marked opposed.
+  if (source.opposedTaskRef?.taskId) return false;
+  if (source.opposedDefenseType) return false;
+  if (source.defenderSuccesses != null) return false;
+  if (source.noPoolButton && String(source.taskLabel ?? "").includes("Defense")) return false;
+  return !rollPassed(source);
 }
 
 // ── Player-roll session callbacks ─────────────────────────────────────────────
@@ -439,9 +523,9 @@ export function flightControllerBonusMomentum(source = {}, passed = false) {
 }
 
 function hasActualAssistanceDice(source = {}) {
-  return (source.crewAssistDice?.length ?? 0) > 0
-    || (source.namedAssistDice?.length ?? 0) > 0
-    || (source.apAssistDice?.length ?? 0) > 0;
+  // Assist dice that scored nothing (main pool failed) never counted as help.
+  if (source.crewFailed) return false;
+  return assistDicePools(source).length > 0;
 }
 
 export function chiefMedicalOfficerBonusMomentum(source = {}, passed = false) {
@@ -772,17 +856,15 @@ export function wireCardDieSelection(root, { eligible = [], multi = false, max =
 
 // ── Result summary row ─────────────────────────────────────────────────────────
 
-function resultSummaryHtml(crewDice, shipDice, difficulty, crewTarget, shipTarget, reservePower = false, resultMods = null) {
-  const effectiveDifficulty = taskDifficulty({
-    difficulty,
-    showOffSelected: resultMods?.showOffSelected,
-    traitDifficultyDelta: resultMods?.traitDifficultyDelta,
-  });
-  const crewSucc = countSuccesses(crewDice);
-  const shipSucc = countSuccesses(shipDice);
-  const total = crewSucc + shipSucc + autoSuccesses(resultMods);
+// `resultMods` is the live roll state — successes honour the assist gate,
+// complications count every pool that rolled.
+function resultSummaryHtml(resultMods) {
+  const shipDice = resultMods?.shipDice ?? [];
+  const reservePower = !!resultMods?.reservePower;
+  const effectiveDifficulty = taskDifficulty(resultMods);
+  const total = rollSuccessTotal(resultMods);
   // Reserve Power: ship complications count as 2 each
-  const compls = countComplicationsTotal(crewDice, [], shipDice, reservePower) + autoComplications(resultMods);
+  const compls = rollComplicationTotal(resultMods);
   const passed = total >= effectiveDifficulty;
   const traitBonus = passed ? Math.max(0, Number(resultMods?.traitBonusMomentum ?? 0) || 0) : 0;
   const flightBonus = flightControllerBonusMomentum(resultMods, passed);
@@ -1011,6 +1093,10 @@ function _buildCombatTaskPanelHtml(state) {
   if (!state.combatTaskContext) return "";
   const { bridgeStations, taskParams, myStations, combatShip, shipWeapons, targetShips, preTargetId } = state.combatTaskContext;
 
+  // Ships without Reserve Power (NPC/allied NPC vessels, by default) never
+  // offer the actions that exist purely to manage it.
+  const shipUsesReservePower = state.combatTaskContext.shipUsesReservePower ?? true;
+
   // Station display label(s) for header
   const myStationLabels = myStations.length > 0
     ? myStations.map(id => bridgeStations.find(s => s.id === id)?.label ?? id).join(" · ")
@@ -1029,6 +1115,7 @@ function _buildCombatTaskPanelHtml(state) {
     for (const action of (station.major ?? [])) {
       if (!action.key) continue;
       if (_COMBAT_PANEL_SKIP.has(action.key)) continue;
+      if (action.isReserveOnly && !shipUsesReservePower) continue;
       if (action.isInfo) continue;
       if (!taskParams[action.key]) continue;
       if (seen.has(action.key)) continue;
@@ -1050,6 +1137,7 @@ function _buildCombatTaskPanelHtml(state) {
       if (!action.key) continue;
       if (_COMBAT_PANEL_SKIP.has(action.key)) continue;
       if (_OVERRIDE_SKIP.has(action.key)) continue;  // defense modes + direct never in Override
+      if (action.isReserveOnly && !shipUsesReservePower) continue;
       if (action.isInfo) continue;
       if (!taskParams[action.key]) continue;
       if (seen.has(action.key)) continue;
@@ -1636,7 +1724,9 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             ⚔ ${state.weaponContext.name}
           </span>
           <span style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
-            DMG ${state.weaponContext.damage}
+            ${state.weaponContext.severity != null
+    ? `SEV ${state.weaponContext.severity}`
+    : `DMG ${state.weaponContext.damage}`}
             ${state.weaponContext.isTorpedo ? " · TORPEDO" : ""}
             ${state.hasRapidFireTorpedo && state.weaponContext.isTorpedo
           ? ` <span style="color:${LC.green};">· 🚀 Rapid-Fire +1</span>` : ""}
@@ -1784,7 +1874,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             ${state.hasPiercingSalvo ? `
             <div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};
               padding:3px 0 1px;letter-spacing:0.05em;">
-              ⚔️ Piercing Salvo — spend 2 Momentum for Piercing quality
+              ⚔️ Piercing Salvo — on a hit, spend 2 Momentum for Piercing quality
             </div>` : ""}
             ${state.hasMultiTasking ? `
             <div id="multi-tasking-section" style="display:none;margin-top:4px;">
@@ -2028,8 +2118,11 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           }).join("") : ""}
         </div>
 
-        <!-- NPC Ship Pool — hidden for ground character rolls or assist rolls -->
-        ${(!isMethodicalPlanningAssist && (!state.groundMode || state.groundIsNpc)) ? `
+        <!-- NPC Ship Pool — hidden for ground character rolls or assist rolls.
+             An explicitly supplied ship list wins over groundMode: that is how an
+             opposed task stages a ship assist for a ground character without
+             flipping groundMode, which also drives the Momentum/Threat profile. -->
+        ${(!isMethodicalPlanningAssist && (!state.groundMode || state.groundIsNpc || availableShips.length > 0)) ? `
         <div id="sta2e-ship-pool-section">
         ${state.sheetMode ? `
         <div style="display:flex;align-items:center;justify-content:space-between;
@@ -2739,7 +2832,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       </div>` : ""}
       ${apAssistRow}
 
-      ${state.crewFailed
+      ${state.crewFailed && !state.isAssistRoll
       ? `<div style="
             margin:6px 10px;padding:8px 10px;
             background:rgba(180,0,0,0.1);
@@ -2747,11 +2840,12 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             border-radius:2px;
             font-size:10px;color:${LC.red};
             font-family:${LC.font};letter-spacing:0.08em;text-transform:uppercase;">
-            ✗ NPC Crew scored 0 successes — assist die and ship pool did not roll
-          </div>
-          ${sectionHeader(`NPC Ship · ${_systemLabel(state.shipSystemKey)}/${_deptLabel(state.shipDeptKey)} · Target: ${shipTarget} · Focus: 1–${state.shipDept}`)}`
-      : `${sectionHeader(`NPC Ship · ${_systemLabel(state.shipSystemKey)}/${_deptLabel(state.shipDeptKey)} · Target: ${shipTarget} · Focus: 1–${state.shipDept}`)}
-           ${!state.shipAssist
+            ✗ ${ASSIST_GATE_NOTE}
+          </div>`
+      : ""}
+
+      ${sectionHeader(`NPC Ship · ${_systemLabel(state.shipSystemKey)}/${_deptLabel(state.shipDeptKey)} · Target: ${shipTarget} · Focus: 1–${state.shipDept}`)}
+      ${!state.shipAssist
         ? `<div style="padding:6px 10px;font-size:9px;color:${LC.textDim};
                  font-family:${LC.font};letter-spacing:0.08em;text-transform:uppercase;">
                  Ship did not assist this roll
@@ -2773,7 +2867,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           ? `<div style="font-size:9px;color:${LC.green};padding:2px 10px 4px;font-family:${LC.font};">
                       ★ Advanced Sensor Suites — 2 ship dice rolled
                     </div>`
-          : ""}`}`}
+          : ""}`}
 
       ${state.hasTechExpertise && !state.techExpertiseUsed
       && (state.shipSystemKey === "computers" || state.shipSystemKey === "sensors")
@@ -2813,7 +2907,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         </button>
       </div>` : ""}
 
-      ${resultSummaryHtml([...crewDice, ...(crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...apAssistDice], shipDice, difficulty, crewTarget, shipTarget, state.reservePower, state)}
+      ${resultSummaryHtml(state)}
 
     </div>`;
 }
@@ -2840,10 +2934,9 @@ function buildChatCard(actorName, state) {
   const _compRange = complicationRange ?? 1;
   const compRangeDisplay = _compRange <= 1 ? "20" : `${21 - _compRange}–20`;
   const shipTarget = shipSystems + shipDept;
-  const assistDice = [...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? [])];
   const crewFailed = state.crewFailed ?? false;
-  const total = countSuccesses(crewDice) + countSuccesses(assistDice) + countSuccesses(shipDice) + autoSuccesses(state);
-  const compls = countComplicationsTotal(crewDice, assistDice, shipDice, crewFailed ? false : state.reservePower) + autoComplications(state);
+  const total = rollSuccessTotal(state);
+  const compls = rollComplicationTotal(state);
   const effectiveDifficulty = taskDifficulty(state);
   const passed = total >= effectiveDifficulty;
   const resourceProfile = _rollResourceProfile(state);
@@ -2949,7 +3042,7 @@ function buildChatCard(actorName, state) {
         chiefMedicalPotential > 0 ? `Chief Medical Officer (+${chiefMedicalPotential} bonus Momentum on success)` : null,
         state.hasChiefOfStaff ? (state.chiefOfStaffSource ?? "Chief of Staff") : null,
         state.shipTalentRerollUsed ? (state.shipTalentRerollSource ?? "Ship Talent Reroll") : null,
-        state.hasPiercingSalvo ? "Piercing Salvo (spend 2 Momentum)" : null,
+        state.hasPiercingSalvo ? "Piercing Salvo (offered on a hit — 2 Momentum for Piercing)" : null,
         state.multiTaskingActive ? "Multi-Tasking (Conn)" : null,
         state.flightControllerActive ? "Flight Controller (Conn)" : null,
         state.chiefEngineerRerollUsed ? "Chief Engineer (1 Momentum reroll)" : null,
@@ -3024,19 +3117,21 @@ function buildChatCard(actorName, state) {
           ${state.hasAdvancedSensors && state.advancedSensorsActive ? `<span style="color:${LC.green};font-size:8px;">★ Advanced Sensor Suites</span>` : ""}
           ${state.reservePower ? `<span style="color:${LC.secondary};font-size:8px;">⚡ Reserve Power</span>` : ""}
         </div>
-        ${crewFailed
-      ? `<div style="font-size:9px;color:${LC.red};letter-spacing:0.06em;padding:2px 0;">
-              Crew scored 0 successes — ship did not roll
-            </div>`
-      : !state.shipAssist
-        ? `<div style="font-size:9px;color:${LC.textDim};letter-spacing:0.06em;padding:2px 0;">
+        ${!state.shipAssist
+      ? `<div style="font-size:9px;color:${LC.textDim};letter-spacing:0.06em;padding:2px 0;">
                 Ship did not assist this roll
               </div>`
-        : `<div>
+      : `<div>
             ${state.communicationsOfficerShipAssistActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;">${state.communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1</div>` : ""}
             ${diceRow(shipDice, shipTarget)}
           </div>`}
       </div>
+
+      ${crewFailed && !state.isAssistRoll ? `
+      <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+        font-family:${LC.font};font-size:9px;color:${LC.red};letter-spacing:0.06em;text-transform:uppercase;">
+        ✗ ${ASSIST_GATE_NOTE}
+      </div>` : ""}
 
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;
         padding:6px 10px;border-top:1px solid ${LC.borderDim};">
@@ -3124,10 +3219,7 @@ export function buildPlayerRollCardHtml(rollData) {
 
   const compRangeDisplay = (complicationRange ?? 1) <= 1 ? "20" : `${21 - (complicationRange ?? 1)}–20`;
 
-  const allAssistDice = [...(crewAssistDice ?? []), ...(namedAssistDice ?? []), ...(apAssistDice ?? [])];
-  const totalSuccesses = (dice => dice.reduce((s, d) => s + (d.success ? (d.crit ? 2 : 1) : 0), 0))(
-    [...(crewDice ?? []), ...allAssistDice, ...(shipDice ?? [])]
-  ) + autoSuccesses(rollData);
+  const totalSuccesses = rollSuccessTotal(rollData);
   const contextLeftLabel = rawTaskContext || rawOfficerName || "";
   const contextRightLabel = `Comp Range ${compRangeDisplay}`;
   const taskContext = null;
@@ -3139,7 +3231,8 @@ export function buildPlayerRollCardHtml(rollData) {
     : null;
   const displaySuccesses = confirmed ? (confirmedSuccesses ?? totalSuccesses) : totalSuccesses;
   const effectiveDifficulty = taskDifficulty(rollData);
-  const passed = confirmed ? !!confirmedPassed : (totalSuccesses >= effectiveDifficulty);
+  const passed = confirmed ? !!confirmedPassed : rollPassed(rollData);
+  const succeedAtCost = !!rollData.succeedAtCost;
   const resourceProfile = _rollResourceProfile(rollData);
   const traitPoolBonus = passed
     ? Math.max(0, Number(resourceProfile.generatedPool === "threat" ? rollData.traitBonusThreat : rollData.traitBonusMomentum) || 0)
@@ -3150,7 +3243,7 @@ export function buildPlayerRollCardHtml(rollData) {
     ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus)
     : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus;
   const passColor = passed ? LC.green : LC.red;
-  const finalResultLabel = passed ? "Success" : "Failed";
+  const finalResultLabel = succeedAtCost ? "Success at Cost" : passed ? "Success" : "Failed";
   const callOutTargetsPotential = callOutTargetsBonusMomentum(rollData, true);
   const planOfActionPotential = planOfActionBonusMomentum(rollData.appliedTraitEffects ?? [], game.actors.get(rollData.officerActorId ?? rollData.actorId));
   const flightControllerPotential = flightControllerBonusMomentum(rollData, true);
@@ -3158,8 +3251,10 @@ export function buildPlayerRollCardHtml(rollData) {
   const generatedPool = resourceProfile.generatedPool;
   const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
-  const totalComplications = [...(crewDice ?? []), ...allAssistDice, ...(shipDice ?? [])]
-    .filter(d => d.complication).length + autoComplications(rollData);
+  const totalComplications = allRolledDice(rollData)
+    .filter(d => d.complication).length
+    + autoComplications(rollData)
+    + succeedAtCostComplications(rollData);
   const completedPoolButton = confirmed && displayMomentum > 0 && !noPoolButton
     ? (rollData.autoBanked
         ? ""
@@ -3318,6 +3413,13 @@ export function buildPlayerRollCardHtml(rollData) {
     ? `${totalSuccesses >= (difficulty ?? 0) ? "⚡ Resolve HIT" : "✗ Resolve MISS"} (${totalSuccesses} succ.)`
     : `✓ Confirm Results (${totalSuccesses} success${totalSuccesses !== 1 ? "es" : ""})`;
 
+  // Succeed at Cost — offered instead of taking the failure. One click resolves
+  // the task as a success and adds one complication; it shares the confirm handler.
+  const showSucceedAtCost = canSucceedAtCost(rollData);
+  const succeedAtCostLabel = weaponContext
+    ? "⚠ Hit at Cost (+1 Complication)"
+    : "⚠ Succeed at Cost (+1 Complication)";
+
   // ── Slim LCARS skin ────────────────────────────────────────────────────────
   // Same content, tighter chrome. The view is assembled inside this branch on
   // purpose: six of its fields are computed inline inside the classic template
@@ -3326,7 +3428,7 @@ export function buildPlayerRollCardHtml(rollData) {
   let cardStyle = "classic";
   try { cardStyle = game.settings.get(MODULE, "taskCardStyle") ?? "classic"; } catch { /* pre-init */ }
   if (cardStyle === "slim") {
-    const showShipBlock = !crewFailed && (shipDice ?? []).length > 0;
+    const showShipBlock = (shipDice ?? []).length > 0;
     return renderSlimTaskCard({
       rollData, diceRow, renderResourceTokens, p,
       headerAccent: confirmed ? passColor : (isAssistRoll ? LC.secondary : LC.primary),
@@ -3334,6 +3436,7 @@ export function buildPlayerRollCardHtml(rollData) {
       contextLeftLabel, contextRightLabel,
       crewDiceHeading,
       interactiveActive, showMakeYourOwnLuck, rerollButtons, canGmEditCard, confirmLabel,
+      succeedAtCostButton: { visible: showSucceedAtCost, label: succeedAtCostLabel },
 
       shipDiceHeading: [
         shipName ?? null,
@@ -3343,7 +3446,7 @@ export function buildPlayerRollCardHtml(rollData) {
         `(target: ${shipTarget ?? "—"})`,
       ].filter(Boolean).join(" · "),
 
-      namedAssistBlocks: (crewFailed ? [] : (namedAssistDice ?? [])).map(d => ({
+      namedAssistBlocks: (namedAssistDice ?? []).map(d => ({
         die: d,
         heading: `🤝 ${d.officerName ?? "Assist"} — Assist Die`,
         subHeading: ((d.shipSystemKey && d.shipDeptKey) || (d.attrKey && d.discKey))
@@ -3360,6 +3463,10 @@ export function buildPlayerRollCardHtml(rollData) {
       // badges keep the classic gate (they only show with the ship dice block);
       // the Make Your Own Luck note is the else-branch of the luck button.
       noteStrips: [
+        succeedAtCost
+          ? { tone: "warn", text: `⚠ ${SUCCEED_AT_COST_NOTE}` } : null,
+        crewFailed && !isAssistRoll
+          ? { tone: "warn", text: `✗ ${ASSIST_GATE_NOTE}` } : null,
         showShipBlock && advancedSensorsActive
           ? { tone: "note", text: "★ Advanced Sensor Suites" } : null,
         showShipBlock && communicationsOfficerShipAssistActive
@@ -3403,7 +3510,7 @@ export function buildPlayerRollCardHtml(rollData) {
         ["Difficulty", difficulty ?? 0, LC.text],
         [poolLabel, displayMomentum, poolColor],
         ...(totalComplications > 0 ? [["Complic.", totalComplications, LC.red]] : []),
-        ["Result", confirmed ? finalResultLabel : (passed ? "PASS" : "FAIL"), passColor],
+        ["Result", confirmed ? finalResultLabel : succeedAtCost ? "COST" : (passed ? "PASS" : "FAIL"), passColor],
       ],
 
       spentVisible: (_spent.momentum ?? 0) > 0 || (_spent.threat ?? 0) > 0 || (_spent.personalThreat ?? 0) > 0,
@@ -3450,15 +3557,12 @@ export function buildPlayerRollCardHtml(rollData) {
   </div>` : ""}
 
   <div style="padding:6px 10px;">
-    ${false ? `<div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
-          Crew scored 0 successes — no assists, no ship die rolled
-        </div>`
-      : !groundMode ? `<div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
+    ${!groundMode ? `<div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
           letter-spacing:0.08em;margin-bottom:3px;text-align:center;">${crewDiceHeading}</div>` : ""}
     ${diceRow(crewDice ?? [], "crew")}
   </div>
 
-  ${!crewFailed && (namedAssistDice ?? []).length > 0 ? (namedAssistDice).map(d => `
+  ${(namedAssistDice ?? []).length > 0 ? (namedAssistDice).map(d => `
   <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:3px;text-align:center;">
@@ -3478,14 +3582,14 @@ export function buildPlayerRollCardHtml(rollData) {
     ${diceRow([d], "named-assist")}
   </div>`).join("") : ""}
 
-  ${!crewFailed && (apAssistDice ?? []).length > 0 ? `
+  ${(apAssistDice ?? []).length > 0 ? `
   <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:3px;text-align:center;">⚡ Helm — Attack Pattern</div>
     ${diceRow(apAssistDice, "ap-assist")}
   </div>` : ""}
 
-  ${!crewFailed && (shipDice ?? []).length > 0 ? `
+  ${(shipDice ?? []).length > 0 ? `
   <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:3px;text-align:center;">${[
@@ -3499,6 +3603,18 @@ export function buildPlayerRollCardHtml(rollData) {
     ${advancedSensorsActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">★ Advanced Sensor Suites</div>` : ""}
     ${communicationsOfficerShipAssistActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">${communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1</div>` : ""}
     ${diceRow(shipDice, "ship")}
+  </div>` : ""}
+
+  ${crewFailed && !isAssistRoll ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.red};letter-spacing:0.06em;text-transform:uppercase;">
+    ✗ ${ASSIST_GATE_NOTE}
+  </div>` : ""}
+
+  ${succeedAtCost ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.red};letter-spacing:0.06em;text-transform:uppercase;">
+    ⚠ ${SUCCEED_AT_COST_NOTE}
   </div>` : ""}
 
   ${persistentUsed ? `
@@ -3576,7 +3692,7 @@ export function buildPlayerRollCardHtml(rollData) {
         ["Difficulty", difficulty ?? 0, LC.text],
         [poolLabel, displayMomentum, poolColor],
         ...(totalComplications > 0 ? [["Complic.", totalComplications, LC.red]] : []),
-        ["Result", confirmed ? finalResultLabel : (passed ? "PASS" : "FAIL"), passColor],
+        ["Result", confirmed ? finalResultLabel : succeedAtCost ? "COST" : (passed ? "PASS" : "FAIL"), passColor],
       ].map(([lbl, val, col]) => `
       <div style="text-align:center;">
         <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.08em;">${lbl}</div>
@@ -3597,7 +3713,7 @@ export function buildPlayerRollCardHtml(rollData) {
 
   ${resourcesGainedBlock}
 
-  ${!confirmed && !crewFailed && (pendingAssists ?? []).length > 0 ? `
+  ${!confirmed && (pendingAssists ?? []).length > 0 ? `
   <div class="sta2e-working-actions sta2e-working-actions--assists"
     style="padding:5px 10px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;
@@ -3694,6 +3810,17 @@ export function buildPlayerRollCardHtml(rollData) {
         font-family:${LC.font};font-size:10px;font-weight:700;
         color:${LC.primary};letter-spacing:0.06em;">
       Edit Results
+    </button>` : ""}
+    ${showSucceedAtCost ? `
+    <button class="sta2e-succeed-at-cost"
+      data-payload="${p}"
+      title="Resolve this task as a success. It gains 1 extra complication; the GM narrates the cost."
+      style="width:100%;padding:6px 10px;margin-bottom:5px;
+        background:rgba(255,153,0,0.10);
+        border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+        font-family:${LC.font};font-size:10px;font-weight:700;
+        color:${LC.primary};letter-spacing:0.06em;">
+      ${succeedAtCostLabel}
     </button>` : ""}
     <button class="sta2e-player-confirm"
       data-payload="${p}"
@@ -3927,7 +4054,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   // Pull live system/dept maps from the actor
   const actorSystems = actor.system?.systems ?? {};
   const actorDepts = actor.system?.departments ?? {};
-  const initialSelectedShip = sheetMode && availableShips?.length > 0 && initialShipIdx >= 0
+  // Not gated on sheetMode — opposed tasks preselect an assisting ship without it.
+  const initialSelectedShip = availableShips?.length > 0 && initialShipIdx >= 0
     ? (availableShips[initialShipIdx] ?? null)
     : null;
   const initialShipSystems = initialSelectedShip?.systems ?? actorSystems;
@@ -4464,6 +4592,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       chiefOfSecuritySource: state.chiefOfSecuritySource ?? null,
       hasChiefTacticalOfficer: state.hasChiefTacticalOfficer ?? false,
       chiefTacticalOfficerSource: state.chiefTacticalOfficerSource ?? null,
+      hasPiercingSalvo: state.hasPiercingSalvo ?? false,
       hasAdaptAndExcel: state.hasAdaptAndExcel ?? false,
       adaptAndExcelSource: state.adaptAndExcelSource ?? null,
       adaptAndExcelAttribute: state.adaptAndExcelAttribute ?? null,
@@ -4646,17 +4775,11 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
         ? [
           ...(state.weaponContext ? [{
             action: "resolve",
-            label: `${countSuccesses([...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice]) + autoSuccesses(state) >= taskDifficulty(state) ? "⚡ Resolve HIT" : "✗ Resolve MISS"}`,
+            label: `${rollSuccessTotal(state) >= taskDifficulty(state) ? "⚡ Resolve HIT" : "✗ Resolve MISS"}`,
             icon: "fas fa-crosshairs",
             default: true,
             callback: async () => {
-              const totalSuccesses = countSuccesses([
-                ...state.crewDice,
-                ...(state.crewAssistDice ?? []),
-                ...(state.namedAssistDice ?? []),
-                ...(state.apAssistDice ?? []),
-                ...state.shipDice,
-              ]) + autoSuccesses(state);
+              const totalSuccesses = rollSuccessTotal(state);
               const effectiveDifficulty = taskDifficulty(state);
               const isHit = totalSuccesses >= effectiveDifficulty;
 
@@ -4679,13 +4802,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // Auto-bank float to pool + post the Momentum Overflow Tracker
               // BEFORE the summary card so the summary renders the "banked" notice
               // and downstream damage cards can link via state.trackerMessageId.
-              const _hitSuccesses = countSuccesses([
-                ...state.crewDice,
-                ...(state.crewAssistDice ?? []),
-                ...(state.namedAssistDice ?? []),
-                ...(state.apAssistDice ?? []),
-                ...state.shipDice,
-              ]) + autoSuccesses(state);
+              const _hitSuccesses = rollSuccessTotal(state);
               const _hitMomentum = Math.max(0, _hitSuccesses - effectiveDifficulty);
               const _hitIntenseBonus = intenseBonusMomentum({
                 slots: state.paymentSlots,
@@ -4749,20 +4866,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               }
 
               // Compute attacker's total successes for opposed task delta
-              const attackerTotalSuccesses = countSuccesses([
-                ...state.crewDice,
-                ...(state.crewAssistDice ?? []),
-                ...(state.namedAssistDice ?? []),
-                ...(state.apAssistDice ?? []),
-                ...state.shipDice,
-              ]) + autoSuccesses(state);
-              const attackComplications = [
-                ...state.crewDice,
-                ...(state.crewAssistDice ?? []),
-                ...(state.namedAssistDice ?? []),
-                ...(state.apAssistDice ?? []),
-                ...state.shipDice,
-              ].filter(d => d.complication).length + autoComplications(state);
+              const attackerTotalSuccesses = rollSuccessTotal(state);
+              const attackComplications = allRolledDice(state)
+                .filter(d => d.complication).length + autoComplications(state);
 
               // Sheet-roller path: use the ship token, not the character token
               const resolveToken = state.weaponContext.shipActorId
@@ -4815,6 +4921,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 rapidFireBonus: state.hasRapidFireTorpedo && state.weaponContext.isTorpedo ? 1 : 0,
                 calibrateWeaponsBonus,
                 chiefTacticalOfficerAvailable: !!state.hasChiefTacticalOfficer,
+                piercingSalvoAvailable: !!state.hasPiercingSalvo,
                 defenderSuccesses: state.defenderSuccesses,
                 opposedDefenseType: state.opposedDefenseType,
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
@@ -4845,8 +4952,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // the summary card renders. The summary then shows "banked" instead
               // of the manual → Pool button, and downstream damage cards (from
               // taskCallback) can link via state.trackerMessageId.
-              const _prAllDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice];
-              const _prSuccesses = countSuccesses(_prAllDice) + autoSuccesses(state);
+              const _prAllDice = allRolledDice(state);
+              const _prSuccesses = rollSuccessTotal(state);
               const _prDifficulty = taskDifficulty(state);
               const _prPassed = _prSuccesses >= _prDifficulty;
               const _prMomentum = Math.max(0, _prSuccesses - _prDifficulty);
@@ -4912,7 +5019,11 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
               // Rally: immediately follow with a Threat/Momentum result card
               if (state.rallyContext) {
-                const allDice = [...state.crewDice, ...(state.crewAssistDice ?? [])];
+                // Rally counts the crew pool plus the generic crew assist die only —
+                // and the assist die scores nothing if the crew pool scored nothing.
+                const allDice = state.crewFailed
+                  ? [...state.crewDice]
+                  : [...state.crewDice, ...(state.crewAssistDice ?? [])];
                 const successes = countSuccesses(allDice) + autoSuccesses(state);
                 const isNpc = state._isNpc ?? true;
                 const currency = isNpc ? "Threat" : "Momentum";
@@ -5163,9 +5274,8 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
     if (!starter || !attackerToken?.actor || !targetToken?.actor) return;
 
     const weaponContext = { ...(state.weaponContext ?? {}) };
-    const weapon = weaponContext.weaponId
-      ? actor?.items?.get?.(weaponContext.weaponId)
-      : actor?.items?.find?.(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
+    const weapon = (weaponContext.weaponId ? actor?.items?.get?.(weaponContext.weaponId) : null)
+      ?? actor?.items?.find?.(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
     const hasStun = weapon?.system?.qualities?.stun ?? false;
     const hasDeadly = weapon?.system?.qualities?.deadly ?? false;
     const attackerIsNpc = !!state.groundIsNpc;
@@ -5746,72 +5856,66 @@ async function _doRoll(state, speaker) {
 
   const crewSuccesses = countSuccesses(state.crewDice) + autoSuccesses(state);
 
-  // ── Step 2: Crew must get ≥1 success for assist/ship to roll ─────────────
+  // ── Step 2: Assist/ship dice always roll — successes gate on the crew pool ──
+  // crewFailed does NOT stop any die from being rolled. It means the assist and
+  // ship SUCCESSES do not score (see scoringDice); their complications still do.
   state.crewFailed = crewSuccesses === 0;
 
-  if (state.crewFailed) {
-    state.crewAssistDice = [];
+  // Generic crew assist die (ASSIST FROM CREW checkbox)
+  state.crewAssistDice = state.crewAssist
+    ? rollPool(1, crewTarget, compThresh, crewCritThresh)
+    : [];
+
+  // Named assisting officer dice — one per officer, each with its own crit threshold
+  // derived from the officer's selected discipline + focus flags.
+  // Player mode: skip auto-rolling; each officer rolls their own die from the chat card.
+  if (state.playerMode) {
     state.namedAssistDice = [];
-    state.apAssistDice = [];  // AP assist also doesn't roll if crew failed
-    state.shipDice = [];
-    state.callOutTargetsSources = [];
+    state.assistRerollsUsed = [];
   } else {
-    // Generic crew assist die (ASSIST FROM CREW checkbox)
-    state.crewAssistDice = state.crewAssist
-      ? rollPool(1, crewTarget, compThresh, crewCritThresh)
+    state.namedAssistDice = (state.assistOfficers ?? []).flatMap(ao => {
+      const aoAttrVal = ao.stats ? (ao.stats.attributes[ao.attrKey] ?? 9) : 9;
+      const aoDiscVal = ao.stats ? (ao.stats.disciplines[ao.discKey] ?? 2) : 2;
+      const aoTarget = ao.stats ? aoAttrVal + aoDiscVal : crewTarget;
+      let aoCrit;
+      if (ao.hasDedicatedFocus) {
+        aoCrit = Math.min(20, Math.max(1, aoDiscVal * 2));
+      } else if (ao.hasFocus) {
+        aoCrit = Math.max(1, aoDiscVal);
+      } else {
+        aoCrit = 1; // only natural 1 crits without focus
+      }
+      return rollPool(1, aoTarget, compThresh, aoCrit).map(d => ({
+        ...d,
+        officerName: ao.name,
+        assistActorId: ao.actorId ?? null,
+        attrKey: ao.attrKey,
+        discKey: ao.discKey,
+      }));
+    });
+    // Chief of Staff: initialise per-assist-die reroll flags (one bool per named die)
+    state.assistRerollsUsed = state.namedAssistDice.map(() => false);
+  }
+
+  // Ship assist dice — only if ship is assisting this roll
+  state.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(state);
+
+  if (!state.shipAssist) {
+    state.shipDice = [];
+  } else if (state.communicationsOfficerShipAssistActive) {
+    state.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
+  } else if (state.reservePower) {
+    // Reserve Power rerouted: first die is automatically a 1 (critical success).
+    // Any complications rolled on ship dice count as 2 complications each — flag
+    // them with reservePowerComp so the summary can double-count them correctly.
+    const forced = { value: 1, success: true, crit: true, complication: false, critThreshold: shipCritThresh, reservePowerForced: true };
+    // Advanced Sensors adds a second normally-rolled die on top
+    const rest = state.advancedSensorsActive
+      ? rollPool(1, shipTarget, compThresh, shipCritThresh).map(d => ({ ...d, reservePowerComp: d.complication }))
       : [];
-
-    // Named assisting officer dice — one per officer, each with its own crit threshold
-    // derived from the officer's selected discipline + focus flags.
-    // Player mode: skip auto-rolling; each officer rolls their own die from the chat card.
-    if (state.playerMode) {
-      state.namedAssistDice = [];
-      state.assistRerollsUsed = [];
-    } else {
-      state.namedAssistDice = (state.assistOfficers ?? []).flatMap(ao => {
-        const aoAttrVal = ao.stats ? (ao.stats.attributes[ao.attrKey] ?? 9) : 9;
-        const aoDiscVal = ao.stats ? (ao.stats.disciplines[ao.discKey] ?? 2) : 2;
-        const aoTarget = ao.stats ? aoAttrVal + aoDiscVal : crewTarget;
-        let aoCrit;
-        if (ao.hasDedicatedFocus) {
-          aoCrit = Math.min(20, Math.max(1, aoDiscVal * 2));
-        } else if (ao.hasFocus) {
-          aoCrit = Math.max(1, aoDiscVal);
-        } else {
-          aoCrit = 1; // only natural 1 crits without focus
-        }
-        return rollPool(1, aoTarget, compThresh, aoCrit).map(d => ({
-          ...d,
-          officerName: ao.name,
-          assistActorId: ao.actorId ?? null,
-          attrKey: ao.attrKey,
-          discKey: ao.discKey,
-        }));
-      });
-      // Chief of Staff: initialise per-assist-die reroll flags (one bool per named die)
-      state.assistRerollsUsed = state.namedAssistDice.map(() => false);
-    }
-
-    // Ship assist dice — only if ship is assisting this roll
-    state.communicationsOfficerShipAssistActive = isCommunicationsOfficerShipAssistActive(state);
-
-    if (!state.shipAssist) {
-      state.shipDice = [];
-    } else if (state.communicationsOfficerShipAssistActive) {
-      state.shipDice = [communicationsOfficerShipDie(shipCritThresh)];
-    } else if (state.reservePower) {
-      // Reserve Power rerouted: first die is automatically a 1 (critical success).
-      // Any complications rolled on ship dice count as 2 complications each — flag
-      // them with reservePowerComp so the summary can double-count them correctly.
-      const forced = { value: 1, success: true, crit: true, complication: false, critThreshold: shipCritThresh, reservePowerForced: true };
-      // Advanced Sensors adds a second normally-rolled die on top
-      const rest = state.advancedSensorsActive
-        ? rollPool(1, shipTarget, compThresh, shipCritThresh).map(d => ({ ...d, reservePowerComp: d.complication }))
-        : [];
-      state.shipDice = [forced, ...rest];
-    } else {
-      state.shipDice = rollPool(state.shipNumDice, shipTarget, compThresh, shipCritThresh);
-    }
+    state.shipDice = [forced, ...rest];
+  } else {
+    state.shipDice = rollPool(state.shipNumDice, shipTarget, compThresh, shipCritThresh);
   }
 
   state.crewTarget = crewTarget;
@@ -5823,8 +5927,9 @@ async function _doRoll(state, speaker) {
 
   // ── Attack Pattern assist die ─────────────────────────────────────────────
   // Helm officer (or crew quality fallback) rolls 1 die using Control + Conn.
-  // Only rolls if crew succeeded (same rule as all assist dice).
-  if (state.hasAttackPattern && !state.crewFailed) {
+  // Always rolls (same rule as all assist dice); its successes score only when
+  // the crew pool scored at least one.
+  if (state.hasAttackPattern) {
     let apAttr, apDisc;
     if (state.helmOfficer) {
       // Named helm officer: use their actual attribute + discipline values
@@ -5855,8 +5960,7 @@ async function _doRoll(state, speaker) {
     state.apAssistDice = [];
   }
 
-  const allDice = [...state.crewDice, ...(state.crewAssistDice ?? []), ...(state.namedAssistDice ?? []), ...(state.apAssistDice ?? []), ...state.shipDice]
-    .filter(d => !d.communicationsOfficerForced);
+  const allDice = allRolledDice(state).filter(d => !d.communicationsOfficerForced);
   await dsnShowPool(allDice, speaker);
 }
 

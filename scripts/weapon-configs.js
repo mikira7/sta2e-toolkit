@@ -1,4 +1,5 @@
 import {
+  advanceShipArrayCurveWalk,
   getClosestShipArrayCurvePoint,
   getShipWeaponEmitterArcSelection,
   getShipHitLocationPointForShot,
@@ -358,6 +359,17 @@ function phaserEraSound(kind, era, isHit, baseConfig) {
   if (eraSound) return eraSound;
   if (isHit) return baseConfig.sound;
   return baseConfig.missSound ?? baseConfig.sound;
+}
+
+// The 2nd and later strikes of an array volley can use their own audio: the
+// array is already lit, so the opening "charge and fire" sound would repeat
+// wrongly. Blank slots fall back through the generic array slot to the caller's
+// normal hit sound.
+export function arrayRepeatSoundPath(config) {
+  const eraPart = PHASER_ERA_SOUND_PARTS[normalizePhaserEra(config?.phaserEra)];
+  return (eraPart ? snd(`sndShipPhaserArray${eraPart}Repeat`) : null)
+    ?? snd("sndShipArrayRepeat")
+    ?? null;
 }
 
 function phaserEraEffect(kind, era, baseConfig) {
@@ -832,6 +844,25 @@ export function buildWeaponContext(weapon) {
   };
 }
 
+/**
+ * Resolve a ground weapon's Severity.
+ *
+ * The STA system's item sheet labels its number input "Severity" but binds it to
+ * `system.damage` (character-weapon-sheet2e.hbs:47-48). `system.severity` exists in
+ * the DataModel but is never written by any UI and is 0 on every compendium item.
+ * Prefer an explicit non-zero `system.severity` (some external importers populate it),
+ * otherwise fall back to `system.damage`, which is what the sheet actually edits.
+ * @param {Item} weapon - A characterweapon2e item
+ * @returns {number}
+ */
+export function getGroundWeaponSeverity(weapon) {
+  const sys      = weapon?.system ?? {};
+  const declared = Number(sys.severity);
+  if (Number.isFinite(declared) && declared > 0) return declared;
+  const dmg = Number(sys.damage);
+  return Number.isFinite(dmg) && dmg > 0 ? dmg : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Sequencer helper
 // ---------------------------------------------------------------------------
@@ -1125,14 +1156,22 @@ function shipWeaponMissTargetLocation(targetToken) {
   return { location: tokenCenter(targetToken) };
 }
 
-async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined, weapon = null, shotIndex = 0, targetSystem = null, selectedEmitter = null, arcRestrict = false } = {}) {
+async function shipShotLocations(sourceToken, targetToken, { sourceOptions = undefined, targetOptions = undefined, weapon = null, shotIndex = 0, targetSystem = null, selectedEmitter = null, arcRestrict = false, arrayWalk = null } = {}) {
   const sourceReference = tokenCenter(sourceToken);
   const hitLocationPoint = targetSystem
     ? getShipHitLocationPointForShot(targetToken, targetSystem, sourceReference, shotIndex)
     : null;
   const targetPoint = hitLocationPoint ?? await randomOpaqueTokenPoint(targetToken);
+  // An array volley walks its emitter along the spine instead of firing every
+  // strike from the point nearest the target. Only the array branches pass a
+  // walk; everything else keeps the closest-point behaviour.
+  const walkPoint = arrayWalk && isShipArrayWeapon(weapon)
+    ? advanceShipArrayCurveWalk(sourceToken, weapon, targetPoint ?? tokenCenter(targetToken), arrayWalk)
+    : null;
   return {
-    source: await shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, sourceOptions, shotIndex, selectedEmitter, arcRestrict),
+    source: walkPoint
+      ? emitterSequenceLocation(sourceToken, walkPoint)
+      : await shipWeaponSourceLocation(sourceToken, targetToken, weapon, targetPoint, sourceOptions, shotIndex, selectedEmitter, arcRestrict),
     target: pointSequenceLocation(targetPoint ?? tokenCenter(targetToken)),
     impact: sequenceLocation(targetToken, targetPoint, targetOptions),
   };
@@ -1457,6 +1496,22 @@ export function getEnergyWeaponCountConfig() {
     };
   }
   return merged;
+}
+
+// An Area array volley splits its fire across several ships, so a GM may want
+// the animation to stay short regardless of how much damage got through. The
+// default cap is 3 — the opening charged strike plus two follow-ups.
+export const ARRAY_AREA_SHOT_CAP_DEFAULT = 3;
+
+// Merged, validated Area shot cap for arrays (stored setting over defaults).
+export function getArrayAreaShotCap() {
+  let stored = {};
+  try { stored = game.settings.get("sta2e-toolkit", "arrayAreaShotCap") ?? {}; }
+  catch { stored = {}; }
+  return {
+    enabled: stored.enabled === true,
+    max: clampEnergySlider(stored.max, ARRAY_AREA_SHOT_CAP_DEFAULT, 1),
+  };
 }
 
 // How many times to play the firing animation: base + one per perDamage points
@@ -1908,11 +1963,15 @@ async function fireBeamSingle(config, isHit, token, targets, repeatCount = 1, we
     let s = seq();
     if (isHit) {
       if (isShipArrayWeapon(weapon)) {
+        // One walk per target: each target's volley opens with a charge-up at
+        // the closest point on the spine, then walks along it for the rest.
+        const arrayWalk = { t: null };
+        const repeatSound = arrayRepeatSoundPath(config) ?? soundPath;
         for (let i = 0; i < repeats; i++) {
-          const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter });
-          await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true, { shotIndex: i, selectedEmitter });
+          const locations = await shipShotLocations(token, target, { weapon, shotIndex: i, targetSystem, selectedEmitter, arrayWalk });
+          if (i === 0) await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true, { shotIndex: i, selectedEmitter });
           let shot = seq();
-          shot = withSound(shot, soundPath).wait(50);
+          shot = withSound(shot, i === 0 ? soundPath : repeatSound).wait(50);
           waitForBeamImpact(stretchToSequenceLocation(
             atSequenceLocation(shipTravelEffect(shot.effect().file(config.effect), config), locations.source),
             locations.target
@@ -1961,6 +2020,10 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
     if (isHit) {
       if (isShipArrayWeapon(weapon)) {
         let impactLocation = sequenceLocation(target, null);
+        // One walk per target: each target's volley opens with a charge-up at
+        // the closest point on the spine, then walks along it for the rest.
+        const arrayWalk = { t: null };
+        const repeatSound = arrayRepeatSoundPath(config) ?? soundPath;
         for (let i = 0; i < repeats; i++) {
           const locations = await shipShotLocations(token, target, {
             sourceOptions: { randomOffset: true },
@@ -1969,11 +2032,12 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
             shotIndex: i,
             targetSystem,
             selectedEmitter,
+            arrayWalk,
           });
           impactLocation = locations.impact;
-          await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true, { shotIndex: i, selectedEmitter });
+          if (i === 0) await playSequencerArrayCurveCharge(config, token, weapon, locations.target?.location, true, { shotIndex: i, selectedEmitter });
           let shot = seq();
-          shot = withSound(shot, soundPath).wait(50);
+          shot = withSound(shot, i === 0 ? soundPath : repeatSound).wait(50);
           waitForBeamImpact(stretchToSequenceLocation(
             atSequenceLocation(shipTravelEffect(shot.effect().file(config.effect), config), locations.source),
             locations.target
@@ -2381,6 +2445,17 @@ function _stampHullDecalAt(seq, targetToken, location, hullImpact) {
   else stamp();
 }
 
+// Clamp an array's play-count when it fires in Area mode. Only arrays have an
+// Area/Spread choice, and only Area splits the volley across ships, so Spread
+// and every other weapon family pass through untouched.
+function applyArrayAreaShotCap(shotCount, config, salvoMode, spreadDeclared) {
+  if (config?.family !== "array") return shotCount;
+  if (spreadDeclared || salvoMode === "spread") return shotCount;
+  const cap = getArrayAreaShotCap();
+  if (!cap.enabled) return shotCount;
+  return Math.max(1, Math.min(cap.max, shotCount));
+}
+
 export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0 } = {}) {
   if (!config) return;
   config = withPhaserEraConfig(config, token, weapon);
@@ -2388,9 +2463,14 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
   // Energy weapons (banks/arrays/lances = "beam", cannons = "cannon") scale how
   // many times the animation plays by final damage, per-family configurable.
   const isEnergyWeapon = config.type === "beam" || config.type === "cannon";
-  const energyShotCount = isHit && isEnergyWeapon
-    ? getEnergyWeaponShotCount(config.family, finalDamage)
-    : shipRepeatCount;
+  const energyShotCount = applyArrayAreaShotCap(
+    isHit && isEnergyWeapon
+      ? getEnergyWeaponShotCount(config.family, finalDamage)
+      : shipRepeatCount,
+    config,
+    salvoMode,
+    spreadDeclared,
+  );
   const selectedEmitter = await prepareShipEmitterFacing(config, token, targets, weapon);
 
   if (await fireNativeWeaponVFX(config, isHit, token, targets, {
@@ -2402,6 +2482,9 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
     shieldImpact,
     hullImpact,
     selectedEmitter,
+    // Resolved here rather than inside native-weapon-vfx.js: that module is
+    // imported by this one, so it cannot import the sound resolver back.
+    repeatSoundPath: isHit ? arrayRepeatSoundPath(config) : null,
   })) return;
 
   if (!combatAnimationsAvailable()) return;

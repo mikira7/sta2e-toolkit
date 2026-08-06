@@ -84,10 +84,11 @@ export function renderSlimTaskCard(view) {
     noteStrips, traitNotes, statCells,
     interactiveActive, spentVisible, spentGroups, gained, poolButton,
     showMakeYourOwnLuck, rerollButtons, canGmEditCard, confirmLabel, p,
+    succeedAtCostButton,
   } = view;
 
   const {
-    taskLabel, crewDice, shipDice, apAssistDice, crewFailed,
+    taskLabel, crewDice, shipDice, apAssistDice,
     pendingAssists, isAssistRoll, assistOfficerName, assistApplied,
     confirmed, groundMode, makeYourOwnLuckSource, crewTarget,
   } = rollData;
@@ -142,11 +143,11 @@ export function renderSlimTaskCard(view) {
     b.subHeading,
   )).join("")}
 
-  ${!crewFailed && (apAssistDice ?? []).length > 0
+  ${(apAssistDice ?? []).length > 0
     ? diceLine("⚡ Helm — Attack Pattern", diceRow(apAssistDice, "ap-assist", dieOpts))
     : ""}
 
-  ${!crewFailed && (shipDice ?? []).length > 0
+  ${(shipDice ?? []).length > 0
     ? diceLine(shipDiceHeading, diceRow(shipDice, "ship", dieOpts))
     : ""}
 
@@ -181,7 +182,7 @@ export function renderSlimTaskCard(view) {
       )
     : ""}
 
-  ${!confirmed && !crewFailed && (pendingAssists ?? []).length > 0
+  ${!confirmed && (pendingAssists ?? []).length > 0
     ? actionSection("assists", (pendingAssists).map((ao, i) => `
       <button class="sta2e-player-assist-roll"
         data-payload="${p}"
@@ -241,6 +242,13 @@ export function renderSlimTaskCard(view) {
           data-payload="${p}"
           style="${btnStyle(LC.primary, { tint: "rgba(255,153,0,0.08)" })}">
           Edit Results
+        </button>` : ""}
+        ${succeedAtCostButton?.visible ? `
+        <button class="sta2e-succeed-at-cost"
+          data-payload="${p}"
+          title="Resolve this task as a success. It gains 1 extra complication; the GM narrates the cost."
+          style="${btnStyle(LC.primary, { tint: "rgba(255,153,0,0.10)" })}">
+          ${succeedAtCostButton.label}
         </button>` : ""}
         <button class="sta2e-player-confirm"
           data-payload="${p}"

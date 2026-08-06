@@ -4,10 +4,13 @@
  * GM-only ship controls on the Token HUD (right-click a starship token).
  *
  * One arrowhead button opens a flyout palette of shortcuts: warp jump, warp out,
- * tractor beam lock/release, and cloak engage/disengage. Every one of them exists
- * because the normal route — roller → chat card → confirm → picker — is far too
- * much ceremony when the GM just wants to stage a ship between beats. Nothing
- * here rolls dice, and cloak skips the Reserve Power cost entirely.
+ * tractor beam lock/release, scan for weakness, and cloak engage/disengage.
+ * Weapon attacks live on their own Token HUD control — see token-weapon-hud.js.
+ *
+ * Every one of them exists because the normal route — roller → chat card →
+ * confirm → picker — is far too much ceremony when the GM just wants to stage a
+ * ship between beats. Nothing here rolls dice: the scan applies its condition
+ * outright, and cloak skips the Reserve Power cost entirely.
  *
  * Range is shown, not enforced: the warp destination picker's tether still turns
  * red past the ship's Engines rating, and the post-move warning still fires, but
@@ -24,12 +27,22 @@ import {
   applyTractorBeamRelease,
   applyCloakEngage,
   applyCloakDeactivateForOfficer,
+  applyScanForWeakness,
+  getScanForWeaknessStateForAttacker,
+  removeScanForWeaknessStateFromTarget,
 } from "./combat/combat-hud-core.js";
 import { hasCloakingDevice } from "./combat/combat-definitions.js";
+import {
+  buildHudControl,
+  buildHudFlyout,
+  resolveHudToken,
+  toggleHudFlyout,
+} from "./token-hud-util.js";
 
-const FLAG_SCOPE = "sta2e-toolkit";
-const ARROWHEAD  = "modules/sta2e-toolkit/assets/arrowhead.svg";
-const SHIFT_HINT = " · Shift-click to announce in chat";
+const FLAG_SCOPE    = "sta2e-toolkit";
+const ARROWHEAD     = "modules/sta2e-toolkit/assets/arrowhead.svg";
+const SHIFT_HINT    = " · Shift-click to announce in chat";
+const PALETTE_CLASS = "sta2e-ship-command-palette";
 
 /**
  * Is this actor a ship of some kind?
@@ -57,33 +70,6 @@ export function isShipActor(actor) {
 function _isCloaked(token) {
   return (token.actor?.statuses?.has("invisible") ?? false)
       || (token.document.hidden ?? false);
-}
-
-/**
- * Build a HUD control by cloning an existing sibling, so the markup matches
- * whatever element type this Foundry version uses (`<button class="control-icon">`
- * in v13+, `<div class="control-icon">` before that).
- */
-function _buildControl(sibling, { cssClass, icon, img, tooltip }) {
-  const el = sibling
-    ? sibling.cloneNode(false)
-    : document.createElement("button");
-  el.className = "control-icon";
-  el.classList.add(cssClass);
-  el.classList.remove("active");
-  el.removeAttribute("data-action");
-  if (el.tagName === "BUTTON") el.type = "button";
-  el.dataset.tooltip = tooltip;
-  el.setAttribute("aria-label", tooltip);
-  el.innerHTML = img ? `<img src="${img}" alt="">` : `<i class="${icon}"></i>`;
-  return el;
-}
-
-function _resolveToken(app) {
-  const obj = app?.object ?? app?.document?.object ?? null;
-  if (obj?.document) return obj;
-  const id = app?.document?.id ?? app?.object?.id ?? null;
-  return id ? (canvas.tokens?.get(id) ?? null) : null;
 }
 
 async function _onWarpJump(app, token) {
@@ -201,6 +187,48 @@ async function _onTractorRelease(token, { announce }) {
   }
 }
 
+/**
+ * Apply Scan for Weakness with no roll — the selected token is the scanner and
+ * the currently-targeted token is scanned, same convention as the tractor rows.
+ *
+ * The chat card is not optional the way the tractor/cloak announcements are: it
+ * carries the effect toggle, piercing percentage, and retarget controls the
+ * scan is actually resolved through. Posting it is the same two-step the rolled
+ * path uses on a success.
+ */
+async function _onScanForWeakness(token) {
+  const target = Array.from(game.user.targets ?? [])[0] ?? null;
+  if (!target) {
+    ui.notifications.warn("STA2e Toolkit: Target the ship to scan (T), then try again.");
+    return;
+  }
+  if (target.id === token.id) {
+    ui.notifications.warn("STA2e Toolkit: A ship cannot scan itself for weakness.");
+    return;
+  }
+
+  try {
+    const card = await applyScanForWeakness(token, target, token.name ?? token.actor?.name);
+    await ChatMessage.create({ ...card, speaker: ChatMessage.getSpeaker({ token }) });
+  } catch (err) {
+    console.error("STA2e Toolkit | GM scan for weakness failed:", err);
+    ui.notifications.error("Scan for Weakness failed — see console.");
+  }
+}
+
+/**
+ * Drop only this ship's scan. A target can carry one scan per attacker, so
+ * clearing all of them would wipe another ship's work.
+ */
+async function _onScanClear(token, target, state) {
+  try {
+    await removeScanForWeaknessStateFromTarget(target, state);
+  } catch (err) {
+    console.error("STA2e Toolkit | GM scan clear failed:", err);
+    ui.notifications.error("Clearing the scan failed — see console.");
+  }
+}
+
 async function _onCloakToggle(token, { announce }) {
   const actor = token.actor;
   if (!actor) return;
@@ -239,10 +267,7 @@ function _buildItem({ icon, label, tooltip, danger = false }, onClick) {
  * stateful action so Engage/Release labels flip without reopening the HUD.
  */
 function _buildPalette(app, token, control) {
-  const palette = document.createElement("div");
-  palette.className = "sta2e-ship-command-palette";
-  // Clicks inside the flyout must never reach the HUD behind it.
-  palette.addEventListener("click", (event) => event.stopPropagation());
+  const palette = buildHudFlyout(PALETTE_CLASS);
 
   const rebuild = () => {
     // The HUD may have closed while the action was running.
@@ -299,6 +324,25 @@ function _buildPalette(app, token, control) {
     }));
   }
 
+  // Engage/Release symmetry needs the current target — the row can only offer a
+  // clear when this ship is the one holding a scan on whatever is targeted.
+  const scanTarget = Array.from(game.user.targets ?? [])[0] ?? null;
+  const scanState  = scanTarget && scanTarget.id !== token.id
+    ? getScanForWeaknessStateForAttacker(scanTarget, token.id)
+    : null;
+  palette.appendChild(_buildItem({
+    icon:    scanState ? "fas fa-magnifying-glass-minus" : "fas fa-magnifying-glass",
+    label:   scanState ? `Scan: Clear ${scanTarget.name}` : "Scan for Weakness",
+    tooltip: scanState
+      ? `Drop this ship's Scan for Weakness on ${scanTarget.name} — other ships' scans are left alone`
+      : "Apply Scan for Weakness to the targeted ship — no roll",
+    danger:  !!scanState,
+  }, async () => {
+    if (scanState) await _onScanClear(token, scanTarget, scanState);
+    else           await _onScanForWeakness(token);
+    rebuild();
+  }));
+
   if (hasCloakingDevice(token.actor)) {
     const cloaked = _isCloaked(token);
     palette.appendChild(_buildItem({
@@ -317,27 +361,6 @@ function _buildPalette(app, token, control) {
   return palette;
 }
 
-/**
- * The flyout is a sibling of the control, not a child: the control is a
- * `<button>` in v13+, and nesting the palette's buttons inside it would be
- * invalid markup with unreliable hit-testing. It is positioned against the
- * column instead, aligned to the control's own offset.
- */
-function _togglePalette(app, token, control) {
-  const column   = control.parentElement;
-  if (!column) return;
-  const existing = column.querySelector(".sta2e-ship-command-palette");
-  if (existing) {
-    existing.remove();
-    control.classList.remove("active");
-    return;
-  }
-  const palette = _buildPalette(app, token, control);
-  palette.style.top = `${control.offsetTop}px`;
-  column.appendChild(palette);
-  control.classList.add("active");
-}
-
 function _injectShipCommand(app, html) {
   if (!game.user?.isGM) return;
 
@@ -345,14 +368,14 @@ function _injectShipCommand(app, html) {
   if (!root) return;
   if (root.querySelector(".sta2e-ship-command")) return;
 
-  const token = _resolveToken(app);
+  const token = resolveHudToken(app);
   if (!token || !isShipActor(token.actor)) return;
 
   const column = root.querySelector(".col.right") ?? root.querySelector(".col.left");
   if (!column) return;
   const sibling = column.querySelector(".control-icon");
 
-  const control = _buildControl(sibling, {
+  const control = buildHudControl(sibling, {
     cssClass: "sta2e-ship-command",
     img:      ARROWHEAD,
     tooltip:  "Ship Command (GM)",
@@ -360,7 +383,7 @@ function _injectShipCommand(app, html) {
   control.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    _togglePalette(app, token, control);
+    toggleHudFlyout(control, PALETTE_CLASS, () => _buildPalette(app, token, control));
   });
   column.appendChild(control);
 }

@@ -9,6 +9,7 @@ import {
   getTractorBeamVfxDefaults,
   getMergedTractorBeamVfxSettings,
   getTractorBeamVfxPresets,
+  resolveTractorBeamColorHex,
   resetTractorBeamVfxClientSettings,
   saveTractorBeamVfxClientSettings,
   saveTractorBeamVfxWorldSettings,
@@ -29,11 +30,19 @@ function _readForm(root, defaults) {
   const preset = root.querySelector('[name="preset"]')?.value ?? defaults.preset;
   return {
     preset,
+    colorMode: root.querySelector('[name="colorMode"]')?.value === "custom" ? "custom" : "auto",
     color: root.querySelector('[name="color"]')?.value?.trim() || defaults.color,
     placement: root.querySelector('[name="placement"]')?.value === "below" ? "below" : "above",
     duration: _numberFrom(root, "duration", defaults.duration),
     opacity: _numberFrom(root, "opacity", defaults.opacity),
     pulseSpeed: _numberFrom(root, "pulseSpeed", defaults.pulseSpeed),
+    rayLines: root.querySelector('[name="rayLines"]')?.checked ?? defaults.rayLines,
+    rayCount: _numberFrom(root, "rayCount", defaults.rayCount),
+    rayWidth: _numberFrom(root, "rayWidth", defaults.rayWidth),
+    rayFeather: _numberFrom(root, "rayFeather", defaults.rayFeather),
+    raySpeed: _numberFrom(root, "raySpeed", defaults.raySpeed),
+    rayOpacity: _numberFrom(root, "rayOpacity", defaults.rayOpacity),
+    rayShade: _numberFrom(root, "rayShade", defaults.rayShade),
   };
 }
 
@@ -42,7 +51,7 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
     id: "sta2e-vfx-test-panel",
     tag: "div",
     window: { title: "STA2e - VFX Test Panel", resizable: false },
-    position: { width: 420, height: 430 },
+    position: { width: 420, height: 720 },
     actions: {
       play: VFXTestPanel._onPlay,
       stop: VFXTestPanel._onStop,
@@ -70,9 +79,15 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
       selected: preset.id === this._values.preset,
     }));
 
+    const colorAuto = this._values.colorMode !== "custom";
+
     return {
       values: foundry.utils.deepClone(this._values),
       presets,
+      colorAuto,
+      colorCustom: !colorAuto,
+      resolvedColor: resolveTractorBeamColorHex(source, this._values),
+      resolvedSource: source?.name ?? "no source selected",
       placementAbove: this._values.placement !== "below",
       placementBelow: this._values.placement === "below",
       sourceName: source?.name ?? "No source selected",
@@ -96,6 +111,18 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const colorInput = el.querySelector('[name="color"]');
     const colorPicker = el.querySelector("[data-color-picker]");
+
+    const colorModeSelect = el.querySelector('[name="colorMode"]');
+    const syncColorMode = () => {
+      const isAuto = colorModeSelect?.value !== "custom";
+      el.querySelectorAll("[data-custom-color-row]").forEach(row => row.classList.toggle("is-disabled", isAuto));
+      el.querySelectorAll("[data-auto-color-row]").forEach(row => { row.hidden = !isAuto; });
+      if (colorInput) colorInput.disabled = isAuto;
+      if (colorPicker) colorPicker.disabled = isAuto;
+    };
+    colorModeSelect?.addEventListener("change", syncColorMode);
+    syncColorMode();
+
     colorInput?.addEventListener("input", event => {
       if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value) && colorPicker) {
         colorPicker.value = event.currentTarget.value;

@@ -27,6 +27,7 @@
 import {
   getWeaponConfig,
   buildWeaponContext,
+  getGroundWeaponSeverity,
   fireWeapon,
   fireRam,
   fireScanForWeakness,
@@ -45,6 +46,7 @@ import {
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
   taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
   callOutTargetsSourceForActor, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum,
+  rollSuccessTotal, allRolledDice, rollPassed, succeedAtCostComplications,
 } from "../npc-roller.js";
 import {
   STATION_SLOTS,
@@ -61,6 +63,7 @@ import {
   createActorTrait,
   createSceneTrait,
   actorHasPlanOfActionTalent,
+  damageTraitSuggestions,
   defaultAutomation,
   planOfActionBonusMomentum,
   resolveActorReference,
@@ -129,6 +132,13 @@ function _weaponQualityFlag(weapon, key) {
   return weapon?.system?.qualities?.[key] === true;
 }
 
+// Versatile X — the sta system stores the rating in `versatilex`, but older
+// items carry it as a plain numeric `versatile`. Read both.
+function _weaponVersatileValue(weapon) {
+  const q = weapon?.system?.qualities ?? {};
+  return Math.max(0, Number(q.versatilex ?? q.versatile ?? 0) || 0);
+}
+
 function _shipDamageSpendQualities(weapon, { area = false, spread = false } = {}) {
   const q = weapon?.system?.qualities ?? {};
   return {
@@ -138,7 +148,7 @@ function _shipDamageSpendQualities(weapon, { area = false, spread = false } = {}
     piercing:  _weaponQualityFlag(weapon, "piercing"),
     depleting: _weaponQualityFlag(weapon, "depleting"),
     persistent: _weaponQualityFlag(weapon, "persistent"),
-    versatile: Math.max(0, Number(q.versatilex ?? q.versatile ?? 0) || 0),
+    versatile: _weaponVersatileValue(weapon),
   };
 }
 
@@ -232,6 +242,97 @@ function lcarsCard(headerLabel, headerColor, bodyHtml) {
       <div style="padding: 8px 10px;">
         ${bodyHtml}
       </div>
+    </div>`;
+}
+
+const TRAIT_DAMAGE_SOURCE_LABELS = {
+  attacker: "attacker",
+  target: "target",
+  scene: "scene",
+};
+
+/**
+ * "Traits in Play" checkbox list for a damage card. Each box carries a signed
+ * data-delta (the trait's Potency) that syncShipDamageControls /
+ * syncGroundControls folds into the damage total when ticked.
+ *
+ * alwaysOn effects render checked and disabled — still matched by :checked, so
+ * they are counted without being toggleable.
+ *
+ * @param {object[]} suggestions  From damageTraitSuggestions().
+ * @returns {string} HTML, or "" when nothing applies.
+ */
+function damageTraitControlsHtml(suggestions = []) {
+  if (!suggestions.length) return "";
+  const esc = value => String(value ?? "")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+
+  const rows = suggestions.map(s => {
+    const sign      = s.delta >= 0 ? "+" : "−";
+    const deltaText = `${sign}${Math.abs(s.delta)}`;
+    const deltaColor = s.delta >= 0 ? LC.green : LC.red;
+    const from      = TRAIT_DAMAGE_SOURCE_LABELS[s.appliesFrom] ?? s.appliesFrom ?? s.scope;
+    const attrs     = `class="sta2e-trait-damage-cb" type="checkbox" value="${esc(s.id)}"
+      data-delta="${s.delta}" data-trait-name="${esc(s.traitName)}"`;
+    const input = s.alwaysOn
+      ? `<input ${attrs} checked disabled style="accent-color:${LC.primary};" />`
+      : `<input ${attrs} style="cursor:pointer;accent-color:${LC.primary};" />`;
+    return `
+      <label style="display:flex;align-items:center;gap:6px;margin:3px 0;font-size:10px;
+        color:${LC.text};font-family:${LC.font};cursor:${s.alwaysOn ? "default" : "pointer"};">
+        ${input}
+        <span style="flex:1;min-width:0;">${esc(s.traitName)}</span>
+        <span style="color:${deltaColor};font-weight:700;">${deltaText}</span>
+        <span style="color:${LC.textDim};font-size:9px;text-transform:uppercase;
+          letter-spacing:0.06em;">${esc(from)}</span>
+        ${s.alwaysOn ? `<span style="color:${LC.tertiary};font-size:9px;font-weight:700;"
+          title="Always on - locked by GM">[LOCKED]</span>` : ""}
+      </label>`;
+  }).join("");
+
+  return `
+    <div class="sta2e-trait-damage-controls" style="margin-bottom:5px;padding:5px 6px;
+      border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(204,136,255,0.05);">
+      <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+        text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;">
+        Traits in Play
+      </div>
+      ${rows}
+    </div>`;
+}
+
+/**
+ * Sum the ticked trait boxes inside a damage-card controls block.
+ * @returns {{delta:number, labels:{name:string, delta:number}[]}}
+ */
+function readTraitDamage(controls) {
+  const boxes = Array.from(controls?.querySelectorAll(".sta2e-trait-damage-cb:checked") ?? []);
+  const labels = boxes.map(cb => ({
+    name: cb.dataset.traitName ?? "Trait",
+    delta: parseInt(cb.dataset.delta) || 0,
+  }));
+  return {
+    delta: labels.reduce((sum, l) => sum + l.delta, 0),
+    labels,
+  };
+}
+
+/**
+ * One-line "Traits: Weakened Hull +2, Ablative Armour −1" credit for a result
+ * card, so the log records why the number moved. "" when none were used.
+ */
+function traitDamageCreditHtml(labels = []) {
+  if (!Array.isArray(labels) || !labels.length) return "";
+  const parts = labels.map(l => {
+    const delta = Number(l?.delta ?? 0) || 0;
+    const sign  = delta >= 0 ? "+" : "−";
+    return `${l?.name ?? "Trait"} ${sign}${Math.abs(delta)}`;
+  }).join(", ");
+  return `
+    <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
+      margin-top:3px;letter-spacing:0.04em;">
+      Traits: ${parts}
     </div>`;
 }
 
@@ -681,8 +782,7 @@ function _rollEditApplyChanges(rollData, formData) {
   next.aimRerolls = _rollEditClampInt(formData.aimRerolls, 0, 2, next.aimRerolls ?? 0);
   if (formData.resetAimUsed) next.aimRerollsUsed = 0;
 
-  const crewFailed = (_rollEditCountSuccesses(next.crewDice ?? []) + _rollResultAutoSuccesses(next)) === 0;
-  next.crewFailed = crewFailed;
+  next.crewFailed = (_rollEditCountSuccesses(next.crewDice ?? []) + _rollResultAutoSuccesses(next)) === 0;
   next.shipAssist = !!formData.shipAssist;
 
   const selectedShipIdx = Number(formData.selectedShipIdx);
@@ -717,12 +817,9 @@ function _rollEditApplyChanges(rollData, formData) {
   const shipRows = formData.diceRows ? _rollEditRowsForPool(formData, "ship") : null;
   if (shipRows?.length && shipRows.every(row => row.remove)) next.shipAssist = false;
 
-  if (crewFailed || !next.shipAssist) {
-    if (crewFailed) {
-      next.crewAssistDice = [];
-      next.namedAssistDice = [];
-      next.apAssistDice = [];
-    }
+  // A failed crew pool no longer removes any die — assist and ship dice stay
+  // rolled and keep contributing complications; only their successes are gated.
+  if (!next.shipAssist) {
     next._editSuppressedShipDice = (next.shipDice?.length ? next.shipDice : next._editSuppressedShipDice) ?? [];
     next.shipDice = [];
     return { rollData: next, newlyRolledShipDice };
@@ -1444,6 +1541,83 @@ export class CombatHUD {
     button.click();
   }
 
+  /**
+   * Resolve a weapon as a flat hit or miss from outside the Combat HUD — the
+   * Token HUD weapon flyout is the only caller. Everything downstream (ground
+   * damage cards, severity/protection maths, `resolveShipAttack`) stays in
+   * `_resolveWeapon`; this only stages the pending state it reads.
+   *
+   * Unlike `triggerRingWeapon` this restores whatever the HUD was showing
+   * afterwards, so resolving on token B never steals a HUD open on token A.
+   *
+   * Two deliberate departures from the Combat HUD's own path:
+   * - The Cumbersome / Prepare gate is skipped. This is a GM tool, in the same
+   *   spirit as the GM cloak toggle skipping its Reserve Power cost.
+   * - Deadly intent grants its Threat here. `_resolveWeapon` does not, because
+   *   the Combat HUD already granted it at declaration time; this path has no
+   *   declaration step, so without this the Threat would be silently lost.
+   *
+   * @param {Token}   token
+   * @param {string}  weaponId
+   * @param {boolean} isHit
+   * @param {{salvoMode?: "area"|"spread"|null, useStun?: boolean}} [options]
+   */
+  async triggerHudHitMiss(token, weaponId, isHit, { salvoMode = null, useStun = true } = {}) {
+    const weapon = token?.actor?.items?.get(weaponId);
+    if (!weapon) {
+      ui.notifications.warn("STA2e Toolkit: Weapon not found.");
+      return;
+    }
+
+    const restore = {
+      token:          this._token,
+      weapon:         this._pendingWeapon,
+      salvoMode:      this._pendingSalvoMode,
+      stunMode:       this._pendingStunMode,
+      explicitTarget: this._pendingExplicitTargetTokenId,
+    };
+
+    try {
+      // `useStun` is the toggle's position; a weapon with only one of the two
+      // qualities has no choice. Mirror how `_resolveWeapon` narrows it, or a
+      // Deadly-only weapon would never grant its Threat.
+      const hasStun   = weapon.system?.qualities?.stun   ?? false;
+      const hasDeadly = weapon.system?.qualities?.deadly ?? false;
+      const stunning  = hasStun && (!hasDeadly || useStun);
+      if (weapon.type === "characterweapon2e" && hasDeadly && !stunning) {
+        const profile = CombatHUD.getGroundCombatProfile(token.actor, token.document ?? null);
+        if (profile.isPlayerOwned) await CombatHUD._applyToPool("threat", 1, token);
+      }
+
+      const modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, getWeaponConfig(weapon));
+      this._token                        = token;
+      this._pendingWeapon                = weapon;
+      this._pendingSalvoMode             = modeInfo.needsMode ? (salvoMode ?? "area") : null;
+      this._pendingStunMode              = useStun;
+      this._pendingExplicitTargetTokenId = null;
+
+      await this._resolveWeapon(isHit);
+    } finally {
+      this._token                        = restore.token;
+      this._pendingWeapon                = restore.weapon;
+      this._pendingSalvoMode             = restore.salvoMode;
+      this._pendingStunMode              = restore.stunMode;
+      this._pendingExplicitTargetTokenId = restore.explicitTarget;
+      this._refresh();
+    }
+  }
+
+  /**
+   * Range-declaration warning for a weapon fired from `token`, as HTML.
+   * Static so the Token HUD can ask without disturbing the instance's own
+   * `_token`. Returns "" when every target is within the listed range.
+   */
+  static rangeWarningForToken(token, weapon, targets = Array.from(game.user.targets ?? [])) {
+    return CombatHUD._rangeWarningHtml(
+      CombatHUD._shipWeaponRangeSummary(weapon, token, targets)
+    );
+  }
+
   // ── Build ──────────────────────────────────────────────────────────────────
 
   _build() {
@@ -1930,14 +2104,20 @@ export class CombatHUD {
         const config    = getWeaponConfig(weapon);
         const isShip    = weapon.type === "starshipweapon2e";
         const { total, breakdown } = this._weaponDamageBreakdown(weapon, actor);
-        const dmgLabel  = breakdown ? `${total} (${breakdown})` : total;
+        // Ground weapons have no damage stat — the system sheet's "Severity" box is
+        // what `_weaponDamageBreakdown` reads, so label it accordingly.
+        const isGround  = weapon.type === "characterweapon2e";
+        const statLabel = isGround ? "Severity" : "Damage";
+        const dmgLabel  = isGround
+          ? getGroundWeaponSeverity(weapon)
+          : (breakdown ? `${total} (${breakdown})` : total);
         const range     = weapon.system?.range ?? "?";
         const qualities = this._weaponQualityString(weapon);
         const isNpcShip = weapon.type === "starshipweapon2e" && CombatHUD.isNpcShip(actor);
         const noAnim    = config ? "" : "\n⚠ No animation config";
         btn.title = isNpcShip
-          ? `${weapon.name}\nDamage: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}\n🎲 Opens NPC Dice Roller`
-          : `${weapon.name}\nDamage: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
+          ? `${weapon.name}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}\n🎲 Opens NPC Dice Roller`
+          : `${weapon.name}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
 
         btn.addEventListener("mouseenter", () => {
           if (this._pendingWeapon?.id !== weapon.id)
@@ -1960,7 +2140,9 @@ export class CombatHUD {
             const isDual    = hasStun && hasDeadly;
             const weaponCtx = {
               name:      weapon.name,
+              weaponId:  weapon.id ?? null,
               damage:    total,
+              severity:  getGroundWeaponSeverity(weapon),
               qualities: this._weaponQualityString(weapon),
             };
 
@@ -2242,41 +2424,8 @@ export class CombatHUD {
               return;
             }
 
-            const choice = await foundry.applications.api.DialogV2.wait({
-              window:  { title: `${weapon.name} — Attack Method` },
-              content: `
-                <div style="font-family:${LC.font};padding:4px 0;">
-                  <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
-                    <strong style="color:${LC.primary};">${actor.name}</strong>
-                    ${isMelee ? "strikes with" : "fires"}
-                    <strong>${weapon.name}</strong>
-                    — Dmg <strong style="color:${LC.tertiary};">${total}</strong>
-                  </div>
-                  <div style="font-size:10px;color:${LC.textDim};">
-                    ${isMelee
-                      ? `Melee attacks are always <strong>Opposed Tasks</strong> (Daring + Security).${chiefSecurityPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Chief of Security penalty also applies.</span>" : ""}`
-                      : targetHasCover
-                        ? `Target is in <strong style="color:${LC.secondary};">Cover</strong> — this becomes an <strong>Opposed Task</strong> (defender rolls Control + Security).${guardPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Guard penalty also applies.</span>" : ""}${chiefSecurityPenalty ? " <span style='color:" + LC.yellow + ";'>+1 Chief of Security penalty also applies.</span>" : ""}${targetIsProneInCover ? " <span style='color:" + LC.secondary + ";'>Prone in Cover: defender gains <strong>+1 Protection</strong>.</span>" : ""}`
-                        : `Ranged attack: <strong>Control + Security</strong>, Difficulty ${2 + guardPenalty + chiefSecurityPenalty}${guardPenalty ? " <span style='color:" + LC.yellow + ";'>(+1 Guard)</span>" : ""}${chiefSecurityPenalty ? " <span style='color:" + LC.yellow + ";'>(+1 Chief of Security)</span>" : ""}.`}
-                  </div>
-                  ${targetIsProne ? `
-                  <div style="margin-top:6px;padding:4px 8px;border-left:3px solid ${LC.secondary};
-                    background:rgba(0,200,100,0.06);border-radius:0 2px 2px 0;font-size:10px;
-                    color:${LC.text};line-height:1.5;">
-                    🧎 Target is <strong style="color:${LC.secondary};">Prone</strong> —
-                    ${isMelee
-                      ? `melee at Close range grants you <strong>2 bonus Momentum</strong> on a hit.`
-                      : `you'll be asked about range to determine Difficulty modifier.`}
-                  </div>` : ""}
-                </div>`,
-              buttons: [
-                { action: "roller",  label: "🎲 Dice Roller", icon: "fas fa-dice-d20", default: true },
-                { action: "hitmiss", label: "⚡ Hit / Miss",  icon: "fas fa-crosshairs" },
-                { action: "cancel",  label: "Cancel",          icon: "fas fa-times" },
-              ],
-            });
-
-            if (!choice || choice === "cancel") return;
+            // No attack-method prompt: the click goes straight to the roller.
+            // Hit / Miss lives on the Token HUD weapon flyout (token-weapon-hud.js).
 
             // ── Stun / Deadly declaration — BEFORE the roll ──────────────────
             // Must happen here so Threat is granted on intent, not on outcome.
@@ -2347,169 +2496,163 @@ export class CombatHUD {
             weaponCtx.useStun          = useStun;
             weaponCtx.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
 
-            if (choice === "roller") {
-              let opposedDifficulty = null;
-              let defenderSuccesses = null;
+            let opposedDifficulty = null;
+            let defenderSuccesses = null;
 
-              // ── Prone target: range check (ranged) or bonus Momentum note (melee) ──
-              let pronePenalty = 0;
-              if (targetIsProne) {
-                if (!isMelee) {
-                  const isDistant = await foundry.applications.api.DialogV2.confirm({
-                    window: { title: "🧎 Prone Target — Range Check" },
-                    content: `
-                      <div style="font-family:${LC.font};padding:4px 0;font-size:10px;
-                        color:${LC.text};line-height:1.6;">
-                        <strong style="color:${LC.secondary};">${targets[0]?.name ?? "Target"}</strong>
-                        is <strong>Prone</strong>.<br>
-                        Are they at <strong>Medium range or further</strong>?
-                        <div style="margin-top:6px;padding:4px 8px;
-                          background:rgba(255,153,0,0.06);border-left:3px solid ${LC.primary};
-                          border-radius:0 2px 2px 0;color:${LC.textDim};">
-                          Yes → <strong style="color:${LC.text};">+1 Difficulty</strong> on this attack<br>
-                          No (Close range) → no ranged Difficulty modifier
-                        </div>
-                      </div>`,
-                    yes: { label: "Yes — Medium or further (+1 Difficulty)", icon: "fas fa-arrows-alt-h" },
-                    no:  { label: "No — Close range (no modifier)",          icon: "fas fa-map-marker-alt" },
-                  });
-                  if (isDistant) pronePenalty = 1;
-                }
-                // Melee vs prone: 2 bonus Momentum note is shown in the melee dialog below
-              }
-
-              if (isMelee) {
-                // Melee is always an opposed task — post the defender roll card then store
-                // the full attacker context in the pending opposed task world flag and bail.
-                // The attacker's roller will open automatically once the defender confirms.
-                const meleeTarget = targets[0] ?? null;
-                ChatMessage.create({
-                  content: lcarsCard("⚔️ MELEE DEFENSE", LC.secondary, `
-                    <div style="font-size:11px;font-weight:700;color:${LC.tertiary};
-                      margin-bottom:4px;font-family:${LC.font};">${meleeTarget?.name ?? "Defender"}</div>
-                    <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
-                      <strong>${actor.name}</strong> is making a melee attack — roll your defense.<br>
-                      <span style="color:${LC.textDim};">Daring + Security · your successes set the attacker's Difficulty.</span>
-                    </div>
-                    <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
-                      <button class="sta2e-melee-defense-roll"
-                        data-token-id="${meleeTarget?.id ?? ""}"
-                        style="width:100%;padding:4px 8px;font-family:${LC.font};font-size:10px;
-                          font-weight:700;letter-spacing:0.06em;text-transform:uppercase;
-                          cursor:pointer;background:rgba(0,200,100,0.10);
-                          border:1px solid ${LC.secondary};border-radius:2px;color:${LC.secondary};">
-                        🎲 Roll Melee Defense
-                      </button>
-                    </div>`),
-                  speaker: ChatMessage.getSpeaker({ token: this._token }),
+            // ── Prone target: range check (ranged) or bonus Momentum note (melee) ──
+            let pronePenalty = 0;
+            if (targetIsProne) {
+              if (!isMelee) {
+                const isDistant = await foundry.applications.api.DialogV2.confirm({
+                  window: { title: "🧎 Prone Target — Range Check" },
+                  content: `
+                    <div style="font-family:${LC.font};padding:4px 0;font-size:10px;
+                      color:${LC.text};line-height:1.6;">
+                      <strong style="color:${LC.secondary};">${targets[0]?.name ?? "Target"}</strong>
+                      is <strong>Prone</strong>.<br>
+                      Are they at <strong>Medium range or further</strong>?
+                      <div style="margin-top:6px;padding:4px 8px;
+                        background:rgba(255,153,0,0.06);border-left:3px solid ${LC.primary};
+                        border-radius:0 2px 2px 0;color:${LC.textDim};">
+                        Yes → <strong style="color:${LC.text};">+1 Difficulty</strong> on this attack<br>
+                        No (Close range) → no ranged Difficulty modifier
+                      </div>
+                    </div>`,
+                  yes: { label: "Yes — Medium or further (+1 Difficulty)", icon: "fas fa-arrows-alt-h" },
+                  no:  { label: "No — Close range (no modifier)",          icon: "fas fa-map-marker-alt" },
                 });
-
-                const _hasAccurate = weapon.system?.qualities?.accurate === true;
-                const _aimRerolls  = this._groundAimRerolls > 0 ? (_hasAccurate ? 2 : 1) : 0;
-                this[`_groundToggle_ground-aim`] = false;
-                this._groundAimRerolls = 0;
-
-                await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
-                  taskId:          `${this._token.id}-${Date.now()}`,
-                  attackerUserId:  getActorRollUserId(actor),
-                  attackerTokenId: this._token.id,
-                  attackerActorId: actor.id,
-                  isNpcAttacker:   false,  // ground NPCs also use openPlayerRoller
-                  defenseType:     "melee",
-                  guardPenalty,
-                  chiefSecurityPenalty,
-                  pronePenalty:    0,      // melee prone = +2 Momentum bonus, not a difficulty penalty
-                  targetIsProne,
-                  targetIsProneInCover: false,
-                  rollerOpts: {
-                    groundMode:    true,
-                    groundIsNpc:   CombatHUD.isGroundNpcActor(actor),
-                    stationId:     "tactical",
-                    officer:       readOfficerStats(actor),
-                    weaponContext: weaponCtx,
-                    defaultAttr:   "daring",
-                    defaultDisc:   "security",
-                    taskLabel:     `Attack — ${weapon.name}`,
-                    aimRerolls:    _aimRerolls,
-                    // opposedDifficulty / defenderSuccesses / opposedDefenseType / taskContext
-                    // are injected by resolveDefenderRoll when the defender confirms
-                  },
-                });
-                return; // bail — attacker roller opens automatically when defender confirms
+                if (isDistant) pronePenalty = 1;
               }
+              // Melee vs prone: 2 bonus Momentum note is shown in the melee dialog below
+            }
 
-              // Ranged cover: opposed task — create the unified opposed-task card
-              // (defender rolls Control + Security first; attacker's roller opens
-              // when they click Attacker Roll). Mirrors the melee path above.
-              if (!isMelee && targetHasCover) {
-                const coveredTarget = targets.find(t => t.document?.getFlag(MODULE, "coverActive"));
-                if (!coveredTarget) {
-                  ui.notifications.warn("STA2e Toolkit | No target in cover found.");
-                  return;
-                }
+            if (isMelee) {
+              // Melee is always an opposed task — post the defender roll card then store
+              // the full attacker context in the pending opposed task world flag and bail.
+              // The attacker's roller will open automatically once the defender confirms.
+              const meleeTarget = targets[0] ?? null;
+              ChatMessage.create({
+                content: lcarsCard("⚔️ MELEE DEFENSE", LC.secondary, `
+                  <div style="font-size:11px;font-weight:700;color:${LC.tertiary};
+                    margin-bottom:4px;font-family:${LC.font};">${meleeTarget?.name ?? "Defender"}</div>
+                  <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
+                    <strong>${actor.name}</strong> is making a melee attack — roll your defense.<br>
+                    <span style="color:${LC.textDim};">Daring + Security · your successes set the attacker's Difficulty.</span>
+                  </div>
+                  <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
+                    <button class="sta2e-melee-defense-roll"
+                      data-token-id="${meleeTarget?.id ?? ""}"
+                      style="width:100%;padding:4px 8px;font-family:${LC.font};font-size:10px;
+                        font-weight:700;letter-spacing:0.06em;text-transform:uppercase;
+                        cursor:pointer;background:rgba(0,200,100,0.10);
+                        border:1px solid ${LC.secondary};border-radius:2px;color:${LC.secondary};">
+                      🎲 Roll Melee Defense
+                    </button>
+                  </div>`),
+                speaker: ChatMessage.getSpeaker({ token: this._token }),
+              });
 
-                const _hasAccurate = weapon.system?.qualities?.accurate === true;
-                const _aimRerolls  = this._groundAimRerolls > 0 ? (_hasAccurate ? 2 : 1) : 0;
-                this[`_groundToggle_ground-aim`] = false;
-                this._groundAimRerolls = 0;
-
-                weaponCtx.targetTokenIds = [coveredTarget.id];
-
-                const coverStarter = game.sta2eToolkit?.startGroundCombatOpposedTask;
-                if (!coverStarter) {
-                  ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
-                  return;
-                }
-                await coverStarter({
-                  taskName: `Ranged Attack — ${weapon.name}`,
-                  flavor: `${actor.name} fires on ${coveredTarget.name}, who is in cover.`,
-                  defenseType: "cover",
-                  attackerActorId: actor.id,
-                  attackerTokenId: this._token.id,
-                  defenderActorId: coveredTarget.actor?.id,
-                  defenderTokenId: coveredTarget.id,
-                  weaponContext: weaponCtx,
-                  aimRerolls: _aimRerolls,
-                  guardPenalty,
-                  chiefSecurityPenalty,
-                  pronePenalty,
-                  targetIsProne,
-                  targetIsProneInCover,
-                  defenderSuggestedAttr: "control",
-                  defenderSuggestedDisc: "security",
-                  attackerSuggestedAttr: "control",
-                  attackerSuggestedDisc: "security",
-                });
-                this._refresh();
-                return; // bail — opposed-task card drives the rest of the flow
-              }
-
-              // Non-opposed ranged attack (no cover, no melee) — open roller directly
-              const hasAccurate = weapon.system?.qualities?.accurate === true;
-              const aimRerolls  = this._groundAimRerolls > 0
-                ? (hasAccurate ? 2 : 1)
-                : 0;
+              const _hasAccurate = weapon.system?.qualities?.accurate === true;
+              const _aimRerolls  = this._groundAimRerolls > 0 ? (_hasAccurate ? 2 : 1) : 0;
               this[`_groundToggle_ground-aim`] = false;
               this._groundAimRerolls = 0;
 
-              openPlayerRoller(actor, this._token, {
-                officer:           readOfficerStats(actor),
-                stationId:         "tactical",
-                weaponContext:     weaponCtx,
-                groundMode:        true,
-                groundIsNpc:       CombatHUD.isGroundNpcActor(actor),
-                difficulty:        2 + guardPenalty + pronePenalty + chiefSecurityPenalty,
-                defaultAttr:       "control",
-                defaultDisc:       "security",
-                taskLabel:         `Attack — ${weapon.name}`,
-                taskContext:       `Control + Security · Difficulty ${2 + guardPenalty + pronePenalty + chiefSecurityPenalty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}${chiefSecurityPenaltyLabel}`,
-                aimRerolls,
+              await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
+                taskId:          `${this._token.id}-${Date.now()}`,
+                attackerUserId:  getActorRollUserId(actor),
+                attackerTokenId: this._token.id,
+                attackerActorId: actor.id,
+                isNpcAttacker:   false,  // ground NPCs also use openPlayerRoller
+                defenseType:     "melee",
+                guardPenalty,
+                chiefSecurityPenalty,
+                pronePenalty:    0,      // melee prone = +2 Momentum bonus, not a difficulty penalty
+                targetIsProne,
+                targetIsProneInCover: false,
+                rollerOpts: {
+                  groundMode:    true,
+                  groundIsNpc:   CombatHUD.isGroundNpcActor(actor),
+                  stationId:     "tactical",
+                  officer:       readOfficerStats(actor),
+                  weaponContext: weaponCtx,
+                  defaultAttr:   "daring",
+                  defaultDisc:   "security",
+                  taskLabel:     `Attack — ${weapon.name}`,
+                  aimRerolls:    _aimRerolls,
+                  // opposedDifficulty / defenderSuccesses / opposedDefenseType / taskContext
+                  // are injected by resolveDefenderRoll when the defender confirms
+                },
               });
-            } else if (choice === "hitmiss") {
-              // Pre-set the stun toggle to match the declared intent
-              this._pendingStunMode = useStun;
-              this._selectWeapon(weapon);
+              return; // bail — attacker roller opens automatically when defender confirms
             }
+
+            // Ranged cover: opposed task — create the unified opposed-task card
+            // (defender rolls Control + Security first; attacker's roller opens
+            // when they click Attacker Roll). Mirrors the melee path above.
+            if (!isMelee && targetHasCover) {
+              const coveredTarget = targets.find(t => t.document?.getFlag(MODULE, "coverActive"));
+              if (!coveredTarget) {
+                ui.notifications.warn("STA2e Toolkit | No target in cover found.");
+                return;
+              }
+
+              const _hasAccurate = weapon.system?.qualities?.accurate === true;
+              const _aimRerolls  = this._groundAimRerolls > 0 ? (_hasAccurate ? 2 : 1) : 0;
+              this[`_groundToggle_ground-aim`] = false;
+              this._groundAimRerolls = 0;
+
+              weaponCtx.targetTokenIds = [coveredTarget.id];
+
+              const coverStarter = game.sta2eToolkit?.startGroundCombatOpposedTask;
+              if (!coverStarter) {
+                ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
+                return;
+              }
+              await coverStarter({
+                taskName: `Ranged Attack — ${weapon.name}`,
+                flavor: `${actor.name} fires on ${coveredTarget.name}, who is in cover.`,
+                defenseType: "cover",
+                attackerActorId: actor.id,
+                attackerTokenId: this._token.id,
+                defenderActorId: coveredTarget.actor?.id,
+                defenderTokenId: coveredTarget.id,
+                weaponContext: weaponCtx,
+                aimRerolls: _aimRerolls,
+                guardPenalty,
+                chiefSecurityPenalty,
+                pronePenalty,
+                targetIsProne,
+                targetIsProneInCover,
+                defenderSuggestedAttr: "control",
+                defenderSuggestedDisc: "security",
+                attackerSuggestedAttr: "control",
+                attackerSuggestedDisc: "security",
+              });
+              this._refresh();
+              return; // bail — opposed-task card drives the rest of the flow
+            }
+
+            // Non-opposed ranged attack (no cover, no melee) — open roller directly
+            const hasAccurate = weapon.system?.qualities?.accurate === true;
+            const aimRerolls  = this._groundAimRerolls > 0
+              ? (hasAccurate ? 2 : 1)
+              : 0;
+            this[`_groundToggle_ground-aim`] = false;
+            this._groundAimRerolls = 0;
+
+            openPlayerRoller(actor, this._token, {
+              officer:           readOfficerStats(actor),
+              stationId:         "tactical",
+              weaponContext:     weaponCtx,
+              groundMode:        true,
+              groundIsNpc:       CombatHUD.isGroundNpcActor(actor),
+              difficulty:        2 + guardPenalty + pronePenalty + chiefSecurityPenalty,
+              defaultAttr:       "control",
+              defaultDisc:       "security",
+              taskLabel:         `Attack — ${weapon.name}`,
+              taskContext:       `Control + Security · Difficulty ${2 + guardPenalty + pronePenalty + chiefSecurityPenalty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}${chiefSecurityPenaltyLabel}`,
+              aimRerolls,
+            });
             return; // skip ship weapon logic below
           }
 
@@ -2654,7 +2797,7 @@ export class CombatHUD {
           this._defenderSuccesses  = opposed.defenderSuccesses;
 
           if (isNpcShip) {
-            // NPC ships: ask GM whether to roll dice or resolve as direct hit/miss
+            // NPC ships: the click opens the NPC roller directly.
             const hasTS     = CombatHUD.hasTargetingSolution(this._token);
             const hasRFT    = hasRapidFireTorpedoLauncher(actor);
             const isTorpedo = config?.type === "torpedo";
@@ -2669,213 +2812,149 @@ export class CombatHUD {
               damage:    total,
               qualities: this._weaponQualityString(weapon),
             };
-            const rangeWarningHtml = this._shipRangeWarningHtml(weapon);
 
-            const choice = await foundry.applications.api.DialogV2.wait({
-              window:  { title: `${weapon.name} — Attack Method` },
-              content: `
-                <div style="font-family:${LC.font};padding:4px 0;">
-                  <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
-                    <strong style="color:${LC.primary};">${actor.name}</strong>
-                    fires <strong>${weapon.name}</strong>
-                    ${isTorpedo ? `<span style="color:${LC.green};"> (Torpedo)</span>` : ""}
-                    — Dmg <strong style="color:${LC.tertiary};">${total}</strong>
-                  </div>
-                  <div style="font-size:10px;color:${LC.textDim};">How do you want to resolve this attack?</div>
-                  ${rangeWarningHtml}
-                </div>`,
-              buttons: [
-                {
-                  action:  "roller",
-                  label:   "🎲 Dice Roller",
-                  icon:    "fas fa-dice-d20",
-                  default: true,
-                },
-                {
-                  action:  "hitmiss",
-                  label:   "⚡ Hit / Miss",
-                  icon:    "fas fa-crosshairs",
-                },
-                {
-                  action:  "cancel",
-                  label:   "Cancel",
-                  icon:    "fas fa-times",
-                },
-              ],
-            });
-
-            if (choice === "roller") {
-              // Determine area/spread mode for weapons that need it
-              const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
-              const _needsMode = _modeInfo.needsMode;
-              let salvoMode = null;
-              if (_needsMode) {
-                salvoMode = "area";
-                const modeChoice = await foundry.applications.api.DialogV2.wait({
-                  window:  { title: `${weapon.name} — Attack Mode` },
-                  content: `
-                    <div style="font-family:${LC.font};padding:4px 0;">
-                      <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
-                        Choose how <strong style="color:${LC.primary};">${weapon.name}</strong> fires:
-                      </div>
-                      <div style="font-size:10px;color:${LC.textDim};line-height:1.6;padding:4px 8px;
-                        border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;">
-                        ⚡ <strong>Area</strong> — attack one primary target; same damage can be applied
-                        to additional nearby ships after the roll (1 threat each)<br>
-                        ↔ <strong>Spread</strong> — reduces Devastating Attack cost from 2 → 1 threat
-                      </div>
-                    </div>`,
-                  buttons: [
-                    { action: "area",   label: "⚡ Area",   icon: "fas fa-bolt",         default: true },
-                    { action: "spread", label: "↔ Spread",  icon: "fas fa-arrows-alt-h"               },
-                    { action: "cancel", label: "Cancel",     icon: "fas fa-times"                      },
-                  ],
-                });
-                if (!modeChoice || modeChoice === "cancel") return;
-                salvoMode = modeChoice;
-              }
-              weaponCtx.isArray = _modeInfo.isArray;
-              weaponCtx.isSalvo = _modeInfo.isSalvo;
-              weaponCtx.salvoMode = salvoMode;
-
-              const tacticalOfficers = getStationOfficers(actor, "tactical");
-              const tacticalOfficer  = tacticalOfficers.length > 0
-                ? readOfficerStats(tacticalOfficers[0]) : null;
-
-              // Attack Pattern: if active, Helm officer assists the attack roll
-              // using Control + Conn. Also check for Attack Run talent which
-              // suppresses the Difficulty-1 penalty on the attacker's own ship.
-              const hasAttackPattern  = hasCondition(this._token, "attack-pattern");
-              const helmOfficerActors = getStationOfficers(actor, "helm");
-              const helmOfficerActor  = helmOfficerActors[0] ?? null;
-              const helmOfficerStats  = helmOfficerActor ? readOfficerStats(helmOfficerActor) : null;
-              const attackRunActive   = hasAttackPattern && hasAttackRun(helmOfficerActor);
-
-              openNpcRoller(actor, this._token, {
-                hasTargetingSolution: hasTS,
-                hasRapidFireTorpedo:  hasRFT && isTorpedo,
-                weaponContext:        weaponCtx,
-                stationId:            "tactical",
-                officer:              tacticalOfficer,
-                crewQuality:          !tacticalOfficer ? CombatHUD.getCrewQuality(actor) : null,
-                opposedDifficulty:    this._opposedDifficulty,
-                opposedDefenseType:   this._opposedDefenseType,
-                defenderSuccesses:    this._defenderSuccesses,
-                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null }) : null,
-                hasAttackPattern,
-                helmOfficer:          helmOfficerStats,
-                attackRunActive,
-                taskLabel:            `Attack — ${weaponCtx?.name ?? "Weapon"}`,
-                taskContext:          this._opposedDefenseType
-                  ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover"}`
-                  : null,
+            // Determine area/spread mode for weapons that need it
+            const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+            const _needsMode = _modeInfo.needsMode;
+            let salvoMode = null;
+            if (_needsMode) {
+              salvoMode = "area";
+              const modeChoice = await foundry.applications.api.DialogV2.wait({
+                window:  { title: `${weapon.name} — Attack Mode` },
+                content: `
+                  <div style="font-family:${LC.font};padding:4px 0;">
+                    <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                      Choose how <strong style="color:${LC.primary};">${weapon.name}</strong> fires:
+                    </div>
+                    <div style="font-size:10px;color:${LC.textDim};line-height:1.6;padding:4px 8px;
+                      border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;">
+                      ⚡ <strong>Area</strong> — attack one primary target; same damage can be applied
+                      to additional nearby ships after the roll (1 threat each)<br>
+                      ↔ <strong>Spread</strong> — reduces Devastating Attack cost from 2 → 1 threat
+                    </div>
+                  </div>`,
+                buttons: [
+                  { action: "area",   label: "⚡ Area",   icon: "fas fa-bolt",         default: true },
+                  { action: "spread", label: "↔ Spread",  icon: "fas fa-arrows-alt-h"               },
+                  { action: "cancel", label: "Cancel",     icon: "fas fa-times"                      },
+                ],
               });
-            } else if (choice === "hitmiss") {
-              this._selectWeapon(weapon);
+              if (!modeChoice || modeChoice === "cancel") return;
+              salvoMode = modeChoice;
             }
-            // "cancel" — do nothing
+            weaponCtx.isArray = _modeInfo.isArray;
+            weaponCtx.isSalvo = _modeInfo.isSalvo;
+            weaponCtx.salvoMode = salvoMode;
+
+            const tacticalOfficers = getStationOfficers(actor, "tactical");
+            const tacticalOfficer  = tacticalOfficers.length > 0
+              ? readOfficerStats(tacticalOfficers[0]) : null;
+
+            // Attack Pattern: if active, Helm officer assists the attack roll
+            // using Control + Conn. Also check for Attack Run talent which
+            // suppresses the Difficulty-1 penalty on the attacker's own ship.
+            const hasAttackPattern  = hasCondition(this._token, "attack-pattern");
+            const helmOfficerActors = getStationOfficers(actor, "helm");
+            const helmOfficerActor  = helmOfficerActors[0] ?? null;
+            const helmOfficerStats  = helmOfficerActor ? readOfficerStats(helmOfficerActor) : null;
+            const attackRunActive   = hasAttackPattern && hasAttackRun(helmOfficerActor);
+
+            openNpcRoller(actor, this._token, {
+              hasTargetingSolution: hasTS,
+              hasRapidFireTorpedo:  hasRFT && isTorpedo,
+              weaponContext:        weaponCtx,
+              stationId:            "tactical",
+              officer:              tacticalOfficer,
+              crewQuality:          !tacticalOfficer ? CombatHUD.getCrewQuality(actor) : null,
+              opposedDifficulty:    this._opposedDifficulty,
+              opposedDefenseType:   this._opposedDefenseType,
+              defenderSuccesses:    this._defenderSuccesses,
+              difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null }) : null,
+              hasAttackPattern,
+              helmOfficer:          helmOfficerStats,
+              attackRunActive,
+              taskLabel:            `Attack — ${weaponCtx?.name ?? "Weapon"}`,
+              taskContext:          this._opposedDefenseType
+                ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover"}`
+                : null,
+            });
           } else {
-            // Player ships: same Dice Roller / Hit/Miss choice as NPC ships
-            const rangeWarningHtml = this._shipRangeWarningHtml(weapon);
-            const choice = await foundry.applications.api.DialogV2.wait({
-              window:  { title: `${weapon.name} — Attack Method` },
-              content: `
-                <div style="font-family:${LC.font};padding:4px 0;">
-                  <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
-                    <strong style="color:${LC.primary};">${actor.name}</strong>
-                    fires <strong>${weapon.name}</strong>
-                    ${config?.type === "torpedo" ? `<span style="color:${LC.green};"> (Torpedo)</span>` : ""}
-                    — Dmg <strong style="color:${LC.tertiary};">${total}</strong>
-                  </div>
-                  <div style="font-size:10px;color:${LC.textDim};">How do you want to resolve this attack?</div>
-                  ${rangeWarningHtml}
-                </div>`,
-              buttons: [
-                { action: "roller",  label: "🎲 Dice Roller", icon: "fas fa-dice-d20", default: true },
-                { action: "hitmiss", label: "⚡ Hit / Miss",  icon: "fas fa-crosshairs" },
-                { action: "cancel",  label: "Cancel",          icon: "fas fa-times" },
-              ],
-            });
+            // Player ships: the click opens the roller directly — Hit / Miss now
+            // lives on the Token HUD weapon flyout (token-weapon-hud.js).
+            const hasTS     = CombatHUD.hasTargetingSolution(this._token);
+            const hasRFT    = hasRapidFireTorpedoLauncher(actor);
+            const isTorpedo = config?.type === "torpedo";
 
-            if (choice === "roller") {
-              const hasTS     = CombatHUD.hasTargetingSolution(this._token);
-              const hasRFT    = hasRapidFireTorpedoLauncher(actor);
-              const isTorpedo = config?.type === "torpedo";
-
-              // Determine area/spread mode for weapons that need it
-              const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
-              const _needsMode = _modeInfo.needsMode;
-              let salvoMode = null;
-              if (_needsMode) {
-                salvoMode = "area";
-                const modeChoice = await foundry.applications.api.DialogV2.wait({
-                  window:  { title: `${weapon.name} — Attack Mode` },
-                  content: `
-                    <div style="font-family:${LC.font};padding:4px 0;">
-                      <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
-                        Choose how <strong style="color:${LC.primary};">${weapon.name}</strong> fires:
-                      </div>
-                      <div style="font-size:10px;color:${LC.textDim};line-height:1.6;padding:4px 8px;
-                        border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;">
-                        ⚡ <strong>Area</strong> — attack one primary target; same damage can be applied
-                        to additional nearby ships after the roll (1 momentum / 1 threat each)<br>
-                        ↔ <strong>Spread</strong> — reduces Devastating Attack cost from 2 → 1 momentum
-                      </div>
-                    </div>`,
-                  buttons: [
-                    { action: "area",   label: "⚡ Area",   icon: "fas fa-bolt",         default: true },
-                    { action: "spread", label: "↔ Spread",  icon: "fas fa-arrows-alt-h"               },
-                    { action: "cancel", label: "Cancel",     icon: "fas fa-times"                      },
-                  ],
-                });
-                if (!modeChoice || modeChoice === "cancel") return;
-                salvoMode = modeChoice;
-              }
-
-              const weaponCtx = {
-                name:      weapon.name,
-                weaponId:  weapon.id ?? null,
-                shipActorId: actor.id ?? null,
-                shipTokenId: this._token?.id ?? null,
-                primaryTargetTokenId: this._pendingExplicitTargetTokenId,
-                isTorpedo,
-                isArray:   _modeInfo.isArray,
-                isSalvo:   _modeInfo.isSalvo,
-                cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
-                damage:    total,
-                qualities: this._weaponQualityString(weapon),
-                salvoMode,
-              };
-              const tacticalActors    = getStationOfficers(actor, "tactical");
-              const tacticalStats     = tacticalActors[0] ? readOfficerStats(tacticalActors[0]) : null;
-              const hasAttackPattern  = hasCondition(this._token, "attack-pattern");
-              const helmOfficerActors = getStationOfficers(actor, "helm");
-              const helmOfficerActor  = helmOfficerActors[0] ?? null;
-              const helmOfficerStats  = helmOfficerActor ? readOfficerStats(helmOfficerActor) : null;
-              const attackRunActive   = hasAttackPattern && hasAttackRun(helmOfficerActor);
-
-              openPlayerRoller(actor, this._token, {
-                hasTargetingSolution: hasTS,
-                hasRapidFireTorpedo:  hasRFT && isTorpedo,
-                weaponContext:        weaponCtx,
-                stationId:            "tactical",
-                officer:              tacticalStats,
-                opposedDifficulty:    this._opposedDifficulty,
-                opposedDefenseType:   this._opposedDefenseType,
-                defenderSuccesses:    this._defenderSuccesses,
-                difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null }) : null,
-                hasAttackPattern,
-                helmOfficer:          helmOfficerStats,
-                attackRunActive,
-                taskLabel:            `Attack — ${weaponCtx.name}`,
-                taskContext:          this._opposedDefenseType
-                  ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover"}`
-                  : null,
+            // Determine area/spread mode for weapons that need it
+            const _modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, config);
+            const _needsMode = _modeInfo.needsMode;
+            let salvoMode = null;
+            if (_needsMode) {
+              salvoMode = "area";
+              const modeChoice = await foundry.applications.api.DialogV2.wait({
+                window:  { title: `${weapon.name} — Attack Mode` },
+                content: `
+                  <div style="font-family:${LC.font};padding:4px 0;">
+                    <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+                      Choose how <strong style="color:${LC.primary};">${weapon.name}</strong> fires:
+                    </div>
+                    <div style="font-size:10px;color:${LC.textDim};line-height:1.6;padding:4px 8px;
+                      border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;">
+                      ⚡ <strong>Area</strong> — attack one primary target; same damage can be applied
+                      to additional nearby ships after the roll (1 momentum / 1 threat each)<br>
+                      ↔ <strong>Spread</strong> — reduces Devastating Attack cost from 2 → 1 momentum
+                    </div>
+                  </div>`,
+                buttons: [
+                  { action: "area",   label: "⚡ Area",   icon: "fas fa-bolt",         default: true },
+                  { action: "spread", label: "↔ Spread",  icon: "fas fa-arrows-alt-h"               },
+                  { action: "cancel", label: "Cancel",     icon: "fas fa-times"                      },
+                ],
               });
-            } else if (choice === "hitmiss") {
-              this._selectWeapon(weapon);
+              if (!modeChoice || modeChoice === "cancel") return;
+              salvoMode = modeChoice;
             }
-            // "cancel" — do nothing
+
+            const weaponCtx = {
+              name:      weapon.name,
+              weaponId:  weapon.id ?? null,
+              shipActorId: actor.id ?? null,
+              shipTokenId: this._token?.id ?? null,
+              primaryTargetTokenId: this._pendingExplicitTargetTokenId,
+              isTorpedo,
+              isArray:   _modeInfo.isArray,
+              isSalvo:   _modeInfo.isSalvo,
+              cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
+              damage:    total,
+              qualities: this._weaponQualityString(weapon),
+              salvoMode,
+            };
+            const tacticalActors    = getStationOfficers(actor, "tactical");
+            const tacticalStats     = tacticalActors[0] ? readOfficerStats(tacticalActors[0]) : null;
+            const hasAttackPattern  = hasCondition(this._token, "attack-pattern");
+            const helmOfficerActors = getStationOfficers(actor, "helm");
+            const helmOfficerActor  = helmOfficerActors[0] ?? null;
+            const helmOfficerStats  = helmOfficerActor ? readOfficerStats(helmOfficerActor) : null;
+            const attackRunActive   = hasAttackPattern && hasAttackRun(helmOfficerActor);
+
+            openPlayerRoller(actor, this._token, {
+              hasTargetingSolution: hasTS,
+              hasRapidFireTorpedo:  hasRFT && isTorpedo,
+              weaponContext:        weaponCtx,
+              stationId:            "tactical",
+              officer:              tacticalStats,
+              opposedDifficulty:    this._opposedDifficulty,
+              opposedDefenseType:   this._opposedDefenseType,
+              defenderSuccesses:    this._defenderSuccesses,
+              difficulty:           this._opposedDifficulty === null ? _shipAttackDifficulty(weapon, config, null, { targetToken: selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null }) : null,
+              hasAttackPattern,
+              helmOfficer:          helmOfficerStats,
+              attackRunActive,
+              taskLabel:            `Attack — ${weaponCtx.name}`,
+              taskContext:          this._opposedDefenseType
+                ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover"}`
+                : null,
+            });
           }
         });
         row.appendChild(btn);
@@ -3906,7 +3985,7 @@ export class CombatHUD {
       const hasDeadly  = weapon.system?.qualities?.deadly ?? false;
       const isDual     = hasStun && hasDeadly;
       const useStun    = hasStun && (!hasDeadly || this._pendingStunMode);
-      const severity   = weapon.system?.severity ?? 0;
+      const severity   = getGroundWeaponSeverity(weapon);
       const complicationInfo = isHit
         ? await CombatHUD._resolveComplicationDamagePenalty({
             complications: 0,
@@ -4007,6 +4086,7 @@ export class CombatHUD {
       salvoMode:          shipModeInfo.needsMode ? (this._pendingSalvoMode ?? "area") : null,
       defenderSuccesses:  this._defenderSuccesses,
       opposedDefenseType: this._opposedDefenseType,
+      seedWeaponVersatile: true,
     });
     this._pendingWeapon      = null;
     this._pendingSalvoMode   = null;
@@ -4031,8 +4111,12 @@ export class CombatHUD {
    * @param {number}  opts.calibrateWeaponsBonus  - +1 damage from Calibrate Weapons minor action
    * @param {number|null} opts.defenderSuccesses   - Successes from defender's opposed roll (if any)
    * @param {string|null} opts.opposedDefenseType  - "evasive-action" | "defensive-fire" | null
+   * @param {boolean} opts.seedWeaponVersatile     - Roll-less attacks (counterattacks, forced
+   *   hits) have no task roll to build a Momentum Overflow Tracker, so the weapon's Versatile X
+   *   would never reach the spend panel. Set true to seed it here instead. Roll-driven callers
+   *   must leave this false — their tracker is already seeded at roll-confirm time.
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, chiefTacticalOfficerAvailable = false, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, trackerMessageId = null, momentumPool = null, complications = 0, opposedMomentumAwarded = false } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, chiefTacticalOfficerAvailable = false, piercingSalvoAvailable = false, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, trackerMessageId = null, momentumPool = null, complications = 0, opposedMomentumAwarded = false, seedWeaponVersatile = false } = {}) {
     token = CombatHUD._resolveShipWeaponSourceToken({
       shipActorId: weapon?.parent?.id ?? token?.actor?.id ?? token?.document?.actorId ?? null,
     }, token);
@@ -4061,7 +4145,10 @@ export class CombatHUD {
     });
 
     const config = _shipWeaponConfigForRules(weapon, getWeaponConfig(weapon));
-    const torpedoThreatAward = CombatHUD.isNpcShip(actor)
+    // Torpedo attacks add Threat (1, or 3 for a salvo). Player ships and
+    // allied NPC ships both pay it — only opposing NPC ships are exempt.
+    // Applies on hit and on miss alike: the torpedoes were still fired.
+    const torpedoThreatAward = (CombatHUD.isNpcShip(actor) && !CombatHUD.isAlliedNpcActor(actor))
       ? 0
       : _playerTorpedoThreatAward(weapon, config);
     if (torpedoThreatAward > 0) {
@@ -4125,8 +4212,46 @@ export class CombatHUD {
     // If the caller didn't pass an explicit trackerMessageId, try to find the
     // most-recent active tracker for the attacker. Covers opposed-defense
     // winners whose bonus tracker is created by _autoAwardOpposedShipPool.
-    const _resolvedTrackerId = trackerMessageId
+    let _resolvedTrackerId = trackerMessageId
       ?? (actor?.id ? (getActiveTracker(actor.id)?.id ?? null) : null);
+
+    // ── Versatile X seeding ────────────────────────────────────────────────
+    // The damage-card spend panel and the Devastating Attack button both draw
+    // Versatile momentum from the attacker's overflow tracker. Roll-driven
+    // attacks seed it when the tracker is built, but roll-less attacks —
+    // Defensive Fire / Cover counterattacks, HUD auto-hits — never build one,
+    // so the weapon's Versatile rating was silently unavailable to spend.
+    const _weaponVersatile = (isHit && seedWeaponVersatile) ? _weaponVersatileValue(weapon) : 0;
+    if (_weaponVersatile > 0 && actor?.id) {
+      try {
+        const existing = readTrackerState(_resolvedTrackerId, actor.id);
+        if (existing.messageId) {
+          // Never top up a tracker that already carries Versatile — the roll
+          // path seeded it and it may have been partly spent already.
+          if (existing.versatile <= 0) {
+            const mod = await import("../momentum-tracker.js");
+            await mod.setTrackerBucket(existing.messageId, { versatile: _weaponVersatile });
+          }
+          _resolvedTrackerId = existing.messageId;
+        } else {
+          const seeded = await createTracker(actor, {
+            totalGenerated: 0,
+            bonus:          0,
+            versatile:      _weaponVersatile,
+            weaponName:     weapon?.name ?? null,
+            pool:           momentumPool
+              ?? CombatHUD.alliedNpcMomentumPool(actor)
+              ?? (CombatHUD.isNpcShip(actor) ? "threat" : "momentum"),
+            speakerToken:   token,
+          });
+          // Players get null back (the GM creates the message over the socket);
+          // the spend panel then finds it by attacker actor id instead.
+          _resolvedTrackerId = seeded?.message?.id ?? _resolvedTrackerId;
+        }
+      } catch (err) {
+        console.error("STA2e Toolkit | Versatile tracker seeding failed:", err);
+      }
+    }
 
     const targetData = targets.map(t => {
       const tActor      = t.actor;
@@ -4178,8 +4303,6 @@ export class CombatHUD {
         rapidFireBonus:       rfBonus,
         calibrateWeaponsBonus: cwBonus,
         chiefTacticalOfficerAvailable: !!chiefTacticalOfficerAvailable,
-        chiefTacticalOfficerBonusApplied: false,
-        chiefTacticalOfficerCost: 1,
         persistentDamage,
         complicationDamagePenalty: complicationInfo.penalty,
         complications:        complicationInfo.total,
@@ -4237,14 +4360,50 @@ export class CombatHUD {
       intenseTalentBonus,
       trackerMessageId: _resolvedTrackerId,
       momentumPool: momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
+      chiefTacticalOfficer: !!chiefTacticalOfficerAvailable,
     }) : null;
-    ChatMessage.create({
-      flags: { "sta2e-toolkit": { damageCard: true, targetData, weaponName: weapon.name, ...(spendContext ? { spendContext } : {}) } },
+    // `attackerName`/`weaponId`/`attackerActorId`/`isHit` are stored so the card
+    // can be rebuilt later (Piercing Salvo) without depending on the firing
+    // token still being on canvas.
+    const damageMsg = await ChatMessage.create({
+      flags: { "sta2e-toolkit": {
+        damageCard: true,
+        targetData,
+        weaponName: weapon.name,
+        weaponId: weapon.id ?? null,
+        attackerName: token.name,
+        attackerActorId: actor?.id ?? null,
+        isHit: !!isHit,
+        ...(spendContext ? { spendContext } : {}),
+      } },
       content: hud
         ? hud._weaponChatCard(token.name, weapon, actor, targetNames, isHit, targetData)
         : `<p>${token.name} attacked ${targetNames} — ${isHit ? "HIT" : "MISS"}</p>`,
       speaker: ChatMessage.getSpeaker({ token }),
     });
+
+    // ── Piercing Salvo ────────────────────────────────────────────────────
+    // Officer talent: on a successful torpedo attack, 2 Momentum buys the
+    // Piercing quality. Offered as its own card rather than pre-declared, so
+    // the crew can decide once they see what the shot actually did. Pointless
+    // on a weapon that already has Piercing, so don't offer it there.
+    if (isHit && piercingSalvoAvailable && damageMsg?.id
+        && _shipWeaponIsTorpedo(weapon, config) && !weaponPiercing) {
+      try {
+        await CombatHUD._postPiercingSalvoCard({
+          damageMessageId: damageMsg.id,
+          token,
+          actor,
+          weapon,
+          targetData,
+          targetNames,
+          momentumPool: momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
+          trackerMessageId: _resolvedTrackerId,
+        });
+      } catch (err) {
+        console.error("STA2e Toolkit | Piercing Salvo card failed:", err);
+      }
+    }
 
     for (const [targetId, scanState] of scanStatesByTargetId.entries()) {
       const targetToken = canvas.tokens?.get(targetId) ?? targets.find(t => t.id === targetId) ?? null;
@@ -4356,8 +4515,9 @@ export class CombatHUD {
       panelWrap.appendChild(majorGrid);
 
       const makeActionBtn = (action, grid) => {
-        // NPC-only actions are hidden entirely on player/PC ships
-        if ((action.isNpcOnly ?? false) && !CombatHUD.isNpcShip(actor)) return;
+        // NPC-only actions are hidden on player ships; Reserve Power actions
+        // are hidden on ships that do not have Reserve Power
+        if (!CombatHUD.isActionAvailable(action, actor)) return;
 
         const isActive = action.isTargetingSolution
           ? CombatHUD.hasTargetingSolution(token)
@@ -4396,7 +4556,12 @@ export class CombatHUD {
           overflow: hidden;
           text-overflow: ellipsis;
         `;
-        btn.title       = action.tooltip + (needsTarget && !hasTarget ? "\n⚠ Requires a targeted token" : "");
+        // Warp / Regen Shields / Reroute Power all open with "Requires Reserve
+        // Power." — true for player ships, false for exempt NPC vessels.
+        const actionTooltip = CombatHUD.shipUsesReservePower(actor)
+          ? action.tooltip
+          : (action.tooltip ?? "").replace(/^Requires Reserve Power\.\s*/, "");
+        btn.title       = actionTooltip + (needsTarget && !hasTarget ? "\n⚠ Requires a targeted token" : "");
         btn.textContent = action.label;
 
         if (!isDisabled && !isInfo && action.key) {
@@ -4594,9 +4759,10 @@ export class CombatHUD {
           font-family:${LC.font};letter-spacing:0.05em;text-transform:uppercase;
           cursor:pointer;transition:all 0.12s;
         `;
+        const cloakCost      = CombatHUD.shipUsesReservePower(actor) ? ", costs Reserve Power" : "";
         cloakBtn.title       = isCloaked
-          ? "Cloaking Device ACTIVE — click to decloak (minor action, costs Reserve Power)"
-          : "Activate Cloaking Device (major action, Control+Engineering Diff 2, costs Reserve Power)";
+          ? `Cloaking Device ACTIVE — click to decloak (minor action${cloakCost})`
+          : `Activate Cloaking Device (major action, Control+Engineering Diff 2${cloakCost})`;
         cloakBtn.textContent = isCloaked ? "👻 CLOAK: ACTIVE" : "👁 CLOAKING DEVICE";
         cloakBtn.addEventListener("mouseenter", () => {
           cloakBtn.style.borderColor = "#aa44ff";
@@ -4654,6 +4820,7 @@ export class CombatHUD {
               : null,
             salvoMode,
             rapidFireBonus: hasRapidFireTorpedoLauncher(actor) && weaponConfig?.type === "torpedo" ? 1 : 0,
+            seedWeaponVersatile: true,
           });
         });
         panelWrap.appendChild(forceBtn);
@@ -6149,6 +6316,13 @@ export class CombatHUD {
 
   async _handleRegainPower(actor, token) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "operations", "Operations")) return;
+
+    // The button is hidden on ships without Reserve Power — this catches the
+    // socket, macro and chat-card routes that bypass the button entirely.
+    if (!CombatHUD.shipUsesReservePower(actor)) {
+      ui.notifications.info(`${actor.name}: NPC vessels do not use Reserve Power.`);
+      return;
+    }
 
     const isNpc = CombatHUD.isNpcShip(actor);
     const isGM  = game.user.isGM;
@@ -8489,6 +8663,7 @@ export class CombatHUD {
     const stationDef    = BRIDGE_STATIONS.find(s => s.id === targetId);
     const actionEntries = (stationDef?.major ?? []).filter(a =>
       a.key !== null && !a.isInfo &&
+      CombatHUD.isActionAvailable(a, actor) &&
       !["assist", "assist-command", "direct", "task-roll"].includes(a.key)
     );
     // Prepend per-weapon entries when targeting Tactical
@@ -8869,8 +9044,7 @@ export class CombatHUD {
         selectedSalvoMode = modeChoice;
       }
       const dmgParts = [];
-      if (weapon.system?.damage)   dmgParts.push(`${weapon.system.damage}⚡`);
-      if (weapon.system?.severity) dmgParts.push(`Sev ${weapon.system.severity}`);
+      if (weapon.system?.damage) dmgParts.push(`${weapon.system.damage}⚡`);
       const weaponCtx = {
         name:      weapon.name,
         weaponId:  weapon.id ?? null,
@@ -9286,6 +9460,8 @@ export class CombatHUD {
                 color:${LC.text};font-family:${LC.font};">
               <option value="note">Notes Only</option>
               <option value="difficulty">Difficulty</option>
+              <option value="damage">Damage +</option>
+              <option value="damage-reduce">Damage −</option>
               <option value="reroll">One-Die Reroll</option>
               <option value="bonusMomentum">Bonus Momentum</option>
               <option value="bonusThreat">Bonus Threat</option>
@@ -10613,7 +10789,7 @@ export class CombatHUD {
 
   // ── Chat cards ─────────────────────────────────────────────────────────────
 
-  _weaponChatCard(attacker, weapon, actor, targets, isHit, targetData = [], scanBonus = 0, scanPiercing = false) {
+  _weaponChatCard(attacker, weapon, actor, targets, isHit, targetData = []) {
     const { total, breakdown } = this._weaponDamageBreakdown(weapon, actor);
     const range     = weapon.system?.range ?? "—";
     const qualities = this._weaponQualityString(weapon);
@@ -10728,6 +10904,16 @@ export class CombatHUD {
           </div>
           ${areaTargetHtml}
         </div>` : "";
+      const traitDamageHtml = damageTraitControlsHtml(damageTraitSuggestions({
+        mode: "starship",
+        weapon,
+        attackerActor: actor,
+        targetActor: canvas.tokens?.get(t.tokenId)?.actor ?? game.actors.get(t.actorId) ?? null,
+        scene: canvas.scene,
+        isTorpedo: weapon?.system?.includescale === "torpedo",
+        isArray: (weapon?.img ?? "").includes("-array"),
+        isSalvo: !!t.salvoMode,
+      }));
       const encodedData    = encodeURIComponent(JSON.stringify({
         tokenId:            t.tokenId,
         actorId:            t.actorId,
@@ -10760,8 +10946,6 @@ export class CombatHUD {
         trackerMessageId:   t.trackerMessageId ?? null,
         momentumPool:       t.momentumPool ?? null,
         chiefTacticalOfficerAvailable: !!t.chiefTacticalOfficerAvailable,
-        chiefTacticalOfficerBonusApplied: !!t.chiefTacticalOfficerBonusApplied,
-        chiefTacticalOfficerCost: t.chiefTacticalOfficerCost ?? 1,
       }));
       const resistanceIgnored = !!t.resistanceIgnored;
       const ignoredResistance = t.ignoredResistance ?? t.resistance ?? 0;
@@ -10786,7 +10970,7 @@ export class CombatHUD {
           <div style="font-size:11px;font-weight:700;color:${LC.secondary};margin-bottom:5px;
             letter-spacing:0.08em;text-transform:uppercase;font-family:${LC.font};">▶ ${t.name}</div>
 
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:5px;text-align:center;">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-bottom:5px;text-align:center;">
             <div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;">
               <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Weapon</div>
               <div style="font-size:15px;font-weight:700;color:${LC.tertiary};">${t.rawDamage - targetScanBonus - (t.rapidFireBonus ?? 0) - (t.calibrateWeaponsBonus ?? 0)}${targetScanBonus ? `<span style="color:${LC.primary};font-size:10px;">+${targetScanBonus}</span>` : ""}${t.rapidFireBonus ? `<span style="color:${LC.green};font-size:10px;" title="Rapid-Fire Torpedo Launcher">+${t.rapidFireBonus}</span>` : ""}${t.calibrateWeaponsBonus ? `<span style="color:${LC.primary};font-size:10px;" title="Calibrate Weapons">+${t.calibrateWeaponsBonus}</span>` : ""}</div>
@@ -10797,9 +10981,14 @@ export class CombatHUD {
                 ${resistanceValueHtml}
               </div>
             </div>
+            <div style="background:rgba(255,153,0,0.07);border:1px solid ${LC.borderDim};border-radius:2px;padding:3px;"
+              title="Bonus damage bought with Momentum, plus any manual adjustment.">
+              <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Extra</div>
+              <div class="sta2e-extra-display" style="font-size:15px;font-weight:700;color:${LC.primary};">0</div>
+            </div>
             <div style="background:rgba(204,136,255,0.1);border:1px solid ${LC.secondary};border-radius:2px;padding:3px;">
-              <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Final</div>
-              <div style="font-size:18px;font-weight:700;color:${LC.textBright};">${t.finalDamage}</div>
+              <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Total</div>
+              <div class="sta2e-total-display" style="font-size:18px;font-weight:700;color:${LC.textBright};">${t.finalDamage}</div>
             </div>
           </div>
 
@@ -10813,26 +11002,20 @@ export class CombatHUD {
 
           <div class="sta2e-damage-controls" style="margin-top:5px;">
             ${qualityControlsHtml}
-            ${t.chiefTacticalOfficerAvailable && !t.chiefTacticalOfficerBonusApplied ? `
-            <button type="button" class="sta2e-chief-tactical-damage"
-              data-cost="${t.chiefTacticalOfficerCost ?? 1}"
-              style="width:100%;padding:4px;margin-bottom:4px;background:rgba(255,153,0,0.10);
-                     border:1px solid ${LC.primary};border-radius:2px;color:${LC.primary};
-                     font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
-                     cursor:pointer;font-family:${LC.font};">
-              Chief Tactical Officer - spend ${t.chiefTacticalOfficerCost ?? 1} Momentum for +1 Damage
-            </button>` : ""}
+            ${traitDamageHtml}
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-              <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
-                text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">Adj:</label>
+              <!-- Paid bonus damage — driven by the spend panel's slider, not typed. -->
               <input class="sta2e-extra-damage"
                 type="number" value="0"
                 data-base-payload="${encodedData}"
+                style="display:none;"/>
+              <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
+                text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};"
+                title="Off-book GM adjustment. Costs no Momentum; negatives allowed.">Adj:</label>
+              <input class="sta2e-manual-adj"
+                type="number" value="0"
                 style="width:44px;padding:2px 4px;background:${LC.bg};border:1px solid ${LC.border};
                        border-radius:2px;color:${LC.text};font-size:12px;text-align:center;font-family:${LC.font};"/>
-              <span class="sta2e-final-display" style="font-size:10px;color:${LC.textDim};font-family:${LC.font};">
-                = <strong style="color:${LC.tertiary};">${t.finalDamage}</strong>
-              </span>
             </div>
             <button class="sta2e-apply-damage"
               data-payload="${encodedData}"
@@ -10872,6 +11055,44 @@ export class CombatHUD {
       </div>`;
     })();
 
+    // Attack modifiers, one compact chip row instead of a stack of banners —
+    // a busy hit could previously push the damage controls most of a screen
+    // down the card. Full wording moves into each chip's tooltip.
+    const modifierChipsHtml = (() => {
+      if (!isHit) return "";
+      const chips = [];
+      const chip = (color, label, title) => chips.push(
+        `<span title="${title}" style="display:inline-block;padding:1px 6px;border:1px solid ${color};
+          border-radius:2px;color:${color};background:rgba(255,255,255,0.03);font-size:9px;
+          font-weight:700;letter-spacing:0.06em;text-transform:uppercase;font-family:${LC.font};
+          cursor:help;">${label}</span>`
+      );
+
+      if (targetData.some(t => t.weaponPiercing))
+        chip(LC.secondary, "Piercing", "Piercing quality — resistance ignored");
+      if (targetData.some(t => t.scanPiercing)) {
+        const pct = Math.max(...targetData.filter(t => t.scanPiercing).map(t => t.scanPiercingPercent ?? 100));
+        chip(LC.secondary, `Scan: pierce ${pct}%`, `Scan for Weakness — ${pct}% of resistance ignored`);
+      }
+      if (targetData.some(t => (t.scanBonus ?? 0) > 0)) {
+        const bonus = Math.max(...targetData.map(t => t.scanBonus ?? 0));
+        chip(LC.secondary, `Scan: +${bonus} dmg`, `Scan for Weakness — +${bonus} damage`);
+      }
+      if (targetData.some(t => t.rapidFireBonus))
+        chip(LC.green, "🚀 Rapid-fire +1", "Rapid-Fire Torpedo Launcher — +1 damage · ship assist die may be re-rolled");
+      if (targetData.some(t => t.calibrateWeaponsBonus))
+        chip(LC.primary, "🔩 Calibrate +1", "Calibrate Weapons — +1 damage");
+      if (targetData.some(t => t.chiefTacticalOfficerAvailable))
+        chip(LC.primary, "CTO −1 cost", "Chief Tactical Officer — bonus damage costs 1 less Momentum. Does not stack with Intense or Depleting, and never drops below 1.");
+      if (targetData.some(t => t.glancingBonus))
+        chip(LC.green, "↗️ Glancing +2 res", "Glancing Impact — +2 resistance from Evasive Action");
+      if (targetData.some(t => t.tsRerollGranted))
+        chip(LC.primary, "🎯 Targeting solution", `Targeting Solution — re-roll used on this attack${hasFastTargetingSystems(actor) ? " (Fast Targeting Systems: both benefits applied)" : ""}`);
+
+      if (!chips.length) return "";
+      return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">${chips.join("")}</div>`;
+    })();
+
     return lcarsCard(
       `${isHit ? "✓ HIT" : "✗ MISS"} — ${attacker} / ${weapon.name}`,
       isHit ? LC.primary : LC.red,
@@ -10884,16 +11105,7 @@ export class CombatHUD {
         ${isHit ? `
           ${breakdown ? `<div style="font-size:9px;color:${LC.textDim};margin-bottom:6px;font-family:${LC.font};">${breakdown}</div>` : ""}
           ${qualities !== "None" ? `<div style="font-size:10px;color:${LC.tertiary};margin-bottom:6px;font-family:${LC.font};">QUALITIES: ${qualities}</div>` : ""}
-          ${targetData.some(t => t.weaponPiercing) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">PIERCING QUALITY - RESISTANCE IGNORED</div>` : ""}
-          ${targetData.some(t => t.scanPiercing) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS - PIERCING (${Math.max(...targetData.filter(t => t.scanPiercing).map(t => t.scanPiercingPercent ?? 100))}% RESISTANCE IGNORED)</div>` : ""}
-          ${targetData.some(t => (t.scanBonus ?? 0) > 0) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS - +${Math.max(...targetData.map(t => t.scanBonus ?? 0))} DAMAGE</div>` : ""}
-          ${scanPiercing ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — PIERCING (RESISTANCE IGNORED)</div>` : ""}
-          ${scanBonus > 0 ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.secondary};font-size:10px;color:${LC.secondary};font-family:${LC.font};">SCAN FOR WEAKNESS — +2 DAMAGE</div>` : ""}
-          ${targetData.some(t => t.rapidFireBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.green};font-size:10px;color:${LC.green};font-family:${LC.font};">🚀 RAPID-FIRE TORPEDO LAUNCHER — +1 DAMAGE · Ship assist die may be re-rolled</div>` : ""}
-          ${targetData.some(t => t.calibrateWeaponsBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.primary};font-size:10px;color:${LC.primary};font-family:${LC.font};">🔩 CALIBRATE WEAPONS — +1 DAMAGE</div>` : ""}
-          ${targetData.some(t => t.chiefTacticalOfficerAvailable) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.primary};font-size:10px;color:${LC.primary};font-family:${LC.font};">CHIEF TACTICAL OFFICER — one-time +1 damage spend costs 1 Momentum</div>` : ""}
-          ${targetData.some(t => t.glancingBonus) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.green};font-size:10px;color:${LC.green};font-family:${LC.font};">↗️ GLANCING IMPACT — +2 RESISTANCE (Evasive Action)</div>` : ""}
-          ${targetData.some(t => t.tsRerollGranted) ? `<div style="margin-bottom:6px;padding:3px 6px;border-left:3px solid ${LC.primary};font-size:10px;color:${LC.primary};font-family:${LC.font};">🎯 TARGETING SOLUTION — Re-roll used on this attack${hasFastTargetingSystems(actor) ? " (Fast Targeting Systems: both benefits applied)" : ""}</div>` : ""}
+          ${modifierChipsHtml}
           ${targetRows}
         ` : `
           <div style="font-size:11px;color:${LC.red};font-family:${LC.font};font-weight:700;letter-spacing:0.12em;margin-bottom:6px;">ATTACK MISSED — NO DAMAGE</div>
@@ -11109,6 +11321,17 @@ export class CombatHUD {
       if (baseActor?.getFlag("sta2e-toolkit", "isNpcShip")) return true;
     }
     return false;
+  }
+
+  /**
+   * Whether a station action from BRIDGE_STATIONS should be offered for this ship.
+   * `isNpcOnly` hides an action on player ships; `isReserveOnly` hides actions that
+   * exist solely to manage Reserve Power on ships that do not have any.
+   */
+  static isActionAvailable(action, actor) {
+    if ((action?.isNpcOnly ?? false) && !CombatHUD.isNpcShip(actor)) return false;
+    if ((action?.isReserveOnly ?? false) && !CombatHUD.shipUsesReservePower(actor)) return false;
+    return true;
   }
 
   static isAlliedNpcActor(actor) {
@@ -12695,33 +12918,68 @@ export class CombatHUD {
   }
 
   // STA 2e stores reserve power as actor.system.reservepower (boolean)
+
+  /**
+   * True when this ship tracks Reserve Power at all. NPC ships — hostile and
+   * allied alike — are exempt unless the GM opts them in, per the core rules:
+   * "NPC ships do not have Reserve Power (see page 185)."
+   * Every Reserve Power gate and spend routes through the helpers below, so
+   * flipping this predicate exempts a ship everywhere at once.
+   */
+  static shipUsesReservePower(actor) {
+    if (!CombatHUD.isNpcShip(actor)) return true;
+    try { return game.settings.get("sta2e-toolkit", "npcShipsUseReservePower") === true; }
+    catch { return false; }
+  }
+
   static hasReservePower(actor) {
+    if (!CombatHUD.shipUsesReservePower(actor)) return true;   // gates never block
     return !!actor.system?.reservepower;
   }
 
+  /**
+   * Reserve Power that can actually be drained. For exempt ships hasReservePower()
+   * reports true purely to wave the gates through — there is nothing there to take,
+   * so effects that *remove* Reserve Power must ask this instead.
+   */
+  static hasSpendableReservePower(actor) {
+    return CombatHUD.shipUsesReservePower(actor) && !!actor.system?.reservepower;
+  }
+
   static async grantReservePower(actor) {
+    if (!CombatHUD.shipUsesReservePower(actor)) return;
     await actor.update({ "system.reservepower": true });
   }
 
   static async clearReservePower(actor) {
+    if (!CombatHUD.shipUsesReservePower(actor)) return;
     await actor.update({ "system.reservepower": false });
   }
 
   // ── Crew quality flag ─────────────────────────────────────────────────────
-  // Stored on the world actor so it persists across scenes and all token instances.
+  // An unlinked token stores its own quality in its actor delta, so two tokens
+  // off the same ship prototype can crew Basic and Talented independently.
+  // Everything else (linked tokens, world actors) still writes the world actor,
+  // and a delta-less token reads through to it — so no migration is needed.
 
   static getCrewQuality(actor) {
-    const base = actor.isToken
-      ? (game.actors.get(actor.id ?? actor._id) ?? actor)
-      : actor;
-    return base.getFlag("sta2e-toolkit", "crewQuality") ?? "proficient";
+    if (!actor) return "proficient";
+    const own = actor.getFlag?.("sta2e-toolkit", "crewQuality");
+    if (own) return own;
+    if (actor.isToken) {
+      const base = game.actors.get(actor.id ?? actor._id);
+      const baseQuality = base?.getFlag?.("sta2e-toolkit", "crewQuality");
+      if (baseQuality) return baseQuality;
+    }
+    return "proficient";
   }
 
   static async setCrewQuality(actor, quality) {
-    const base = actor.isToken
-      ? (game.actors.get(actor.id ?? actor._id) ?? actor)
-      : actor;
-    await base.setFlag("sta2e-toolkit", "crewQuality", quality);
+    if (!actor) return;
+    const target = actor.isToken && actor.token && !actor.token.isLinked
+      ? actor
+      : actor.isToken ? (game.actors.get(actor.id ?? actor._id) ?? actor) : actor;
+    await target.setFlag("sta2e-toolkit", "crewQuality", quality);
   }
 
   static async toggleNpcShip(actor) {
@@ -13885,7 +14143,7 @@ export class CombatHUD {
     const isNpc         = CombatHUD.isNpcShip(actor);
     const hasDampening  = !!payload.dampening;
     const hasDepleting  = !!payload.depleting;
-    const dampenedReservePower = hasDampening && CombatHUD.hasReservePower(actor);
+    const dampenedReservePower = hasDampening && CombatHUD.hasSpendableReservePower(actor);
     const currentShields = actor.system?.shields?.value ?? 0;
     const maxShields     = actor.system?.shields?.max   ?? 0;
     const wasShaken      = actor.system?.shaken         ?? false;
@@ -14238,9 +14496,9 @@ export class CombatHUD {
         </div>`;
     }
 
-    // Area targets are selected on the main damage card so the choice survives
-    // the primary target being destroyed/removed during damage resolution.
-    let areaBtn = "";
+    // Area secondary targets are selected on the main damage card so the choice
+    // survives the primary target being destroyed during damage resolution, and
+    // are charged 1 each by _applyAreaSecondaryTargets. Nothing to offer here.
 
     const headerLabel = _isDevastating ? "DEVASTATING ATTACK" : `DAMAGE APPLIED${isNpc ? " — NPC" : ""}`;
     const headerColor = _isDevastating ? LC.secondary : LC.primary;
@@ -14252,6 +14510,7 @@ export class CombatHUD {
         <div style="font-size:11px;color:${LC.text};margin-bottom:4px;font-family:${LC.font};">
           SHIELDS: ${currentShields} → <span style="color:${shieldColor};font-weight:700;">${newShields}</span> / ${maxShields}
           <span style="color:${LC.textDim};"> (−${finalDamage})</span>
+          ${traitDamageCreditHtml(payload.traitDamageLabels)}
         </div>
         ${shakenNote ? `
           <div style="padding:3px 6px;border-left:3px solid ${LC.yellow};font-size:10px;
@@ -14267,7 +14526,6 @@ export class CombatHUD {
         ${criticalSurvivalHtml}
         ${opposedResultHtml}
         ${devastatingBtn}
-        ${areaBtn}
       `),
       speaker: { alias: "STA2e Toolkit" }
     });
@@ -14294,13 +14552,14 @@ export class CombatHUD {
     const attackerIsNpc = payload.attackerIsNpc ?? false;
     const costPool = payload.momentumPool ?? (attackerIsNpc ? "threat" : "momentum");
     const costPoolLabel = costPool === "threat" ? "Threat" : costPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
-    const totalCost = selectedIds.length;
+    // The spend panel shows the Area cost live as ships are ticked and charges
+    // it in the capture-phase handler before this runs, so normally there is
+    // nothing left to bill. Only paths without a panel land here owing money.
+    const prepaid = Math.max(0, Number(payload.areaSecondaryPrepaid ?? 0) || 0);
+    const totalCost = Math.max(0, selectedIds.length - prepaid);
 
-    // Fund the per-ship Area cost from the same buckets the spend panel uses:
-    // tracker float -> tracker bonus (incl. manually entered "other sources")
-    // -> world pool. The spend panel's own rows are consumed in a capture-phase
-    // click handler before this runs, so the tracker we read here already
-    // reflects those draws and we never double-spend the same momentum.
+    // Fund from the same buckets the spend panel uses: tracker float -> tracker
+    // bonus (incl. manually entered "other sources") -> world pool.
     const tracker = readTrackerState(payload.trackerMessageId ?? null, payload.attackerActorId ?? null);
     const poolAvail = readPool(costPool);
     let remaining = totalCost;
@@ -14309,7 +14568,7 @@ export class CombatHUD {
     const poolUsed  = Math.min(poolAvail, remaining);     remaining -= poolUsed;
 
     if (remaining > 0) {
-      ui.notifications.warn(`STA2e Toolkit: Not enough ${costPoolLabel} for Area attack (need ${totalCost}; have float ${tracker.float} + bonus ${tracker.bonus} + pool ${poolAvail}).`);
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${costPoolLabel} for Area attack (need ${totalCost}; have float ${tracker.float} + bonus ${tracker.bonus} + pool ${poolAvail}). Secondary targets were NOT damaged.`);
       return;
     }
 
@@ -14384,6 +14643,133 @@ export class CombatHUD {
 
     if (remaining > 0) {
       await writePool(pool, poolCurrent - remaining);
+    }
+    return true;
+  }
+
+  // ── Piercing Salvo (2 Momentum — torpedo attack gains Piercing) ───────────
+
+  /**
+   * Post the offer card that follows a successful torpedo attack when the
+   * firing officer has the Piercing Salvo talent. The spend itself happens
+   * when the button is clicked, so Momentum generated by the triggering roll
+   * can pay for it.
+   */
+  static async _postPiercingSalvoCard({ damageMessageId, token, actor, weapon, targetData, targetNames, momentumPool, trackerMessageId }) {
+    const attackerIsNpc = CombatHUD.isNpcShip(actor);
+    const pool = momentumPool ?? (attackerIsNpc ? "threat" : "momentum");
+    const poolLabel = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
+    const resistanceAtRisk = targetData.reduce((sum, t) => sum + Math.max(0, Number(t.resistance) || 0), 0);
+    // PC and allied ships may hand the GM 2 Threat instead of spending Momentum.
+    // An NPC ship already pays out of Threat, so there is no alternative to offer.
+    const canPayWithThreat = pool !== "threat";
+    const btnStyle = (colour, bg) => `flex:1 1 0;min-width:0;padding:5px 4px;background:${bg};`
+      + `border:1px solid ${colour};border-radius:2px;color:${colour};font-size:10px;font-weight:700;`
+      + `letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;font-family:${LC.font};line-height:1.3;`;
+
+    const payload = encodeURIComponent(JSON.stringify({
+      damageMessageId,
+      attackerActorId: actor?.id ?? null,
+      attackerTokenId: (token?.document ?? token)?.id ?? null,
+      attackerIsNpc,
+      momentumPool: momentumPool ?? null,
+      trackerMessageId: trackerMessageId ?? null,
+      weaponName: weapon?.name ?? null,
+    }));
+
+    return ChatMessage.create({
+      flags: { "sta2e-toolkit": { piercingSalvoCard: true, damageMessageId } },
+      content: lcarsCard("⚔️ PIERCING SALVO", LC.secondary, `
+        <div style="font-size:11px;color:${LC.textDim};margin-bottom:6px;font-family:${LC.font};letter-spacing:0.06em;">
+          ${weapon?.name ?? "Torpedo"} → ${targetNames}
+        </div>
+        <div style="font-size:10px;color:${LC.text};margin-bottom:7px;font-family:${LC.font};line-height:1.45;">
+          Spend <strong style="color:${LC.secondary};">2 ${poolLabel}</strong>${canPayWithThreat
+            ? ` — or give the GM <strong style="color:${LC.tertiary};">2 Threat</strong> —`
+            : ""} to give this attack the
+          <strong style="color:${LC.secondary};">Piercing</strong> quality: all resistance is ignored
+          ${targetData.length > 1 ? `on <strong>all ${targetData.length} targets</strong>` : ""}.
+          ${resistanceAtRisk > 0
+            ? `<span style="color:${LC.textDim};">Currently soaking ${resistanceAtRisk} damage.</span>`
+            : `<span style="color:${LC.textDim};">No resistance is soaking damage right now.</span>`}
+        </div>
+        <div class="sta2e-piercing-salvo-controls" style="display:flex;gap:5px;">
+          <button type="button" class="sta2e-piercing-salvo-apply" data-payload="${payload}"
+            style="${btnStyle(LC.secondary, "rgba(204,136,255,0.12)")}">
+            Spend 2<br><span style="font-size:9px;opacity:0.85;">${poolLabel}</span>
+          </button>
+          ${canPayWithThreat ? `
+          <button type="button" class="sta2e-piercing-salvo-threat" data-payload="${payload}"
+            style="${btnStyle(LC.tertiary, "rgba(255,204,102,0.12)")}">
+            Give 2<br><span style="font-size:9px;opacity:0.85;">Threat</span>
+          </button>` : ""}
+        </div>`),
+      speaker: ChatMessage.getSpeaker({ token }),
+    });
+  }
+
+  /**
+   * Rewrite an already-posted ship damage card so every target is treated as
+   * having been hit by a Piercing weapon. Mirrors the `fullResistanceIgnored`
+   * branch in `resolveShipAttack` — Piercing beats listed resistance, Glancing
+   * Impact and Modulated Shields alike.
+   *
+   * Idempotent: a second call (double-click, re-delivered socket) is a no-op.
+   */
+  static async applyPiercingSalvoToDamageCard(damageMessageId, salvoMessageId = null) {
+    const message = game.messages?.get(damageMessageId) ?? null;
+    if (!message) {
+      console.warn("STA2e Toolkit | Piercing Salvo: damage card not found:", damageMessageId);
+      return false;
+    }
+    const flags = message.flags?.["sta2e-toolkit"] ?? {};
+    if (flags.piercingSalvoApplied) {
+      // Already pierced — still lock the offer card so it can't be re-clicked.
+      if (salvoMessageId) {
+        await game.messages?.get(salvoMessageId)?.setFlag("sta2e-toolkit", "piercingSalvoSpent", true);
+      }
+      return true;
+    }
+
+    const targetData = Array.isArray(flags.targetData) ? flags.targetData : null;
+    if (!targetData?.length) {
+      console.warn("STA2e Toolkit | Piercing Salvo: damage card has no targetData.");
+      return false;
+    }
+
+    const nextTargetData = targetData.map(t => {
+      const resistance = Math.max(0, Number(t.resistance) || 0);
+      const rawDamage  = Math.max(0, Number(t.rawDamage) || 0);
+      return {
+        ...t,
+        ignoredResistance: (Number(t.ignoredResistance) || 0) + resistance,
+        resistance: 0,
+        glancingBonus: 0,
+        modulationBonus: 0,
+        resistanceIgnored: true,
+        weaponPiercing: true,
+        finalDamage: rawDamage,
+      };
+    });
+
+    const hud    = game.sta2eToolkit?.combatHud ?? null;
+    const actor  = flags.attackerActorId ? game.actors?.get(flags.attackerActorId) : null;
+    const weapon = flags.weaponId ? actor?.items?.get(flags.weaponId) : null;
+    const attackerName = flags.attackerName ?? actor?.name ?? "Ship";
+    const targetNames  = nextTargetData.map(t => t.name).join(", ");
+
+    const content = (hud && weapon && actor)
+      ? hud._weaponChatCard(attackerName, weapon, actor, targetNames, flags.isHit ?? true, nextTargetData)
+      : message.content;   // fall back to leaving the HTML alone; flags still update
+
+    await message.update({
+      content,
+      flags: { "sta2e-toolkit": { ...flags, targetData: nextTargetData, piercingSalvoApplied: true } },
+    });
+
+    if (salvoMessageId) {
+      const salvoMsg = game.messages?.get(salvoMessageId) ?? null;
+      if (salvoMsg) await salvoMsg.setFlag("sta2e-toolkit", "piercingSalvoSpent", true);
     }
     return true;
   }
@@ -14507,118 +14893,6 @@ export class CombatHUD {
     });
   }
 
-  // ── Area Attack — secondary target picker (250 px radius around primary target) ──
-
-  static async openAreaTargetPicker(payload) {
-    const { primaryTokenId, finalDamage, attackerTokenId, attackerIsNpc, weaponImg, weaponName } = payload;
-
-    const primaryToken = canvas.tokens.get(primaryTokenId);
-    if (!primaryToken) {
-      ui.notifications.error("STA2e Toolkit: Primary target token not found for Area attack.");
-      return;
-    }
-
-    const RADIUS_PX = 250;
-    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
-    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-    const zones = zonesEnabled ? getSceneZones() : [];
-    // Multi-zone tokens (flags.sta2e-toolkit.multiZone) occupy every zone
-    // their footprint overlaps; normal tokens resolve to their center zone.
-    const primaryZones  = zones.length ? getZonesForToken(primaryToken, zones) : [];
-    const primaryZoneIds = new Set(primaryZones.map(z => z.id));
-    const usingZones = primaryZones.length > 0;
-
-    const nearby = (canvas.tokens?.placeables ?? []).filter(t => {
-      if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
-      if (!CombatHUD._isShipToken(t)) return false;
-      if (usingZones) {
-        return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
-      }
-      const center = CombatHUD._centerOfToken(t);
-      return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
-    });
-
-    if (nearby.length === 0) {
-      ui.notifications.info(usingZones
-        ? `No additional starship targets in ${primaryZones[0]?.name ?? "the primary target's zone"}.`
-        : "No nearby starship targets within 250 px of the primary target.");
-      return;
-    }
-
-    const costPool = payload.momentumPool ?? (attackerIsNpc ? "threat" : "momentum");
-    const costLabel = costPool === "threat"
-      ? "1 Threat"
-      : costPool === "alliedNpcMomentum" ? "1 Allied Momentum" : "1 Momentum";
-    const checkboxes = nearby.map(t =>
-      `<label style="display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer;">
-        <input type="checkbox" name="area-target" value="${t.id}" style="cursor:pointer;">
-        <span style="font-size:11px;color:${LC.text};font-family:${LC.font};">${t.name}</span>
-      </label>`
-    ).join("");
-
-    const result = await foundry.applications.api.DialogV2.wait({
-      window: { title: "Area — Select Additional Targets" },
-      content: `
-        <div style="padding:6px 10px;font-family:${LC.font};">
-          <p style="font-size:10px;color:${LC.textDim};margin-bottom:8px;">
-            Select ${usingZones ? `ships in <strong style="color:${LC.primary};">${primaryZone?.name ?? "the primary target's zone"}</strong>` : "nearby ships"}
-            to receive <strong style="color:${LC.tertiary};">${finalDamage} damage</strong>.
-            Each costs <strong style="color:${LC.primary};">${costLabel}</strong>.
-          </p>
-          <p style="font-size:10px;color:${LC.textDim};margin-bottom:8px;">
-            Total cost = selected targets x ${costLabel}.
-          </p>
-          ${checkboxes}
-        </div>`,
-      buttons: [
-        {
-          action:  "confirm",
-          label:   "Apply",
-          icon:    "fas fa-check",
-          default: true,
-          callback: (_e, _b, dlg) => {
-            const checked = dlg.element.querySelectorAll("input[name='area-target']:checked");
-            return Array.from(checked).map(inp => inp.value);
-          },
-        },
-        { action: "cancel", label: "Cancel", icon: "fas fa-times" },
-      ],
-    });
-
-    if (!result || result === "cancel" || (Array.isArray(result) && result.length === 0)) return;
-
-    const selectedIds = Array.isArray(result) ? result : [result];
-    const totalCost = selectedIds.length;
-    const currentPool = readPool(costPool);
-    if (currentPool < totalCost) {
-      ui.notifications.warn(`STA2e Toolkit: Not enough ${costLabel.replace(/^1\s+/, "")} for Area attack (need ${totalCost}, have ${currentPool}).`);
-      return;
-    }
-    if (totalCost > 0) await writePool(costPool, currentPool - totalCost);
-
-    for (const tId of selectedIds) {
-      const tToken = canvas.tokens.get(tId);
-      if (!tToken) continue;
-
-      // Apply the same damage — no chained devastating or area from secondary hits
-      await CombatHUD.applyDamage({
-        tokenId:        tId,
-        actorId:        tToken.actor?.id,
-        finalDamage,
-        highYield:      false,
-        noDevastating:  true,
-        area:           false,
-        areaAvailable:  false,
-        attackerTokenId,
-        attackerIsNpc,
-        weaponImg,
-        weaponId:       payload.weaponId ?? null,
-        weaponName,
-        salvoMode:      payload.salvoMode ?? null,
-      });
-    }
-  }
-
   // ── NPC flag toggle button (used in HUD header) ────────────────────────────
 
   _buildNpcToggle(actor) {
@@ -14704,8 +14978,7 @@ export class CombatHUD {
    * @param {boolean} useStun       - true if attacker chose Stun on a dual weapon
    */
   static _groundChatCard(attackerName, weapon, targetData, isHit, useStun, deadlyCostsThreat = false, opposedInfo = null) {
-    const severity   = weapon.system?.severity ?? 0;
-    const damage     = weapon.system?.damage   ?? 0;
+    const severity   = getGroundWeaponSeverity(weapon);
     const hasStun    = weapon.system?.qualities?.stun   ?? false;
     const hasDeadly  = weapon.system?.qualities?.deadly ?? false;
     const isDual     = hasStun && hasDeadly;
@@ -14876,6 +15149,16 @@ export class CombatHUD {
         };
       const encodedPayload = encodeURIComponent(JSON.stringify(basePayloadObj));
       const encodedBase    = encodedPayload;
+      // Static method — the attacker comes from the target row, not a param.
+      const traitDamageHtml = damageTraitControlsHtml(damageTraitSuggestions({
+        mode: "ground",
+        weapon,
+        attackerActor: t.attackerTokenId
+          ? (canvas.tokens?.get(t.attackerTokenId)?.actor ?? null)
+          : (t.attackerActorId ? game.actors.get(t.attackerActorId) : null),
+        targetActor: canvas.tokens?.get(t.tokenId)?.actor ?? game.actors.get(t.actorId) ?? null,
+        scene: canvas.scene,
+      }));
       const chiefSecurityPayload = encodeURIComponent(JSON.stringify({
         targetTokenId: t.tokenId,
         targetActorId: t.actorId,
@@ -14922,6 +15205,7 @@ export class CombatHUD {
             ${t.chiefOfSecuritySource ?? "Chief of Security"} - spend 1 Momentum to hinder next Attack
           </button>` : ""}
           <div class="sta2e-ground-controls">
+            ${traitDamageHtml}
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
               <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
                 text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">
@@ -14974,7 +15258,7 @@ export class CombatHUD {
       <div style="margin-bottom:6px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
         <div style="font-size:11px;color:${LC.tertiary};font-family:${LC.font};">
           <strong style="color:${LC.textBright};">${weapon.name}</strong>
-          — SEV ${severity} / DMG ${damage}
+          — SEV ${severity}
           <span style="color:${injColor};font-weight:700;font-size:9px;
             text-transform:uppercase;letter-spacing:0.1em;margin-left:6px;">
             ${useStun ? "⚡ STUN" : "☠ DEADLY"}
@@ -15127,7 +15411,7 @@ export class CombatHUD {
         <span style="font-size:9px;color:${LC.textDim};">&nbsp;(Sev ${severity})</span>
       </div>
       <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
-        margin-bottom:6px;">${injuryName}</div>
+        margin-bottom:6px;">${injuryName}${traitDamageCreditHtml(payload.traitDamageLabels)}</div>
       ${statusHtml}
       <div style="display:flex;flex-wrap:wrap;gap:4px;">${buttons}</div>
     `;
@@ -15316,6 +15600,7 @@ export class CombatHUD {
             margin-bottom:3px;">${consequence}</div>
           <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
             Potency ${potency} / Severity ${severity}</div>
+          ${traitDamageCreditHtml(payload.traitDamageLabels)}
         `),
         speaker: { alias: "STA2e Toolkit" },
       });
@@ -15853,7 +16138,7 @@ function getScanForWeaknessStatesFromTarget(targetToken) {
   return Array.from(bySource.values());
 }
 
-function getScanForWeaknessStateForAttacker(targetToken, attackerTokenId) {
+export function getScanForWeaknessStateForAttacker(targetToken, attackerTokenId) {
   const states = getScanForWeaknessStatesFromTarget(targetToken);
   if (attackerTokenId) {
     const match = states.find(state => state.sourceTokenId === attackerTokenId);
@@ -15902,7 +16187,7 @@ async function syncScanForWeaknessTargetFlags(targetToken, states) {
   return true;
 }
 
-async function removeScanForWeaknessStateFromTarget(targetToken, rawState) {
+export async function removeScanForWeaknessStateFromTarget(targetToken, rawState) {
   const key = scanForWeaknessStateKey(rawState);
   const states = getScanForWeaknessStatesFromTarget(targetToken)
     .filter(state => scanForWeaknessStateKey(state) !== key);
@@ -17298,6 +17583,7 @@ export async function applyDirectForOfficer(shipActor, shipToken, officerActor) 
   const stationDef    = BRIDGE_STATIONS.find(s => s.id === targetId);
   const actionEntries = (stationDef?.major ?? []).filter(a =>
     a.key !== null && !a.isInfo &&
+    CombatHUD.isActionAvailable(a, shipActor) &&
     !["assist", "assist-command", "direct", "task-roll"].includes(a.key)
   );
   const weaponEntries = targetId === "tactical"
@@ -17871,6 +18157,12 @@ export async function handleOfficerTaskResult(taskKey, shipActor, shipToken, off
 
   // ── Regain Power ────────────────────────────────────────────────────────────
   if (taskKey === "regain-power") {
+    // Ships without Reserve Power have nothing to regain — the task is hidden
+    // from the panel, so this only fires via socket/macro routes.
+    if (!CombatHUD.shipUsesReservePower(shipActor)) {
+      ui.notifications.info(`${shipActor.name}: NPC vessels do not use Reserve Power.`);
+      return;
+    }
     const uses     = CombatHUD.getRegainPowerUses(shipActor);
     const inCombat = !!game.combat?.active;
     if (inCombat) await CombatHUD.incrementRegainPowerUses(shipActor);
@@ -18306,34 +18598,63 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const potencyDisp  = controls.querySelector(".sta2e-potency-display");
         const injLabel     = controls.closest("div")?.querySelector(".sta2e-injury-label");
 
-        // Wire momentum/threat adjustment spinner
+        // Recompute Potency from the trait boxes and the Momentum/Threat spinner.
+        // Traits adjust Severity *before* Protection, so armour still soaks them.
+        const syncGroundControls = () => {
+          const base       = JSON.parse(decodeURIComponent(adjInput.dataset.basePayload));
+          const useStun    = adjInput.dataset.useStun === "true";
+          const weaponName = adjInput.dataset.weaponName;
+          const severity   = parseInt(adjInput.dataset.severity) || 0;
+          const prot       = parseInt(adjInput.dataset.protection) || 0;
+
+          const traitDamage = readTraitDamage(controls);
+          const effSeverity = Math.max(0, severity + traitDamage.delta);
+          // Same formula the card was built with: armour cannot take an injury
+          // below Potency 1, but a Severity driven to 0 negates the attack —
+          // so a reducing trait with Potency >= Severity can shut it out, the
+          // way an unresolved complication already can.
+          const potFromSev  = effSeverity > 0 ? Math.max(1, effSeverity - prot) : 0;
+
+          // Clamp: max +2 (Momentum limit); complications can reduce potency to 0
+          const adjFloor = -potFromSev;
+          const raw      = parseInt(adjInput.value) || 0;
+          const clamped  = Math.min(2, Math.max(adjFloor, raw));
+          if (clamped !== raw) adjInput.value = clamped;
+          adjInput.min = String(adjFloor);
+
+          const newPotency = Math.max(0, potFromSev + clamped);
+          const newInjName = CombatHUD._groundInjuryName(weaponName, useStun, newPotency, effSeverity);
+
+          if (potencyDisp) {
+            const shift    = clamped + traitDamage.delta;
+            const adjColor = shift > 0 ? "#66cc66" : shift < 0 ? "#ff6666" : "var(--sta2e-tertiary, #ffcc66)";
+            potencyDisp.innerHTML = `= Potency <strong style="color:${adjColor};">${newPotency}</strong>`
+              + (clamped !== 0 ? ` <span style="font-size:9px;color:${adjColor};">(${clamped > 0 ? "+" : ""}${clamped})</span>` : "")
+              + (traitDamage.delta !== 0 ? ` <span style="font-size:9px;color:${adjColor};" title="From traits in play">(SEV ${traitDamage.delta > 0 ? "+" : ""}${traitDamage.delta})</span>` : "");
+          }
+          if (injLabel) injLabel.textContent = newInjName;
+
+          const updated = {
+            ...base,
+            severity: effSeverity,
+            potency: newPotency,
+            injuryName: newInjName,
+            traitDamageDelta: traitDamage.delta,
+            traitDamageLabels: traitDamage.labels,
+          };
+          applyBtn.dataset.payload = encodeURIComponent(JSON.stringify(updated));
+        };
+
+        // Wire momentum/threat adjustment spinner and the Traits in Play boxes
         if (adjInput && applyBtn) {
-          adjInput.addEventListener("input", () => {
-            const base       = JSON.parse(decodeURIComponent(adjInput.dataset.basePayload));
-            const basePot    = parseInt(base.basePotency) || 0;
-            const useStun    = adjInput.dataset.useStun === "true";
-            const weaponName = adjInput.dataset.weaponName;
-            const severity   = parseInt(adjInput.dataset.severity) || 0;
-
-            // Clamp: max +2 (Momentum limit); complications can reduce potency to 0
-            const adjFloor = -basePot;
-            const raw      = parseInt(adjInput.value) || 0;
-            const clamped  = Math.min(2, Math.max(adjFloor, raw));
-            if (clamped !== raw) adjInput.value = clamped;
-
-            const newPotency = basePot + clamped;
-            const newInjName = CombatHUD._groundInjuryName(weaponName, useStun, newPotency, severity);
-
-            if (potencyDisp) {
-              const adjColor = clamped > 0 ? "#66cc66" : clamped < 0 ? "#ff6666" : "var(--sta2e-tertiary, #ffcc66)";
-              potencyDisp.innerHTML = `= Potency <strong style="color:${adjColor};">${newPotency}</strong>`
-                + (clamped !== 0 ? ` <span style="font-size:9px;color:${adjColor};">(${clamped > 0 ? "+" : ""}${clamped})</span>` : "");
-            }
-            if (injLabel) injLabel.textContent = newInjName;
-
-            const updated = { ...base, potency: newPotency, injuryName: newInjName };
-            applyBtn.dataset.payload = encodeURIComponent(JSON.stringify(updated));
+          adjInput.addEventListener("input", syncGroundControls);
+          controls.querySelectorAll(".sta2e-trait-damage-cb").forEach(cb => {
+            cb.addEventListener("change", syncGroundControls);
+            cb.addEventListener("mousedown", e => e.stopPropagation());
+            cb.addEventListener("click", e => e.stopPropagation());
           });
+          // Fold any always-on trait into the potency on first render.
+          if (controls.querySelector(".sta2e-trait-damage-cb:checked")) syncGroundControls();
         }
 
         // Wire apply button
@@ -18346,6 +18667,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               applyBtn.textContent   = "✓ Decision Sent";
               applyBtn.style.opacity = "0.5";
               if (adjInput) adjInput.disabled = true;
+              controls.querySelectorAll(".sta2e-trait-damage-cb")
+                .forEach(cb => { cb.disabled = true; });
             } catch(err) {
               console.error("STA2e Toolkit | applyGroundInjury error:", err);
               ui.notifications.error("Failed to resolve injury — see console for details.");
@@ -18943,6 +19266,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         delete payload.confirmedSuccesses;
         delete payload.confirmedMomentum;
         delete payload.confirmedPassed;
+        delete payload.succeedAtCost;   // undo the extra complication and the forced pass
         payload.confirmed = false;
         payload.completionEffectsRun = true;
         await message.update({
@@ -19037,7 +19361,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             makeYourOwnLuckStress: stressResult,
           };
 
-          if (!newRollData.crewFailed && newRollData.shipAssist && (newRollData.shipDice?.length ?? 0) === 0) {
+          if (newRollData.shipAssist && (newRollData.shipDice?.length ?? 0) === 0) {
             const shipTarget = newRollData.shipTarget ?? 11;
             const shipCritThresh = newRollData.shipCritThresh ?? 1;
             const shipDiceCount = newRollData.advancedSensorsActive ? 2 : 1;
@@ -19158,13 +19482,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             ...rollData,
             shipDice: [...(rollData.shipDice ?? [])],
           };
-          const crewFailedNow = (countCrewSuccesses(nextRollData.crewDice ?? []) + _rollResultAutoSuccesses(nextRollData)) === 0;
-          nextRollData.crewFailed = crewFailedNow;
-
-          if (crewFailedNow) {
-            nextRollData.shipDice = [];
-            return { rollData: nextRollData, newShipDice: [] };
-          }
+          // Re-derive the gate only. A crew pool that dropped to 0 successes keeps
+          // its assist and ship dice — they still contribute complications.
+          nextRollData.crewFailed = (countCrewSuccesses(nextRollData.crewDice ?? []) + _rollResultAutoSuccesses(nextRollData)) === 0;
 
           const shouldRollShipAssist = !!nextRollData.shipAssist && (nextRollData.shipDice?.length ?? 0) === 0;
           if (!shouldRollShipAssist) {
@@ -19362,28 +19682,39 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
   // ── Player ship — Confirm Results (Working Results card) ──────────────────
   // Available to ALL users — any player can confirm (typically the acting officer).
-  html.querySelectorAll(".sta2e-player-confirm").forEach(btn => {
+  // Succeed at Cost shares this handler: it is the same resolution with the task
+  // forced to a pass and one extra complication, so nothing downstream forks.
+  html.querySelectorAll(".sta2e-player-confirm, .sta2e-succeed-at-cost").forEach(btn => {
+    const isSucceedAtCost = btn.classList.contains("sta2e-succeed-at-cost");
     // Already confirmed on a previous render — lock the button immediately.
     if (message.getFlag("sta2e-toolkit", "confirmed")) {
       btn.disabled      = true;
       btn.style.opacity = "0.4";
       btn.style.cursor  = "default";
-      btn.textContent   = "✓ Results Confirmed";
+      btn.textContent   = isSucceedAtCost ? "⚠ Already Resolved" : "✓ Results Confirmed";
       btn.title         = "Results already confirmed";
       return;
     }
     btn.addEventListener("click", async () => {
-      btn.disabled      = true;
-      btn.style.opacity = "0.5";
-      btn.style.cursor  = "default";
+      // Lock every button in this action row — Confirm and Succeed at Cost are
+      // siblings and only one of them may resolve the card.
+      const confirmRow = btn.closest(".sta2e-working-actions") ?? null;
+      for (const sibling of confirmRow?.querySelectorAll("button") ?? [btn]) {
+        sibling.disabled      = true;
+        sibling.style.opacity = "0.5";
+        sibling.style.cursor  = "default";
+      }
       // Persist the confirmed state on the message so that reroll buttons are
       // disabled if the card is re-rendered (e.g. after a page reload or scroll).
       try { await message.update({ "flags.sta2e-toolkit.confirmed": true }); } catch {}
       try {
-        const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+        const payload = {
+          ...JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}")),
+          ...(isSucceedAtCost ? { succeedAtCost: true } : {}),
+        };
         const {
           callbackId, actorId, tokenId, stationId,
-          taskLabel, crewDice, shipDice, crewAssistDice, apAssistDice, namedAssistDice,
+          taskLabel,
           difficulty, weaponContext, rallyContext,
           hasRapidFireTorpedo, hasCalibrateWeapons,
           defenderSuccesses, opposedDefenseType,
@@ -19392,17 +19723,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         } = payload;
         const skipCompletionEffects = !!payload.completionEffectsRun;
 
-        const countSuc = dice => dice.reduce((s, d) => s + (d.success ? (d.crit ? 2 : 1) : 0), 0);
-        const allDice  = [
-          ...(crewDice       ?? []),
-          ...(crewAssistDice ?? []),
-          ...(namedAssistDice ?? []),
-          ...(apAssistDice   ?? []),
-          ...(shipDice       ?? []),
-        ];
-        const totalSuccesses = countSuc(allDice) + _rollResultAutoSuccesses(payload);
+        // Every die that rolled — used for the complication tally and the opposed
+        // dice display. Successes go through rollSuccessTotal so assist and ship
+        // dice score only when the main pool scored at least one success.
+        const allDice = allRolledDice(payload);
+        const totalSuccesses = rollSuccessTotal(payload);
         const effectiveDifficulty = taskDifficulty(payload);
-        const passed   = totalSuccesses >= effectiveDifficulty;
+        // Succeed at Cost forces the pass; everything downstream keys off this.
+        const passed   = rollPassed(payload);
 
         // Actor document to test for the Andorian Intense species ability. Prefer
         // the acting officer: on the HUD-roller ship path `actorId` IS the ship
@@ -19478,7 +19806,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           ? "Threat"
           : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
         const poolColor  = momentum > 0 ? (LC.secondary ?? "#cc88ff") : (LC.textDim ?? "#888");
-        const totalComplications = allDice.filter(d => d.complication).length + _rollResultAutoComplications(payload);
+        const totalComplications = allDice.filter(d => d.complication).length
+          + _rollResultAutoComplications(payload)
+          + succeedAtCostComplications(payload);
 
         // Auto-bank momentum/threat to the pool and post a Momentum Overflow
         // Tracker chat card. The tracker holds float (mirror of the just-
@@ -19664,7 +19994,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         if (!skipCompletionEffects && !suppressWeaponResolution && weaponContext && groundMode) {
           // ── Ground character weapon ────────────────────────────────────────
           const charActor = tokenObj?.actor ?? game.actors.get(actorId);
-          const weapon    = charActor?.items.find(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
+          const weapon    = (weaponContext.weaponId ? charActor?.items.get(weaponContext.weaponId) : null)
+            ?? charActor?.items.find(i => i.type === "characterweapon2e" && i.name === weaponContext.name);
           if (weapon && charActor) {
             let targets = Array.from(game.user.targets);
             if (!targets.length && Array.isArray(weaponContext.targetTokenIds)) {
@@ -19678,7 +20009,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               const config    = getWeaponConfig(weapon);
               const hasStun   = weapon.system?.qualities?.stun   ?? false;
               const hasDeadly = weapon.system?.qualities?.deadly ?? false;
-              const severity  = weapon.system?.severity ?? 0;
+              const severity  = getGroundWeaponSeverity(weapon);
               const complicationInfo = passed
                 ? await CombatHUD._resolveComplicationDamagePenalty({
                     complications: totalComplications,
@@ -19832,6 +20163,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               rapidFireBonus:       hasRapidFireTorpedo && weaponContext.isTorpedo ? 1 : 0,
               calibrateWeaponsBonus,
               chiefTacticalOfficerAvailable: !!payload.hasChiefTacticalOfficer,
+              piercingSalvoAvailable: !!payload.hasPiercingSalvo,
               defenderSuccesses:    defenderSuccesses ?? null,
               opposedDefenseType:   opposedDefenseType ?? null,
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
@@ -20229,6 +20561,98 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     });
   });
 
+  // ── Piercing Salvo — 2 Momentum (or 2 Threat) grants the Piercing quality ─
+  // Ungated: the firing player activates their own officer's talent. The pool
+  // write routes through pool-service for non-GMs; the damage-card rewrite
+  // needs message ownership, so that half goes over the socket.
+  html.querySelectorAll(".sta2e-piercing-salvo-controls").forEach(row => {
+    const buttons = [...row.querySelectorAll("button")];
+
+    // Turn the pair into one full-width spent bar.
+    const collapse = () => {
+      const bar = buttons[0];
+      if (!bar) return;
+      bar.disabled = true;
+      bar.textContent = "✓ Piercing Salvo Applied";
+      bar.style.flex = "1 1 100%";
+      bar.style.opacity = "0.5";
+      bar.style.cursor = "default";
+      buttons.slice(1).forEach(b => b.remove());
+    };
+
+    // Already paid for — a card reloaded from the log never shows a live half-row.
+    if (message.getFlag("sta2e-toolkit", "piercingSalvoSpent")) {
+      collapse();
+      return;
+    }
+
+    const setEnabled = on => buttons.forEach(b => {
+      b.disabled = !on;
+      b.style.opacity = on ? "" : "0.5";
+      b.style.cursor = on ? "pointer" : "default";
+    });
+
+    /** Shared tail: both payment routes end here. */
+    const activate = async payload => {
+      collapse();
+
+      if (game.user.isGM) {
+        await CombatHUD.applyPiercingSalvoToDamageCard(payload.damageMessageId, message.id);
+      } else {
+        game.socket.emit("module.sta2e-toolkit", {
+          action: "applyPiercingSalvo",
+          damageMessageId: payload.damageMessageId,
+          salvoMessageId: message.id,
+          requesterUserId: game.userId,
+        });
+      }
+      ui.notifications.info("STA2e Toolkit: Piercing Salvo — resistance ignored on this attack.");
+    };
+
+    // `pay` returns true when the cost was met. The pair is locked before the
+    // first await so a fast double-click can never charge twice.
+    const wire = (btn, pay) => {
+      if (!btn) return;
+      btn.addEventListener("mousedown", e => e.stopPropagation());
+      btn.addEventListener("click", async () => {
+        if (btn.disabled) return;
+        try {
+          const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+          if (!payload.damageMessageId) {
+            ui.notifications.warn("STA2e Toolkit | Piercing Salvo: damage card link missing.");
+            return;
+          }
+          // Never charge for piercing an already-pierced card.
+          const damageMsg = game.messages?.get(payload.damageMessageId) ?? null;
+          if (damageMsg?.getFlag("sta2e-toolkit", "piercingSalvoApplied")) {
+            ui.notifications.warn("STA2e Toolkit: This attack already has Piercing.");
+            setEnabled(false);
+            return;
+          }
+          setEnabled(false);
+          if (!(await pay(payload))) { setEnabled(true); return; }
+          await activate(payload);
+        } catch (err) {
+          console.error("STA2e Toolkit | Piercing Salvo error:", err);
+          ui.notifications.error("Failed to apply Piercing Salvo — see console.");
+          setEnabled(true);
+        }
+      });
+    };
+
+    wire(row.querySelector(".sta2e-piercing-salvo-apply"),
+      payload => CombatHUD._spendDamageMomentumCost(payload, 2, "Piercing Salvo"));
+
+    // Threat is always an option for PC/allied ships, however much Momentum is
+    // banked. `source: "torpedoAttack"` is what lets a non-GM raise Threat at
+    // all — see canUserAdjustPool() in pool-service.js.
+    wire(row.querySelector(".sta2e-piercing-salvo-threat"), payload => {
+      const token = payload.attackerTokenId ? canvas.tokens?.get(payload.attackerTokenId) : null;
+      const actor = payload.attackerActorId ? game.actors?.get(payload.attackerActorId) : null;
+      return adjustPool("threat", 2, { source: "torpedoAttack", token, actor });
+    });
+  });
+
   // ── Chief of Security — successful personal attack spend ────────────────
   html.querySelectorAll(".sta2e-chief-security-penalty").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -20300,12 +20724,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         } else {
           const hud = game.sta2eToolkit?.combatHud;
           const weaponBtns = weapons.map((w, i) => {
-            const dmg = w.system?.damage ?? "?";
-            const sev = w.system?.severity ?? 0;
+            const sev = getGroundWeaponSeverity(w);
             const qlts = hud ? hud._weaponQualityString(w) : "";
             return `
               <button class="sta2e-ctr-weapon" data-index="${i}"
-                title="${w.name}&#10;Damage: ${dmg} · Severity: ${sev}${qlts ? "&#10;Qualities: " + qlts : ""}"
+                title="${w.name}&#10;Severity: ${sev}${qlts ? "&#10;Qualities: " + qlts : ""}"
                 style="width:44px;height:44px;
                   background:${LC.panel} url('${w.img}') center/contain no-repeat;
                   border:1px solid ${LC.border};border-radius:2px;
@@ -20443,7 +20866,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return;
         }
         const config    = getWeaponConfig(chosenWeapon);
-        const severity  = chosenWeapon.system?.severity ?? 0;
+        const severity  = getGroundWeaponSeverity(chosenWeapon);
 
         const profile    = CombatHUD.getGroundCombatProfile(attackerActor, attackerToken?.document);
         const protection = CombatHUD._getTargetProtection(attackerActor);
@@ -20561,7 +20984,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     }
   }
 
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) {
+    // Damage is GM-applied, so players see the traits listed but read-only.
+    html.querySelectorAll(".sta2e-trait-damage-cb").forEach(cb => { cb.disabled = true; });
+    return;
+  }
 
   // ── Ship combat — Apply Damage buttons (GM only) ─────────────────────────
   if (message.flags?.["sta2e-toolkit"]?.damageCard) {
@@ -20574,6 +21001,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         ? Array.from(controls?.querySelectorAll(".sta2e-main-area-target:checked") ?? []).map(inp => inp.value)
         : [];
       const salvoMode = areaSelected ? "area" : spreadSelected ? "spread" : basePayload.salvoMode;
+      const traitDamage = readTraitDamage(controls);
       return {
         ...basePayload,
         finalDamage,
@@ -20581,18 +21009,34 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         spread: spreadSelected,
         areaSecondaryTokenIds,
         salvoMode,
+        traitDamageDelta: traitDamage.delta,
+        traitDamageLabels: traitDamage.labels,
       };
     };
 
     const syncShipDamageControls = (controls) => {
       const input = controls?.querySelector(".sta2e-extra-damage");
       const btn = controls?.querySelector(".sta2e-apply-damage");
+      // The Extra/Total boxes sit in the stat grid above the controls block,
+      // so they live on the target row rather than inside it. The ramming and
+      // collision cards have neither — hence the null guards below.
+      const row = controls?.parentElement ?? null;
+      const extraDisplay = row?.querySelector(".sta2e-extra-display");
+      const totalDisplay = row?.querySelector(".sta2e-total-display");
       const finalDisplay = controls?.querySelector(".sta2e-final-display strong");
       if (!input || !btn) return;
       const basePayload = JSON.parse(decodeURIComponent(input.dataset.basePayload));
       const baseFinal = basePayload.finalDamage;
+      // Paid bonus damage from the spend panel's slider, plus the GM's
+      // off-book Adj box (absent on the ramming/collision cards).
       const extra = parseInt(input.value) || 0;
-      const newTotal = Math.max(0, baseFinal + extra);
+      const manualAdj = parseInt(controls?.querySelector(".sta2e-manual-adj")?.value ?? "0") || 0;
+      // Traits in Play — signed Potency from each ticked trait box.
+      const traitDelta = readTraitDamage(controls).delta;
+      const totalExtra = extra + manualAdj + traitDelta;
+      const newTotal = Math.max(0, baseFinal + totalExtra);
+      if (extraDisplay) extraDisplay.textContent = totalExtra > 0 ? `+${totalExtra}` : String(totalExtra);
+      if (totalDisplay) totalDisplay.textContent = newTotal;
       if (finalDisplay) finalDisplay.textContent = newTotal;
       btn.dataset.payload = encodeURIComponent(JSON.stringify(buildShipDamagePayload(controls, basePayload, newTotal)));
     };
@@ -20647,7 +21091,17 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       input.addEventListener("click", e => e.stopPropagation());
     });
 
-    html.querySelectorAll(".sta2e-extra-damage").forEach(input => {
+    // Traits in Play — ticking one folds its Potency into Extra/Total.
+    html.querySelectorAll(".sta2e-damage-controls .sta2e-trait-damage-cb").forEach(input => {
+      const controls = input.closest(".sta2e-damage-controls");
+      input.addEventListener("change", () => syncShipDamageControls(controls));
+      input.addEventListener("mousedown", e => e.stopPropagation());
+      input.addEventListener("click", e => e.stopPropagation());
+      // Fold any always-on trait into the total on first render.
+      syncShipDamageControls(controls);
+    });
+
+    html.querySelectorAll(".sta2e-extra-damage, .sta2e-manual-adj").forEach(input => {
       const controls     = input.closest(".sta2e-damage-controls");
 
       const update = () => {
@@ -20660,36 +21114,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       update();
     });
 
-    html.querySelectorAll(".sta2e-chief-tactical-damage").forEach(btn => {
-      const controls = btn.closest(".sta2e-damage-controls");
-      const input = controls?.querySelector(".sta2e-extra-damage");
-      btn.addEventListener("mousedown", e => e.stopPropagation());
-      btn.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        if (!input) return;
-        const basePayload = JSON.parse(decodeURIComponent(input.dataset.basePayload ?? "{}"));
-        if (!basePayload.chiefTacticalOfficerAvailable || basePayload.chiefTacticalOfficerBonusApplied) return;
-        const cost = Math.max(1, Number(btn.dataset.cost ?? basePayload.chiefTacticalOfficerCost ?? 1) || 1);
-        const paid = await CombatHUD._spendDamageMomentumCost(basePayload, cost, "Chief Tactical Officer damage bonus");
-        if (!paid) return;
-
-        const baseRaw = Number(basePayload.rawDamage ?? (Number(basePayload.finalDamage ?? 0) + Number(basePayload.resistance ?? 0))) || 0;
-        const resistance = Math.max(0, Number(basePayload.resistance ?? 0) || 0);
-        const nextPayload = {
-          ...basePayload,
-          rawDamage: baseRaw + 1,
-          finalDamage: Math.max(0, baseRaw + 1 - resistance),
-          chiefTacticalOfficerBonusApplied: true,
-        };
-        input.dataset.basePayload = encodeURIComponent(JSON.stringify(nextPayload));
-        btn.disabled = true;
-        btn.textContent = "Chief Tactical Officer Applied";
-        btn.style.opacity = "0.5";
-        btn.style.cursor = "default";
-        syncShipDamageControls(controls);
-      });
-    });
-
     html.querySelectorAll(".sta2e-apply-damage").forEach(btn => {
       btn.addEventListener("click", async () => {
         try {
@@ -20700,14 +21124,20 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               const rounds = Math.max(0, Math.min(3, Number(spendResult.persistentRounds ?? 0) || 0));
               payload.persistentRounds = rounds;
               payload.persistent = !!payload.persistent && rounds > 0;
+              // The panel already reserved and charged the Area secondary cost
+              // as part of this Apply, so _applyAreaSecondaryTargets must not
+              // bill for it a second time.
+              payload.areaSecondaryPrepaid = Math.max(0, Number(spendResult.areaSecondaryCost ?? 0) || 0);
             } catch {}
           }
           btn.disabled      = true;
           btn.textContent   = "✓ Applied";
           btn.style.opacity = "0.5";
           const controls = btn.closest(".sta2e-damage-controls");
-          const input    = controls?.querySelector(".sta2e-extra-damage");
-          if (input) input.disabled = true;
+          controls?.querySelectorAll(".sta2e-extra-damage, .sta2e-manual-adj, .sta2e-trait-damage-cb")
+            .forEach(input => { input.disabled = true; });
+          controls?.parentElement?.querySelectorAll(".sta2e-spend-panel input, .sta2e-spend-panel button")
+            .forEach(el => { el.disabled = true; });
 
           await CombatHUD.applyDamage(payload);
         } catch(err) {
@@ -20786,7 +21216,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         // Apply mechanical effects
         if (actor) {
-          if (result.id === "lose_power") {
+          // Ships without Reserve Power have none to lose — skip the drain and
+          // the Regain Power difficulty bump that would otherwise follow it.
+          if (result.id === "lose_power" && CombatHUD.shipUsesReservePower(actor)) {
             if (CombatHUD.hasReservePower(actor)) await CombatHUD.clearReservePower(actor);
             await CombatHUD.incrementRegainPowerUses(actor);
           }
@@ -20863,7 +21295,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         btn.style.opacity = "0.8"; btn.style.borderColor = LC.tertiary;
 
         if (actor) {
-          if (result.id === "lose_power") {
+          // Ships without Reserve Power have none to lose — skip the drain and
+          // the Regain Power difficulty bump that would otherwise follow it.
+          if (result.id === "lose_power" && CombatHUD.shipUsesReservePower(actor)) {
             if (CombatHUD.hasReservePower(actor)) await CombatHUD.clearReservePower(actor);
             await CombatHUD.incrementRegainPowerUses(actor);
           }
@@ -20955,41 +21389,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           } catch(err) {
             console.error("STA2e Toolkit | applyDevastatingAttack error:", err);
             ui.notifications.error("Failed to apply Devastating Attack — see console.");
-          }
-        });
-      });
-
-      // ── Area Attack — apply same damage to additional nearby starship tokens ──
-      html.querySelectorAll(".sta2e-area-enabled").forEach(input => {
-        const wrap = input.closest("div");
-        const btn = wrap?.querySelector(".sta2e-area-attack");
-        const sync = () => {
-          if (!btn) return;
-          btn.disabled = !input.checked;
-          btn.style.opacity = input.checked ? "1" : "0.45";
-          btn.style.cursor = input.checked ? "pointer" : "not-allowed";
-        };
-        input.addEventListener("change", sync);
-        input.addEventListener("mousedown", e => e.stopPropagation());
-        sync();
-      });
-
-      html.querySelectorAll(".sta2e-area-attack").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          try {
-            const payload   = JSON.parse(decodeURIComponent(btn.dataset.payload));
-            btn.disabled    = true;
-            btn.textContent = "Selecting targets…";
-            btn.style.opacity = "0.7";
-            await CombatHUD.openAreaTargetPicker(payload);
-            btn.textContent   = "✓ Area Applied";
-            btn.style.opacity = "0.5";
-          } catch(err) {
-            console.error("STA2e Toolkit | openAreaTargetPicker error:", err);
-            ui.notifications.error("Failed to apply Area attack — see console.");
-            btn.disabled  = false;
-            btn.textContent = "AREA — APPLY TO ADDITIONAL TARGETS";
-            btn.style.opacity = "1";
           }
         });
       });
@@ -21167,6 +21566,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             salvoMode:       caSalvoMode,
             overrideTargets: [attackerToken],
             chiefTacticalOfficerAvailable,
+            // No task roll behind a counterattack — seed the weapon's Versatile X
+            // so the damage card and Devastating Attack can spend it.
+            seedWeaponVersatile: true,
           });
         } catch(err) {
           console.error("STA2e Toolkit | Ship counterattack error:", err);
@@ -22028,7 +22430,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             }
           }
           const traitDuration = durationEl?.value ?? (traitScope === "scene" ? "scene" : "persistent");
-          const traitEffectType = effectTypeEl?.value ?? "note";
+          // The dropdown offers "Damage +" / "Damage −" rather than a separate
+          // direction field, so split the combined value back apart here.
+          const rawEffectType = effectTypeEl?.value ?? "note";
+          const traitEffectType = rawEffectType === "damage-reduce" ? "damage" : rawEffectType;
+          const traitDamageDirection = rawEffectType === "damage-reduce" ? "reduce" : "increase";
           const sourceTags = planTagEl?.checked ? ["plan"] : [];
 
           if (!traitName) {
@@ -22112,12 +22518,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             id: "primary",
             type: traitEffectType,
             label: traitEffectType === "difficulty" ? "Difficulty"
-              : traitEffectType === "reroll" ? "One-Die Reroll"
-                : traitEffectType === "bonusMomentum" ? "Bonus Momentum"
-                  : traitEffectType === "bonusThreat" ? "Bonus Threat"
-                    : traitEffectType === "complicationRange" ? "Complication Range"
-                      : traitEffectType,
+              : traitEffectType === "damage" ? "Damage"
+                : traitEffectType === "reroll" ? "One-Die Reroll"
+                  : traitEffectType === "bonusMomentum" ? "Bonus Momentum"
+                    : traitEffectType === "bonusThreat" ? "Bonus Threat"
+                      : traitEffectType === "complicationRange" ? "Complication Range"
+                        : traitEffectType,
             value: 0,
+            damageDirection: traitDamageDirection,
             scalesWithQuantity: false,
             match: {},
           }];

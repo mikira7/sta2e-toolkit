@@ -20,6 +20,8 @@ import {
   removeSceneTrait,
   setSceneTraits,
   traitQuantity,
+  TRAIT_EFFECT_TYPES,
+  TRAIT_EFFECT_LABELS,
   unlinkSceneTraitActor,
   updateActorTraitItem,
   updateSceneTraitItem,
@@ -45,6 +47,10 @@ function traitEffectText(trait) {
     const potency = traitQuantity(trait);
     if (effect.type === "difficulty") {
       return `${effect.label || "Difficulty"} changes Difficulty by ${potency}; choose direction on roll`;
+    }
+    if (effect.type === "damage") {
+      const dir = effect.damageDirection === "reduce" ? "reduces" : "increases";
+      return `${effect.label || "Damage"} ${dir} Damage by ${potency}; pick it on the damage card`;
     }
     const suffix = ["complicationRange", "bonusMomentum", "bonusThreat"].includes(effect.type) ? ` +${potency}` : "";
     return `${effect.label || effect.type}${suffix}`;
@@ -491,7 +497,11 @@ class TraitManagerApp extends foundry.applications.api.ApplicationV2 {
           <input name="sourceTags" value="${escapeHtml((automation.sourceTags ?? []).join(", "))}" placeholder="equipment, scene" />
           <label>Effect Type</label>
           <select name="effectType">
-            ${["note", "difficulty", "reroll", "bonusMomentum", "bonusThreat", "complicationRange", "possible", "impossible"].map(v => `<option value="${v}" ${first.type === v ? "selected" : ""}>${v}</option>`).join("")}
+            ${TRAIT_EFFECT_TYPES.map(v => `<option value="${v}" ${first.type === v ? "selected" : ""}>${escapeHtml(TRAIT_EFFECT_LABELS[v] ?? v)}</option>`).join("")}
+          </select>
+          <label>Damage Direction</label>
+          <select name="damageDirection">
+            ${[["increase", "Increase Damage"], ["reduce", "Reduce Damage"]].map(([v, l]) => `<option value="${v}" ${(first.damageDirection === "reduce" ? "reduce" : "increase") === v ? "selected" : ""}>${l}</option>`).join("")}
           </select>
           <label>Effect Label</label>
           <input name="effectLabel" value="${escapeHtml(first.label ?? "")}" />
@@ -534,6 +544,12 @@ class TraitManagerApp extends foundry.applications.api.ApplicationV2 {
                 type: effectType,
                 label: String(fd.get("effectLabel") ?? "") || effectType,
                 value: 0,
+                // This dialog has no Difficulty/Complication direction field, so
+                // carry the saved ones through rather than resetting them.
+                difficultyDirection: first.difficultyDirection === "reduce" ? "reduce" : "increase",
+                complicationDirection: first.complicationDirection === "reduce" ? "reduce" : "increase",
+                damageDirection: String(fd.get("damageDirection") ?? "increase") === "reduce" ? "reduce" : "increase",
+                alwaysOn: !!first.alwaysOn,
                 scalesWithQuantity: false,
                 match: {
                   taskKeys: split("taskKeys"),

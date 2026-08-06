@@ -5,12 +5,14 @@
  * dialog (its "Opposed Task" tab).  Previously this lived in opposed-task.js
  * as a standalone DialogV2.
  *
- * IMPORTANT — this module must only ever import ./lcars-theme.js.
- * opposed-task.js pulls in combat-hud.js, which reaches combat-hud-core.js,
- * which imports task-maker.js.  Importing opposed-task.js from here (or from
- * task-maker.js) would close that loop into a real cycle, and main.js
- * evaluates opposed-task.js first, so task-maker.js would see a
- * half-initialised namespace.  Keeping this module dependency-free breaks it.
+ * IMPORTANT — this module must only ever import ./lcars-theme.js and
+ * ./ship-pool.js.  opposed-task.js pulls in combat-hud.js, which reaches
+ * combat-hud-core.js, which imports task-maker.js.  Importing opposed-task.js
+ * from here (or from task-maker.js) would close that loop into a real cycle,
+ * and main.js evaluates opposed-task.js first, so task-maker.js would see a
+ * half-initialised namespace.  Keeping this module's imports to leaves breaks
+ * it: ship-pool.js reaches only crew-manifest.js, which imports nothing but
+ * lcars-theme.js.
  *
  * The panel keeps the original `.op-*` class names so the resolution side of
  * opposed-task.js (and anything reading the posted card) is unaffected, but it
@@ -21,6 +23,7 @@
  */
 
 import { getLcTokens, inputStyle, labelStyle, pillStyle, selectStyle } from "./lcars-theme.js";
+import { isShipActor, orderedShipsForActor, shipDeptOptions, shipSystemOptions } from "./ship-pool.js";
 
 // Resolved at render time — the active campaign's theme can change between renders.
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
@@ -89,6 +92,32 @@ function recentOpposedTasks() {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
+ * Ship-assist defaults for one side.  Mirrors the Normal Task tab's ship
+ * defaults (task-maker.js defaultState): first assigned ship, Computers +
+ * Command when the ship has them, else whatever it does have.
+ */
+function defaultSideShipState(side, prefill = {}) {
+  const actorId = prefill[`${side}ActorId`]
+    ?? (side === "defender" ? prefill.responderActorId : prefill.initiatorActorId)
+    ?? null;
+  const actor = actorId ? game.actors.get(actorId) : null;
+  const preferred = prefill[`${side}ShipActorId`] ?? null;
+  // A ship side rolls its own System + Dept via the roller's NPC Ship Pool —
+  // it never needs a separate assisting ship.
+  const ships = actor && !isShipActor(actor) ? orderedShipsForActor(actor, preferred) : [];
+  const shipActorId = preferred ?? ships[0]?.actorId ?? null;
+  const ship = ships.find(s => s.actorId === shipActorId)?.shipActor ?? ships[0]?.shipActor ?? null;
+  return {
+    [`${side}ShipAssist`]: !!prefill[`${side}ShipAssist`],
+    [`${side}ShipActorId`]: shipActorId,
+    [`${side}ShipSystemKey`]: prefill[`${side}ShipSystemKey`]
+      ?? (ship?.system?.systems?.computers ? "computers" : Object.keys(ship?.system?.systems ?? {})[0] ?? ""),
+    [`${side}ShipDeptKey`]: prefill[`${side}ShipDeptKey`]
+      ?? (ship?.system?.departments?.command ? "command" : Object.keys(ship?.system?.departments ?? {})[0] ?? ""),
+  };
+}
+
+/**
  * Build the opposed sub-state.  taskName/flavor deliberately live on the
  * outer Task Maker state — they are shared across all three tabs.
  */
@@ -101,6 +130,12 @@ export function defaultOpposedState(prefill = {}) {
     attackerSuggestedDisc: prefill.attackerSuggestedDisc ?? prefill.suggestedDisc ?? "command",
     defenderActorId:       prefill.defenderActorId ?? prefill.responderActorId ?? null,
     attackerActorId:       prefill.attackerActorId ?? prefill.initiatorActorId ?? null,
+    // Token ids are captured whenever the slot is filled from the canvas, so an
+    // unlinked ship token's own crew quality is reachable at roll time.
+    defenderTokenId:       prefill.defenderTokenId ?? null,
+    attackerTokenId:       prefill.attackerTokenId ?? null,
+    ...defaultSideShipState("defender", prefill),
+    ...defaultSideShipState("attacker", prefill),
     options: {
       defenderComplicationRange: prefill.options?.defenderComplicationRange ?? prefill.defenderComplicationRange ?? prefill.options?.complicationRange ?? prefill.complicationRange ?? 1,
       attackerComplicationRange: prefill.options?.attackerComplicationRange ?? prefill.attackerComplicationRange ?? prefill.options?.complicationRange ?? prefill.complicationRange ?? 1,
@@ -119,6 +154,15 @@ export function readOpposedPanelState(root, state) {
   opposed.defenderSuggestedDisc = root.querySelector(".op-defender-disc")?.value ?? opposed.defenderSuggestedDisc;
   opposed.attackerSuggestedAttr = root.querySelector(".op-attacker-attr")?.value ?? opposed.attackerSuggestedAttr;
   opposed.attackerSuggestedDisc = root.querySelector(".op-attacker-disc")?.value ?? opposed.attackerSuggestedDisc;
+  for (const side of ["defender", "attacker"]) {
+    // The row is absent for a ship side — keep whatever the state already holds.
+    const assist = root.querySelector(`.op-${side}-ship-assist`);
+    if (!assist) continue;
+    opposed[`${side}ShipAssist`] = !!assist.checked;
+    opposed[`${side}ShipActorId`] = root.querySelector(`.op-${side}-ship`)?.value || opposed[`${side}ShipActorId`] || null;
+    opposed[`${side}ShipSystemKey`] = root.querySelector(`.op-${side}-ship-system`)?.value || opposed[`${side}ShipSystemKey`] || null;
+    opposed[`${side}ShipDeptKey`] = root.querySelector(`.op-${side}-ship-dept`)?.value || opposed[`${side}ShipDeptKey`] || null;
+  }
   opposed.options = {
     defenderComplicationRange: clampInt(root.querySelector(".op-defender-complication-range")?.value, 1, 5, 1),
     attackerComplicationRange: clampInt(root.querySelector(".op-attacker-complication-range")?.value, 1, 5, 1),
@@ -185,16 +229,67 @@ export function buildOpposedPanelHtml(state) {
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        ${buildOpposedSlotHtml("defender", opposed.defenderActorId)}
-        ${buildOpposedSlotHtml("attacker", opposed.attackerActorId)}
+        ${buildOpposedSlotHtml("defender", opposed.defenderActorId, opposed.defenderTokenId)}
+        ${buildOpposedSlotHtml("attacker", opposed.attackerActorId, opposed.attackerTokenId)}
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         ${sideSuggestionHtml("defender", opposed.defenderSuggestedAttr, opposed.defenderSuggestedDisc)}
         ${sideSuggestionHtml("attacker", opposed.attackerSuggestedAttr, opposed.attackerSuggestedDisc)}
       </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        ${buildOpposedShipRowHtml("defender", opposed)}
+        ${buildOpposedShipRowHtml("attacker", opposed)}
+      </div>
     </div>
   `;
+}
+
+/**
+ * Ship-assist box for one side — the Opposed tab's equivalent of the Normal
+ * tab's `.tmk-ship-panel`.  A ship side gets a note instead: it already rolls
+ * its own System + Department through the roller's NPC Ship Pool.
+ */
+export function buildOpposedShipRowHtml(sideKey, opposed) {
+  const accent = sideKey === "defender" ? LC.primary : LC.secondary;
+  const wrap = body => `
+    <div class="op-ship-row" data-slot="${sideKey}"
+      style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
+      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
+        ${SLOT_TITLES[sideKey]} Ship Assist
+      </div>
+      ${body}
+    </div>`;
+
+  const actorId = opposed[`${sideKey}ActorId`];
+  const actor = actorId ? game.actors.get(actorId) : null;
+  if (!actor) {
+    return wrap(`<div style="color:${LC.textDim};font-size:11px;line-height:1.5;">Assign an actor first.</div>`);
+  }
+  if (isShipActor(actor)) {
+    return wrap(`<div style="color:${LC.textDim};font-size:11px;line-height:1.5;">${esc(actor.name)} rolls its own System + Department in the roller's ship pool.</div>`);
+  }
+
+  const assist = !!opposed[`${sideKey}ShipAssist`];
+  const shipActorId = opposed[`${sideKey}ShipActorId`];
+  const ships = orderedShipsForActor(actor, shipActorId);
+  const selectedShip = ships.find(s => s.actorId === shipActorId)?.shipActor ?? ships[0]?.shipActor ?? null;
+  const shipOpts = ships.map(s => `<option value="${esc(s.actorId)}" ${s.actorId === shipActorId ? "selected" : ""}>${esc(s.label)}</option>`).join("");
+
+  return wrap(`
+    <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:${LC.text};">
+      <input type="checkbox" class="op-${sideKey}-ship-assist" ${assist ? "checked" : ""} style="accent-color:${accent};"/>
+      Ship assists this side
+    </label>
+    <div class="op-${sideKey}-ship-fields" style="display:${assist ? "grid" : "none"};grid-template-columns:1fr;gap:8px;margin-top:8px;">
+      <label style="${labelStyle()}">Ship<select class="op-${sideKey}-ship" style="${selectStyle()}">${shipOpts || `<option value="">No ships found</option>`}</select></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <label style="${labelStyle()}">System<select class="op-${sideKey}-ship-system" style="${selectStyle()}">${shipSystemOptions(selectedShip, opposed[`${sideKey}ShipSystemKey`])}</select></label>
+        <label style="${labelStyle()}">Department<select class="op-${sideKey}-ship-dept" style="${selectStyle()}">${shipDeptOptions(selectedShip, opposed[`${sideKey}ShipDeptKey`])}</select></label>
+      </div>
+    </div>
+  `);
 }
 
 function complicationSliderHtml(sideKey, label, value, accent) {
@@ -232,11 +327,11 @@ function sideSuggestionHtml(sideKey, attrKey, discKey) {
   `;
 }
 
-export function buildOpposedSlotHtml(slotKey, actorId) {
+export function buildOpposedSlotHtml(slotKey, actorId, tokenId = null) {
   const actor = actorId ? game.actors.get(actorId) : null;
   const accent = slotKey === "defender" ? LC.primary : LC.secondary;
   return `
-    <div class="op-slot" data-slot="${slotKey}" data-actor-id="${actorId ?? ""}"
+    <div class="op-slot" data-slot="${slotKey}" data-actor-id="${actorId ?? ""}" data-token-id="${tokenId ?? ""}"
       style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;min-height:104px;">
       <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
         ${SLOT_TITLES[slotKey]}
@@ -347,6 +442,41 @@ export function wireOpposedPanel(root, state, hooks = {}) {
   });
 
   root.querySelectorAll(".op-slot").forEach(slotEl => wireOpposedSlot(root, state, slotEl));
+  for (const side of ["defender", "attacker"]) wireOpposedShipRow(root, state, side);
+}
+
+/** Mirrors task-maker.js's wireShipFields / refreshShipSelects for one side. */
+function wireOpposedShipRow(root, state, side) {
+  const assist = root.querySelector(`.op-${side}-ship-assist`);
+  assist?.addEventListener("change", () => {
+    state.opposed[`${side}ShipAssist`] = assist.checked;
+    const fields = root.querySelector(`.op-${side}-ship-fields`);
+    if (fields) fields.style.display = assist.checked ? "grid" : "none";
+  });
+  root.querySelector(`.op-${side}-ship`)?.addEventListener("change", event => {
+    state.opposed[`${side}ShipActorId`] = event.target.value || null;
+    refreshOpposedShipSelects(root, state, side);
+  });
+}
+
+/** Repopulate a side's System/Department selects from the newly chosen ship. */
+function refreshOpposedShipSelects(root, state, side) {
+  const opposed = state.opposed;
+  const actorId = opposed[`${side}ActorId`];
+  const actor = actorId ? game.actors.get(actorId) : null;
+  if (!actor) return;
+  const ships = orderedShipsForActor(actor, opposed[`${side}ShipActorId`]);
+  const ship = ships.find(s => s.actorId === opposed[`${side}ShipActorId`])?.shipActor ?? ships[0]?.shipActor ?? null;
+  opposed[`${side}ShipSystemKey`] = ship?.system?.systems?.[opposed[`${side}ShipSystemKey`]]
+    ? opposed[`${side}ShipSystemKey`]
+    : Object.keys(ship?.system?.systems ?? {})[0] ?? opposed[`${side}ShipSystemKey`];
+  opposed[`${side}ShipDeptKey`] = ship?.system?.departments?.[opposed[`${side}ShipDeptKey`]]
+    ? opposed[`${side}ShipDeptKey`]
+    : Object.keys(ship?.system?.departments ?? {})[0] ?? opposed[`${side}ShipDeptKey`];
+  const sysSelect = root.querySelector(`.op-${side}-ship-system`);
+  if (sysSelect) sysSelect.innerHTML = shipSystemOptions(ship, opposed[`${side}ShipSystemKey`]);
+  const deptSelect = root.querySelector(`.op-${side}-ship-dept`);
+  if (deptSelect) deptSelect.innerHTML = shipDeptOptions(ship, opposed[`${side}ShipDeptKey`]);
 }
 
 function applyOpposedSnapshot(root, state, snap, hooks = {}) {
@@ -368,33 +498,46 @@ function wireOpposedSlot(root, state, slotEl) {
   slotEl.addEventListener("drop", async event => {
     event.preventDefault();
     slotEl.style.borderColor = LC.border;
-    const actor = await resolveDroppedActor(event);
-    if (!actor) {
+    const picked = await resolveDroppedActor(event);
+    if (!picked?.actorId) {
       ui.notifications.warn("STA2e Toolkit: Drop an Actor or a Token.");
       return;
     }
-    assignOpposedSlot(root, state, slotEl.dataset.slot, actor.id);
+    assignOpposedSlot(root, state, slotEl.dataset.slot, picked.actorId, picked.tokenId);
   });
   slotEl.querySelector(".op-slot-clear")?.addEventListener("click", () => {
-    assignOpposedSlot(root, state, slotEl.dataset.slot, null);
+    assignOpposedSlot(root, state, slotEl.dataset.slot, null, null);
   });
   slotEl.querySelectorAll(".op-slot-pick").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const id = await pickOpposedActor(btn.dataset.source);
-      if (id) assignOpposedSlot(root, state, slotEl.dataset.slot, id);
+      const picked = await pickOpposedActor(btn.dataset.source);
+      if (picked?.actorId) assignOpposedSlot(root, state, slotEl.dataset.slot, picked.actorId, picked.tokenId);
     });
   });
 }
 
-function assignOpposedSlot(root, state, slot, actorId) {
+function assignOpposedSlot(root, state, slot, actorId, tokenId = null) {
   if (slot !== "defender" && slot !== "attacker") return;
   state.opposed[`${slot}ActorId`] = actorId;
+  state.opposed[`${slot}TokenId`] = tokenId ?? null;
+  // The ship list is derived from the slotted actor, so reset this side's
+  // ship-assist defaults before repainting either box.
+  Object.assign(state.opposed, defaultSideShipState(slot, {
+    [`${slot}ActorId`]: actorId,
+    [`${slot}ShipAssist`]: state.opposed[`${slot}ShipAssist`],
+  }));
   const slotEl = root.querySelector(`.op-slot[data-slot="${slot}"]`);
   if (!slotEl) return;
-  slotEl.outerHTML = buildOpposedSlotHtml(slot, actorId);
+  slotEl.outerHTML = buildOpposedSlotHtml(slot, actorId, tokenId);
   wireOpposedSlot(root, state, root.querySelector(`.op-slot[data-slot="${slot}"]`));
+  const shipRowEl = root.querySelector(`.op-ship-row[data-slot="${slot}"]`);
+  if (shipRowEl) {
+    shipRowEl.outerHTML = buildOpposedShipRowHtml(slot, state.opposed);
+    wireOpposedShipRow(root, state, slot);
+  }
 }
 
+/** @returns {?{actorId: string, tokenId: ?string}} */
 async function resolveDroppedActor(event) {
   let data = null;
   try {
@@ -404,23 +547,32 @@ async function resolveDroppedActor(event) {
   if (data?.uuid) {
     try {
       const doc = await fromUuid(data.uuid);
-      if (doc?.actor) return doc.actor;
-      if (doc?.documentName === "Actor") return doc;
+      // A TokenDocument drag — keep the token so per-token flags stay reachable.
+      if (doc?.actor) return { actorId: doc.actor.id, tokenId: doc.id ?? null };
+      if (doc?.documentName === "Actor") return { actorId: doc.id, tokenId: null };
     } catch {}
   }
-  if (data?.type === "Actor" && data.id) return game.actors.get(data.id);
+  if (data?.type === "Actor" && data.id) {
+    return game.actors.get(data.id) ? { actorId: data.id, tokenId: null } : null;
+  }
   if (data?.type === "Token") {
     const scene = game.scenes.get(data.sceneId ?? canvas.scene?.id);
-    return scene?.tokens.get(data.tokenId ?? data.id)?.actor ?? null;
+    const tokenDoc = scene?.tokens.get(data.tokenId ?? data.id) ?? null;
+    return tokenDoc?.actor ? { actorId: tokenDoc.actor.id, tokenId: tokenDoc.id } : null;
   }
   return null;
 }
 
+/** @returns {?{actorId: string, tokenId: ?string}} */
 async function pickOpposedActor(source) {
-  if (source === "selected") return canvas.tokens?.controlled?.[0]?.actor?.id ?? null;
-  if (source === "targeted") return Array.from(game.user?.targets ?? [])[0]?.actor?.id ?? null;
-  if (source === "mine") return game.user?.character?.id ?? null;
-  if (source === "list") return await openOpposedActorPicker();
+  const fromToken = token => (token?.actor ? { actorId: token.actor.id, tokenId: token.id } : null);
+  if (source === "selected") return fromToken(canvas.tokens?.controlled?.[0]);
+  if (source === "targeted") return fromToken(Array.from(game.user?.targets ?? [])[0]);
+  if (source === "mine") return game.user?.character ? { actorId: game.user.character.id, tokenId: null } : null;
+  if (source === "list") {
+    const id = await openOpposedActorPicker();
+    return id ? { actorId: id, tokenId: null } : null;
+  }
   return null;
 }
 

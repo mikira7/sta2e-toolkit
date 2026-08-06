@@ -15,6 +15,40 @@ export const SCENE_TRAIT_ACTOR_FLAG = "sceneTraitActorUuid";
 export const SCENE_TRAIT_ACTOR_TYPE = "scenetraits";
 export const SCENE_TRAIT_ACTOR_FOLDER = "Scene Traits";
 
+/**
+ * The effect types a trait's automation can carry. Single source of truth — the
+ * item sheet, the Trait Manager and the create-trait chat cards all build their
+ * dropdowns from this list.
+ */
+export const TRAIT_EFFECT_TYPES = [
+  "note",
+  "difficulty",
+  "damage",
+  "reroll",
+  "bonusMomentum",
+  "bonusThreat",
+  "complicationRange",
+  "possible",
+  "impossible",
+];
+
+export const TRAIT_EFFECT_LABELS = {
+  note: "Note",
+  difficulty: "Difficulty",
+  damage: "Damage",
+  reroll: "Reroll",
+  bonusMomentum: "Bonus Momentum",
+  bonusThreat: "Bonus Threat",
+  complicationRange: "Complication Range",
+  possible: "Makes Possible",
+  impossible: "Makes Impossible",
+};
+
+/**
+ * Effect types resolved on the damage chat card rather than in the task roller.
+ */
+export const DAMAGE_CARD_EFFECT_TYPES = ["damage"];
+
 const DEFAULT_IMG = "systems/sta/assets/icons/VoyagerCombadgeIcon.png";
 const DEFAULT_SCENE_TRAIT_ACTOR_IMG = "icons/svg/mystery-man.svg";
 const TRAIT_AUTOMATION_COMMENT_RE = /<!--\s*sta2e-toolkit:traitAutomation:([A-Za-z0-9+/=]+)\s*-->/;
@@ -158,6 +192,7 @@ export function normalizeAutomation(value = {}) {
       value: Number(effect?.value ?? 0) || 0,
       difficultyDirection: effect?.difficultyDirection === "reduce" ? "reduce" : "increase",
       complicationDirection: effect?.complicationDirection === "reduce" ? "reduce" : "increase",
+      damageDirection: effect?.damageDirection === "reduce" ? "reduce" : "increase",
       alwaysOn: !!effect?.alwaysOn,
       scalesWithQuantity: !!effect?.scalesWithQuantity,
       match: effect?.match && typeof effect.match === "object" ? foundry.utils.deepClone(effect.match) : {},
@@ -531,7 +566,7 @@ export function effectMatches(effect, context, sourceTrait) {
 }
 
 export function effectMagnitude(effect, trait) {
-  if (["difficulty", "complicationRange", "bonusMomentum", "bonusThreat"].includes(effect?.type)) {
+  if (["difficulty", "damage", "complicationRange", "bonusMomentum", "bonusThreat"].includes(effect?.type)) {
     return traitQuantity(trait);
   }
   if (effect?.type === "reroll") return 1;
@@ -616,6 +651,8 @@ export function rollTraitSuggestions(actor, token, state = {}) {
       continue;
     }
     for (const effect of trait.automation.effects) {
+      // Damage effects are resolved on the damage chat card, not the task roll.
+      if (DAMAGE_CARD_EFFECT_TYPES.includes(effect.type)) continue;
       if (!effectMatches(effect, context, trait)) continue;
       const autoCheck = ["complicationRange", "reroll", "bonusMomentum", "bonusThreat"].includes(effect.type);
       suggestions.push({
@@ -626,6 +663,91 @@ export function rollTraitSuggestions(actor, token, state = {}) {
         checked: !!effect.alwaysOn || autoCheck,
         locked: !!effect.alwaysOn,
         noteOnly: effect.type === "note" || effect.type === "possible" || effect.type === "impossible",
+      });
+    }
+  }
+  return suggestions;
+}
+
+/**
+ * Match context for a damage card. Mirrors rollTraitContext() but is driven by
+ * the weapon rather than by roller state — there is no task/station/attribute in
+ * play by the time damage is being applied, so those keys stay null (and an
+ * effect that filters on them simply will not match).
+ */
+export function damageTraitContext({ mode = "starship", weapon = null, isTorpedo = false, isArray = false, isSalvo = false } = {}) {
+  const ground = mode === "ground";
+  const weaponTags = ["weapon", "attack"];
+  if (isTorpedo) weaponTags.push("torpedo");
+  if (isArray) weaponTags.push("array");
+  if (isSalvo) weaponTags.push("salvo");
+  weaponTags.push(ground ? "ground" : "starship");
+
+  return {
+    mode: ground ? "ground" : "starship",
+    weapon,
+    taskKey: null,
+    stationId: null,
+    attrKey: null,
+    discKey: null,
+    shipSystemKey: null,
+    shipDeptKey: null,
+    weaponTags,
+  };
+}
+
+/**
+ * Traits that could bear on an attack's damage: the attacker's, the target's and
+ * the scene's. Each record is tagged with appliesFrom so the card can show where
+ * it came from.
+ */
+export function collectDamageTraits({ attackerActor = null, targetActor = null, scene = canvas?.scene } = {}) {
+  const records = [];
+  if (attackerActor) {
+    records.push(...getActorTraitRecords(attackerActor).map(t => ({ ...t, appliesFrom: "attacker" })));
+  }
+  const sameActor = attackerActor && targetActor
+    && (attackerActor.id === targetActor.id || attackerActor.uuid === targetActor.uuid);
+  if (targetActor && !sameActor) {
+    records.push(...getActorTraitRecords(targetActor).map(t => ({ ...t, appliesFrom: "target" })));
+  }
+  records.push(...getSceneTraitRecords(scene).map(t => ({ ...t, appliesFrom: "scene" })));
+  return records;
+}
+
+/**
+ * Card-ready list of damage-modifying traits in play for one attacker/target pair.
+ * `delta` is the signed Potency the card should add to damage when ticked.
+ */
+export function damageTraitSuggestions({
+  mode = "starship",
+  weapon = null,
+  attackerActor = null,
+  targetActor = null,
+  scene = canvas?.scene,
+  isTorpedo = false,
+  isArray = false,
+  isSalvo = false,
+} = {}) {
+  const context = damageTraitContext({ mode, weapon, isTorpedo, isArray, isSalvo });
+  const suggestions = [];
+  for (const trait of collectDamageTraits({ attackerActor, targetActor, scene })) {
+    if (!trait.configured) continue;
+    for (const effect of trait.automation.effects) {
+      if (!DAMAGE_CARD_EFFECT_TYPES.includes(effect.type)) continue;
+      if (!effectMatches(effect, context, trait)) continue;
+      const potency = effectMagnitude(effect, trait);
+      const direction = effect.damageDirection === "reduce" ? "reduce" : "increase";
+      suggestions.push({
+        id: `${trait.scope}:${trait.itemId ?? trait.id}:${effect.id}`,
+        traitName: trait.name,
+        scope: trait.scope,
+        appliesFrom: trait.appliesFrom ?? trait.scope,
+        label: effect.label || trait.name,
+        potency,
+        direction,
+        delta: potency * (direction === "reduce" ? -1 : 1),
+        alwaysOn: !!effect.alwaysOn,
       });
     }
   }
@@ -928,6 +1050,10 @@ function traitSuggestionEffectText(suggestion) {
   if (effect.type === "complicationRange") {
     const dir = effect.complicationDirection === "reduce" ? "Reduce" : "Increase";
     return `${dir} Complication range by ${Math.abs(value)}`;
+  }
+  if (effect.type === "damage") {
+    const dir = effect.damageDirection === "reduce" ? "Reduce" : "Increase";
+    return `${dir} Damage by ${Math.abs(value)} - pick it on the damage card`;
   }
   const suffix = value ? ` ${value > 0 ? "+" : ""}${value}` : "";
   return `${label}${suffix}`;

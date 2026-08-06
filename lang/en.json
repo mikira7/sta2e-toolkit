@@ -198,6 +198,8 @@
   "STA2E.Settings.AutoDestroyNpcStarships.Hint": "When an NPC starship is destroyed, skip the GM destruction card and automatically run death throes followed by the final explosion.",
   "STA2E.Settings.AutoDestroyPlayerStarships.Name": "Ship Destruction — Auto-Destroy Player Starships",
   "STA2E.Settings.AutoDestroyPlayerStarships.Hint": "When a player starship is destroyed, skip the GM destruction card and automatically run death throes followed by the final explosion.",
+  "STA2E.Settings.NpcShipsUseReservePower.Name": "NPC Ships — Use Reserve Power",
+  "STA2E.Settings.NpcShipsUseReservePower.Hint": "When enabled, NPC and allied NPC ships use Reserve Power exactly like the players' ship. When disabled (the default, and the rule as written on p.185), NPC vessels have no Reserve Power: Warp, Regen Shields, Reroute Power and Cloak cost nothing, and the Regain Power action is hidden.",
   "STA2E.Settings.ShipDestructionThroesDuration.Name": "Ship Destruction — Death Throes Duration",
   "STA2E.Settings.ShipDestructionThroesDuration.Hint": "Seconds a destroyed starship spins, drifts, and suffers secondary explosions before the final explosion.",
   "STA2E.Settings.AlphaAwareWeaponHitPoints.Name": "Ship Weapon Animations — Avoid Transparent Token Areas",

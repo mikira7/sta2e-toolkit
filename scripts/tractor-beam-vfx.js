@@ -6,9 +6,13 @@
 
 import {
   getClosestShipTractorEmitterPoint,
+  getShipTractorBeamSettings,
   getTokenAlphaMask,
+  resolveTractorFactionColorHex,
   tokenTextureSource,
 } from "./ship-vfx-anchors.js";
+
+export { TRACTOR_FACTION_COLORS } from "./ship-vfx-anchors.js";
 
 const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 910_000;
@@ -24,11 +28,19 @@ export const TRACTOR_BEAM_PRESETS = {
 
 export const TRACTOR_BEAM_DEFAULTS = {
   preset: "starfleet",
+  colorMode: "auto",
   color: TRACTOR_BEAM_PRESETS.starfleet.color,
   placement: "above",
   duration: 6000,
   opacity: 0.55,
   pulseSpeed: 1.35,
+  rayLines: true,
+  rayCount: 5,
+  rayWidth: 2.4,
+  rayFeather: 0.7,
+  raySpeed: 0.8,
+  rayOpacity: 0.85,
+  rayShade: 0.55,
 };
 
 export const TRACTOR_BEAM_WORLD_SETTING = "tractorBeamVfxWorldDefaults";
@@ -46,6 +58,15 @@ function _hexToInt(hex, fallback = 0x44bbff) {
   return parseInt(value.slice(1), 16);
 }
 
+// Darkens a packed rgb int. Under ADD blending a darker color reads as a
+// dimmer line, which is how the interior arcs stay subtler than the fill.
+function _shadeInt(colorInt, factor) {
+  const r = Math.round(((colorInt >> 16) & 0xff) * factor);
+  const g = Math.round(((colorInt >> 8) & 0xff) * factor);
+  const b = Math.round((colorInt & 0xff) * factor);
+  return (r << 16) | (g << 8) | b;
+}
+
 function _normalizeHex(hex, fallback = TRACTOR_BEAM_DEFAULTS.color) {
   const value = String(hex ?? "").trim();
   return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback;
@@ -53,6 +74,12 @@ function _normalizeHex(hex, fallback = TRACTOR_BEAM_DEFAULTS.color) {
 
 function _clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+// Unlike `Number(x) || fallback`, keeps a legitimate 0.
+function _num(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function _effectLayer(placement = "above") {
@@ -77,19 +104,21 @@ function _fillPolygon(g, points, color, alpha) {
   g.poly(points).fill({ color, alpha });
 }
 
-function _strokePath(g, points, width, color, alpha) {
+function _strokePath(g, points, width, color, alpha, cap = null) {
+  const style = cap ? { width, color, alpha, cap } : { width, color, alpha };
   if (typeof g.lineStyle === "function") {
-    g.lineStyle(width, color, alpha);
+    if (cap) g.lineStyle(style);
+    else g.lineStyle(width, color, alpha);
   }
   else {
-    g.setStrokeStyle?.({ width, color, alpha });
+    g.setStrokeStyle?.(style);
   }
 
   g.moveTo(points[0], points[1]);
   for (let i = 2; i < points.length; i += 2) g.lineTo(points[i], points[i + 1]);
 
   if (typeof g.stroke === "function" && typeof g.lineStyle !== "function") {
-    g.stroke({ width, color, alpha });
+    g.stroke(style);
   }
 }
 
@@ -482,6 +511,73 @@ function _drawFacingBeam(graphics, sourcePoint, contour, opts, elapsedSeconds) {
 
   _fillPolygon(graphics, points, color, alpha);
   _strokePath(graphics, [...points, sourcePoint.x, sourcePoint.y], 1.5, color, alpha * 0.9);
+  _drawEmitterRays(graphics, sourcePoint, contour, opts, elapsedSeconds, color, alpha);
+}
+
+// Cumulative segment lengths along the contour, so rays can be spread evenly
+// across the hull edge. The contour is Douglas-Peucker simplified, so its
+// points are unevenly spaced and indexing into it directly would bunch rays
+// wherever the silhouette is detailed.
+function _contourLengths(contour) {
+  const lengths = [0];
+  for (let i = 1; i < contour.length; i++) {
+    const dx = contour[i].x - contour[i - 1].x;
+    const dy = contour[i].y - contour[i - 1].y;
+    lengths.push(lengths[i - 1] + Math.hypot(dx, dy));
+  }
+  return lengths;
+}
+
+function _contourPointAt(contour, lengths, u) {
+  const total = lengths[lengths.length - 1];
+  if (!(total > 0)) return contour[0];
+  const target = _clamp(u, 0, 1) * total;
+  let i = 1;
+  while (i < lengths.length - 1 && lengths[i] < target) i++;
+  const span = lengths[i] - lengths[i - 1];
+  const localT = span > 0 ? (target - lengths[i - 1]) / span : 0;
+  const a = contour[i - 1];
+  const b = contour[i];
+  return { x: a.x + (b.x - a.x) * localT, y: a.y + (b.y - a.y) * localT };
+}
+
+// Soft edges come from stacking strokes rather than from a filter: a wide dim
+// halo, a mid pass, then the bright core. Under ADD blending those sum into a
+// falloff across the ray's width, which is what sells it as light instead of a
+// drawn line. Widest first so the core lands on top.
+function _featherPasses(feather) {
+  if (feather <= 0.01) return [{ widthMul: 1, alphaMul: 1 }];
+  return [
+    { widthMul: 1 + 3.4 * feather, alphaMul: 0.14 * feather },
+    { widthMul: 1 + 1.5 * feather, alphaMul: 0.30 * feather },
+    { widthMul: 1, alphaMul: 1 },
+  ];
+}
+
+// Discrete rays fanning out from the emitter to the target's hull edge, the
+// way a screen-accurate tractor beam reads. Each ray breathes on its own phase
+// offset so the fan shimmers instead of blinking in unison.
+function _drawEmitterRays(graphics, sourcePoint, contour, opts, elapsedSeconds, color, alpha) {
+  if (!opts.rayLines || opts.rayCount < 1) return;
+  const rayColor = _shadeInt(color, opts.rayShade);
+  const lengths = _contourLengths(contour);
+  const passes = _featherPasses(opts.rayFeather);
+
+  for (let i = 0; i < opts.rayCount; i++) {
+    // Interior positions only — the outermost rays would sit on the wedge
+    // outline that is already stroked.
+    const u = (i + 1) / (opts.rayCount + 1);
+    const phase = elapsedSeconds * opts.raySpeed - i / opts.rayCount;
+    const breath = 0.30 + 0.70 * (0.5 + 0.5 * Math.sin(phase * Math.PI * 2));
+    const rayAlpha = alpha * opts.rayOpacity * breath;
+    if (rayAlpha <= 0.002) continue;
+
+    const tip = _contourPointAt(contour, lengths, u);
+    const line = [sourcePoint.x, sourcePoint.y, tip.x, tip.y];
+    for (const pass of passes) {
+      _strokePath(graphics, line, opts.rayWidth * pass.widthMul, rayColor, rayAlpha * pass.alphaMul, "round");
+    }
+  }
 }
 
 function _resolveTokens() {
@@ -495,12 +591,46 @@ function _readOptions(options = {}) {
   const presetColor = TRACTOR_BEAM_PRESETS[preset]?.color ?? TRACTOR_BEAM_DEFAULTS.color;
   return {
     preset,
+    colorMode: options.colorMode === "custom" ? "custom" : "auto",
     color: _normalizeHex(options.color, presetColor),
     placement: options.placement === "below" ? "below" : "above",
     duration: _clamp(Number(options.duration) || TRACTOR_BEAM_DEFAULTS.duration, 500, 60000),
     opacity: _clamp(Number(options.opacity) || TRACTOR_BEAM_DEFAULTS.opacity, 0.05, 1),
     pulseSpeed: _clamp(Number(options.pulseSpeed) || TRACTOR_BEAM_DEFAULTS.pulseSpeed, 0.1, 6),
+    rayLines: options.rayLines !== false,
+    rayCount: Math.round(_clamp(_num(options.rayCount, TRACTOR_BEAM_DEFAULTS.rayCount), 0, 24)),
+    rayWidth: _clamp(_num(options.rayWidth, TRACTOR_BEAM_DEFAULTS.rayWidth), 0.5, 10),
+    rayFeather: _clamp(_num(options.rayFeather, TRACTOR_BEAM_DEFAULTS.rayFeather), 0, 1),
+    raySpeed: _clamp(_num(options.raySpeed, TRACTOR_BEAM_DEFAULTS.raySpeed), 0.05, 4),
+    rayOpacity: _clamp(_num(options.rayOpacity, TRACTOR_BEAM_DEFAULTS.rayOpacity), 0, 1),
+    rayShade: _clamp(_num(options.rayShade, TRACTOR_BEAM_DEFAULTS.rayShade), 0.1, 1),
   };
+}
+
+// Faction tint for the emitting ship. Custom mode passes the configured hex
+// straight through.
+export function resolveTractorBeamColorHex(sourceToken, opts = {}) {
+  if (opts.colorMode === "custom") return _normalizeHex(opts.color);
+  return resolveTractorFactionColorHex(sourceToken);
+}
+
+// Resolution order: a ship's own settings (when it opts in via the Tractor tab
+// of the ship VFX editor) win over the global world/client values, and the
+// faction tint fills in whenever the winning layer is on "auto" color.
+function _resolveBeamOptions(sourceToken, options) {
+  const ship = (() => {
+    try { return getShipTractorBeamSettings(sourceToken); }
+    catch { return null; }
+  })();
+
+  if (ship?.override) {
+    const { override, customColor, ...shipOptions } = ship;
+    options = { ...options, ...shipOptions, color: customColor || options.color };
+  }
+
+  const opts = _readOptions(options);
+  if (opts.colorMode === "auto") opts.color = resolveTractorBeamColorHex(sourceToken, opts);
+  return opts;
 }
 
 export class NativeTractorBeamVFX {
@@ -513,7 +643,7 @@ export class NativeTractorBeamVFX {
     if (persistentKey) NativeTractorBeamVFX.stopPersistent(persistentKey);
     else NativeTractorBeamVFX.stopActive();
 
-    const opts = _readOptions(options);
+    const opts = _resolveBeamOptions(sourceToken, options);
     let sourceAlphaMask = null;
     let targetAlphaMask = null;
     let sourceTextureSrc = null;
@@ -738,6 +868,13 @@ export function registerTractorBeamVfxHooks() {
     }
   });
   Hooks.on("deleteToken", () => refreshPersistentTractorBeamVfx());
+  // Per-ship beam overrides live on the ship VFX anchors flag, so a live beam
+  // has to be rebuilt when the GM edits them in the Tractor tab.
+  Hooks.on("updateActor", (_actor, changes) => {
+    if (changes.flags?.[MODULE]?.shipVfxAnchors !== undefined) {
+      refreshPersistentTractorBeamVfx();
+    }
+  });
   Hooks.on("updateSetting", setting => {
     const key = setting?.key ?? "";
     if (key === `${MODULE}.${TRACTOR_BEAM_WORLD_SETTING}`

@@ -5,6 +5,7 @@
  */
 
 import {
+  advanceShipArrayCurveWalk,
   getClosestShipArrayCurveMatch,
   getShipWeaponVfxSettings,
   getShipHitLocationPointForShot,
@@ -12,6 +13,7 @@ import {
   getShipWeaponEmitterAnchors,
   getTokenAlphaMask,
   isShipArrayWeapon,
+  sampleShipArrayCurvePointAtT,
   shipWeaponAnchorToCanvasPoint,
   tokenAnchorToCanvasPoint,
   tokenTextureSource,
@@ -39,6 +41,177 @@ export const NATIVE_WEAPON_VFX_MODE_ROWS = Object.freeze([
 ]);
 
 const SUPPORTED_NATIVE_WEAPONS = new Set(Object.keys(NATIVE_WEAPON_VFX_DEFAULT_MODES));
+
+// ── Beam appearance ─────────────────────────────────────────────────────────
+// Every value below is the literal the beam draw functions used before this was
+// configurable, so an unset world keeps the stock look.
+
+export const BEAM_VFX_EASING_OPTIONS = Object.freeze(["linear", "inQuad", "outQuad", "inOutQuad"]);
+export const BEAM_VFX_BLEND_OPTIONS = Object.freeze(["add", "normal"]);
+// Which phaser era fires travelling bolts instead of a held beam. "off" disables.
+export const BEAM_VFX_TRACER_ERA_OPTIONS = Object.freeze(["off", "ent", "tos", "tmp", "tng"]);
+
+export const DEFAULT_BEAM_VFX_SETTINGS = Object.freeze({
+  bank: Object.freeze({
+    glowWidth: 14,
+    glowAlpha: 0.26,
+    coreWidth: 3,
+    coreAlpha: 0.94,
+    muzzleFillRadius: 7,
+    muzzleFillAlpha: 0.88,
+    muzzleRingRadius: 12,
+    muzzleRingWidth: 2,
+    muzzleRingAlpha: 0.55,
+    impactFillRadius: 9,
+    impactFillAlpha: 0.9,
+    impactRingRadius: 20,
+    impactRingWidth: 2,
+    impactRingAlpha: 0.7,
+    hitDuration: 360,
+    missDuration: 360,
+    burstGap: 95,
+    targetGap: 520,
+  }),
+  array: Object.freeze({
+    haloWidth: 18,
+    haloAlpha: 0.22,
+    railWidth: 8,
+    railAlpha: 0.18,
+    railOffset: 4,
+    coreWidth: 4,
+    coreAlpha: 0.96,
+    sweepWidth: 2,
+    sweepAlpha: 0.72,
+    sweepColor: "#ffffff",
+    impactFillRadius: 10,
+    impactFillAlpha: 0.85,
+    impactRingRadius: 24,
+    impactRingWidth: 2,
+    impactRingAlpha: 0.62,
+    hitDuration: 760,
+    missDuration: 420,
+    shotGap: 160,
+  }),
+  shared: Object.freeze({
+    holdPercent: 0.55,
+    easing: "inQuad",
+    blendMode: "add",
+    cleanupDelay: 120,
+  }),
+  // Per-era tint for phaser BANKS, keyed off the ship's phaserEra weapon
+  // setting. Blank means "no era tint" — the beam keeps its normal colour.
+  // Defaults follow the JB2A assets PHASER_ERA_EFFECTS already picks per era.
+  eraColors: Object.freeze({
+    entColor: "#ff9a33", entCore: "#fff2c0",
+    tosColor: "#3fa9ff", tosCore: "#d8f0ff",
+    tmpColor: "#ff3b30", tmpCore: "#ffd9c0",
+    tngColor: "#ff9a33", tngCore: "#fff2c0",
+  }),
+  tracer: Object.freeze({
+    era: "tmp",
+    boltLength: 46,
+    boltCount: 5,
+    boltSpacing: 55,
+    travelDuration: 220,
+    volleyGap: 180,
+    glowWidth: 10,
+    glowAlpha: 0.3,
+    coreWidth: 3,
+    coreAlpha: 0.95,
+    tailFade: 0.5,
+  }),
+});
+
+// path → [min, max] clamp for every numeric beam field. Anything not listed is
+// a string/enum and is validated separately.
+const BEAM_VFX_RANGES = Object.freeze({
+  "bank.glowWidth": [0, 60], "bank.glowAlpha": [0, 1],
+  "bank.coreWidth": [0, 60], "bank.coreAlpha": [0, 1],
+  "bank.muzzleFillRadius": [0, 60], "bank.muzzleFillAlpha": [0, 1],
+  "bank.muzzleRingRadius": [0, 60], "bank.muzzleRingWidth": [0, 60], "bank.muzzleRingAlpha": [0, 1],
+  "bank.impactFillRadius": [0, 60], "bank.impactFillAlpha": [0, 1],
+  "bank.impactRingRadius": [0, 60], "bank.impactRingWidth": [0, 60], "bank.impactRingAlpha": [0, 1],
+  "bank.hitDuration": [60, 4000], "bank.missDuration": [60, 4000],
+  "bank.burstGap": [0, 2000], "bank.targetGap": [0, 2000],
+
+  "array.haloWidth": [0, 60], "array.haloAlpha": [0, 1],
+  "array.railWidth": [0, 60], "array.railAlpha": [0, 1], "array.railOffset": [0, 40],
+  "array.coreWidth": [0, 60], "array.coreAlpha": [0, 1],
+  "array.sweepWidth": [0, 60], "array.sweepAlpha": [0, 1],
+  "array.impactFillRadius": [0, 60], "array.impactFillAlpha": [0, 1],
+  "array.impactRingRadius": [0, 60], "array.impactRingWidth": [0, 60], "array.impactRingAlpha": [0, 1],
+  "array.hitDuration": [60, 4000], "array.missDuration": [60, 4000],
+  "array.shotGap": [0, 2000],
+
+  "shared.holdPercent": [0.05, 0.95],
+  "shared.cleanupDelay": [0, 2000],
+
+  "tracer.boltLength": [4, 400], "tracer.boltCount": [1, 24],
+  "tracer.boltSpacing": [5, 500], "tracer.travelDuration": [40, 2000],
+  "tracer.volleyGap": [0, 2000],
+  "tracer.glowWidth": [0, 60], "tracer.glowAlpha": [0, 1],
+  "tracer.coreWidth": [0, 30], "tracer.coreAlpha": [0, 1],
+  "tracer.tailFade": [0, 1],
+});
+
+function _clampHoldPercent(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0.05, Math.min(0.95, numeric));
+}
+
+function _clampBeamValue(path, value, fallback) {
+  const range = BEAM_VFX_RANGES[path];
+  if (!range) return fallback;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(range[0], Math.min(range[1], numeric));
+}
+
+/** Merge a stored/partial beam config over the defaults, clamping every field. */
+export function normalizeBeamVfxSettings(raw = {}) {
+  const out = {};
+  for (const [group, defaults] of Object.entries(DEFAULT_BEAM_VFX_SETTINGS)) {
+    const source = raw?.[group] ?? {};
+    const merged = {};
+    for (const [field, fallback] of Object.entries(defaults)) {
+      const path = `${group}.${field}`;
+      if (typeof fallback === "number") {
+        merged[field] = _clampBeamValue(path, source[field], fallback);
+        continue;
+      }
+      if (field === "easing") {
+        merged[field] = BEAM_VFX_EASING_OPTIONS.includes(source[field]) ? source[field] : fallback;
+        continue;
+      }
+      if (field === "blendMode") {
+        merged[field] = BEAM_VFX_BLEND_OPTIONS.includes(source[field]) ? source[field] : fallback;
+        continue;
+      }
+      if (field === "era") {
+        merged[field] = BEAM_VFX_TRACER_ERA_OPTIONS.includes(source[field]) ? source[field] : fallback;
+        continue;
+      }
+      // Colour fields: blank is meaningful (no tint — defer to the next colour
+      // down), but only when the user actually cleared it. A key that was never
+      // saved — an older world predating this group — takes the default.
+      if (!(field in Object(source))) {
+        merged[field] = fallback;
+        continue;
+      }
+      const text = String(source[field] ?? "").trim();
+      merged[field] = (text === "" || /^#[0-9a-f]{6}$/i.test(text)) ? text : fallback;
+    }
+    out[group] = merged;
+  }
+  return out;
+}
+
+/** World beam appearance, read live so edits apply without a reload. */
+export function getBeamVfxSettings() {
+  try { return normalizeBeamVfxSettings(game.settings.get(MODULE, "beamVfxAppearance") ?? {}); }
+  catch { return normalizeBeamVfxSettings({}); }
+}
 
 export function normalizeWeaponAnimationModes(modes = {}) {
   const normalized = { ...NATIVE_WEAPON_VFX_DEFAULT_MODES };
@@ -72,6 +245,9 @@ export async function fireNativeWeaponVFX(config, isHit, sourceToken, targets, o
       ...options,
       repeatCount: _normalizeRepeatCount(options.repeatCount),
       soundPath: isHit ? config.sound : (config.missSound ?? config.sound),
+      // Optional audio for the 2nd and later strikes of an array volley,
+      // resolved by fireWeapon. Blank falls back to soundPath.
+      repeatSoundPath: options.repeatSoundPath ?? null,
     };
 
     if (weaponKey === "weapon-phaser-bank") {
@@ -111,8 +287,15 @@ export async function playArrayCurveChargeVFX(sourceToken, weapon, targetPoint, 
 export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, options = {}) {
   if (!globalThis.PIXI || !canvas?.ready || !sourceToken || !targetPoint) return false;
   const settings = getShipWeaponVfxSettings(sourceToken, weapon, options.vfxSettings);
-  const colors = _previewColors(weapon, settings, options);
-  if (isShipArrayWeapon(weapon)) {
+  // The Beam VFX tab previews unsaved slider positions by passing them in here.
+  const beam = options.beamSettings ? normalizeBeamVfxSettings(options.beamSettings) : getBeamVfxSettings();
+  const isArray = isShipArrayWeapon(weapon);
+  // Era tint is a bank-only feature; arrays keep their normal colour.
+  const colors = _previewColors(weapon, settings, {
+    ...options,
+    eraColors: isArray ? null : _phaserEraColors(settings, beam),
+  });
+  if (isArray) {
     await playArrayCurveChargeVFX(sourceToken, weapon, targetPoint, {
       ...options,
       vfxSettings: settings,
@@ -123,23 +306,58 @@ export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, opt
     const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings, options.selectedEmitter);
     _arrayBeam(sourcePoint, targetPoint, {
       hit: true,
-      duration: Math.max(180, Number(options.beamDuration) || 520),
+      // Deliberately ignores options.beamDuration (a Sequencer-path timing) so
+      // the preview shows exactly what live fire will look like.
+      duration: beam.array.hitDuration,
       color: colors.color,
       coreColor: colors.coreColor,
+      beam,
     });
     return true;
   }
 
   const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings, options.selectedEmitter);
-  _beamShot(sourcePoint, targetPoint, {
+  const shot = {
     hit: true,
-    duration: Math.max(180, Number(options.beamDuration) || 420),
-    width: 3,
-    glowWidth: 12,
+    duration: beam.bank.hitDuration,
     color: colors.color,
     coreColor: colors.coreColor,
     layer: sourcePoint.layer,
-  });
+    beam,
+  };
+  if (_usesTracer(settings?.phaserEra, beam)) _tracerVolley(sourcePoint, targetPoint, shot);
+  else _beamShot(sourcePoint, targetPoint, shot);
+  return true;
+}
+
+/**
+ * Draw one beam between two tokens using an explicit appearance config.
+ *
+ * Used by the Sounds & Animations → Beam VFX tab to preview unsaved slider
+ * positions. Deliberately centre-to-centre and colour-agnostic of any ship's
+ * emitter/anchor setup, so what you see is the appearance settings alone.
+ */
+export function previewBeamVfxAppearance(sourceToken, targetToken, options = {}) {
+  if (!globalThis.PIXI || !canvas?.ready || !sourceToken || !targetToken) return false;
+  const beam = normalizeBeamVfxSettings(options.beamSettings ?? {});
+  const sourcePoint = _tokenCenter(sourceToken);
+  const targetPoint = _tokenCenter(targetToken);
+  const isArray = options.weaponKey === "weapon-phaser-array";
+  // Era only affects banks, matching live fire.
+  const era = isArray ? null : _phaserEraColors(null, beam, options.era);
+  const shot = {
+    hit: options.hit !== false,
+    color: _parseHexColor(era?.color, PHASER_PRIMARY),
+    coreColor: _parseHexColor(era?.core, PHASER_CORE),
+    beam,
+  };
+  if (isArray) {
+    _arrayBeam(sourcePoint, targetPoint, { ...shot, duration: beam.array.hitDuration });
+  } else if (_usesTracer(options.era, beam)) {
+    _tracerVolley(sourcePoint, targetPoint, { ...shot, duration: beam.bank.hitDuration });
+  } else {
+    _beamShot(sourcePoint, targetPoint, { ...shot, duration: beam.bank.hitDuration });
+  }
   return true;
 }
 
@@ -195,6 +413,26 @@ function _chargeOptions(settings, options = {}) {
   };
 }
 
+/**
+ * Era tint for a phaser BANK, from the ship's per-weapon `phaserEra` setting.
+ * Returns null when the ship has no era set or the era's swatches are blank.
+ */
+/** True when this era's banks fire travelling bolts instead of a held beam. */
+function _usesTracer(era, beam) {
+  const key = String(era ?? "").toLowerCase();
+  return !!key && beam?.tracer?.era !== "off" && key === beam?.tracer?.era;
+}
+
+function _phaserEraColors(settings, beam, eraOverride = null) {
+  const era = String(eraOverride ?? settings?.phaserEra ?? "").toLowerCase();
+  if (!era) return null;
+  const colors = beam?.eraColors ?? {};
+  return { color: colors[`${era}Color`] || "", core: colors[`${era}Core`] || "" };
+}
+
+// Precedence: ship charge.colorOverride > era colour > weapon-name guess > amber.
+// _parseHexColor falls through on anything that isn't #rrggbb, so blank values
+// at any level simply defer to the next one down.
 function _previewColors(weapon, settings, options = {}) {
   const name = `${weapon?.name ?? ""} ${weapon?.img ?? ""}`.toLowerCase();
   const fallback = name.includes("disruptor") ? 0x66ff99
@@ -202,8 +440,10 @@ function _previewColors(weapon, settings, options = {}) {
     : name.includes("quantum") ? 0x66ccff
     : PHASER_PRIMARY;
   return {
-    color: _parseHexColor(settings?.charge?.colorOverride, options.color ?? fallback),
-    coreColor: _parseHexColor(settings?.charge?.coreColorOverride, options.coreColor ?? PHASER_CORE),
+    color: _parseHexColor(settings?.charge?.colorOverride,
+      _parseHexColor(options.eraColors?.color, options.color ?? fallback)),
+    coreColor: _parseHexColor(settings?.charge?.coreColorOverride,
+      _parseHexColor(options.eraColors?.core, options.coreColor ?? PHASER_CORE)),
   };
 }
 
@@ -289,6 +529,19 @@ function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vf
     if (points.length) return points[Math.abs(shotIndex) % points.length];
   }
   return _tokenEdgePoint(sourceToken, targetPoint, "source");
+}
+
+// Emitter point for one strike of an array volley, walked along the spine.
+// Returns null when the ship has no array curve so the caller falls back to the
+// regular emitter/token-edge pick.
+function _arrayWalkPointForShot(sourceToken, weapon, targetPoint, walk, vfxSettings = null) {
+  if (!isShipArrayWeapon(weapon) || !targetPoint) return null;
+  try {
+    return advanceShipArrayCurveWalk(sourceToken, weapon, targetPoint, walk, vfxSettings);
+  } catch (err) {
+    _warnArrayChargeFailure("curve-walk", err);
+    return null;
+  }
 }
 
 function _arrayCurveMatchForShot(sourceToken, weapon, targetPoint, vfxSettings = null) {
@@ -386,6 +639,17 @@ function _shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
 async function _firePhaserBank(isHit, sourceToken, targets, opts) {
   // Keep the signature triple-burst as a floor, scale beyond it with damage.
   const bursts = isHit ? Math.max(3, _normalizeRepeatCount(opts.repeatCount)) : 1;
+  const beam = getBeamVfxSettings();
+  const settings = getShipWeaponVfxSettings(sourceToken, opts.weapon);
+  const colors = _previewColors(opts.weapon, settings, {
+    color: PHASER_PRIMARY,
+    coreColor: PHASER_CORE,
+    eraColors: _phaserEraColors(settings, beam),
+  });
+  // TMP-era banks (by default) fire a stream of travelling bolts rather than a
+  // held beam, so the burst and impact timings change with them.
+  const useTracer = _usesTracer(settings?.phaserEra, beam);
+  const impactDelay = useTracer ? beam.tracer.travelDuration : 300;
   for (const target of targets) {
     _playSound(opts.soundPath);
     for (let i = 0; i < bursts; i++) {
@@ -394,61 +658,72 @@ async function _firePhaserBank(isHit, sourceToken, targets, opts) {
         targetSystem: opts.targetSystem,
         shotIndex: i,
       });
-      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, null, opts.selectedEmitter);
-      await _delay(i === 0 ? 0 : 95);
-      _beamShot(sourcePoint, targetPoint, {
+      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, settings, opts.selectedEmitter);
+      await _delay(i === 0 ? 0 : (useTracer ? beam.tracer.volleyGap : beam.bank.burstGap));
+      const shot = {
         hit: isHit,
-        duration: 360,
-        width: 3,
-        glowWidth: 14,
-        color: PHASER_PRIMARY,
-        coreColor: PHASER_CORE,
+        duration: isHit ? beam.bank.hitDuration : beam.bank.missDuration,
+        color: colors.color,
+        coreColor: colors.coreColor,
         layer: sourcePoint.layer,
-      });
+        beam,
+      };
+      if (useTracer) _tracerVolley(sourcePoint, targetPoint, shot);
+      else _beamShot(sourcePoint, targetPoint, shot);
       if (isHit) {
-        if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: 300 });
+        if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: impactDelay });
         else {
           scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
             ..._shieldImpactForShot(opts.shieldImpact, i, bursts),
-            delayMs: 300,
+            delayMs: impactDelay,
           });
         }
       }
     }
-    await _delay(520);
+    await _delay(beam.bank.targetGap);
   }
 }
 
 async function _firePhaserArray(isHit, sourceToken, targets, opts) {
   const repeats = isHit ? opts.repeatCount : 1;
+  const beam = getBeamVfxSettings();
   const settings = getShipWeaponVfxSettings(sourceToken, opts.weapon);
   const colors = _previewColors(opts.weapon, settings, {
     color: PHASER_PRIMARY,
     coreColor: PHASER_CORE,
   });
+  const repeatSoundPath = opts.repeatSoundPath || opts.soundPath;
   for (const target of targets) {
-    _playSound(opts.soundPath);
+    // One walk per target: the opening strike charges up at the point on the
+    // spine closest to the target, then each extra strike steps along it.
+    const arrayWalk = { t: null };
     for (let i = 0; i < repeats; i++) {
       const targetPoint = await _targetPointForShot(sourceToken, target, {
         isHit,
         targetSystem: opts.targetSystem,
         shotIndex: i,
       });
-      await playArrayCurveChargeVFX(sourceToken, opts.weapon, targetPoint, {
-        vfxSettings: settings,
-        isHit,
-        shotIndex: i,
-        selectedEmitter: opts.selectedEmitter,
-        color: colors.color,
-        coreColor: colors.coreColor,
-      });
-      const sourcePoint = _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, settings, opts.selectedEmitter);
-      const beamDuration = isHit ? 760 : 420;
+      _playSound(i === 0 ? opts.soundPath : repeatSoundPath);
+      // Only the opening strike charges: the array stays lit for the rest.
+      if (i === 0) {
+        await playArrayCurveChargeVFX(sourceToken, opts.weapon, targetPoint, {
+          vfxSettings: settings,
+          isHit,
+          shotIndex: i,
+          selectedEmitter: opts.selectedEmitter,
+          color: colors.color,
+          coreColor: colors.coreColor,
+        });
+      }
+      const sourcePoint = _arrayWalkPointForShot(sourceToken, opts.weapon, targetPoint, arrayWalk, settings)
+        ?? _sourcePointForShot(sourceToken, opts.weapon, targetPoint, i, settings, opts.selectedEmitter);
+      const beamDuration = isHit ? beam.array.hitDuration : beam.array.missDuration;
       _arrayBeam(sourcePoint, targetPoint, {
         hit: isHit,
         duration: beamDuration,
         color: colors.color,
         coreColor: colors.coreColor,
+        beam,
       });
       if (isHit) {
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: Math.max(180, beamDuration - 80) });
@@ -459,7 +734,7 @@ async function _firePhaserArray(isHit, sourceToken, targets, opts) {
           });
         }
       }
-      await _delay(beamDuration + 160);
+      await _delay(beamDuration + beam.array.shotGap);
     }
   }
 }
@@ -609,6 +884,12 @@ function _beamShot(sourcePoint, targetPoint, opts = {}) {
   const layer = _effectLayer();
   if (!layer) return;
 
+  const cfg = opts.beam ?? getBeamVfxSettings();
+  const bank = cfg.bank;
+  const shared = cfg.shared;
+  const blend = _blendMode(shared.blendMode);
+  const duration = opts.duration ?? bank.hitDuration;
+
   const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
   layer.addChild(container);
 
@@ -616,32 +897,151 @@ function _beamShot(sourcePoint, targetPoint, opts = {}) {
   const beam = new PIXI.Graphics();
   const flare = new PIXI.Graphics();
   const spark = new PIXI.Graphics();
-  for (const child of [glow, beam, flare, spark]) child.blendMode = _addBlend();
+  for (const child of [glow, beam, flare, spark]) child.blendMode = blend;
 
-  _drawLine(glow, sourcePoint, targetPoint, opts.glowWidth ?? 12, opts.color, 0.26);
-  _drawLine(beam, sourcePoint, targetPoint, opts.width ?? 3, opts.coreColor, 0.94);
-  _fillCircle(flare, sourcePoint.x, sourcePoint.y, 7, opts.coreColor, 0.88);
-  _strokeCircle(flare, sourcePoint.x, sourcePoint.y, 12, 2, opts.color, 0.55);
+  _drawLine(glow, sourcePoint, targetPoint, bank.glowWidth, opts.color, bank.glowAlpha);
+  _drawLine(beam, sourcePoint, targetPoint, bank.coreWidth, opts.coreColor, bank.coreAlpha);
+  _fillCircle(flare, sourcePoint.x, sourcePoint.y, bank.muzzleFillRadius, opts.coreColor, bank.muzzleFillAlpha);
+  _strokeCircle(flare, sourcePoint.x, sourcePoint.y, bank.muzzleRingRadius, bank.muzzleRingWidth, opts.color, bank.muzzleRingAlpha);
   container.addChild(glow, beam, flare);
   if (opts.hit) {
-    _fillCircle(spark, targetPoint.x, targetPoint.y, 9, opts.coreColor, 0.9);
-    _strokeCircle(spark, targetPoint.x, targetPoint.y, 20, 2, opts.color, 0.7);
+    _fillCircle(spark, targetPoint.x, targetPoint.y, bank.impactFillRadius, opts.coreColor, bank.impactFillAlpha);
+    _strokeCircle(spark, targetPoint.x, targetPoint.y, bank.impactRingRadius, bank.impactRingWidth, opts.color, bank.impactRingAlpha);
     if (opts.layer === "below") {
       const impactContainer = _sceneContainer(targetPoint.y);
       impactContainer.addChild(spark);
       layer.addChild(impactContainer);
-      _fadeContainer(impactContainer, opts.duration ?? 420);
+      _fadeContainer(impactContainer, duration, shared.cleanupDelay, shared);
     } else {
       container.addChild(spark);
     }
   }
 
-  _fadeContainer(container, opts.duration ?? 420);
+  _fadeContainer(container, duration, shared.cleanupDelay, shared);
+}
+
+/**
+ * TMP-era phaser bank: a stream of short bolts travelling source → target,
+ * launched `boltSpacing` apart so several are in flight at once.
+ *
+ * Everything is redrawn from scratch each frame into one Graphics, so bolts,
+ * muzzle flares and impact sparks all fade on their own clocks without
+ * accumulating draw calls. Follows the ticker/cleanup shape of
+ * `_arrayCurveCharge`: a `finished` guard, `ticker.remove` in cleanup, and a
+ * setTimeout backstop in case the ticker is unavailable.
+ */
+function _tracerVolley(sourcePoint, targetPoint, opts = {}) {
+  const layer = _effectLayer();
+  if (!layer) return;
+
+  const cfg = opts.beam ?? getBeamVfxSettings();
+  const tracer = cfg.tracer;
+  const bank = cfg.bank;
+  const shared = cfg.shared;
+  const blend = _blendMode(shared.blendMode);
+
+  const dx = targetPoint.x - sourcePoint.x;
+  const dy = targetPoint.y - sourcePoint.y;
+  const pathLength = Math.max(1, Math.hypot(dx, dy));
+  // Work in normalised path space; cap the bolt so a point-blank shot still
+  // reads as a bolt rather than a full-length beam.
+  const boltT = Math.min(0.6, tracer.boltLength / pathLength);
+  const bolts = Math.max(1, Math.round(tracer.boltCount));
+  const travel = tracer.travelDuration;
+  const flashMs = Math.max(80, travel * 0.35);
+  const lifetime = ((bolts - 1) * tracer.boltSpacing) + travel + flashMs;
+
+  const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
+  layer.addChild(container);
+  const stream = new PIXI.Graphics();
+  stream.blendMode = blend;
+  container.addChild(stream);
+
+  // Mirrors _beamShot: when the emitter draws below the token, impacts still
+  // need to land above it, so they get their own container.
+  const sparkG = new PIXI.Graphics();
+  sparkG.blendMode = blend;
+  let sparkContainer = container;
+  if (opts.layer === "below") {
+    sparkContainer = _sceneContainer(targetPoint.y);
+    layer.addChild(sparkContainer);
+  }
+  sparkContainer.addChild(sparkG);
+
+  const pointAt = t => ({ x: sourcePoint.x + (dx * t), y: sourcePoint.y + (dy * t) });
+  const ticker = canvas.app?.ticker;
+  const start = performance.now();
+  let finished = false;
+
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    try { ticker?.remove?.(tick); } catch { /* no-op */ }
+    const fadeMs = Math.max(120, flashMs);
+    _fadeContainer(container, fadeMs, shared.cleanupDelay, shared);
+    if (sparkContainer !== container) _fadeContainer(sparkContainer, fadeMs, shared.cleanupDelay, shared);
+  };
+
+  const tick = () => {
+    try {
+      const elapsed = performance.now() - start;
+      stream.clear?.();
+      sparkG.clear?.();
+      for (let i = 0; i < bolts; i++) {
+        const since = elapsed - (i * tracer.boltSpacing);
+        if (since < 0) continue;
+        const t = since / travel;
+
+        // The bolt itself, dimming as it crosses.
+        if (t <= 1) {
+          const head = pointAt(t);
+          const tail = pointAt(Math.max(0, t - boltT));
+          const fade = 1 - (tracer.tailFade * t);
+          _drawLine(stream, tail, head, tracer.glowWidth, opts.color, tracer.glowAlpha * fade);
+          _drawLine(stream, tail, head, tracer.coreWidth, opts.coreColor, tracer.coreAlpha * fade);
+        }
+
+        // Muzzle flare, fading over its own short clock after launch.
+        const flare = 1 - (since / flashMs);
+        if (flare > 0) {
+          _fillCircle(stream, sourcePoint.x, sourcePoint.y, bank.muzzleFillRadius, opts.coreColor, bank.muzzleFillAlpha * flare);
+          _strokeCircle(stream, sourcePoint.x, sourcePoint.y, bank.muzzleRingRadius, bank.muzzleRingWidth, opts.color, bank.muzzleRingAlpha * flare);
+        }
+
+        // Impact spark, on the same clock but starting when the bolt lands.
+        if (opts.hit) {
+          const spark = 1 - ((since - travel) / flashMs);
+          if (since >= travel && spark > 0) {
+            _fillCircle(sparkG, targetPoint.x, targetPoint.y, bank.impactFillRadius, opts.coreColor, bank.impactFillAlpha * spark);
+            _strokeCircle(sparkG, targetPoint.x, targetPoint.y, bank.impactRingRadius, bank.impactRingWidth, opts.color, bank.impactRingAlpha * spark);
+          }
+        }
+      }
+      if (elapsed >= lifetime) cleanup();
+    } catch (err) {
+      console.warn("STA2e Toolkit | Tracer volley VFX failed:", err);
+      cleanup();
+    }
+  };
+
+  tick();
+  if (!finished) {
+    if (ticker?.add) ticker.add(tick);
+    setTimeout(cleanup, lifetime + 50);
+  }
 }
 
 function _arrayBeam(sourcePoint, targetPoint, opts = {}) {
   const layer = _effectLayer();
   if (!layer) return;
+
+  const cfg = opts.beam ?? getBeamVfxSettings();
+  const array = cfg.array;
+  const shared = cfg.shared;
+  const blend = _blendMode(shared.blendMode);
+  const duration = opts.duration ?? array.hitDuration;
+  // Blank sweep colour means "follow the beam's own core colour".
+  const sweepColor = _parseHexColor(array.sweepColor, opts.coreColor);
 
   const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y));
   layer.addChild(container);
@@ -651,43 +1051,33 @@ function _arrayBeam(sourcePoint, targetPoint, opts = {}) {
   const len = Math.max(1, Math.hypot(dx, dy));
   const nx = -dy / len;
   const ny = dx / len;
+  const rail = array.railOffset;
 
   const glow = new PIXI.Graphics();
   const beam = new PIXI.Graphics();
   const sweep = new PIXI.Graphics();
-  for (const child of [glow, beam, sweep]) child.blendMode = _addBlend();
+  for (const child of [glow, beam, sweep]) child.blendMode = blend;
 
-  _drawLine(glow, sourcePoint, targetPoint, 18, opts.color, 0.22);
-  _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, 4), _offsetPoint(targetPoint, nx, ny, 4), 8, opts.color, 0.18);
-  _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, -4), _offsetPoint(targetPoint, nx, ny, -4), 8, opts.color, 0.18);
-  _drawLine(beam, sourcePoint, targetPoint, 4, opts.coreColor, 0.96);
-  _drawLine(sweep, sourcePoint, targetPoint, 2, 0xffffff, 0.72);
+  _drawLine(glow, sourcePoint, targetPoint, array.haloWidth, opts.color, array.haloAlpha);
+  _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, rail), _offsetPoint(targetPoint, nx, ny, rail), array.railWidth, opts.color, array.railAlpha);
+  _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, -rail), _offsetPoint(targetPoint, nx, ny, -rail), array.railWidth, opts.color, array.railAlpha);
+  _drawLine(beam, sourcePoint, targetPoint, array.coreWidth, opts.coreColor, array.coreAlpha);
+  _drawLine(sweep, sourcePoint, targetPoint, array.sweepWidth, sweepColor, array.sweepAlpha);
 
   if (opts.hit) {
     const spark = new PIXI.Graphics();
-    spark.blendMode = _addBlend();
-    _fillCircle(spark, targetPoint.x, targetPoint.y, 10, opts.coreColor, 0.85);
-    _strokeCircle(spark, targetPoint.x, targetPoint.y, 24, 2, opts.color, 0.62);
+    spark.blendMode = blend;
+    _fillCircle(spark, targetPoint.x, targetPoint.y, array.impactFillRadius, opts.coreColor, array.impactFillAlpha);
+    _strokeCircle(spark, targetPoint.x, targetPoint.y, array.impactRingRadius, array.impactRingWidth, opts.color, array.impactRingAlpha);
     container.addChild(spark);
   }
 
   container.addChild(glow, beam, sweep);
-  _fadeContainer(container, opts.duration ?? 760);
+  _fadeContainer(container, duration, shared.cleanupDelay, shared);
 }
 
 function _sampledCurvePoint(samples, t) {
-  const clamped = Math.max(0, Math.min(1, Number(t) || 0));
-  if (!Array.isArray(samples) || !samples.length) return { x: 0, y: 0 };
-  if (samples.length === 1) return samples[0];
-  const scaled = clamped * (samples.length - 1);
-  const index = Math.min(samples.length - 2, Math.floor(scaled));
-  const localT = scaled - index;
-  const a = samples[index];
-  const b = samples[index + 1];
-  return {
-    x: a.x + ((b.x - a.x) * localT),
-    y: a.y + ((b.y - a.y) * localT),
-  };
+  return sampleShipArrayCurvePointAtT(samples, t) ?? { x: 0, y: 0 };
 }
 
 function _redrawSampledCurveTrail(g, samples, tFrom, tTo, color, coreColor, opts = {}) {
@@ -823,9 +1213,13 @@ function _strokeCircle(g, x, y, radius, width, color, alpha) {
   g.circle(x, y, radius).stroke({ width, color, alpha });
 }
 
-function _fadeContainer(container, duration = 420, cleanupDelay = 120) {
+// `fade` lets the beams drive the hold/fade split and easing from the world
+// Beam VFX settings. Charge-up callers omit it and keep the original curve.
+function _fadeContainer(container, duration = 420, cleanupDelay = 120, fade = null) {
   container.alpha = 1;
-  _tween(container, { alpha: 0, duration: Math.max(120, duration * 0.45), ease: "inQuad" }, Math.max(90, duration * 0.55));
+  const hold = _clampHoldPercent(fade?.holdPercent, 0.55);
+  const ease = BEAM_VFX_EASING_OPTIONS.includes(fade?.easing) ? fade.easing : "inQuad";
+  _tween(container, { alpha: 0, duration: Math.max(120, duration * (1 - hold)), ease }, Math.max(90, duration * hold));
   setTimeout(() => {
     try { container.destroy({ children: true }); } catch { /* no-op */ }
   }, duration + Math.max(0, Number(cleanupDelay) || 0));
@@ -856,8 +1250,9 @@ function _warnArrayChargeFailure(reason, err) {
 function _playSound(soundPath, volume = 1) {
   if (!soundPath) return;
   try {
-    if (globalThis.AudioHelper?.play) {
-      AudioHelper.play({ src: soundPath, volume, autoplay: true, loop: false }, true);
+    const helper = foundry.audio?.AudioHelper ?? globalThis.AudioHelper;
+    if (helper?.play) {
+      helper.play({ src: soundPath, volume, autoplay: true, loop: false }, true);
     }
   } catch (err) {
     console.warn("STA2e Toolkit | Native weapon VFX sound failed:", err);

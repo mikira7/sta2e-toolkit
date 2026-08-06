@@ -1,0 +1,158 @@
+/* sta2e-toolkit | token-weapon-hud.css
+ *
+ * The GM weapon control on the Token HUD and the contents of its flyout. The
+ * flyout container itself is shared — see styles/token-hud-flyout.css.
+ */
+
+/* ── The crosshair control ────────────────────────────────────────────────── */
+
+.control-icon.sta2e-token-weapons i {
+  opacity: 0.75;
+  transition: opacity 120ms ease, text-shadow 120ms ease;
+}
+
+.control-icon.sta2e-token-weapons:hover i,
+.control-icon.sta2e-token-weapons.active i {
+  opacity: 1;
+  text-shadow: 0 0 6px #ff9c00;
+}
+
+/* ── Weapon grid ──────────────────────────────────────────────────────────── */
+
+.sta2e-token-weapon-palette {
+  /* Five icons per row before wrapping: 5 × 40px + 4 × 4px gap + 8px padding. */
+  max-width: 224px;
+}
+
+.sta2e-token-weapon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sta2e-token-weapon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+
+  background-color: rgba(255, 156, 0, 0.06);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  border: 1px solid rgba(255, 156, 0, 0.35);
+  border-radius: 2px;
+  box-shadow: none;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.sta2e-token-weapon:hover {
+  border-color: #ffcc66;
+}
+
+.sta2e-token-weapon.active {
+  border-color: #ff9c00;
+  box-shadow: 0 0 6px #ff9c00;
+}
+
+/* ── The expanded strip ───────────────────────────────────────────────────── */
+
+.sta2e-token-weapon-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 156, 0, 0.35);
+  white-space: normal;
+}
+
+.sta2e-token-weapon-name {
+  overflow: hidden;
+  color: #ffcc66;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sta2e-token-weapon-modes,
+.sta2e-token-weapon-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.sta2e-token-weapon-chip,
+.sta2e-token-weapon-action {
+  flex: 1;
+  margin: 0;
+  padding: 4px 6px;
+
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 156, 0, 0.25);
+  border-radius: 2px;
+  box-shadow: none;
+
+  color: #b0966e;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.sta2e-token-weapon-chip:hover,
+.sta2e-token-weapon-action:hover {
+  background: rgba(255, 156, 0, 0.18);
+  color: #fff;
+}
+
+.sta2e-token-weapon-chip.active {
+  background: rgba(255, 156, 0, 0.18);
+  border-color: #ff9c00;
+  color: #ff9c00;
+}
+
+.sta2e-token-weapon-chip.active.danger {
+  background: rgba(255, 51, 51, 0.18);
+  border-color: #ff3333;
+  color: #ff9b9b;
+}
+
+.sta2e-token-weapon-action.hit {
+  border-color: rgba(0, 200, 100, 0.4);
+  color: #7fe0ac;
+}
+
+.sta2e-token-weapon-action.hit:hover {
+  background: rgba(0, 200, 100, 0.22);
+  border-color: #00c864;
+}
+
+.sta2e-token-weapon-action.miss {
+  border-color: rgba(255, 51, 51, 0.4);
+  color: #ff9b9b;
+}
+
+.sta2e-token-weapon-action.miss:hover {
+  background: rgba(255, 51, 51, 0.22);
+  border-color: #ff3333;
+}
+
+.sta2e-token-weapon-action.roller {
+  flex: 0 0 34px;
+}
+
+/* Advisory only — there is no target right now, but the button still fires so a
+   target picked while the flyout is open is not locked out. */
+.sta2e-token-weapon-action.dim {
+  opacity: 0.45;
+}

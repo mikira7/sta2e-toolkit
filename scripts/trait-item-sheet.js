@@ -6,6 +6,8 @@
 import {
   MODULE,
   TRAIT_FLAG,
+  TRAIT_EFFECT_TYPES,
+  TRAIT_EFFECT_LABELS,
   defaultAutomation,
   normalizeAutomation,
   traitAutomationFromItem,
@@ -67,6 +69,8 @@ function automationFromPanel(panel, current = defaultAutomation()) {
         ?? (first.difficultyDirection === "reduce" ? "reduce" : "increase"),
       complicationDirection: panel.querySelector("[data-trait-field='complicationDirection']")?.value
         ?? (first.complicationDirection === "reduce" ? "reduce" : "increase"),
+      damageDirection: panel.querySelector("[data-trait-field='damageDirection']")?.value
+        ?? (first.damageDirection === "reduce" ? "reduce" : "increase"),
       alwaysOn: panel.querySelector("[data-trait-field='alwaysOn']")?.checked ?? !!first.alwaysOn,
       scalesWithQuantity: false,
       match: {
@@ -88,6 +92,10 @@ function effectSummary(effect, item) {
   if (effect.type === "complicationRange") {
     const dir = effect.complicationDirection === "reduce" ? "reduces" : "increases";
     return `${effect.label || "Complication"} ${dir} Complication range by ${potency}${effect.alwaysOn ? " (always on)" : ""}`;
+  }
+  if (effect.type === "damage") {
+    const dir = effect.damageDirection === "reduce" ? "reduces" : "increases";
+    return `${effect.label || "Damage"} ${dir} Damage by ${potency}${effect.alwaysOn ? " (always on)" : ""}`;
   }
   const suffix = ["bonusMomentum", "bonusThreat"].includes(effect.type) ? ` +${potency}` : "";
   const lockNote = effect.alwaysOn ? " (always on)" : "";
@@ -152,7 +160,7 @@ function panelHtml(item) {
         <input data-trait-field="sourceTags" value="${escapeHtml((automation.sourceTags ?? []).join(", "))}" placeholder="equipment, scene" />
         <label>Effect Type</label>
         <select data-trait-field="effectType">
-          ${["note", "difficulty", "reroll", "bonusMomentum", "bonusThreat", "complicationRange", "possible", "impossible"].map(v => option(v, first.type ?? "note")).join("")}
+          ${TRAIT_EFFECT_TYPES.map(v => option(v, first.type ?? "note", TRAIT_EFFECT_LABELS[v] ?? v)).join("")}
         </select>
         ${game.user?.isGM ? `
         <label>Difficulty Direction</label>
@@ -162,6 +170,10 @@ function panelHtml(item) {
         <label>Complication Direction</label>
         <select data-trait-field="complicationDirection">
           ${[["increase", "Increase Complication"], ["reduce", "Reduce Complication"]].map(([v, l]) => option(v, first.complicationDirection === "reduce" ? "reduce" : "increase", l)).join("")}
+        </select>
+        <label>Damage Direction</label>
+        <select data-trait-field="damageDirection">
+          ${[["increase", "Increase Damage"], ["reduce", "Reduce Damage"]].map(([v, l]) => option(v, first.damageDirection === "reduce" ? "reduce" : "increase", l)).join("")}
         </select>
         <label>Always On</label>
         <label style="display:flex;align-items:center;gap:6px;font-weight:normal;">

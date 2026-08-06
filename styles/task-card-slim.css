@@ -189,6 +189,11 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+.tcs-note--warn {
+  color: var(--tc-red);
+  background: rgba(180, 0, 0, 0.1);
+}
+
 /* ── Segmented rule ───────────────────────────────────────────────────────── */
 .tcs-rule {
   height: 1px;

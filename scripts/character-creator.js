@@ -1794,7 +1794,6 @@ function defaultSupportingUnarmedItems() {
         damage: 2,
         range: "melee",
         hands: 1,
-        severity: 0,
         opportunity: 0,
         escalation: 0,
         qualities: {

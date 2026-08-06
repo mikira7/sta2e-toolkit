@@ -4,14 +4,23 @@
  */
 
 import {
+  BEAM_VFX_BLEND_OPTIONS,
+  BEAM_VFX_EASING_OPTIONS,
+  BEAM_VFX_TRACER_ERA_OPTIONS,
+  DEFAULT_BEAM_VFX_SETTINGS,
   NATIVE_WEAPON_VFX_MODE_ROWS,
+  getBeamVfxSettings,
+  normalizeBeamVfxSettings,
   normalizeWeaponAnimationModes,
+  previewBeamVfxAppearance,
 } from "./native-weapon-vfx.js";
 import {
   TORPEDO_TYPES,
   getTorpedoCountConfig,
   ENERGY_WEAPON_FAMILIES,
   getEnergyWeaponCountConfig,
+  getArrayAreaShotCap,
+  ARRAY_AREA_SHOT_CAP_DEFAULT,
 } from "./weapon-configs.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -67,13 +76,26 @@ function buildPhaserEraSoundRows() {
     { key: "Lance",  label: "Spinal Lance" },
   ];
   const results = ["Hit", "Miss"];
-  return eras.flatMap(era => types.flatMap(type => results.map(result => ({
-    label: `Phaser ${type.label} - ${era.label}`,
-    slot: result,
-    sndKey: `sndShipPhaser${type.key}${era.key}${result}`,
-    animKey: null,
-    defaultHint: "Blank uses the base phaser sound for this weapon type.",
-  }))));
+  return eras.flatMap(era => types.flatMap(type => {
+    const rows = results.map(result => ({
+      label: `Phaser ${type.label} - ${era.label}`,
+      slot: result,
+      sndKey: `sndShipPhaser${type.key}${era.key}${result}`,
+      animKey: null,
+      defaultHint: "Blank uses the base phaser sound for this weapon type.",
+    }));
+    // Only arrays fire multi-strike volleys with a single opening charge-up.
+    if (type.key === "Array") {
+      rows.push({
+        label: `Phaser ${type.label} - ${era.label}`,
+        slot: "Additional Strikes",
+        sndKey: `sndShipPhaserArray${era.key}Repeat`,
+        animKey: null,
+        defaultHint: "Blank uses the generic array follow-up sound, then the base phaser sound.",
+      });
+    }
+    return rows;
+  }));
 }
 
 function buildTabDefs() {
@@ -105,6 +127,11 @@ function buildTabDefs() {
           defaultHint: jb2aHint("jb2a.impact.011.purple", _IMP) },
         { label: "Polaron",              slot: "Beam (Miss)",   sndKey: "sndShipPolaronMiss",   animKey: "shipWeapons.polaron.animMiss",
           defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Purple_90ft_4000x400.webm`, `${_FREE}/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`) },
+        // ── Arrays ─────────────────────────────────────────────────────────
+        // An array volley charges up once, then keeps firing. The follow-up
+        // strikes can use their own audio instead of replaying the charge.
+        { label: "Array (any type)",     slot: "Additional Strikes", sndKey: "sndShipArrayRepeat", animKey: null,
+          defaultHint: "Blank uses the weapon's normal hit sound for the 2nd and later strikes." },
         // ── Spinal Lance ───────────────────────────────────────────────────
         // Lances share the beam VFX; only the sound differs. Blank = beam sound.
         { label: "Phaser Spinal Lance",    slot: "Beam (Hit)",  sndKey: "sndShipLancePhaserHit",     animKey: null,
@@ -229,6 +256,13 @@ function buildTabDefs() {
       rows: [],
     },
     {
+      id:    "beamVfx",
+      label: "Beam VFX",
+      customKey: null,
+      beamVfx: true,
+      rows: [],
+    },
+    {
       id:    "shipTasks",
       label: "Ship Tasks",
       customKey: null,
@@ -316,6 +350,181 @@ function buildEnergyWeaponRows() {
   });
 }
 
+// ── Beam VFX tab ─────────────────────────────────────────────────────────────
+
+// Field list for the Beam VFX tab, kept as data so the template stays one
+// generic loop. `path` is the dot-path into the beamVfxAppearance setting.
+const BEAM_VFX_FIELD_GROUPS = Object.freeze([
+  {
+    group: "bank",
+    label: "Phaser Bank",
+    hint: "Short amber bolts, fired as a burst per target. Widths and radii are in canvas pixels.",
+    fields: [
+      { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
+      { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "glowWidth",        label: "Glow width",         kind: "range", min: 0,  max: 60,   step: 1    },
+      { key: "glowAlpha",        label: "Glow opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "muzzleFillRadius", label: "Muzzle flare radius",kind: "range", min: 0,  max: 40,   step: 1    },
+      { key: "muzzleFillAlpha",  label: "Muzzle flare opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+      { key: "muzzleRingRadius", label: "Muzzle ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+      { key: "muzzleRingWidth",  label: "Muzzle ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+      { key: "muzzleRingAlpha",  label: "Muzzle ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
+      { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+      { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+      { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+      { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "hitDuration",      label: "Bolt lifetime (hit)",  kind: "range", min: 60, max: 2000, step: 20, unit: "ms" },
+      { key: "missDuration",     label: "Bolt lifetime (miss)", kind: "range", min: 60, max: 2000, step: 20, unit: "ms" },
+      { key: "burstGap",         label: "Gap between bursts",   kind: "range", min: 0,  max: 600,  step: 5,  unit: "ms" },
+      { key: "targetGap",        label: "Gap between targets",  kind: "range", min: 0,  max: 2000, step: 20, unit: "ms" },
+    ],
+  },
+  {
+    group: "array",
+    label: "Phaser Array",
+    hint: "Continuous strip beam: a wide halo, two offset side rails, a core, and a thin hot sweep line over the top.",
+    fields: [
+      { key: "haloWidth",        label: "Halo width",         kind: "range", min: 0,  max: 60,   step: 1    },
+      { key: "haloAlpha",        label: "Halo opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "railWidth",        label: "Side rail width",    kind: "range", min: 0,  max: 40,   step: 0.5  },
+      { key: "railAlpha",        label: "Side rail opacity",  kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "railOffset",       label: "Side rail offset",   kind: "range", min: 0,  max: 40,   step: 0.5  },
+      { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
+      { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "sweepWidth",       label: "Sweep line width",   kind: "range", min: 0,  max: 20,   step: 0.5  },
+      { key: "sweepAlpha",       label: "Sweep line opacity", kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "sweepColor",       label: "Sweep line colour",  kind: "color",
+        hint: "Clear to make the sweep follow the beam's own core colour." },
+      { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
+      { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+      { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+      { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+      { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "hitDuration",      label: "Beam lifetime (hit)",  kind: "range", min: 60, max: 3000, step: 20, unit: "ms" },
+      { key: "missDuration",     label: "Beam lifetime (miss)", kind: "range", min: 60, max: 3000, step: 20, unit: "ms" },
+      { key: "shotGap",          label: "Gap between strikes",  kind: "range", min: 0,  max: 1000, step: 10, unit: "ms" },
+    ],
+  },
+  {
+    group: "shared",
+    label: "Shared",
+    hint: "Applies to both beams.",
+    fields: [
+      { key: "holdPercent",  label: "Hold before fade", kind: "range", min: 0.05, max: 0.95, step: 0.05,
+        hint: "Fraction of the lifetime the beam stays at full opacity before it starts fading." },
+      { key: "easing",       label: "Fade easing",  kind: "select", options: BEAM_VFX_EASING_OPTIONS },
+      { key: "blendMode",    label: "Blend mode",   kind: "select", options: BEAM_VFX_BLEND_OPTIONS,
+        hint: "\"add\" gives the glowing additive look; \"normal\" draws flat." },
+      { key: "cleanupDelay", label: "Cleanup delay", kind: "range", min: 0, max: 1000, step: 10, unit: "ms",
+        hint: "Extra time before the graphics are destroyed. Raise only if beams vanish early." },
+    ],
+  },
+  {
+    group: "eraColors",
+    label: "Era Colours (Phaser Banks)",
+    hint: "Tints a phaser bank by the ship's era, set per weapon in that ship's Ship VFX Anchors editor. "
+      + "Precedence: the ship's own colour override beats these, these beat the weapon-name guess, "
+      + "and a cleared swatch falls through to stock amber. Phaser arrays are not affected.",
+    fields: [
+      { key: "entColor", label: "ENT — primary",        kind: "color" },
+      { key: "entCore",  label: "ENT — core",           kind: "color" },
+      { key: "tosColor", label: "TOS — primary",        kind: "color" },
+      { key: "tosCore",  label: "TOS — core",           kind: "color" },
+      { key: "tmpColor", label: "TMP — primary",        kind: "color" },
+      { key: "tmpCore",  label: "TMP — core",           kind: "color" },
+      { key: "tngColor", label: "TNG/DS9/VOY — primary",kind: "color" },
+      { key: "tngCore",  label: "TNG/DS9/VOY — core",   kind: "color" },
+    ],
+  },
+  {
+    group: "tracer",
+    label: "Tracer Fire (Phaser Banks)",
+    hint: "The selected era's phaser banks fire a stream of short travelling bolts instead of a held beam. "
+      + "Bolts launch one after another so several are in flight at once. Muzzle flare and impact flash "
+      + "are shared with the Phaser Bank settings above.",
+    fields: [
+      { key: "era", label: "Tracer era", kind: "select", options: BEAM_VFX_TRACER_ERA_OPTIONS,
+        hint: "Which era fires tracers. \"off\" makes every era use the continuous beam." },
+      { key: "boltCount",      label: "Bolts per burst",   kind: "range", min: 1,  max: 24,   step: 1    },
+      { key: "boltLength",     label: "Bolt length",       kind: "range", min: 4,  max: 400,  step: 2    },
+      { key: "boltSpacing",    label: "Time between bolts",kind: "range", min: 5,  max: 500,  step: 5, unit: "ms",
+        hint: "Lower than the travel time means several bolts are in flight at once." },
+      { key: "travelDuration", label: "Bolt travel time",  kind: "range", min: 40, max: 2000, step: 10, unit: "ms",
+        hint: "Also when the shield/hull impact lands." },
+      { key: "volleyGap",      label: "Gap between bursts",kind: "range", min: 0,  max: 2000, step: 20, unit: "ms",
+        hint: "Replaces the Phaser Bank burst gap while tracers are firing." },
+      { key: "glowWidth",      label: "Bolt glow width",   kind: "range", min: 0,  max: 60,   step: 1    },
+      { key: "glowAlpha",      label: "Bolt glow opacity", kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "coreWidth",      label: "Bolt core width",   kind: "range", min: 0,  max: 30,   step: 0.5  },
+      { key: "coreAlpha",      label: "Bolt core opacity", kind: "range", min: 0,  max: 1,    step: 0.02 },
+      { key: "tailFade",       label: "Dim over flight",   kind: "range", min: 0,  max: 1,    step: 0.02,
+        hint: "How much a bolt dims by the time it reaches the target. 0 keeps it at full brightness." },
+    ],
+  },
+]);
+
+// Era-colour swatches mean something different when cleared than the array
+// sweep colour does, so the blank checkbox gets its own label.
+const BEAM_VFX_BLANK_LABELS = Object.freeze({
+  "array.sweepColor": "follow core colour",
+});
+const BEAM_VFX_BLANK_LABEL_DEFAULT = "use default colour";
+
+// Era options for the preview toolbar — same eras as the ship-side selector.
+const BEAM_VFX_PREVIEW_ERAS = Object.freeze([
+  { value: "",    label: "No era" },
+  { value: "ent", label: "ENT" },
+  { value: "tos", label: "TOS" },
+  { value: "tmp", label: "TMP" },
+  { value: "tng", label: "TNG/DS9/VOY" },
+]);
+
+/** Build the Beam VFX tab rows from the current (or supplied) settings. */
+function buildBeamVfxGroups(current = getBeamVfxSettings()) {
+  return BEAM_VFX_FIELD_GROUPS.map(group => ({
+    label: group.label,
+    hint:  group.hint,
+    fields: group.fields.map(field => {
+      const value = current?.[group.group]?.[field.key] ?? DEFAULT_BEAM_VFX_SETTINGS[group.group][field.key];
+      return {
+        ...field,
+        path: `${group.group}.${field.key}`,
+        value,
+        hint: field.hint ?? null,
+        isRange:  field.kind === "range",
+        isColor:  field.kind === "color",
+        isSelect: field.kind === "select",
+        // The colour input needs a concrete value; blank is carried by the checkbox.
+        colorValue: field.kind === "color" ? (value || "#ffffff") : null,
+        colorBlank: field.kind === "color" ? !value : false,
+        blankLabel: BEAM_VFX_BLANK_LABELS[`${group.group}.${field.key}`] ?? BEAM_VFX_BLANK_LABEL_DEFAULT,
+        choices: field.kind === "select"
+          ? field.options.map(option => ({ value: option, selected: option === value }))
+          : null,
+      };
+    }),
+  }));
+}
+
+/** Read the Beam VFX tab's live (unsaved) form state into a settings object. */
+function readBeamVfxForm(el) {
+  const draft = foundry.utils.deepClone(DEFAULT_BEAM_VFX_SETTINGS);
+  for (const input of el.querySelectorAll("[data-beam-path]")) {
+    const path = input.dataset.beamPath;
+    if (!path) continue;
+    // A cleared colour swatch is stored blank so the beam follows its own colour.
+    if (input.dataset.beamKind === "color") {
+      const row = input.closest("[data-beam-color-row]");
+      const blank = row?.querySelector("[data-beam-color-blank]")?.checked;
+      setPath(draft, path, blank ? "" : input.value);
+      continue;
+    }
+    setPath(draft, path, input.value);
+  }
+  return normalizeBeamVfxSettings(draft);
+}
+
 // ── Utility ──────────────────────────────────────────────────────────────────
 
 /** Read a nested value from an object via dot-path ("a.b.c") */
@@ -348,6 +557,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       cancel:          EffectConfigMenu._onCancel,
       addCustomRow:    EffectConfigMenu._onAddCustomRow,
       deleteCustomRow: EffectConfigMenu._onDeleteCustomRow,
+      previewBeam:     EffectConfigMenu._onPreviewBeam,
+      resetBeam:       EffectConfigMenu._onResetBeam,
     },
   };
 
@@ -397,6 +608,9 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
         : null,
       torpedoRows: tab.torpedoCounts ? buildTorpedoRows() : null,
       energyWeaponRows: tab.energyWeaponCounts ? buildEnergyWeaponRows() : null,
+      arrayAreaCap: tab.energyWeaponCounts ? getArrayAreaShotCap() : null,
+      beamVfxGroups: tab.beamVfx ? buildBeamVfxGroups() : null,
+      beamPreviewEras: tab.beamVfx ? BEAM_VFX_PREVIEW_ERAS : null,
     }));
 
     return { tabs, activeTab: tabs[0]?.id ?? "" };
@@ -440,6 +654,14 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     el.querySelectorAll(".ec-slider input[type='range']").forEach(range => {
       const valEl = range.parentElement?.querySelector(".ec-slider-val");
       range.addEventListener("input", () => { if (valEl) valEl.textContent = range.value; });
+    });
+
+    // ── Beam VFX colour swatches — picking a colour clears "follow core" ──────
+    el.querySelectorAll("[data-beam-color-row]").forEach(row => {
+      const swatch = row.querySelector("[data-beam-kind='color']");
+      const blank  = row.querySelector("[data-beam-color-blank]");
+      if (!swatch || !blank) return;
+      swatch.addEventListener("input", () => { blank.checked = false; });
     });
   }
 
@@ -544,12 +766,71 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     try { await game.settings.set(MODULE, "energyWeaponCountConfig", energyWeaponCounts); }
     catch(e) { console.warn("STA2e Toolkit | Could not save energyWeaponCountConfig:", e); }
 
+    // Array Area shot cap (Energy Weapons tab)
+    const capEnabled = el.querySelector("[data-array-cap-field='enabled']");
+    const capMax     = el.querySelector("[data-array-cap-field='max']");
+    if (capEnabled || capMax) {
+      try {
+        await game.settings.set(MODULE, "arrayAreaShotCap", {
+          enabled: !!capEnabled?.checked,
+          max: Math.max(1, Math.min(20, parseInt(capMax?.value) || ARRAY_AREA_SHOT_CAP_DEFAULT)),
+        });
+      } catch(e) { console.warn("STA2e Toolkit | Could not save arrayAreaShotCap:", e); }
+    }
+
+    // Native beam appearance (Beam VFX tab)
+    if (el.querySelector("[data-beam-path]")) {
+      try { await game.settings.set(MODULE, "beamVfxAppearance", readBeamVfxForm(el)); }
+      catch(e) { console.warn("STA2e Toolkit | Could not save beamVfxAppearance:", e); }
+    }
+
     ui.notifications.info("STA2e Toolkit | Sounds & Animations saved.");
     this.close();
   }
 
   static _onCancel(_event, _target) {
     this.close();
+  }
+
+  /** Fire one beam between the controlled token and the first target, using the
+   *  live form values so unsaved slider positions can be judged on canvas. */
+  static _onPreviewBeam(_event, btn) {
+    const source = canvas?.tokens?.controlled?.[0] ?? null;
+    const target = Array.from(game.user?.targets ?? [])[0] ?? null;
+    if (!source || !target) {
+      ui.notifications.warn("STA2e Toolkit | Select a token and target another to preview the beam.");
+      return;
+    }
+    if (source === target) {
+      ui.notifications.warn("STA2e Toolkit | Target a different token to preview the beam.");
+      return;
+    }
+    previewBeamVfxAppearance(source, target, {
+      weaponKey: btn.dataset.beamPreview === "array" ? "weapon-phaser-array" : "weapon-phaser-bank",
+      beamSettings: readBeamVfxForm(this.element),
+      era: this.element.querySelector("[data-beam-preview-era]")?.value ?? "",
+    });
+  }
+
+  /** Restore every Beam VFX control to its stock value (not saved until Save). */
+  static _onResetBeam(_event, _btn) {
+    const el = this.element;
+    for (const input of el.querySelectorAll("[data-beam-path]")) {
+      const path = input.dataset.beamPath;
+      if (!path) continue;
+      const value = getPath(DEFAULT_BEAM_VFX_SETTINGS, path);
+      if (input.dataset.beamKind === "color") {
+        const row = input.closest("[data-beam-color-row]");
+        const blank = row?.querySelector("[data-beam-color-blank]");
+        if (blank) blank.checked = !value;
+        input.value = value || "#ffffff";
+        continue;
+      }
+      input.value = value;
+      const valEl = input.parentElement?.querySelector(".ec-slider-val");
+      if (valEl) valEl.textContent = input.value;
+    }
+    ui.notifications.info("STA2e Toolkit | Beam VFX reset to defaults — press Save to keep it.");
   }
 
   /** Append a blank custom weapon row to the active tab's custom section. */

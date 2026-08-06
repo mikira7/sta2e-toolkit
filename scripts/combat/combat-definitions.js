@@ -291,6 +291,7 @@ export const BRIDGE_STATIONS = [
       {
         key:     "regain-power",
         label:   "Regain Power",
+        isReserveOnly: true,
         tooltip: "Draw energy from another system to replenish Reserve Power. Control + Engineering, Difficulty 1. May Succeed at Cost. Success: restore the ship's Reserve Power for use later this scene. Complications reflect subsystems shutting down. Difficulty increases by 1 each time attempted during a scene.",
       },
       {
@@ -360,7 +361,7 @@ export const BRIDGE_STATIONS = [
       {
         key:     null,
         label:   "Fire",
-        tooltip: "Select a single energy weapon or torpedo weapon, choose a target, and make an Attack (p.306). Use the weapon buttons above to fire. Player torpedo attacks add 1 Threat; torpedo salvos add 3 Threat.",
+        tooltip: "Select a single energy weapon or torpedo weapon, choose a target, and make an Attack (p.306). Use the weapon buttons above to fire. Torpedo attacks from player and allied ships add 1 Threat; torpedo salvos add 3 Threat (hit or miss).",
         isInfo:  true,
       },
       {

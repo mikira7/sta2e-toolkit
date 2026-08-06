@@ -8,7 +8,7 @@ import {
   TRACTOR_BEAM_RENDERER_SETTING,
   TRACTOR_BEAM_WORLD_SETTING,
 } from "./tractor-beam-vfx.js";
-import { NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
+import { DEFAULT_BEAM_VFX_SETTINGS, NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
 import { resyncAllHullDecals, refreshAllHullDecals } from "./hull-decals.js";
 import { refreshAllTokenElevationTooltips } from "./token-elevation-display.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
@@ -573,6 +573,24 @@ export function registerSettings() {
     default: "free"
   });
 
+  // ── NPC Ship Rules ────────────────────────────────────────────────────────
+  // Core rulebook, NPCs and Starship Operations: "NPC ships do not have
+  // Reserve Power (see page 185)." Off by default, so NPC and allied NPC
+  // vessels skip the Reserve Power economy entirely.
+
+  game.settings.register("sta2e-toolkit", "npcShipsUseReservePower", {
+    name:    "STA2E.Settings.NpcShipsUseReservePower.Name",
+    hint:    "STA2E.Settings.NpcShipsUseReservePower.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+    onChange: () => {
+      game.sta2eToolkit?.combatHud?._refresh?.();
+      game.socket?.emit("module.sta2e-toolkit", { action: "renderHUD" });
+    },
+  });
+
   // ── Cinematic ship repositioning ─────────────────────────────────────────
   // When a ship fires, after it rotates to bring the weapon arc to bear it can
   // also nudge a square or two forward along that facing — purely for flavour.
@@ -634,6 +652,16 @@ export function registerSettings() {
     default: {},
   });
 
+  // Optional hard cap on how many strikes an array volley plays when fired in
+  // Area mode, on top of the per-family damage scaling. { enabled, max }.
+  // Managed by the Energy Weapons tab in the Sounds & Animations menu.
+  game.settings.register("sta2e-toolkit", "arrayAreaShotCap", {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: {},
+  });
+
   // ── Combat Sound Effects ─────────────────────────────────────────────────
   // All optional — empty string = no sound played for that slot.
 
@@ -662,6 +690,12 @@ export function registerSettings() {
   game.settings.register("sta2e-toolkit", "sndShipLanceDisruptorMiss", snd("Ship Sound — Disruptor Spinal Lance (Miss)", "Sound when a disruptor spinal lance misses. Blank uses the disruptor beam (miss) sound."));
   game.settings.register("sta2e-toolkit", "sndShipLancePolaronHit",    snd("Ship Sound — Polaron Spinal Lance (Hit)",    "Sound when a polaron spinal lance hits. Blank uses the polaron beam (hit) sound."));
   game.settings.register("sta2e-toolkit", "sndShipLancePolaronMiss",   snd("Ship Sound — Polaron Spinal Lance (Miss)",   "Sound when a polaron spinal lance misses. Blank uses the polaron beam (miss) sound."));
+  // Arrays only charge up on the opening strike of a volley; the strikes that
+  // follow can use their own audio instead of replaying the charge-and-fire.
+  game.settings.register("sta2e-toolkit", "sndShipArrayRepeat", snd(
+    "Ship Sound — Array (Additional Strikes)",
+    "Sound for the 2nd and later strikes of an array volley. Blank uses the weapon's normal hit sound."
+  ));
   for (const era of [
     { key: "Ent", label: "ENT" },
     { key: "Tos", label: "TOS" },
@@ -678,6 +712,13 @@ export function registerSettings() {
         game.settings.register("sta2e-toolkit", `sndShipPhaser${type.key}${era.key}${result}`, snd(
           `Ship Sound - Phaser ${type.label} ${era.label} (${result})`,
           `Sound when a ${era.label} phaser ${type.label.toLowerCase()} ${result.toLowerCase()} animation plays. Blank falls back to the base phaser sound.`
+        ));
+      }
+      // Only arrays fire multi-strike volleys with a single opening charge-up.
+      if (type.key === "Array") {
+        game.settings.register("sta2e-toolkit", `sndShipPhaserArray${era.key}Repeat`, snd(
+          `Ship Sound - Phaser Array ${era.label} (Additional Strikes)`,
+          `Sound for the 2nd and later strikes of an ${era.label} phaser array volley. Blank falls back to the generic array follow-up sound, then the base phaser sound.`
         ));
       }
     }
@@ -1129,5 +1170,14 @@ export function registerSettings() {
     config:  false,
     type:    Object,
     default: { ...NATIVE_WEAPON_VFX_DEFAULT_MODES },
+  });
+
+  game.settings.register("sta2e-toolkit", "beamVfxAppearance", {
+    name:    "Native Beam VFX Appearance",
+    hint:    "Managed from Sounds & Animations → Beam VFX.",
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: foundry.utils.deepClone(DEFAULT_BEAM_VFX_SETTINGS),
   });
 }

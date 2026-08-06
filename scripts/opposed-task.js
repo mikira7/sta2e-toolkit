@@ -25,8 +25,9 @@
  */
 
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
-import { callOutTargetsBonusMomentum, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
+import { allRolledDice, callOutTargetsBonusMomentum, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { getStationOfficers, readOfficerStats } from "./crew-manifest.js";
+import { labelFromKey as _labelFromKey, orderedShipsForActor, serializeShipsForRoller } from "./ship-pool.js";
 import { CombatHUD } from "./combat-hud.js";
 import { createTracker } from "./momentum-tracker.js";
 import { planOfActionBonusMomentum } from "./trait-service.js";
@@ -196,6 +197,29 @@ async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {}
  * Post an opposed-task card directly without opening the setup dialog.
  * Macros and external callers can use this.  All fields fall back sensibly.
  */
+/** Pass the Opposed tab's per-side ship-assist selections through untouched. */
+function _sideShipAssistOpts(side, opts = {}) {
+  return {
+    [`${side}ShipAssist`]:    !!opts[`${side}ShipAssist`],
+    [`${side}ShipActorId`]:   opts[`${side}ShipActorId`] ?? null,
+    [`${side}ShipSystemKey`]: opts[`${side}ShipSystemKey`] ?? null,
+    [`${side}ShipDeptKey`]:   opts[`${side}ShipDeptKey`] ?? null,
+  };
+}
+
+/**
+ * Collapse a side's ship-assist selection into the compact block stored on the
+ * card, or null when the side isn't being assisted.
+ */
+function _sideShipAssistBlock(side, snapshot = {}) {
+  if (!snapshot[`${side}ShipAssist`] || !snapshot[`${side}ShipActorId`]) return null;
+  return {
+    shipActorId:   snapshot[`${side}ShipActorId`],
+    shipSystemKey: snapshot[`${side}ShipSystemKey`] ?? null,
+    shipDeptKey:   snapshot[`${side}ShipDeptKey`] ?? null,
+  };
+}
+
 export async function startOpposedTask(opts = {}) {
   if (!game.user.isGM) {
     ui.notifications.warn("STA2e Toolkit: Only the GM can post an opposed task.");
@@ -219,6 +243,10 @@ export async function startOpposedTask(opts = {}) {
     attackerSuggestedDisc: opts.attackerSuggestedDisc ?? opts.suggestedDisc ?? "command",
     defenderActorId:       defId,
     attackerActorId:       atkId,
+    defenderTokenId:       opts.defenderTokenId ?? null,
+    attackerTokenId:       opts.attackerTokenId ?? null,
+    ..._sideShipAssistOpts("defender", opts),
+    ..._sideShipAssistOpts("attacker", opts),
     options:               {
       defenderComplicationRange: opts.options?.defenderComplicationRange ?? opts.defenderComplicationRange ?? opts.options?.complicationRange ?? opts.complicationRange ?? 1,
       attackerComplicationRange: opts.options?.attackerComplicationRange ?? opts.attackerComplicationRange ?? opts.options?.complicationRange ?? opts.complicationRange ?? 1,
@@ -443,12 +471,19 @@ async function postOpposedTaskCard(snapshot) {
     kindLabel:      kindMeta.label,
     kindIcon:       kindMeta.icon,
     options:        snapshot.options,
+    // Token ids only — _launchRoller already reads combat.<side>TokenId, and
+    // taskData.mode stays undefined so the starship-combat branch is untouched.
+    combat: {
+      defenderTokenId: snapshot.defenderTokenId ?? null,
+      attackerTokenId: snapshot.attackerTokenId ?? null,
+    },
     defender: {
       actorId: defActor.id,
       actorName: defActor.name,
       actorImg: defActor.img ?? "icons/svg/mystery-man.svg",
       suggestedAttr: snapshot.defenderSuggestedAttr ?? snapshot.suggestedAttr ?? "presence",
       suggestedDisc: snapshot.defenderSuggestedDisc ?? snapshot.suggestedDisc ?? "command",
+      shipAssist: _sideShipAssistBlock("defender", snapshot),
       rolled: false,
       successes: null,
       complications: null,
@@ -459,6 +494,7 @@ async function postOpposedTaskCard(snapshot) {
       actorImg: atkActor.img ?? "icons/svg/mystery-man.svg",
       suggestedAttr: snapshot.attackerSuggestedAttr ?? snapshot.suggestedAttr ?? "presence",
       suggestedDisc: snapshot.attackerSuggestedDisc ?? snapshot.suggestedDisc ?? "command",
+      shipAssist: _sideShipAssistBlock("attacker", snapshot),
       rolled: false,
       successes: null,
       complications: null,
@@ -487,6 +523,8 @@ async function postOpposedTaskCard(snapshot) {
       suggestedDisc:         snapshot.defenderSuggestedDisc ?? snapshot.suggestedDisc ?? "command",
       defenderActorId:       snapshot.defenderActorId,
       attackerActorId:       snapshot.attackerActorId,
+      ..._sideShipAssistOpts("defender", snapshot),
+      ..._sideShipAssistOpts("attacker", snapshot),
       options:               snapshot.options,
     });
   } catch (e) {
@@ -710,7 +748,19 @@ function _renderCardHtml(d) {
     : "";
 
   // Per-side: actor portrait + colored label
-  const sideBlock = (label, portraitSrc, name, attrLabel, discLabel, compRangeText, statusHtml, accentColor) => `
+  // "Ship Assist: USS Foo - Sensors + Science", mirroring the Normal Task card.
+  const shipAssistLine = (sideObj) => {
+    const cfg = sideObj?.shipAssist;
+    if (!cfg?.shipActorId) return "";
+    const ship = game.actors.get(cfg.shipActorId);
+    if (!ship) return "";
+    const pair = cfg.shipSystemKey && cfg.shipDeptKey
+      ? ` - ${_esc(_labelFromKey(cfg.shipSystemKey))} + ${_esc(_labelFromKey(cfg.shipDeptKey))}`
+      : "";
+    return `<div style="margin-top:1px;font-size:8px;color:${textDim};letter-spacing:0.06em;text-transform:uppercase;">Ship Assist: ${_esc(ship.name)}${pair}</div>`;
+  };
+
+  const sideBlock = (label, portraitSrc, name, attrLabel, discLabel, compRangeText, statusHtml, accentColor, shipLineHtml = "") => `
     <div class="sta2e-op-v2-side" style="flex:1;padding:8px 12px;">
       <div style="display:flex;gap:8px;align-items:flex-start;">
         <img src="${portraitSrc || "icons/svg/mystery-man.svg"}"
@@ -721,6 +771,7 @@ function _renderCardHtml(d) {
           <div style="font-size:12px;font-weight:700;color:${LC.text ?? "#ffcc66"};margin-top:1px;line-height:1.2;">${_esc(name)}</div>
           <div style="margin-top:3px;font-size:9px;color:${accentColor};letter-spacing:0.08em;text-transform:uppercase;opacity:0.85;">${attrLabel} + ${discLabel}</div>
           <div style="margin-top:1px;font-size:8px;color:${textDim};letter-spacing:0.06em;text-transform:uppercase;">${compRangeText}</div>
+          ${shipLineHtml}
         </div>
       </div>
       <div style="margin-top:6px;padding-top:6px;border-top:1px dashed ${LC.borderDim};font-size:11px;">${statusHtml}</div>
@@ -746,9 +797,9 @@ function _renderCardHtml(d) {
 
   <div class="sta2e-op-v2-sides"
     style="display:flex;margin:6px 10px 0;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(0,0,0,0.25);">
-    ${sideBlock("Defender", d.defender.actorImg, d.defender.actorName, defAttrLabel, defDiscLabel, defCompRangeText, defLineHtml, primary)}
+    ${sideBlock("Defender", d.defender.actorImg, d.defender.actorName, defAttrLabel, defDiscLabel, defCompRangeText, defLineHtml, primary, shipAssistLine(d.defender))}
     <div style="width:1px;background:${LC.borderDim};"></div>
-    ${sideBlock("Attacker", d.attacker.actorImg, d.attacker.actorName, atkAttrLabel, atkDiscLabel, atkCompRangeText, atkLineHtml, primary)}
+    ${sideBlock("Attacker", d.attacker.actorImg, d.attacker.actorName, atkAttrLabel, atkDiscLabel, atkCompRangeText, atkLineHtml, primary, shipAssistLine(d.attacker))}
   </div>
 
   ${resolutionBlock}
@@ -947,6 +998,17 @@ function _launchRoller(message, taskData, side, actor) {
     : (taskData.options?.attackerComplicationRange ?? taskData.options?.complicationRange ?? 1);
   const hasAttr = stats && Object.keys(stats.attributes ?? {}).includes(suggestedAttr);
   const hasDisc = stats && Object.keys(stats.disciplines ?? {}).includes(suggestedDisc);
+  // Ship assist for a character side.  A ship side is excluded — it rolls its
+  // own System + Department through the roller's NPC Ship Pool.  The full
+  // assigned-ship list is offered so the roller's dropdown stays usable, with
+  // the GM's choice preselected.
+  const sideShip = sideData?.shipAssist ?? null;
+  const assistShips = (profile.isShip || !sideShip?.shipActorId)
+    ? []
+    : serializeShipsForRoller(orderedShipsForActor(actor, sideShip.shipActorId));
+  const assistShipIdx = sideShip?.shipActorId
+    ? assistShips.findIndex(s => s.actorId === sideShip.shipActorId)
+    : -1;
   const starshipWeaponAssist = isStarshipCombat && (
     (side === "attacker" && !!taskData.combat?.weaponContext)
     || (side === "defender" && taskData.options?.defenseType === "defensive-fire")
@@ -1005,14 +1067,9 @@ function _launchRoller(message, taskData, side, actor) {
     defaultAttr: hasAttr ? suggestedAttr : null,
     defaultDisc: hasDisc ? suggestedDisc : null,
     taskCallback: async ({ successes, complications: reportedComplications = null, state, rollData = null, trackerMessageId = null, trackerFloat = 0, trackerBanked = 0 }) => {
-      // Count complications across the primary pools (crew + assists + ship)
-      const allDice = [
-        ...(state?.crewDice ?? rollData?.crewDice ?? []),
-        ...(state?.crewAssistDice ?? rollData?.crewAssistDice ?? []),
-        ...(state?.namedAssistDice ?? rollData?.namedAssistDice ?? []),
-        ...(state?.apAssistDice ?? rollData?.apAssistDice ?? []),
-        ...(state?.shipDice ?? rollData?.shipDice ?? []),
-      ];
+      // Count complications across every pool that rolled (crew + assists + ship).
+      // Assist complications count even when the main pool scored 0 successes.
+      const allDice = allRolledDice(state ?? rollData ?? {});
       const complications = reportedComplications ?? allDice.filter(d => d?.complication).length;
       // Serialize a compact dice array for chat-card display
       const dice = allDice.map(x => ({
@@ -1072,17 +1129,37 @@ function _launchRoller(message, taskData, side, actor) {
 
   if (profile.isShip) {
     const launcher = profile.isPlayerOwned ? openPlayerRoller : openNpcRoller;
-    launcher(actor, token, rollerOpts);
+    // Without this the roller falls back to its hardcoded "proficient" default
+    // and a Basic or Exceptional crew rolls at the wrong target.  Read through
+    // the token's actor so an unlinked ship token's own crew quality wins.
+    // `stats` is readOfficerStats(actor), which is null for ships — so it doubles
+    // as the "no named officer is rolling this" guard the HUD tasks use.
+    const rollActor = token?.actor ?? actor;
+    launcher(actor, token, {
+      ...rollerOpts,
+      // Starship combat already resolved this in startStarshipCombatOpposedTask
+      // (and deliberately sends null when a named officer is at the station).
+      crewQuality: isStarshipCombat
+        ? rollerOpts.crewQuality
+        : (CombatHUD.isNpcShip(rollActor) && !stats ? CombatHUD.getCrewQuality(rollActor) : null),
+    });
     return;
   }
 
   openNpcRoller(actor, token, {
     ...rollerOpts,
     playerMode: forcedGroundNpc ? false : profile.isPlayerOwned,
+    // groundMode stays true — it also drives the Momentum/Threat resource
+    // profile.  The roller shows the ship pool off the back of availableShips.
     groundMode: true,
     groundIsNpc: forcedGroundNpc || !profile.isPlayerOwned,
     usesPlayerPayment: forcedGroundNpc ? false : undefined,
     officer: stats ?? undefined,
+    availableShips: assistShips,
+    shipAssist: assistShipIdx >= 0,
+    selectedShipIdx: assistShipIdx,
+    shipSystemKey: sideShip?.shipSystemKey ?? undefined,
+    shipDeptKey: sideShip?.shipDeptKey ?? undefined,
   });
 }
 

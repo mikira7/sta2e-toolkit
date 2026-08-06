@@ -47,6 +47,11 @@
   .ec-slider input[type=range] { flex:1; min-width:90px; accent-color:#0099cc; }
   .ec-slider-val { min-width:18px; text-align:right; font-weight:700; color:#0099cc; font-size:11px; }
   .ec-torp-hint { font-size:9px; color:#4060a0; margin:0 0 6px; line-height:1.4; }
+  .ec-beam-toolbar { display:flex; align-items:center; gap:8px; padding:0 0 8px; border-bottom:1px solid #2a3050; }
+  .ec-beam-toolbar .ec-btn-cancel { padding:3px 10px; font-size:10px; }
+  .ec-beam-color { width:44px; height:22px; padding:0; background:#0e1118; border:1px solid #2a3050; border-radius:2px; cursor:pointer; }
+  .ec-beam-blank { display:flex; align-items:center; gap:4px; font-size:9px; color:#6080a0; white-space:nowrap; cursor:pointer; }
+  .ec-beam-blank input { margin:0; }
   .ec-footer { display:flex; justify-content:flex-end; gap:8px; padding:8px 10px; background:#0e1118; border-top:1px solid #2a3050; }
   .ec-btn-cancel, .ec-btn-save { padding:5px 18px; font-size:11px; font-weight:700; border-radius:2px; cursor:pointer; letter-spacing:.04em; transition:background .12s; }
   .ec-btn-cancel { background:#1a1e2a; border:1px solid #3a4060; color:#7090b0; }
@@ -210,6 +215,98 @@
         {{/each}}
       </tbody>
     </table>
+    <p class="ec-torp-hint">
+      An Area array volley splits its fire across several ships, so the full damage-scaled
+      play-count can run long. Cap it here: the first strike charges up, the rest follow without
+      one. Spread-mode arrays and every other weapon family ignore this cap.
+    </p>
+    <table class="ec-table">
+      <thead>
+        <tr><th>Arrays in Area mode</th><th>Enabled</th><th>Max plays</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-label">Cap Area volley length</td>
+          <td class="ec-input-cell">
+            <input type="checkbox" data-array-cap-field="enabled" {{#if arrayAreaCap.enabled}}checked{{/if}} />
+          </td>
+          <td class="ec-input-cell">
+            <div class="ec-slider">
+              <input type="range" min="1" max="20" step="1" data-array-cap-field="max" value="{{arrayAreaCap.max}}" />
+              <span class="ec-slider-val">{{arrayAreaCap.max}}</span>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    {{/if}}
+
+    {{!-- Native (PIXI) beam appearance --}}
+    {{#if beamVfxGroups}}
+    <div class="ec-beam-toolbar">
+      <p class="ec-torp-hint" style="margin:0;flex:1;">
+        Appearance of the experimental native beams — the ones enabled under
+        Ship Weapons ▸ Experimental Native Weapon VFX. Widths and radii are canvas pixels.
+        Select a token, target another, then Preview to judge unsaved values on canvas.
+      </p>
+      <label class="ec-beam-blank" title="Preview a phaser bank as if the ship were set to this era">
+        Era
+        <select class="ec-native-select" style="min-width:110px;" data-beam-preview-era>
+          {{#each beamPreviewEras}}
+          <option value="{{value}}">{{label}}</option>
+          {{/each}}
+        </select>
+      </label>
+      <button type="button" class="ec-add-btn" data-action="previewBeam" data-beam-preview="bank">▶ Preview Bank</button>
+      <button type="button" class="ec-add-btn" data-action="previewBeam" data-beam-preview="array">▶ Preview Array</button>
+      <button type="button" class="ec-btn-cancel" data-action="resetBeam">↺ Reset</button>
+    </div>
+    {{#each beamVfxGroups}}
+    <div class="ec-native-section">
+      <div class="ec-native-header">{{label}}</div>
+      {{#if hint}}<p class="ec-native-hint">{{hint}}</p>{{/if}}
+      <table class="ec-table">
+        <thead>
+          <tr><th>Property</th><th>Value</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          {{#each fields}}
+          <tr {{#if isColor}}data-beam-color-row="{{path}}"{{/if}}>
+            <td class="ec-label">{{label}}</td>
+            <td class="ec-input-cell">
+              {{#if isRange}}
+              <div class="ec-slider">
+                <input type="range" min="{{min}}" max="{{max}}" step="{{step}}"
+                  data-beam-path="{{path}}" data-beam-kind="range" value="{{value}}" />
+                <span class="ec-slider-val">{{value}}</span>
+                {{#if unit}}<span class="ec-delay-unit">{{unit}}</span>{{/if}}
+              </div>
+              {{/if}}
+              {{#if isColor}}
+              <div class="ec-slider">
+                <input type="color" class="ec-beam-color"
+                  data-beam-path="{{path}}" data-beam-kind="color" value="{{colorValue}}" />
+                <label class="ec-beam-blank">
+                  <input type="checkbox" data-beam-color-blank {{#if colorBlank}}checked{{/if}} />
+                  {{blankLabel}}
+                </label>
+              </div>
+              {{/if}}
+              {{#if isSelect}}
+              <select class="ec-native-select" data-beam-path="{{path}}" data-beam-kind="select">
+                {{#each choices}}
+                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{value}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td class="ec-slot">{{#if hint}}{{hint}}{{/if}}</td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    </div>
+    {{/each}}
     {{/if}}
 
     {{!-- Native weapon animation mode selectors --}}

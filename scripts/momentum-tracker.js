@@ -204,6 +204,8 @@ async function postTrackerTraitCard(message, tracker) {
             <select class="sta2e-trait-effect-type" style="padding:4px 6px;background:${LC.bg ?? "#050607"};border:1px solid ${LC.border ?? "#ff9900"};color:${LC.text ?? "#f1d8a8"};">
               <option value="note">Notes Only</option>
               <option value="difficulty">Difficulty</option>
+              <option value="damage">Damage +</option>
+              <option value="damage-reduce">Damage −</option>
               <option value="reroll">One-Die Reroll</option>
               <option value="bonusMomentum">Bonus Momentum</option>
               <option value="bonusThreat">Bonus Threat</option>
@@ -364,7 +366,7 @@ export function getActiveTracker(ownerActorId) {
   for (let i = msgs.length - 1; i >= 0; i--) {
     const t = msgs[i].getFlag(MODULE, "overflowTracker");
     if (!t || t.ownerActorId !== ownerActorId) continue;
-    if ((t.float | 0) <= 0 && (t.bonus | 0) <= 0) continue;
+    if ((t.float | 0) <= 0 && (t.bonus | 0) <= 0 && (t.versatile | 0) <= 0) continue;
     return msgs[i];
   }
   return null;

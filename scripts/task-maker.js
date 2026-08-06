@@ -3,7 +3,8 @@
  * GM-authored task request cards that open the existing advanced dice roller.
  */
 
-import { getAssignedShips, normalizeAssignedShips, readOfficerStats } from "./crew-manifest.js";
+import { readOfficerStats } from "./crew-manifest.js";
+import { labelFromKey, orderedShipsForActor, serializeShipsForRoller, shipDeptOptions, shipSystemOptions, worldShips } from "./ship-pool.js";
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens, inputStyle, labelStyle, pillStyle, selectStyle } from "./lcars-theme.js";
 import { buildOpposedPanelHtml, defaultOpposedState, readOpposedPanelState, wireOpposedPanel } from "./opposed-panel.js";
 import { decrementTracker } from "./momentum-tracker.js";
@@ -219,10 +220,6 @@ function isTaskActor(actor) {
   return !!(actor?.system?.attributes || actor?.system?.disciplines);
 }
 
-function isShipActor(actor) {
-  return actor?.type === "starship" || actor?.type === "smallcraft" || actor?.type === "spacecraft2e" || actor?.system?.systems !== undefined;
-}
-
 function isExtendedTaskActor(actor) {
   return actor?.type === "extendedtask"
     || !!(actor?.system?.workprogress && actor?.system?.breakthroughs);
@@ -262,50 +259,10 @@ function spendPoolAvailable(pool, { trackerMessageId = null, actorId = null } = 
   return (Number(tracker.float) || 0) + (Number(tracker.bonus) || 0) + (Number(readPool(pool)) || 0);
 }
 
-function worldShips() {
-  return game.actors
-    .filter(isShipActor)
-    .map(actor => ({ label: actor.name, actorId: actor.id, shipActor: actor }));
-}
-
 function worldExtendedTasks() {
   return game.actors
     .filter(isExtendedTaskActor)
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function orderedShipsForActor(actor, preferredShipId = null) {
-  const all = worldShips();
-  const byId = new Map(all.map(s => [s.actorId, s]));
-  const assigned = normalizeAssignedShips(getAssignedShips(actor));
-  // Only offer ships assigned to this character. If none are assigned, fall back to all ships.
-  if (!assigned.length) return all;
-  const assignedSet = new Set(assigned);
-  const order = [preferredShipId, ...assigned].filter(id => id && assignedSet.has(id));
-  const seen = new Set();
-  const ordered = [];
-  for (const id of order) {
-    const ship = byId.get(id);
-    if (ship && !seen.has(ship.actorId)) {
-      seen.add(ship.actorId);
-      ordered.push(ship);
-    }
-  }
-  return ordered;
-}
-
-function serializeShipsForRoller(shipRefs) {
-  return shipRefs.map(s => ({
-    label: s.label,
-    actorId: s.actorId,
-    systems: s.shipActor.system?.systems ?? {},
-    depts: s.shipActor.system?.departments ?? {},
-    hasAdvancedSensors: s.shipActor.items?.some(i =>
-      i.name.toLowerCase().includes("advanced sensor suites") ||
-      i.name.toLowerCase().includes("advanced sensors")
-    ) ?? false,
-    sensorsBreaches: s.shipActor.system?.systems?.sensors?.breaches ?? 0,
-  }));
 }
 
 function effectText(effect, quantity = 1) {
@@ -608,20 +565,6 @@ function actorSlotHtml(actor, state) {
         <button type="button" class="tmk-actor-pick" data-source="list" style="${pillStyle(LC.tertiary)}">List...</button>
       </div>
     </div>`;
-}
-
-function shipSystemOptions(ship, selectedKey) {
-  const entries = Object.entries(ship?.system?.systems ?? {});
-  return entries.map(([key, value]) => `<option value="${esc(key)}" ${key === selectedKey ? "selected" : ""}>${esc(labelFromKey(key))} (${Number(value?.value ?? value ?? 0)})</option>`).join("");
-}
-
-function shipDeptOptions(ship, selectedKey) {
-  const entries = Object.entries(ship?.system?.departments ?? {});
-  return entries.map(([key, value]) => `<option value="${esc(key)}" ${key === selectedKey ? "selected" : ""}>${esc(labelFromKey(key))} (${Number(value?.value ?? value ?? 0)})</option>`).join("");
-}
-
-function labelFromKey(key) {
-  return String(key ?? "").replace(/[-_]+/g, " ").replace(/\b\w/g, ch => ch.toUpperCase());
 }
 
 function defaultBreakpoints(workMax = 12, count = 3) {
@@ -1720,6 +1663,8 @@ function departmentScoreForResult(taskData, result = {}) {
 }
 
 function uniqueCoordinatedEffortAssists(result = {}) {
+  // Assists that scored nothing (main pool rolled 0 successes) never helped.
+  if (result.state?.crewFailed ?? result.rollData?.crewFailed ?? result.crewFailed) return [];
   const dice = [
     ...(result.namedAssistDice ?? []),
     ...(result.state?.namedAssistDice ?? []),
