@@ -4,13 +4,15 @@
  * Actor-level image anchors for native ship VFX.
  */
 
+import { hasPointDefenseSystem } from "./combat/combat-definitions.js";
+
 const MODULE = "sta2e-toolkit";
 const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
 const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 10;
+const SHIP_VFX_ANCHORS_VERSION = 11;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -19,6 +21,11 @@ const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
 const WEAPON_EMITTER_LANCE_MIN_ARC_WIDTH_DEG = 0;
 const WEAPON_EMITTER_MAX_ARC_WIDTH_DEG = 180;
 const WEAPON_EMITTER_LAYERS = Object.freeze(["above", "below"]);
+const POINT_DEFENSE_COLOR_MODES = Object.freeze(["auto", "custom"]);
+export const DEFAULT_POINT_DEFENSE_SETTINGS = Object.freeze({
+  colorMode: "auto",
+  customColor: "",
+});
 
 // ── Engine trail emitters (impulse + warp nacelles) ─────────────────────────
 // Per-ship placed emitter points that stream a PIXI particle trail during
@@ -274,6 +281,23 @@ function _normalizeEngineEmitter(anchor) {
     kind: _normalizeEngineKind(anchor?.kind),
     facingDeg: _normalizeDegrees(anchor?.facingDeg, DEFAULT_ENGINE_EMITTER_FACING_DEG),
     layer: _normalizeEmitterLayer(anchor?.layer),
+  };
+}
+
+function _normalizePointDefenseEmitter(anchor) {
+  const normalized = _normalizeAnchor(anchor, "Point Defense emitter");
+  if (!normalized) return null;
+  return {
+    ...normalized,
+    layer: _normalizeEmitterLayer(anchor?.layer),
+  };
+}
+
+export function normalizePointDefenseSettings(settings = {}) {
+  const mode = String(settings?.colorMode ?? "").toLowerCase();
+  return {
+    colorMode: POINT_DEFENSE_COLOR_MODES.includes(mode) ? mode : DEFAULT_POINT_DEFENSE_SETTINGS.colorMode,
+    customColor: _normalizeHexColor(settings?.customColor),
   };
 }
 
@@ -642,6 +666,10 @@ export function normalizeShipVfxAnchors(data = {}) {
     ? data.anchors.engineEmitters.map(anchor => _normalizeEngineEmitter(anchor)).filter(Boolean)
     : [];
 
+  const pointDefenseEmitters = Array.isArray(data?.anchors?.pointDefenseEmitters)
+    ? data.anchors.pointDefenseEmitters.map(anchor => _normalizePointDefenseEmitter(anchor)).filter(Boolean)
+    : [];
+
   const hitLocations = Array.isArray(data?.anchors?.hitLocations)
     ? data.anchors.hitLocations.map(anchor => _normalizeHitLocation(anchor)).filter(Boolean)
     : [];
@@ -666,6 +694,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       tractorEmitters,
       weaponEmitters,
       engineEmitters,
+      pointDefenseEmitters,
       hitLocations,
       hitPolygons,
       arrayCurves,
@@ -675,6 +704,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       shieldImpact: normalizeShipShieldImpactSettings(data?.settings?.shieldImpact),
       engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
       tractorBeam: normalizeShipTractorBeamSettings(data?.settings?.tractorBeam),
+      pointDefense: normalizePointDefenseSettings(data?.settings?.pointDefense),
     },
   };
 }
@@ -714,6 +744,14 @@ export function getShipEngineEmitters(actorOrToken, kind = null) {
 
 export function getShipEngineTrailSettings(actorOrToken) {
   return normalizeShipEngineTrailSettings(getShipVfxAnchors(actorOrToken)?.settings?.engineTrail);
+}
+
+export function getShipPointDefenseEmitters(actorOrToken) {
+  return getShipVfxAnchors(actorOrToken).anchors.pointDefenseEmitters ?? [];
+}
+
+export function getShipPointDefenseSettings(actorOrToken) {
+  return normalizePointDefenseSettings(getShipVfxAnchors(actorOrToken)?.settings?.pointDefense);
 }
 
 export function getShipTractorBeamSettings(actorOrToken) {
@@ -806,6 +844,24 @@ export const TRACTOR_FACTION_COLORS = Object.freeze({
 
 export function resolveTractorFactionColorHex(actorOrToken) {
   return TRACTOR_FACTION_COLORS[resolveActorFactionKey(actorOrToken)] ?? TRACTOR_BEAM_FALLBACK_COLOR;
+}
+
+// Point-defense tracers use the same faction detection as the other ship VFX,
+// but keep their own palette so future tuning does not alter tractor beams.
+export const POINT_DEFENSE_FACTION_COLORS = Object.freeze({ ...TRACTOR_FACTION_COLORS });
+export const POINT_DEFENSE_FALLBACK_COLOR = "#44bbff";
+
+export function resolvePointDefenseColorHex(actorOrToken, settingsOverride = null) {
+  const settings = settingsOverride
+    ? normalizePointDefenseSettings(settingsOverride)
+    : getShipPointDefenseSettings(actorOrToken);
+  if (settings.colorMode === "custom" && settings.customColor) return settings.customColor;
+  return POINT_DEFENSE_FACTION_COLORS[resolveActorFactionKey(actorOrToken)] ?? POINT_DEFENSE_FALLBACK_COLOR;
+}
+
+export function shipPointDefenseEmitterToCanvasPoint(token, anchor) {
+  const point = tokenAnchorToCanvasPoint(token, anchor);
+  return point ? { ...point, layer: _normalizeEmitterLayer(anchor?.layer) } : null;
 }
 
 export function shipLocalOffsetToCanvasDelta(token, sourceOffset) {
@@ -1790,6 +1846,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _resolveActiveTab() {
     if (this._activeTab === "tractor") return "tractor";
     if (this._activeTab === "hitLocations") return "hitLocations";
+    if (this._activeTab === "pointDefense" && hasPointDefenseSystem(this.actor)) return "pointDefense";
     if (this._activeTab === "engineImpulse" || this._activeTab === "engineWarp") return this._activeTab;
     if (this._weaponForTab(this._activeTab)) return this._activeTab;
     this._activeTab = "tractor";
@@ -1803,6 +1860,36 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _isTractorTab() {
     return this._resolveActiveTab() === "tractor";
+  }
+
+  _isPointDefenseTab() {
+    return this._resolveActiveTab() === "pointDefense";
+  }
+
+  _activePointDefenseSettings() {
+    return normalizePointDefenseSettings(this._anchors.settings?.pointDefense);
+  }
+
+  _setPointDefenseSettings(settings) {
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      settings: {
+        ...(this._anchors.settings ?? {}),
+        pointDefense: normalizePointDefenseSettings(settings),
+      },
+    });
+  }
+
+  _readPointDefenseSettingsFromForm() {
+    if (!this._isPointDefenseTab() || !this.element) return null;
+    const current = this._activePointDefenseSettings();
+    const read = (key, fallback) => this.element.querySelector(`[data-point-defense-setting="${key}"]`)?.value ?? fallback;
+    this._setPointDefenseSettings({
+      colorMode: read("colorMode", current.colorMode),
+      customColor: read("customColor", current.customColor),
+    });
+    return this._activePointDefenseSettings();
   }
 
   _activeTractorBeamSettings() {
@@ -1854,6 +1941,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _activeTabLabel() {
     if (this._resolveActiveTab() === "tractor") return "Tractor";
+    if (this._resolveActiveTab() === "pointDefense") return "Point Defense";
     if (this._resolveActiveTab() === "hitLocations") return `${_systemLabel(this._activeHitSystem)} Hit Location`;
     if (this._resolveActiveTab() === "engineImpulse") return "Impulse Trail";
     if (this._resolveActiveTab() === "engineWarp") return "Warp Trail";
@@ -2005,7 +2093,41 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   async _previewActive({ silent = false } = {}) {
     if (this._isEngineTab()) return this._previewActiveEngine({ silent });
+    if (this._isPointDefenseTab()) return this._previewActivePointDefense({ silent });
     return this._previewActiveWeapon({ silent });
+  }
+
+  async _previewActivePointDefense({ silent = false } = {}) {
+    const sourceToken = this._previewSourceToken();
+    if (!sourceToken) {
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Select or place a token for this ship to preview Point Defense.");
+      return;
+    }
+    const settings = this._readPointDefenseSettingsFromForm() ?? this._activePointDefenseSettings();
+    this._readEmitterArcFromForm();
+    const target = this._previewTargetPoint(sourceToken)?.point;
+    if (!target) return;
+    const emitter = this._activeEmitters()[this._selectedEmitterIndex]
+      ?? this._activeEmitters()[0]
+      ?? null;
+    const source = emitter
+      ? shipPointDefenseEmitterToCanvasPoint(sourceToken, emitter)
+      : {
+        x: Number(sourceToken.center?.x ?? sourceToken.x ?? 0),
+        y: Number(sourceToken.center?.y ?? sourceToken.y ?? 0),
+        layer: "above",
+      };
+    try {
+      const { playNativeTracerBetweenPoints } = await import("./native-weapon-vfx.js");
+      playNativeTracerBetweenPoints(source, target, {
+        color: resolvePointDefenseColorHex(this.actor, settings),
+        layer: source.layer,
+        hit: true,
+      });
+    } catch (err) {
+      console.warn("STA2e Toolkit | Point Defense preview failed:", err);
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Point Defense preview failed. See console for details.");
+    }
   }
 
   async _previewActiveEngine({ silent = false } = {}) {
@@ -2099,6 +2221,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _activeEmitters() {
     if (this._resolveActiveTab() === "tractor") return this._anchors.anchors.tractorEmitters ?? [];
+    if (this._resolveActiveTab() === "pointDefense") return this._anchors.anchors.pointDefenseEmitters ?? [];
     if (this._resolveActiveTab() === "hitLocations") {
       return (this._anchors.anchors.hitLocations ?? [])
         .filter(anchor => anchor.systemKey === this._activeHitSystem);
@@ -2124,6 +2247,21 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         anchors: {
           ...this._anchors.anchors,
           tractorEmitters: emitters,
+        },
+      });
+      return;
+    }
+
+    if (this._resolveActiveTab() === "pointDefense") {
+      this._anchors = normalizeShipVfxAnchors({
+        ...this._anchors,
+        textureSrc: this.textureSrc,
+        anchors: {
+          ...this._anchors.anchors,
+          pointDefenseEmitters: emitters.map((anchor, index) => _normalizePointDefenseEmitter({
+            ...anchor,
+            label: anchor.label || `Point Defense emitter ${index + 1}`,
+          })),
         },
       });
       return;
@@ -2299,9 +2437,13 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _markerContext(emitters) {
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
+    const isPointDefenseTab = this._isPointDefenseTab();
     const showFacingArrow = isWeaponEmitterTab || isEngineTab;
     const engineColor = isEngineTab
       ? resolveEngineTrailColorHex(this.actor, this._activeEngineKind(), this._activeEngineModeSettings())
+      : null;
+    const pointDefenseColor = isPointDefenseTab
+      ? resolvePointDefenseColorHex(this.actor, this._activePointDefenseSettings())
       : null;
     const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : 0;
     const arcMin = isWeaponEmitterTab
@@ -2315,8 +2457,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       top: `${anchor.y * 100}%`,
       coords: `${anchor.x.toFixed(3)}, ${anchor.y.toFixed(3)}`,
       systemLabel: anchor.systemKey ? _systemLabel(anchor.systemKey) : null,
-      markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : (engineColor ?? "#33aaff"),
-      selected: showFacingArrow && index === this._selectedEmitterIndex,
+      markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : (engineColor ?? pointDefenseColor ?? "#33aaff"),
+      selected: (showFacingArrow || isPointDefenseTab) && index === this._selectedEmitterIndex,
       showFacingArrow,
       showArcWidth: isWeaponEmitterTab,
       facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, isEngineTab ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
@@ -2336,7 +2478,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _activeEmitterArcControls() {
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
-    if (!isWeaponEmitterTab && !isEngineTab) return null;
+    const isPointDefenseTab = this._isPointDefenseTab();
+    if (!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
@@ -2352,6 +2495,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       minArcWidthDeg,
       showArcWidth: isWeaponEmitterTab,
       isEngine: isEngineTab,
+      isPointDefense: isPointDefenseTab,
       layer,
       layerAboveSelected: layer === "above",
       layerBelowSelected: layer === "below",
@@ -2361,7 +2505,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _readEmitterArcFromForm() {
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
-    if ((!isWeaponEmitterTab && !isEngineTab) || !this.element) return null;
+    const isPointDefenseTab = this._isPointDefenseTab();
+    if ((!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab) || !this.element) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
     const emitters = [...this._activeEmitters()];
@@ -2369,7 +2514,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     if (!current) return null;
     const facingDeg = this.element.querySelector('[data-emitter-setting="facingDeg"]')?.value ?? current.facingDeg;
     const layer = this.element.querySelector('[data-emitter-setting="layer"]')?.value ?? current.layer;
-    if (isEngineTab) {
+    if (isPointDefenseTab) {
+      emitters[selected.index] = _normalizePointDefenseEmitter({ ...current, layer });
+    } else if (isEngineTab) {
       emitters[selected.index] = _normalizeEngineEmitter({ ...current, facingDeg, layer });
     } else {
       const arcWidthDeg = this.element.querySelector('[data-emitter-setting="arcWidthDeg"]')?.value ?? current.arcWidthDeg;
@@ -2500,6 +2647,16 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         active: this._resolveActiveTab() === "engineWarp",
       },
     ];
+    if (hasPointDefenseSystem(this.actor)) {
+      tabs.splice(1, 0, {
+        id: "pointDefense",
+        label: "Point Defense",
+        title: "Point Defense System emitters",
+        icon: "fas fa-burst",
+        count: (this._anchors.anchors.pointDefenseEmitters ?? []).length,
+        active: this._resolveActiveTab() === "pointDefense",
+      });
+    }
     for (const weapon of this._shipWeapons()) {
       const id = _tabIdForWeapon(weapon);
       tabs.push({
@@ -2552,6 +2709,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         ? activeTractorSettings.customColor
         : resolveTractorFactionColorHex(this.actor))
       : null;
+    const isPointDefenseTab = this._isPointDefenseTab();
+    const activePointDefenseSettings = isPointDefenseTab ? this._activePointDefenseSettings() : null;
+    const resolvedPointDefenseColor = isPointDefenseTab
+      ? resolvePointDefenseColorHex(this.actor, activePointDefenseSettings)
+      : null;
     const activePointKind = isHitLocationsTab ? "hit location" : "emitter";
     const activeZones = isHitLocationsTab ? this._activeZones() : [];
     const activeZoneRows = isHitLocationsTab ? this._zoneContext(activeZones) : [];
@@ -2588,6 +2750,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         value,
         label: value === "custom" ? "Custom Hex" : "Auto by Faction",
         selected: value === (activeTractorSettings?.colorMode ?? "auto"),
+      })) : [],
+      isPointDefenseTab,
+      activePointDefenseSettings,
+      resolvedPointDefenseColor,
+      pointDefensePickerColor: activePointDefenseSettings?.customColor || resolvedPointDefenseColor || POINT_DEFENSE_FALLBACK_COLOR,
+      pointDefenseColorModeOptions: isPointDefenseTab ? POINT_DEFENSE_COLOR_MODES.map(value => ({
+        value,
+        label: value === "custom" ? "Custom Hex" : "Auto by Faction",
+        selected: value === (activePointDefenseSettings?.colorMode ?? "auto"),
       })) : [],
       isEngineTab,
       engineKind,
@@ -2677,7 +2848,12 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const zoomLevel = el.querySelector("[data-zoom-level]");
 
     const applyZoom = () => {
-      if (frame) frame.style.transform = `translate(${this._panX}px, ${this._panY}px) scale(${this._zoom})`;
+      if (frame) {
+        frame.style.transform = `translate(${this._panX}px, ${this._panY}px) scale(${this._zoom})`;
+        // Keep emitter markers at a constant screen size while the hull zooms.
+        // The marker's inverse local scale cancels the frame's presentation scale.
+        frame.style.setProperty("--sta2e-emitter-marker-scale", String(1 / this._zoom));
+      }
       if (zoomLevel) zoomLevel.textContent = `${Math.round(this._zoom * 100)}%`;
     };
 
@@ -2901,9 +3077,27 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       });
     });
 
+    el.querySelectorAll("[data-point-defense-setting]").forEach(input => {
+      input.addEventListener("input", () => {
+        this._readPointDefenseSettingsFromForm();
+        this._scheduleAutoPreview();
+      });
+      input.addEventListener("change", () => {
+        this._readPointDefenseSettingsFromForm();
+        this._scheduleAutoPreview();
+        this.render({ force: true });
+      });
+    });
+
     el.querySelector("[data-reset-tractor]")?.addEventListener("click", event => {
       event.preventDefault();
       this._setTractorBeamSettings(DEFAULT_SHIP_TRACTOR_BEAM_SETTINGS);
+      this.render({ force: true });
+    });
+
+    el.querySelector("[data-reset-point-defense]")?.addEventListener("click", event => {
+      event.preventDefault();
+      this._setPointDefenseSettings(DEFAULT_POINT_DEFENSE_SETTINGS);
       this.render({ force: true });
     });
 
@@ -3176,7 +3370,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       const activeLabel = this._activeTabLabel();
       const pointKind = this._resolveActiveTab() === "hitLocations" ? "hit location" : "emitter";
       const anchor = { x, y, label: `${activeLabel} ${pointKind} ${activeEmitters.length + 1}` };
-      if (this._isEngineTab()) {
+      if (this._isPointDefenseTab()) {
+        anchor.layer = "above";
+      } else if (this._isEngineTab()) {
         anchor.kind = this._activeEngineKind();
         anchor.facingDeg = DEFAULT_ENGINE_EMITTER_FACING_DEG;
         anchor.layer = "above";
@@ -3355,6 +3551,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
+    this._readPointDefenseSettingsFromForm();
     this._anchors = await _saveShipVfxAnchors(this.actor, {
       ...this._anchors,
       textureSrc: this.textureSrc,
@@ -3398,6 +3595,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
+    this._readPointDefenseSettingsFromForm();
     const payload = {
       module: MODULE,
       type: SHIP_VFX_ANCHORS_FLAG,

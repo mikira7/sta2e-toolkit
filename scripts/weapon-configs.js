@@ -5,13 +5,19 @@ import {
   getShipHitLocationPointForShot,
   getShipWeaponVfxSettings,
   getShipWeaponEmitterAnchors,
+  getShipPointDefenseEmitters,
+  getShipPointDefenseSettings,
   isShipArrayWeapon,
+  resolvePointDefenseColorHex,
   shipEngineFacingToCanvasDeg,
+  shipPointDefenseEmitterToCanvasPoint,
   shipTargetBearingToLocalDeg,
   shipWeaponAnchorToCanvasPoint,
 } from "./ship-vfx-anchors.js";
 import {
   fireNativeWeaponVFX,
+  getBeamVfxSettings,
+  playNativeTracerBetweenPoints,
   playArrayCurveChargeVFX,
   previewShipWeaponVFX,
   shouldUseNativeWeaponVFX,
@@ -2271,6 +2277,159 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
   }
 }
 
+function pointDefenseInterceptIndices(total, defenderWon) {
+  if (defenderWon) return new Set(Array.from({ length: total }, (_unused, index) => index));
+  const count = Math.floor(total / 2);
+  const indices = new Set();
+  for (let i = 0; i < count; i++) {
+    indices.add(Math.min(total - 1, Math.floor(((i + 0.5) * total) / count)));
+  }
+  return indices;
+}
+
+function pointDefenseInterceptPoint(attackerToken, defenderToken, shotIndex, totalShots) {
+  const attacker = tokenCenter(attackerToken);
+  const defender = tokenCenter(defenderToken);
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  const dx = defender.x - attacker.x;
+  const dy = defender.y - attacker.y;
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  const ux = dx / distance;
+  const uy = dy / distance;
+  const px = -uy;
+  const py = ux;
+  const spread = totalShots > 1 ? ((shotIndex / (totalShots - 1)) - 0.5) * 2 : 0;
+  // Meet incoming torpedoes around the middle of their flight. Small
+  // longitudinal and perpendicular offsets keep volleys from exploding on a
+  // single pixel while remaining visibly separated from either ship.
+  const along = ((shotIndex % 3) - 1) * Math.min(gridSize * 0.12, distance * 0.035);
+  const lateral = spread * Math.min(gridSize * 0.45, distance * 0.12);
+  return {
+    x: attacker.x + (dx * 0.5) + (ux * along) + (px * lateral),
+    y: attacker.y + (dy * 0.5) + (uy * along) + (py * lateral),
+  };
+}
+
+function pointDefenseEmitterPoint(defenderToken, interceptPoint, shotIndex) {
+  const anchors = getShipPointDefenseEmitters(defenderToken);
+  const candidates = anchors
+    .map(anchor => shipPointDefenseEmitterToCanvasPoint(defenderToken, anchor))
+    .filter(Boolean)
+    .sort((a, b) => Math.hypot(a.x - interceptPoint.x, a.y - interceptPoint.y)
+      - Math.hypot(b.x - interceptPoint.x, b.y - interceptPoint.y));
+  if (candidates.length) return candidates[shotIndex % candidates.length];
+  return { ...tokenCenter(defenderToken), layer: "above" };
+}
+
+function broadcastPointDefenseTracer(sourcePoint, targetPoint, defenderToken) {
+  const settings = getShipPointDefenseSettings(defenderToken);
+  const color = resolvePointDefenseColorHex(defenderToken, settings);
+  playNativeTracerBetweenPoints(sourcePoint, targetPoint, {
+    color,
+    layer: sourcePoint.layer,
+    hit: true,
+  });
+  try {
+    game.socket?.emit?.("module.sta2e-toolkit", {
+      action: "pointDefenseTracerVfx",
+      sceneId: canvas?.scene?.id ?? null,
+      sourcePoint: { x: sourcePoint.x, y: sourcePoint.y },
+      targetPoint: { x: targetPoint.x, y: targetPoint.y },
+      color,
+      layer: sourcePoint.layer ?? "above",
+    });
+  } catch (err) {
+    console.warn("STA2e Toolkit | Could not broadcast Point Defense tracer:", err);
+  }
+}
+
+async function firePointDefenseTorpedoes(config, isHit, token, targets, {
+  salvoMode = "area",
+  weapon = null,
+  targetSystem = null,
+  shieldImpact = null,
+  hullImpact = null,
+  selectedEmitter = null,
+  finalDamage = 0,
+  defenderWon = false,
+} = {}) {
+  const mode = config.salvo ? "salvo" : "standard";
+  const countConfig = getTorpedoCountConfig();
+  const baseConfig = countConfig[config.torpedoType] ?? countConfig.photon;
+  const defenderStoppedVolley = defenderWon || !isHit;
+  const totalShots = defenderStoppedVolley
+    ? Math.max(1, Number(baseConfig?.[mode]) || 1)
+    : getTorpedoCount(config.torpedoType, mode, finalDamage);
+  const intercepted = pointDefenseInterceptIndices(totalShots, defenderStoppedVolley);
+  const staggerMs = config.salvo ? 180 : 250;
+  const launchLeadMs = config.salvo ? 0 : 150;
+  const travelMs = torpedoTravelMs(config);
+  const tracerTravelMs = Math.max(80, Number(getBeamVfxSettings()?.tracer?.travelDuration) || 260);
+
+  for (const target of targets) {
+    const sequences = [];
+    const tracerTimers = [];
+    let impactIndex = 0;
+    const impactCount = totalShots - intercepted.size;
+
+    for (let i = 0; i < totalShots; i++) {
+      const locations = await shipShotLocations(token, target, {
+        sourceOptions: config.salvo ? { randomOffset: 0.4 } : undefined,
+        targetOptions: config.salvo ? { randomOffset: 0.3 } : undefined,
+        weapon,
+        shotIndex: i,
+        targetSystem,
+        selectedEmitter,
+        arcRestrict: true,
+      });
+      const shot = seq();
+      const startDelay = launchLeadMs + (i * staggerMs);
+      if (startDelay > 0) shot.wait(startDelay);
+      if (config.sound && i < 4) shot.sound().file(config.sound).volume(i === 0 ? 1 : 0.6);
+
+      if (intercepted.has(i)) {
+        const interceptPoint = pointDefenseInterceptPoint(token, target, i, totalShots);
+        const interceptLocation = { location: interceptPoint };
+        applyTorpedoTravel(shot, config, locations.source, interceptLocation, { finalDamage });
+        shot.wait(travelMs);
+        shipImpactEffect(
+          atSequenceLocation(shot.effect().file(shipImpactFile(config, "explosion", null)), interceptLocation),
+          target,
+          0.5,
+          0.28,
+        );
+        const defensiveSource = pointDefenseEmitterPoint(target, interceptPoint, i);
+        tracerTimers.push({
+          delay: Math.max(0, startDelay + travelMs - tracerTravelMs),
+          source: defensiveSource,
+          target: interceptPoint,
+        });
+      } else {
+        applyTorpedoTravel(shot, config, locations.source, locations.target, { finalDamage });
+        shot.wait(travelMs);
+        addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, impactIndex, impactCount);
+        _stampHullDecalAt(shot, target, locations.target, hullImpact);
+        shipImpactEffect(
+          atSequenceLocation(shot.effect().file(shipImpactFile(config, "explosion", hullImpact)), locations.impact),
+          target,
+          config.salvo && salvoMode !== "spread" ? 2.0 : 1.5,
+          config.salvo && salvoMode !== "spread" ? 0.9 : 0.85,
+        );
+        impactIndex += 1;
+      }
+      sequences.push(shot);
+    }
+
+    for (const tracer of tracerTimers) {
+      window.setTimeout(
+        () => broadcastPointDefenseTracer(tracer.source, tracer.target, target),
+        tracer.delay,
+      );
+    }
+    await Promise.all(sequences.map(sequence => sequence.play()));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ground-scale firing functions
 // ---------------------------------------------------------------------------
@@ -2456,7 +2615,7 @@ function applyArrayAreaShotCap(shotCount, config, salvoMode, spreadDeclared) {
   return Math.max(1, Math.min(cap.max, shotCount));
 }
 
-export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0 } = {}) {
+export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0, pointDefense = null } = {}) {
   if (!config) return;
   config = withPhaserEraConfig(config, token, weapon);
   const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
@@ -2501,7 +2660,18 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
     case "torpedo":
       // Count comes from the per-type sliders (base × damage tier, capped).
       // Plasma keeps its damage-scaled, shrinking sprite via applyTorpedoTravel.
-      if (config.salvo)
+      if (pointDefense?.active) {
+        await firePointDefenseTorpedoes(config, isHit, token, targets, {
+          salvoMode,
+          weapon,
+          targetSystem,
+          shieldImpact,
+          hullImpact,
+          selectedEmitter,
+          finalDamage,
+          defenderWon: pointDefense.defenderWon === true,
+        });
+      } else if (config.salvo)
         await fireTorpedoSalvo(config, isHit, token, targets, salvoMode, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter, finalDamage);
       else
         await fireTorpedoSingle(config, isHit, token, targets, shipRepeatCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter, finalDamage);

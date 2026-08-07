@@ -119,14 +119,15 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const pronePenalty = Number(options.pronePenalty ?? 0);
   const overridePenalty = Number(options.overridePenalty ?? 0);
   const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
+  const pointDefensePenalty = Number(options.pointDefensePenalty ?? 0);
   const attackPatternPenalty = Number(options.attackPatternPenalty ?? 0);
   const traitDelta = _traitModifierDelta(options);
   const defenderTraitDelta = -_opposedRollTraitDelta(taskData.defender);
   const attackerTraitDelta = taskData.attacker?.rolled
     ? _opposedRollTraitDelta(taskData.attacker)
     : 0;
-  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + pronePenalty + overridePenalty + cumbersomePenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
-  return { base, guardPenalty, chiefSecurityPenalty, pronePenalty, overridePenalty, cumbersomePenalty, attackPatternPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
+  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
+  return { base, guardPenalty, chiefSecurityPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, attackPatternPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -362,14 +363,16 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
   const defenseType = opts.defenseType ?? opts.defMode ?? "evasive-action";
   const defLabel = defenseType === "evasive-action" ? "Evasive Action"
     : defenseType === "defensive-fire" ? "Defensive Fire"
+    : defenseType === "point-defense" ? "Point Defense"
     : "Cover";
   const defIcon = defenseType === "evasive-action" ? "Evasive"
     : defenseType === "defensive-fire" ? "Defensive"
+    : defenseType === "point-defense" ? "Point Defense"
     : "Cover";
-  const defStationId = opts.defenderStationId ?? (defenseType === "defensive-fire" ? "tactical" : "helm");
+  const defStationId = opts.defenderStationId ?? (["defensive-fire", "point-defense"].includes(defenseType) ? "tactical" : "helm");
   const atkStationId = opts.attackerStationId ?? "tactical";
-  const defenderSuggestedAttr = opts.defenderSuggestedAttr ?? "daring";
-  const defenderSuggestedDisc = opts.defenderSuggestedDisc ?? (defenseType === "defensive-fire" ? "security" : "conn");
+  const defenderSuggestedAttr = opts.defenderSuggestedAttr ?? (defenseType === "point-defense" ? "weapons" : "daring");
+  const defenderSuggestedDisc = opts.defenderSuggestedDisc ?? (["defensive-fire", "point-defense"].includes(defenseType) ? "security" : "conn");
   const attackerSuggestedAttr = opts.attackerSuggestedAttr ?? "control";
   const attackerSuggestedDisc = opts.attackerSuggestedDisc ?? "security";
   const traitModifier = opts.traitModifierMode || opts.options?.traitModifierMode
@@ -396,6 +399,8 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
       defenseType,
       overridePenalty: opts.overridePenalty ? 1 : Number(opts.overridePenalty ?? 0),
       cumbersomePenalty: Number(opts.cumbersomePenalty ?? 0),
+      pointDefensePenalty: Number(opts.pointDefensePenalty ?? (opts.pointDefenseActive ? 1 : 0)),
+      pointDefenseActive: !!opts.pointDefenseActive,
       attackPatternPenalty: opts.attackPatternPenalty ? 1 : Number(opts.attackPatternPenalty ?? 0),
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
       attackerComplicationRange: opts.attackerComplicationRange ?? 1,
@@ -415,6 +420,7 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
       defenderStationId: defStationId,
       attackerOfficer,
       defenderOfficer,
+      pointDefenseActive: !!opts.pointDefenseActive,
       attackerCrewQuality: opts.attackerCrewQuality ?? (CombatHUD.isNpcShip(attackerActor) && !attackerOfficer ? CombatHUD.getCrewQuality(attackerActor) : null),
       defenderCrewQuality: opts.defenderCrewQuality ?? (CombatHUD.isNpcShip(defenderActor) && !defenderOfficer ? CombatHUD.getCrewQuality(defenderActor) : null),
     },
@@ -638,8 +644,9 @@ function _renderCardHtml(d) {
     const winnerName = _esc(winnerSideData?.actorName ?? "");
     const winnerActor = winnerSideData?.actorId ? game.actors.get(winnerSideData.actorId) : null;
     const winnerProfile = winnerActor ? _getOpposedActorProfile(winnerActor) : null;
-    const poolLabel = winnerProfile?.isPlayerOwned ? "Momentum" : "Threat";
-    const poolColor = winnerProfile?.isPlayerOwned ? (LC.secondary ?? "#cc88ff") : (LC.primary ?? "#ff9900");
+    const winnerPool = _opposedRewardPool(winnerActor, winnerProfile);
+    const poolLabel = _opposedPoolLabel(winnerPool);
+    const poolColor = winnerPool === "threat" ? (LC.primary ?? "#ff9900") : (LC.secondary ?? "#cc88ff");
     const poolSuffix = rewardAmount > 0
       ? ` — <span style="color:${poolColor};font-weight:700;">+${rewardAmount} ${poolLabel}</span>`
       : "";
@@ -654,6 +661,7 @@ function _renderCardHtml(d) {
       if (chiefSecurityPenalty) breakdownParts.push(`Chief of Security +${chiefSecurityPenalty}`);
       if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
       if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
+      if (difficultyInfo.pointDefensePenalty) breakdownParts.push(`Point Defense +${difficultyInfo.pointDefensePenalty}`);
       if (difficultyInfo.attackPatternPenalty) breakdownParts.push(`Attack Pattern -${difficultyInfo.attackPatternPenalty}`);
       if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
       if (difficultyInfo.defenderTraitDelta) breakdownParts.push(`Defender Traits ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.defenderTraitDelta)} (${_esc(_opposedRollTraitLabels(d.defender, -1))})`);
@@ -672,7 +680,9 @@ function _renderCardHtml(d) {
       ? `<div style="margin-top:3px;font-size:10px;color:${textDim};">${breakdownParts.join(" · ")}</div>`
       : "";
 
-    const rewardBlock = (isGroundCombat || isStarshipCombat) ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount);
+    const rewardBlock = isStarshipCombat
+      ? (d.autoBank?.winnerSide === rewardSide ? _renderOpposedPoolReward(d, rewardSide, rewardAmount) : "")
+      : (isGroundCombat ? "" : _renderOpposedPoolReward(d, rewardSide, rewardAmount));
 
     resolutionBlock = `
       <div class="sta2e-op-v2-resolution"
@@ -743,7 +753,7 @@ function _renderCardHtml(d) {
 
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
-        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${chiefSecurityPenalty ? ` + ${chiefSecurityPenalty} Chief of Security` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${chiefSecurityPenalty ? ` + ${chiefSecurityPenalty} Chief of Security` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.pointDefensePenalty ? ` + ${difficultyInfo.pointDefensePenalty} Point Defense` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
       </div>`
     : "";
 
@@ -1011,7 +1021,7 @@ function _launchRoller(message, taskData, side, actor) {
     : -1;
   const starshipWeaponAssist = isStarshipCombat && (
     (side === "attacker" && !!taskData.combat?.weaponContext)
-    || (side === "defender" && taskData.options?.defenseType === "defensive-fire")
+    || (side === "defender" && ["defensive-fire", "point-defense"].includes(taskData.options?.defenseType))
   );
   const starshipRollerOpts = isStarshipCombat
     ? {
@@ -1027,6 +1037,8 @@ function _launchRoller(message, taskData, side, actor) {
         attackRunActive: side === "attacker" && !!taskData.combat?.attackRunActive,
         opposedDifficulty: side === "attacker" ? difficulty : null,
         opposedDefenseType: side === "attacker" ? (taskData.options?.defenseType ?? null) : null,
+        pointDefenseActive: side === "attacker" && !!taskData.options?.pointDefenseActive,
+        pointDefensePenalty: side === "attacker" ? Number(taskData.options?.pointDefensePenalty ?? 0) : 0,
         defenderSuccesses: side === "attacker" ? (taskData.defender.successes ?? 0) : null,
         playerMode: starshipUsesPlayerPayment,
         usesPlayerPayment: starshipUsesPlayerPayment,
@@ -1200,6 +1212,16 @@ function _getOpposedActorProfile(actor, tokenDoc = null) {
   }
 }
 
+function _opposedRewardPool(actor, profile = null) {
+  const resolvedProfile = profile ?? (actor ? _getOpposedActorProfile(actor) : null);
+  if (resolvedProfile?.isShip) return CombatHUD.opposedShipRewardPool(actor);
+  return resolvedProfile?.isPlayerOwned ? "momentum" : "threat";
+}
+
+function _opposedPoolLabel(pool) {
+  return pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
+}
+
 function _renderOpposedPoolReward(taskData, side, amount) {
   if (!amount || amount <= 0) return "";
 
@@ -1208,9 +1230,9 @@ function _renderOpposedPoolReward(taskData, side, amount) {
   const profile = actor ? _getOpposedActorProfile(actor) : null;
   if (!profile) return "";
 
-  const pool = profile.isPlayerOwned ? "momentum" : "threat";
-  const label = pool === "momentum" ? "Momentum" : "Threat";
-  const color = pool === "momentum" ? LC.secondary : LC.primary;
+  const pool = _opposedRewardPool(actor, profile);
+  const label = _opposedPoolLabel(pool);
+  const color = pool === "threat" ? LC.primary : LC.secondary;
 
   // Auto-banked path — show a confirmation chip instead of a clickable button.
   const auto = taskData.autoBank;
@@ -1226,9 +1248,7 @@ function _renderOpposedPoolReward(taskData, side, amount) {
   }
 
   // Fallback (legacy cards / auto-bank failed) — keep the clickable button.
-  const buttonLabel = pool === "momentum"
-    ? `+${amount} Momentum to Pool`
-    : `+${amount} Threat to Pool`;
+  const buttonLabel = `+${amount} ${label} to Pool`;
 
   return `
         <div style="margin-top:6px;padding-top:6px;border-top:1px solid ${LC.borderDim};">
@@ -1312,7 +1332,7 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
       const winnerActor = game.actors.get(winnerSideData.actorId);
       if (winnerActor) {
         const profile = _getOpposedActorProfile(winnerActor);
-        const pool = profile?.isPlayerOwned ? "momentum" : "threat";
+        const pool = _opposedRewardPool(winnerActor, profile);
         try {
           const trackerRes = await createTracker(winnerActor, {
             totalGenerated: rewardAmount,
@@ -1357,7 +1377,7 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
     if (reward > 0 && (!passed || !attackerAlreadyReported)) {
       const winnerActor = winnerData?.actorId ? game.actors.get(winnerData.actorId) : null;
       if (reward > 0 && winnerActor) {
-        const pool = _getOpposedActorProfile(winnerActor)?.isPlayerOwned ? "momentum" : "threat";
+        const pool = _opposedRewardPool(winnerActor);
         const speakerToken = winnerSide === "attacker" && taskData.combat?.attackerTokenId
           ? (canvas.tokens?.get(taskData.combat.attackerTokenId) ?? null)
           : winnerSide === "defender" && taskData.combat?.defenderTokenId
@@ -1381,6 +1401,52 @@ export async function applyOpposedRollResult({ messageId, taskId, side, successe
         } catch (err) {
           console.error("STA2e Toolkit | ground opposed auto-bank error:", err);
         }
+      }
+    }
+  }
+
+  // Starship attackers normally report their own generated Momentum/Threat
+  // through the attack roller. A defender victory has no defender-side roller
+  // after the attacker fails, so bank that margin here at the moment the
+  // opposed task resolves. This also guarantees the reward is paid even if a
+  // later weapon lookup or damage-card step cannot complete.
+  if (side === "attacker" && taskData.mode === "starshipCombat") {
+    const target = _calculateOpposedDifficulty(taskData).total;
+    const attackerSuccesses = Number(taskData.attacker?.successes ?? 0);
+    const defenderWon = attackerSuccesses < target;
+    const reward = defenderWon ? target - attackerSuccesses : 0;
+    const defenderData = taskData.defender ?? {};
+    const speakerToken = taskData.combat?.defenderTokenId
+      ? (canvas.tokens?.get(taskData.combat.defenderTokenId) ?? null)
+      : null;
+    const defenderActor = speakerToken?.actor
+      ?? (defenderData.actorId ? game.actors.get(defenderData.actorId) : null);
+    if (reward > 0 && defenderActor) {
+      const pool = _opposedRewardPool(defenderActor);
+      const bonus = _opposedSideBonusMomentum(defenderData, true);
+      try {
+        const trackerRes = await createTracker(defenderActor, {
+          totalGenerated: reward,
+          bonus,
+          pool,
+          taskRollId: taskData.taskId,
+          speakerToken,
+        });
+        taskData.autoBank = {
+          pool,
+          amount: reward,
+          bonus,
+          banked: trackerRes?.banked ?? reward,
+          float: trackerRes?.float ?? 0,
+          winnerSide: "defender",
+          winnerName: defenderData.actorName ?? "Defender",
+        };
+        taskData.combat = {
+          ...(taskData.combat ?? {}),
+          defenderRewardAwarded: true,
+        };
+      } catch (err) {
+        console.error("STA2e Toolkit | starship defender reward auto-bank error:", err);
       }
     }
   }
@@ -1466,6 +1532,8 @@ async function _resolveStarshipOpposedAttack(taskData, { rollData = null, tracke
     defenderSuccesses: taskData.defender?.successes ?? null,
     opposedDifficulty: finalDifficulty,
     opposedDefenseType: taskData.options?.defenseType ?? null,
+    pointDefenseActive: !!taskData.options?.pointDefenseActive,
+    pointDefensePenalty: Number(taskData.options?.pointDefensePenalty ?? 0),
     attackerSuccesses: taskData.attacker?.successes ?? null,
     overrideTargets: [defenderToken],
     floatingMomentum: Number(trackerFloat ?? attackerTracker.float ?? 0),
@@ -1476,6 +1544,8 @@ async function _resolveStarshipOpposedAttack(taskData, { rollData = null, tracke
     opposedMomentumAwarded: !!(trackerMessageId ?? attackerTracker.messageId)
       || Number(trackerFloat ?? attackerTracker.float ?? 0) > 0
       || Number(trackerBanked ?? attackerTracker.banked ?? 0) > 0,
+    defenderOpposedRewardAwarded: !!combat.defenderRewardAwarded,
+    opposedPoolAward: taskData.autoBank ?? null,
   });
 
   if (calibrateWeaponsBonus) {
@@ -1494,13 +1564,3 @@ function _esc(s) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
-
-
-
-
-
-
-
-
-
-

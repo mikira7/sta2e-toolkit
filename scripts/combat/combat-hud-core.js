@@ -107,6 +107,7 @@ import {
   hasChiefTacticalOfficer,
   hasFastTargetingSystems,
   hasGlancingImpact,
+  hasPointDefenseSystem,
   hasRapidFireTorpedoLauncher,
 } from "./combat-definitions.js";
 import {
@@ -157,6 +158,26 @@ function _shipWeaponIsTorpedo(weapon, config = null) {
     && (config?.type === "torpedo"
       || _weaponQualityFlag(weapon, "torpedo")
       || weapon?.system?.includescale === "torpedo");
+}
+
+/**
+ * Point Defense is virtual cover for torpedoes only. The printed talent shuts
+ * down after any raw Weapons breach (patched or otherwise) and while the token
+ * is in the module's transient warp-movement state.
+ */
+export function getPointDefenseSystemState(targetToken, weapon = null, config = null) {
+  const actor = targetToken?.actor ?? targetToken?.document?.actor ?? null;
+  const hasTalent = hasPointDefenseSystem(actor);
+  const isTorpedo = _shipWeaponIsTorpedo(weapon, config);
+  const weaponsBreaches = Math.max(0, Number(actor?.system?.systems?.weapons?.breaches ?? 0) || 0);
+  const atWarp = !!targetToken?.document?.getFlag?.(MODULE, "_warpActive");
+  return {
+    hasTalent,
+    isTorpedo,
+    weaponsBreaches,
+    atWarp,
+    active: !!(hasTalent && isTorpedo && weaponsBreaches === 0 && !atWarp),
+  };
 }
 
 function _shipWeaponBlocksSalvo(weapon, config = null) {
@@ -1318,82 +1339,54 @@ async function _openAssistCardEditDialog(rollData) {
 //   { proceed: true }
 //   { proceed: "pending", defMode, defenderTokenId }
 // ---------------------------------------------------------------------------
-export async function checkOpposedTaskForTokens(weaponName, attackerToken, targetTokens) {
+export async function checkOpposedTaskForTokens(weaponName, attackerToken, targetTokens, options = {}) {
   if (!targetTokens?.length) return { proceed: true, difficulty: null, defenseType: null, defenderSuccesses: null };
+
+  const weapon = options?.weapon
+    ?? attackerToken?.actor?.items?.find?.(item => item.type === "starshipweapon2e" && item.name === weaponName)
+    ?? null;
+  const config = options?.config ?? (weapon ? getWeaponConfig(weapon) : null);
+  const pointDefenseFor = target => getPointDefenseSystemState(target, weapon, config).active;
 
   // Check all targets — if any has a defense mode active, intercept
   for (const target of targetTokens) {
     const defMode = getDefenseMode(target);
     if (!defMode) continue;
-
-    const defLabel   = defMode === "evasive-action" ? "Evasive Action" : defMode === "defensive-fire" ? "Defensive Fire" : "Cover";
-    const defIcon    = defMode === "evasive-action" ? "↗️" : defMode === "defensive-fire" ? "🛡️" : "🪨";
-    const defStation = defMode === "evasive-action" ? "Helm" : "Tactical";
-    const defAttr    = "daring";
-    const defDisc    = defMode === "evasive-action" ? "conn"   : "security";
-
-    return { proceed: "pending", defMode, defenderTokenId: target.id };
-
-    ChatMessage.create({
-      content: lcarsCard(`${defIcon} SHIP DEFENSE — ${defLabel.toUpperCase()}`, LC.secondary, `
-        <div style="font-size:11px;font-weight:700;color:${LC.tertiary};
-          margin-bottom:4px;font-family:${LC.font};">${target.name}</div>
-        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
-          ${defIcon} <strong>${defLabel}</strong> active — roll <strong>${defStation}</strong> station defense.<br>
-          <span style="color:${LC.textDim};">Successes set the attacker's Difficulty.</span>
-        </div>
-        <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
-          <button class="sta2e-ship-defense-roll"
-            data-token-id="${target.id}"
-            data-station-id="${defMode === 'evasive-action' ? 'helm' : 'tactical'}"
-            data-task-label="${defLabel} Defense"
-            data-default-attr="${defAttr}"
-            data-default-disc="${defDisc}"
-            style="width:100%;padding:4px 8px;font-family:${LC.font};font-size:10px;
-              font-weight:700;letter-spacing:0.06em;text-transform:uppercase;
-              cursor:pointer;background:rgba(0,200,100,0.10);
-              border:1px solid ${LC.secondary};border-radius:2px;color:${LC.secondary};">
-            🎲 Roll ${defStation} Defense
-          </button>
-        </div>`),
-      speaker: { alias: "STA2e Toolkit" },
-    });
-
-    return { proceed: "pending", defMode, defenderTokenId: target.id };
+    const pointDefenseActive = pointDefenseFor(target);
+    return {
+      proceed: "pending",
+      defMode,
+      defenderTokenId: target.id,
+      pointDefenseActive,
+      pointDefensePenalty: pointDefenseActive ? 1 : 0,
+    };
   }
 
   // Check for cover on any ship target (only when no defense mode was found above)
   for (const target of targetTokens) {
     if (!target.document?.getFlag(MODULE, "coverActive")) continue;
 
-    return { proceed: "pending", defMode: "cover", defenderTokenId: target.id };
+    const pointDefenseActive = pointDefenseFor(target);
+    return {
+      proceed: "pending",
+      defMode: "cover",
+      defenderTokenId: target.id,
+      pointDefenseActive,
+      pointDefensePenalty: pointDefenseActive ? 1 : 0,
+    };
+  }
 
-    ChatMessage.create({
-      content: lcarsCard("🪨 SHIP DEFENSE — COVER", LC.secondary, `
-        <div style="font-size:11px;font-weight:700;color:${LC.tertiary};
-          margin-bottom:4px;font-family:${LC.font};">${target.name}</div>
-        <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
-          🪨 <strong>Cover</strong> active — roll <strong>Helm</strong> station defense.<br>
-          <span style="color:${LC.textDim};">Successes set the attacker's Difficulty.</span>
-        </div>
-        <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
-          <button class="sta2e-ship-defense-roll"
-            data-token-id="${target.id}"
-            data-station-id="helm"
-            data-task-label="Cover Defense"
-            data-default-attr="daring"
-            data-default-disc="conn"
-            style="width:100%;padding:4px 8px;font-family:${LC.font};font-size:10px;
-              font-weight:700;letter-spacing:0.06em;text-transform:uppercase;
-              cursor:pointer;background:rgba(0,200,100,0.10);
-              border:1px solid ${LC.secondary};border-radius:2px;color:${LC.secondary};">
-            🎲 Roll Helm Defense
-          </button>
-        </div>`),
-      speaker: { alias: "STA2e Toolkit" },
-    });
-
-    return { proceed: "pending", defMode: "cover", defenderTokenId: target.id };
+  // Point Defense supplies attack-scoped virtual cover when no normal defense
+  // is already active. It deliberately does not mutate the coverActive flag.
+  for (const target of targetTokens) {
+    if (!pointDefenseFor(target)) continue;
+    return {
+      proceed: "pending",
+      defMode: "point-defense",
+      defenderTokenId: target.id,
+      pointDefenseActive: true,
+      pointDefensePenalty: 1,
+    };
   }
 
   // No defense active on any target
@@ -2671,6 +2664,7 @@ export class CombatHUD {
           const opposed = await this._checkOpposedTask(
             weapon.name,
             selectedTargetToken ? [selectedTargetToken] : Array.from(game.user.targets ?? []),
+            { weapon, config },
           );
           if (opposed.proceed === "pending") {
             // Build base roller opts now — opposedDifficulty will be injected
@@ -2733,7 +2727,8 @@ export class CombatHUD {
             const _helmStats        = _helmActor ? readOfficerStats(_helmActor) : null;
             const _attackRunActive  = _hasAttackPattern && hasAttackRun(_helmActor);
             const _defLabel         = opposed.defMode === "evasive-action" ? "Evasive Action"
-                                    : opposed.defMode === "defensive-fire"  ? "Defensive Fire" : "Cover";
+                                    : opposed.defMode === "defensive-fire"  ? "Defensive Fire"
+                                    : opposed.defMode === "point-defense"   ? "Point Defense" : "Cover";
 
             const _defenderToken = canvas.tokens?.get(opposed.defenderTokenId);
             const _attackPatternPenalty = _shipAttackPatternDifficultyReduction(_defenderToken);
@@ -2746,6 +2741,8 @@ export class CombatHUD {
                 defenderActorId: _defenderToken.actor.id,
                 defenderTokenId: _defenderToken.id,
                 defenseType: opposed.defMode,
+                pointDefenseActive: !!opposed.pointDefenseActive,
+                pointDefensePenalty: Number(opposed.pointDefensePenalty ?? 0),
                 weaponContext: _weaponCtx,
                 hasTargetingSolution: _hasTS,
                 hasRapidFireTorpedo: _hasRFT && _isTorpedo,
@@ -2767,6 +2764,8 @@ export class CombatHUD {
               attackerActorId: actor.id,
               isNpcAttacker:   isNpcShip,
               defMode:         opposed.defMode,
+              pointDefenseActive: !!opposed.pointDefenseActive,
+              pointDefensePenalty: Number(opposed.pointDefensePenalty ?? 0),
               weaponName:      weapon.name,
               attackPatternPenalty: _attackPatternPenalty,
               rollerOpts: {
@@ -2875,7 +2874,7 @@ export class CombatHUD {
               attackRunActive,
               taskLabel:            `Attack — ${weaponCtx?.name ?? "Weapon"}`,
               taskContext:          this._opposedDefenseType
-                ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover"}`
+                ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : this._opposedDefenseType === "point-defense" ? "Point Defense" : "Cover"}`
                 : null,
             });
           } else {
@@ -2952,7 +2951,7 @@ export class CombatHUD {
               attackRunActive,
               taskLabel:            `Attack — ${weaponCtx.name}`,
               taskContext:          this._opposedDefenseType
-                ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover"}`
+                ? `Opposed — ${this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : this._opposedDefenseType === "point-defense" ? "Point Defense" : "Cover"}`
                 : null,
             });
           }
@@ -3161,8 +3160,8 @@ export class CombatHUD {
    * can be invoked from the NPC roller's Roll button (character-sheet path)
    * without requiring a live CombatHUD instance.
    */
-  async _checkOpposedTask(weaponName, targets = Array.from(game.user.targets ?? [])) {
-    return checkOpposedTaskForTokens(weaponName, this._token, targets);
+  async _checkOpposedTask(weaponName, targets = Array.from(game.user.targets ?? []), options = {}) {
+    return checkOpposedTaskForTokens(weaponName, this._token, targets, options);
   }
 
   // ── Shields ────────────────────────────────────────────────────────────────
@@ -3440,8 +3439,8 @@ export class CombatHUD {
 
     // ── Opposed task banner ────────────────────────────────────────────────────
     if (this._opposedDifficulty !== null && this._opposedDefenseType) {
-      const defLabel  = this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : "Cover";
-      const defIcon   = this._opposedDefenseType === "evasive-action" ? "↗️" : this._opposedDefenseType === "defensive-fire" ? "🛡️" : "🪨";
+      const defLabel  = this._opposedDefenseType === "evasive-action" ? "Evasive Action" : this._opposedDefenseType === "defensive-fire" ? "Defensive Fire" : this._opposedDefenseType === "point-defense" ? "Point Defense" : "Cover";
+      const defIcon   = this._opposedDefenseType === "evasive-action" ? "↗️" : this._opposedDefenseType === "defensive-fire" ? "🛡️" : this._opposedDefenseType === "point-defense" ? "✦" : "🪨";
       const banner    = document.createElement("div");
       banner.style.cssText = `
         display:flex;align-items:center;gap:6px;
@@ -3863,6 +3862,7 @@ export class CombatHUD {
         shieldImpact: payload.shieldImpact ?? null,
         hullImpact: payload.hullImpact ?? null,
         finalDamage: payload.finalDamage ?? 0,
+        pointDefense: payload.pointDefenseActive ? { active: true, defenderWon: false } : null,
       });
     } catch(e) {
       console.warn("STA2e Toolkit | Ship weapon animation failed:", e);
@@ -3931,7 +3931,7 @@ export class CombatHUD {
     return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2 };
   }
 
-  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false, attackerBonus = 0, defenderBonus = 0 } = {}) {
+  static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false, defenderAlreadyAwarded = false, attackerBonus = 0, defenderBonus = 0 } = {}) {
     if (!opposedDefenseType || attackerSuccesses === null || defenderSuccesses === null) return null;
     const atk = Number(attackerSuccesses);
     const def = Number(opposedDifficulty ?? defenderSuccesses);
@@ -3943,8 +3943,8 @@ export class CombatHUD {
     if (delta === 0) return { winner: "tie", amount: 0, pool: null };
 
     if (delta > 0) {
-      if (attackerAlreadyAwarded) return { winner: "attacker", amount: delta, bonus: atkBonus, pool: CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum", alreadyAwarded: true };
-      const pool = CombatHUD.isNpcShip(attackerToken?.actor) ? "threat" : "momentum";
+      const pool = CombatHUD.opposedShipRewardPool(attackerToken?.actor);
+      if (attackerAlreadyAwarded) return { winner: "attacker", amount: delta, bonus: atkBonus, pool, alreadyAwarded: true };
       await createTracker(attackerToken?.actor, {
         totalGenerated: delta,
         bonus: atkBonus,
@@ -3955,14 +3955,25 @@ export class CombatHUD {
     }
 
     const amount = Math.abs(delta);
-    const pool = CombatHUD.isNpcShip(defenderToken?.actor) ? "threat" : "momentum";
-    await createTracker(defenderToken?.actor, {
+    const pool = CombatHUD.opposedShipRewardPool(defenderToken?.actor);
+    if (defenderAlreadyAwarded) {
+      return { winner: "defender", amount, bonus: defBonus, pool, alreadyAwarded: true };
+    }
+    const tracker = await createTracker(defenderToken?.actor, {
       totalGenerated: amount,
       bonus: defBonus,
       pool,
       speakerToken: defenderToken,
     });
-    return { winner: "defender", amount, bonus: defBonus, pool, alreadyAwarded: false };
+    return {
+      winner: "defender",
+      amount,
+      bonus: defBonus,
+      pool,
+      banked: tracker?.banked ?? amount,
+      float: tracker?.float ?? 0,
+      alreadyAwarded: false,
+    };
   }
 
   async _resolveWeapon(isHit) {
@@ -4116,7 +4127,7 @@ export class CombatHUD {
    *   would never reach the spend panel. Set true to seed it here instead. Roll-driven callers
    *   must leave this false — their tracker is already seeded at roll-confirm time.
    */
-  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, chiefTacticalOfficerAvailable = false, piercingSalvoAvailable = false, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, trackerMessageId = null, momentumPool = null, complications = 0, opposedMomentumAwarded = false, seedWeaponVersatile = false } = {}) {
+  static async resolveShipAttack(token, weapon, isHit, { salvoMode: _salvoMode = "area", spreadDeclared = false, rapidFireBonus = 0, calibrateWeaponsBonus = 0, chiefTacticalOfficerAvailable = false, piercingSalvoAvailable = false, defenderSuccesses = null, opposedDifficulty = null, opposedDefenseType = null, pointDefenseActive = false, pointDefensePenalty = 0, attackerSuccesses = null, overrideTargets = null, floatingMomentum = 0, intenseTalentBonus = 0, opposedDefenderBonus = 0, opposedPoolAward = null, trackerMessageId = null, momentumPool = null, complications = 0, opposedMomentumAwarded = false, defenderOpposedRewardAwarded = false, seedWeaponVersatile = false } = {}) {
     token = CombatHUD._resolveShipWeaponSourceToken({
       shipActorId: weapon?.parent?.id ?? token?.actor?.id ?? token?.document?.actorId ?? null,
     }, token);
@@ -4140,6 +4151,7 @@ export class CombatHUD {
       opposedDifficulty,
       opposedDefenseType,
       attackerAlreadyAwarded: opposedMomentumAwarded,
+      defenderAlreadyAwarded: defenderOpposedRewardAwarded,
       attackerBonus: intenseTalentBonus,
       defenderBonus: opposedDefenderBonus,
     });
@@ -4319,10 +4331,13 @@ export class CombatHUD {
         targetingSystem:    targetingSystem ?? null,
         tsRerollGranted,
         opposedDefenseType,
+        pointDefenseActive: !!pointDefenseActive,
+        pointDefensePenalty: Math.max(0, Number(pointDefensePenalty) || 0),
         defenderSuccesses,
         opposedDifficulty,
         attackerSuccesses,
         opposedDefenderBonus,
+        opposedPoolAward: opposedPoolAward ?? null,
         attackerTokenId:    token?.id ?? null,
         attackerActorId:    actor?.id ?? null,
         trackerMessageId:   _resolvedTrackerId,
@@ -4374,6 +4389,8 @@ export class CombatHUD {
         attackerName: token.name,
         attackerActorId: actor?.id ?? null,
         isHit: !!isHit,
+        pointDefenseActive: !!pointDefenseActive,
+        pointDefensePenalty: Math.max(0, Number(pointDefensePenalty) || 0),
         ...(spendContext ? { spendContext } : {}),
       } },
       content: hud
@@ -4416,7 +4433,12 @@ export class CombatHUD {
 
     if (!isHit) {
       setTimeout(async () => {
-        await CombatHUD._enqueueShipAttackAnimation(() => fireWeapon(config, false, token, targets, { spreadDeclared, salvoMode, weapon }));
+        await CombatHUD._enqueueShipAttackAnimation(() => fireWeapon(config, false, token, targets, {
+          spreadDeclared,
+          salvoMode,
+          weapon,
+          pointDefense: pointDefenseActive ? { active: true, defenderWon: true } : null,
+        }));
       }, 500);
     }
   }
@@ -9064,6 +9086,7 @@ export class CombatHUD {
         weapon.name,
         token,
         selectedTargetToken ? [selectedTargetToken] : Array.from(game.user.targets ?? []),
+        { weapon, config: getWeaponConfig(weapon) },
       );
       if (opposed.proceed === "pending") {
         // Store pending task — GM socket handler injects opposedDifficulty (defender's
@@ -9071,7 +9094,8 @@ export class CombatHUD {
         const _hasTS  = CombatHUD.hasTargetingSolution(token);
         const _hasRFT = hasRapidFireTorpedoLauncher(actor);
         const _defLabel = opposed.defMode === "evasive-action" ? "Evasive Action"
-                        : opposed.defMode === "defensive-fire"  ? "Defensive Fire" : "Cover";
+                        : opposed.defMode === "defensive-fire"  ? "Defensive Fire"
+                        : opposed.defMode === "point-defense"   ? "Point Defense" : "Cover";
 
         const _defenderToken = canvas.tokens?.get(opposed.defenderTokenId);
         const _attackPatternPenalty = _shipAttackPatternDifficultyReduction(_defenderToken);
@@ -9084,6 +9108,8 @@ export class CombatHUD {
             defenderActorId: _defenderToken.actor.id,
             defenderTokenId: _defenderToken.id,
             defenseType: opposed.defMode,
+            pointDefenseActive: !!opposed.pointDefenseActive,
+            pointDefensePenalty: Number(opposed.pointDefensePenalty ?? 0),
             overridePenalty: 1,
             attackPatternPenalty: _attackPatternPenalty,
             weaponContext: weaponCtx,
@@ -9102,6 +9128,8 @@ export class CombatHUD {
           attackerActorId: actor.id,
           isNpcAttacker:   isNpc,
           defMode:         opposed.defMode,
+          pointDefenseActive: !!opposed.pointDefenseActive,
+          pointDefensePenalty: Number(opposed.pointDefensePenalty ?? 0),
           weaponName:      weapon.name,
           overridePenalty: true,   // flag so GM handler adds +1 to defender's successes
           attackPatternPenalty: _attackPatternPenalty,
@@ -10942,7 +10970,10 @@ export class CombatHUD {
         targetingSystem:    t.targetingSystem ?? null,
         defenderSuccesses:  t.defenderSuccesses ?? null,
         opposedDefenseType: t.opposedDefenseType ?? null,
+        pointDefenseActive: !!t.pointDefenseActive,
+        pointDefensePenalty: Number(t.pointDefensePenalty ?? 0),
         attackerSuccesses:  t.attackerSuccesses ?? null,
+        opposedPoolAward:   t.opposedPoolAward ?? null,
         trackerMessageId:   t.trackerMessageId ?? null,
         momentumPool:       t.momentumPool ?? null,
         chiefTacticalOfficerAvailable: !!t.chiefTacticalOfficerAvailable,
@@ -11086,6 +11117,8 @@ export class CombatHUD {
         chip(LC.primary, "CTO −1 cost", "Chief Tactical Officer — bonus damage costs 1 less Momentum. Does not stack with Intense or Depleting, and never drops below 1.");
       if (targetData.some(t => t.glancingBonus))
         chip(LC.green, "↗️ Glancing +2 res", "Glancing Impact — +2 resistance from Evasive Action");
+      if (targetData.some(t => t.pointDefenseActive))
+        chip(LC.primary, "✦ Point Defense +1", "Point Defense System — +1 final Difficulty against this torpedo attack");
       if (targetData.some(t => t.tsRerollGranted))
         chip(LC.primary, "🎯 Targeting solution", `Targeting Solution — re-roll used on this attack${hasFastTargetingSystems(actor) ? " (Fast Targeting Systems: both benefits applied)" : ""}`);
 
@@ -11117,16 +11150,21 @@ export class CombatHUD {
             const atkSucc = targetData[0]?.attackerSuccesses ?? null;
             const defenderBonus = Math.max(0, Number(targetData[0]?.opposedDefenderBonus ?? 0) || 0);
             if (!oppDef || defSucc === null) return "";
-            const defLabel = oppDef === "evasive-action" ? "Evasive Action" : oppDef === "defensive-fire" ? "Defensive Fire" : "Cover";
-            const defIcon  = oppDef === "evasive-action" ? "↗️" : oppDef === "defensive-fire" ? "🛡️" : "🪨";
+            const defLabel = oppDef === "evasive-action" ? "Evasive Action" : oppDef === "defensive-fire" ? "Defensive Fire" : oppDef === "point-defense" ? "Point Defense" : "Cover";
+            const defIcon  = oppDef === "evasive-action" ? "↗️" : oppDef === "defensive-fire" ? "🛡️" : oppDef === "point-defense" ? "✦" : "🪨";
             const defWinMargin = atkSucc !== null ? opposedDifficulty - atkSucc : null;
             // Pool button for defender (win margin = extra threat/momentum)
             const defenderActor = canvas.tokens?.get(targetData[0]?.tokenId)?.actor
               ?? game.actors?.get(targetData[0]?.actorId);
-            const defenderIsNpcShip = CombatHUD.isNpcShip(defenderActor);
-            const defenderPoolLabel = defenderIsNpcShip ? "Threat" : "Momentum";
+            const automaticAward = targetData[0]?.opposedPoolAward ?? null;
+            const defenderPool = automaticAward?.pool ?? CombatHUD.opposedShipRewardPool(defenderActor);
+            const defenderPoolLabel = defenderPool === "threat"
+              ? "Threat"
+              : defenderPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
             const defenderAward = Math.max(0, Number(defWinMargin ?? 0) || 0);
-            const defenderAwardText = `+${defenderAward}${defenderBonus > 0 ? ` +${defenderBonus} bonus` : ""} ${defenderPoolLabel}`;
+            const defenderAwardText = automaticAward?.winnerSide === "defender"
+              ? `${Math.max(0, Number(automaticAward.banked ?? 0) || 0)} ${defenderPoolLabel} banked${Number(automaticAward.float ?? 0) > 0 ? ` · ${Number(automaticAward.float)} floating` : ""}${defenderBonus > 0 ? ` · +${defenderBonus} bonus` : ""}`
+              : `+${defenderAward}${defenderBonus > 0 ? ` +${defenderBonus} bonus` : ""} ${defenderPoolLabel}`;
             const deltaLine = defWinMargin !== null
               ? `<div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
                   ✗ Defender wins — ${defenderAwardText} awarded automatically
@@ -11164,6 +11202,7 @@ export class CombatHUD {
                 <strong style="color:${LC.tertiary};">${defSucc} success${defSucc !== 1 ? "es" : ""}</strong>
                 ${atkSucc !== null ? `&nbsp;·&nbsp;<span style="color:${LC.textDim};">Attacker: </span><strong style="color:${LC.tertiary};">${atkSucc} success${atkSucc !== 1 ? "es" : ""}</strong>` : ""}
                 ${opposedDifficulty !== defSucc ? `<div style="color:${LC.textDim};font-size:9px;">Final Difficulty ${opposedDifficulty}</div>` : ""}
+                ${targetData[0]?.pointDefenseActive ? `<div style="color:${LC.primary};font-size:9px;">Point Defense +1 Difficulty</div>` : ""}
               </div>
               ${deltaLine}
               ${counterBtn}
@@ -11346,8 +11385,18 @@ export class CombatHUD {
 
   static alliedNpcMomentumPool(actor) {
     if (!CombatHUD.isAlliedNpcActor(actor)) return null;
-    const source = actor?.getFlag?.("sta2e-toolkit", "alliedMomentumSource") ?? "allied";
+    const baseActor = actor?.isToken ? game.actors.get(actor.id ?? actor._id) : null;
+    const source = actor?.getFlag?.("sta2e-toolkit", "alliedMomentumSource")
+      ?? baseActor?.getFlag?.("sta2e-toolkit", "alliedMomentumSource")
+      ?? "allied";
     return source === "player" ? null : "alliedNpcMomentum";
+  }
+
+  static opposedShipRewardPool(actor) {
+    if (CombatHUD.isAlliedNpcActor(actor)) {
+      return CombatHUD.alliedNpcMomentumPool(actor) ?? "momentum";
+    }
+    return CombatHUD.isNpcShip(actor) ? "threat" : "momentum";
   }
 
   static chiefSecurityMomentumPool(actor) {
@@ -14387,8 +14436,8 @@ export class CombatHUD {
     const opposedDifficulty = payload.opposedDifficulty ?? defSuccesses;
     if (oppDefType !== null && defSuccesses !== null && !_isDevastating) {
       const attackerSuccesses = payload.attackerSuccesses ?? null;
-      const defLabel   = oppDefType === "evasive-action" ? "Evasive Action" : oppDefType === "defensive-fire" ? "Defensive Fire" : "Cover";
-      const defIcon    = oppDefType === "evasive-action" ? "↗️" : oppDefType === "defensive-fire" ? "🛡️" : "🪨";
+      const defLabel   = oppDefType === "evasive-action" ? "Evasive Action" : oppDefType === "defensive-fire" ? "Defensive Fire" : oppDefType === "point-defense" ? "Point Defense" : "Cover";
+      const defIcon    = oppDefType === "evasive-action" ? "↗️" : oppDefType === "defensive-fire" ? "🛡️" : oppDefType === "point-defense" ? "✦" : "🪨";
 
       let deltaHtml = "";
       if (attackerSuccesses !== null) {
@@ -14405,9 +14454,13 @@ export class CombatHUD {
         } else if (delta < 0) {
           // Defender won — momentum/threat for defender
           const absDelta = Math.abs(delta);
+          const defenderPool = payload.opposedPoolAward?.pool ?? CombatHUD.opposedShipRewardPool(actor);
+          const defenderPoolLabel = defenderPool === "threat"
+            ? "Threat"
+            : defenderPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
           deltaHtml = `
             <div style="font-size:11px;font-weight:700;color:${LC.red};font-family:${LC.font};margin-top:4px;">
-              ✗ Defender wins — +${absDelta} ${isNpc ? "Threat" : "Momentum"} awarded automatically
+              ✗ Defender wins — +${absDelta} ${defenderPoolLabel} awarded automatically
             </div>`;
           // Counterattack button — available for Defensive Fire and Cover (not Evasive Action)
           if (oppDefType !== "evasive-action") {
@@ -14453,6 +14506,7 @@ export class CombatHUD {
               <span style="color:${LC.textDim};">Defender: </span>
               <span style="color:${LC.tertiary};font-weight:700;">${defSuccesses} success${defSuccesses !== 1 ? "es" : ""}</span>
               ${opposedDifficulty !== defSuccesses ? `<div style="color:${LC.textDim};font-size:9px;">Final Difficulty ${opposedDifficulty}</div>` : ""}
+              ${payload.pointDefenseActive ? `<div style="color:${LC.primary};font-size:9px;">Point Defense +1 Difficulty</div>` : ""}
             </div>
             ${attackerSuccesses !== null ? `
             <div>
@@ -20194,6 +20248,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               piercingSalvoAvailable: !!payload.hasPiercingSalvo,
               defenderSuccesses:    defenderSuccesses ?? null,
               opposedDefenseType:   opposedDefenseType ?? null,
+              pointDefenseActive:   !!payload.pointDefenseActive,
+              pointDefensePenalty:  Number(payload.pointDefensePenalty ?? 0),
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
               opposedDefenderBonus: payload.opposedDefenderBonus ?? 0,
               floatingMomentum:     _shipFloating,

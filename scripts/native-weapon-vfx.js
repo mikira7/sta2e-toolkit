@@ -361,6 +361,30 @@ export function previewBeamVfxAppearance(sourceToken, targetToken, options = {})
   return true;
 }
 
+/**
+ * Draw the module's native travelling tracer between two absolute canvas
+ * points. Point Defense uses this small public surface so its emitters share
+ * the global tracer shape and timing without pretending to be a ship weapon.
+ */
+export function playNativeTracerBetweenPoints(sourcePoint, targetPoint, options = {}) {
+  if (!globalThis.PIXI || !canvas?.ready || !sourcePoint || !targetPoint) return false;
+  const beam = normalizeBeamVfxSettings(options.beamSettings ?? getBeamVfxSettings());
+  const color = _parseHexColor(options.color, PHASER_PRIMARY);
+  const r = (color >> 16) & 0xff;
+  const g = (color >> 8) & 0xff;
+  const b = color & 0xff;
+  const brighten = channel => Math.round(channel + ((255 - channel) * 0.72));
+  const derivedCore = (brighten(r) << 16) | (brighten(g) << 8) | brighten(b);
+  _tracerVolley(sourcePoint, targetPoint, {
+    hit: options.hit !== false,
+    color,
+    coreColor: _parseHexColor(options.coreColor, derivedCore),
+    layer: options.layer ?? sourcePoint.layer ?? "above",
+    beam,
+  });
+  return true;
+}
+
 function _normalizeTargets(targets) {
   if (!targets) return [];
   if (Array.isArray(targets)) return targets.filter(Boolean);

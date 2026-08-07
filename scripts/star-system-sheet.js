@@ -1395,6 +1395,10 @@ export function getStarSystemData(actor) {
 
 export function normalizeStarSystemData(raw = {}) {
   const data = defaultStarSystemData(raw);
+  // Only an explicit opt-in marks an actor as a star system. Defaulting this to
+  // true made getStarSystemData() claim every actor was a star system, which is
+  // what let the sheet brand plain character actors.
+  data.isStarSystem = raw?.isStarSystem === true;
   data.designation = clampText(data.designation);
   data.classification = clampText(data.classification, "Primary Star System");
   data.sector = clampText(data.sector);
@@ -1599,6 +1603,7 @@ export function generateStarSystemData(seed = {}, options = {}) {
 
   return defaultStarSystemData({
     ...seed,
+    isStarSystem: true,
     designation,
     classification: starCount === 1 ? "Primary Star System"
       : starCount === 2 ? "Binary Star System"
@@ -2150,6 +2155,11 @@ export function registerStarSystemActorSheet() {
     Actors.registerSheet(MODULE_ID, StarSystemActorSheet, {
       types: actorTypes(),
       makeDefault: false,
+      // Keeps this sheet out of DocumentSheetConfig's `defaultClasses`, so it
+      // can neither be chosen as an actor type's default sheet nor be picked up
+      // as the implicit fallback default when no other sheet is registered for
+      // a type. Both routes drag every actor of that type onto this sheet.
+      canBeDefault: false,
       label: "STA2e Star System",
     });
   } else {
@@ -2176,7 +2186,10 @@ export async function createStarSystemActor({ folderId = null, data = null } = {
 
   // Pre-generate the actor id so the composite file can be named after it.
   const actorId = foundry.utils.randomID(16);
-  const starSystem = await bakeStarSystemWorldImages(normalizeStarSystemData(data ?? generateStarSystemData()), { actorId });
+  const starSystem = await bakeStarSystemWorldImages(
+    normalizeStarSystemData({ ...(data ?? generateStarSystemData()), isStarSystem: true }),
+    { actorId },
+  );
   const primaryImage = (await resolveStarSystemPortraitImage(starSystem, { actorId })) || DEFAULT_IMG;
   const actorData = {
     _id: actorId,
@@ -2233,6 +2246,63 @@ export async function migrateStarSystemCompositeImages() {
   );
 }
 
+/**
+ * Repair actors and world settings that point ordinary actors at the Star
+ * System sheet.
+ *
+ * Two independent bindings can do that, and neither is created by any current
+ * code path — they are leftovers a world carries forward: a world-level default
+ * in `core.sheetClasses` (which drags every actor of that type onto the sheet at
+ * once, leaving no flag on the actors themselves), and a per-actor
+ * `flags.core.sheetClass` written by the "Convert to Star System" option that
+ * shipped in v1.16.0-v1.16.6.
+ *
+ * Only unambiguous cases are touched: an actor keeps its binding if it actually
+ * carries star system data. Anything with a conversion backup is left for the
+ * GM's explicit "Undo Star System Conversion" so a deliberate conversion is
+ * never undone behind their back. Cheap no-op on a healthy world.
+ */
+export async function repairStarSystemSheetBindings() {
+  if (!game.user?.isGM) return;
+
+  const defaults = foundry.utils.duplicate(game.settings.get("core", "sheetClasses") ?? {});
+  const clearedTypes = Object.entries(defaults.Actor ?? {})
+    .filter(([, sheetId]) => sheetId === STAR_SYSTEM_SHEET_ID)
+    .map(([type]) => type);
+  if (clearedTypes.length) {
+    for (const type of clearedTypes) delete defaults.Actor[type];
+    await game.settings.set("core", "sheetClasses", defaults);
+    // Sheets register during init, before this runs, so the stale setting has
+    // already marked this sheet `default` in CONFIG for the affected types.
+    // Clearing it here lets Actor#_getSheetClass fall back to the system's own
+    // sheet in the current session instead of only after a reload.
+    for (const type of clearedTypes) {
+      const registered = CONFIG.Actor?.sheetClasses?.[type]?.[STAR_SYSTEM_SHEET_ID];
+      if (registered) registered.default = false;
+    }
+    console.warn(`STA2e Toolkit | Cleared the Star System sheet as the world default for Actor type(s): ${clearedTypes.join(", ")}.`);
+  }
+
+  const stranded = (game.actors ?? []).filter(actor => hasStarSystemSheetBinding(actor) && !looksLikeStarSystem(actor));
+  for (const actor of stranded) {
+    try {
+      const previousSheetClass = getStarSystemConversionBackup(actor)?.previousSheetClass;
+      await actor.update(typeof previousSheetClass === "string" && previousSheetClass.trim()
+        ? { "flags.core.sheetClass": previousSheetClass }
+        : { "flags.core.-=sheetClass": null });
+      console.warn(`STA2e Toolkit | Unbound the Star System sheet from non-star-system actor "${actor.name}" (${actor.id}).`);
+    } catch (err) {
+      console.warn(`STA2e Toolkit | Could not unbind the Star System sheet from ${actor?.name}:`, err);
+    }
+  }
+
+  if (!clearedTypes.length && !stranded.length) return;
+  const parts = [];
+  if (clearedTypes.length) parts.push(`cleared the world default for ${clearedTypes.join(", ")}`);
+  if (stranded.length) parts.push(`restored ${stranded.length} actor sheet${stranded.length === 1 ? "" : "s"}`);
+  ui.notifications?.info(`STA2e Toolkit: Star System sheet repair — ${parts.join(" and ")}. Reload (F5) if any affected sheet is still open.`);
+}
+
 export async function markActorAsStarSystem(actor, data = null) {
   if (!game.user?.isGM) {
     ui.notifications.warn("STA2e Toolkit: Only the GM can convert actors to Star System sheets.");
@@ -2276,12 +2346,15 @@ export async function undoStarSystemConversion(actor) {
   }
   if (!actor) return false;
 
+  // Conversions made before v1.16.6 never wrote a backup, and a sheet bound by
+  // a world-level default writes nothing at all. Both still need a way out, so
+  // fall back to simply clearing the binding rather than refusing.
   const backup = getStarSystemConversionBackup(actor);
-  if (!backup) {
-    ui.notifications.warn(`STA2e Toolkit: ${actor.name} has no Star System conversion backup to restore.`);
+  if (!backup && !hasStarSystemSheetBinding(actor)) {
+    ui.notifications.warn(`STA2e Toolkit: ${actor.name} is not bound to the Star System sheet, so there is nothing to restore.`);
     return false;
   }
-  const previousSheetClass = typeof backup.previousSheetClass === "string" && backup.previousSheetClass.trim()
+  const previousSheetClass = typeof backup?.previousSheetClass === "string" && backup.previousSheetClass.trim()
     ? backup.previousSheetClass
     : null;
   const update = previousSheetClass
@@ -2316,6 +2389,41 @@ export class StarSystemActorSheet extends ActorSheet {
   get title() {
     const data = getStarSystemData(this.actor);
     return `${data.designation || this.actor.name} - Star System`;
+  }
+
+  /**
+   * Refuse to draw on an actor that is not a star system.
+   *
+   * Foundry can hand this sheet an ordinary actor without the module asking:
+   * a world-level default in `core.sheetClasses`, a stale per-actor
+   * `flags.core.sheetClass` left by the pre-1.16.7 convert option, or a
+   * registration fallback when the system's own sheet fails to register. Every
+   * save path below writes the star-system sheet class back onto the actor, so
+   * rendering here is what turns a display glitch into permanent damage.
+   */
+  render(force = false, options = {}) {
+    if (!looksLikeStarSystem(this.actor)) {
+      console.warn(`STA2e Toolkit | Refused to open the Star System sheet on non-star-system actor "${this.actor?.name}" (${this.actor?.id}).`);
+      if (game.user?.isGM) {
+        ui.notifications?.warn(`STA2e Toolkit: ${this.actor?.name ?? "This actor"} is not a Star System, so its Star System sheet was not opened. Right-click the actor and choose "Undo Star System Conversion" to restore its normal sheet.`);
+      }
+      return this;
+    }
+    return super.render(force, options);
+  }
+
+  /**
+   * The name/token half of an actor update, shared by every save path. The
+   * sheet class is only re-asserted on an actor that is already a star system,
+   * so a mis-bound sheet can never brand an ordinary actor as one.
+   */
+  _actorNameUpdate(actorName) {
+    const update = {
+      name: actorName,
+      "prototypeToken.name": actorName,
+    };
+    if (isStarSystemActor(this.actor)) update["flags.core.sheetClass"] = STAR_SYSTEM_SHEET_ID;
+    return update;
   }
 
   async getData(options = {}) {
@@ -2404,11 +2512,7 @@ export class StarSystemActorSheet extends ActorSheet {
       for (const star of data.stars ?? []) star.image = "";
       const starSystem = normalizeStarSystemData(data);
       const actorName = current.actorName || this.actor.name;
-      const actorUpdate = {
-        name: actorName,
-        "prototypeToken.name": actorName,
-        "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
-      };
+      const actorUpdate = this._actorNameUpdate(actorName);
       const portrait = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
       if (portrait) {
         actorUpdate.img = portrait;
@@ -2425,11 +2529,7 @@ export class StarSystemActorSheet extends ActorSheet {
       const current = form ? this._dataFromForm(form) : { actorName: this.actor.name, starSystem: getStarSystemData(this.actor) };
       const starSystem = normalizeStarSystemData(current.starSystem);
       const portrait = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
-      const actorUpdate = {
-        name: current.actorName || this.actor.name,
-        "prototypeToken.name": current.actorName || this.actor.name,
-        "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
-      };
+      const actorUpdate = this._actorNameUpdate(current.actorName || this.actor.name);
       if (portrait) {
         actorUpdate.img = portrait;
         actorUpdate["prototypeToken.texture.src"] = portrait;
@@ -2637,11 +2737,7 @@ export class StarSystemActorSheet extends ActorSheet {
 
     const starSystem = normalizeStarSystemData(data);
     const actorName = current.actorName || this.actor.name;
-    const actorUpdate = {
-      name: actorName,
-      "prototypeToken.name": actorName,
-      "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
-    };
+    const actorUpdate = this._actorNameUpdate(actorName);
     if (refreshPortrait) {
       const portrait = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
       if (portrait) {
@@ -2673,11 +2769,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const actorName = data.actorName || this.actor.name;
     const starSystem = normalizeStarSystemData(data.starSystem);
     const primaryImage = await resolveStarSystemPortraitImage(starSystem, { actorId: this.actor.id, knownPath: this.actor.img });
-    const actorUpdate = {
-      name: actorName,
-      "prototypeToken.name": actorName,
-      "flags.core.sheetClass": STAR_SYSTEM_SHEET_ID,
-    };
+    const actorUpdate = this._actorNameUpdate(actorName);
     if (primaryImage) {
       actorUpdate.img = primaryImage;
       actorUpdate["prototypeToken.texture.src"] = primaryImage;
@@ -3094,8 +3186,32 @@ function actorFromContextElement(element) {
   return game.actors?.get(id) ?? null;
 }
 
+/**
+ * Offer the Undo entry for anything wearing the Star System sheet that should
+ * not be: an actor with a conversion backup, or one merely branded with the
+ * sheet class without ever becoming a star system.
+ */
 function isConvertedStarSystemActor(actor) {
-  return !!getStarSystemConversionBackup(actor);
+  if (getStarSystemConversionBackup(actor)) return true;
+  return hasStarSystemSheetBinding(actor) && !looksLikeStarSystem(actor);
+}
+
+/**
+ * Deliberately wider than `isStarSystemActor`: an actor holding generated stars
+ * or worlds is a star system even if its `isStarSystem` marker was lost, so the
+ * automatic repair never strips the sheet off one with a malformed flag.
+ */
+function looksLikeStarSystem(actor) {
+  if (isStarSystemActor(actor)) return true;
+  const raw = actor?.getFlag?.(MODULE_ID, STAR_SYSTEM_FLAG);
+  return normalizeRows(raw?.stars).length > 0 || normalizeRows(raw?.worlds).length > 0;
+}
+
+function hasStarSystemSheetBinding(actor) {
+  const sheetClass = actor?.getFlag?.("core", "sheetClass")
+    ?? foundry.utils.getProperty(actor ?? {}, "flags.core.sheetClass")
+    ?? "";
+  return sheetClass === STAR_SYSTEM_SHEET_ID;
 }
 
 function getStarSystemConversionBackup(actor) {
@@ -3105,14 +3221,35 @@ function getStarSystemConversionBackup(actor) {
 
 function removeStarSystemSheetConfigOption(app, html) {
   const actor = app?.document ?? app?.object ?? null;
-  if (actor && isStarSystemActor(actor)) return;
-
   const root = typeof HTMLElement !== "undefined" && html instanceof HTMLElement ? html : html?.[0] ?? html;
+
+  if (actor && looksLikeStarSystem(actor)) {
+    // The per-document dropdown keeps the option for real star systems, but the
+    // "Defaults" dropdown must never offer it — that is what silently drags
+    // every actor of a type onto this sheet. `canBeDefault: false` already
+    // excludes it at registration; this also clears a stale entry left in a
+    // world whose saved default still points here.
+    removeStarSystemDefaultSheetOption(root);
+    return;
+  }
+
   root?.querySelectorAll?.(`option[value="${STAR_SYSTEM_SHEET_ID}"]`).forEach(option => {
     const select = option.closest("select");
     option.remove();
     if (select?.value === STAR_SYSTEM_SHEET_ID) select.value = "";
   });
+}
+
+/**
+ * Strip the Star System sheet from the "Defaults" sheet dropdown of a Sheet
+ * Configuration dialog, leaving the per-document dropdown untouched.
+ */
+function removeStarSystemDefaultSheetOption(root) {
+  const select = root?.querySelector?.('select[name="defaultClass"]');
+  const option = select?.querySelector?.(`option[value="${STAR_SYSTEM_SHEET_ID}"]`);
+  if (!option) return;
+  option.remove();
+  if (select.value === STAR_SYSTEM_SHEET_ID) select.value = select.options[0]?.value ?? "";
 }
 
 function preventNonGmStarSystemCreation(actor, data, _options, userId) {

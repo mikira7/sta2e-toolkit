@@ -39,6 +39,7 @@ import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerShipCommandHud } from "./ship-command-hud.js";
 import { registerTokenWeaponHud } from "./token-weapon-hud.js";
 import { playNativeWarpFlash } from "./warp-jump-vfx.js";
+import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
 import { ZoneMovementLog } from "./zone-movement-log.js";
@@ -71,6 +72,7 @@ import {
   openStarSystemTypeInfoPrompt,
   registerStarSystemActorDirectoryHooks,
   registerStarSystemActorSheet,
+  repairStarSystemSheetBindings,
 } from "./star-system-sheet.js";
 import { registerStarSystemMapHover } from "./star-system-scene.js";
 
@@ -717,10 +719,11 @@ Hooks.once("ready", async () => {
     const chiefSecurityPenalty = pending.chiefSecurityPenalty ?? 0;
     const pronePenalty = pending.pronePenalty ?? 0;
     const cumbersomePenalty = pending.rollerOpts?.cumbersomePenalty ?? pending.cumbersomePenalty ?? 0;
+    const pointDefensePenalty = pending.pointDefensePenalty ?? pending.rollerOpts?.pointDefensePenalty ?? 0;
     const attackPatternPenalty = pending.attackPatternPenalty ?? pending.rollerOpts?.attackPatternPenalty ?? 0;
     const rawDifficulty = pending.overridePenalty
-      ? clampedSuccesses + 1 + cumbersomePenalty           // ship override: +1 on top
-      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + pronePenalty + cumbersomePenalty;    // ground: add situational penalties
+      ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty
+      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty;
     const difficulty = Math.max(0, rawDifficulty - attackPatternPenalty);
 
     // Build the taskContext string now that defender's actual successes are known
@@ -745,6 +748,8 @@ Hooks.once("ready", async () => {
       ...pending.rollerOpts,
       opposedDifficulty:  difficulty,
       opposedDefenseType: defType,
+      pointDefenseActive: !!pending.pointDefenseActive,
+      pointDefensePenalty: Number(pointDefensePenalty) || 0,
       defenderSuccesses:  clampedSuccesses,
       opposedDefenderBonus: defenderBonusMomentum,
       difficulty:         null,   // opposed tasks always use opposedDifficulty
@@ -790,9 +795,13 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   game.sta2eToolkit.createStarSystemActor = createStarSystemActor;
   game.sta2eToolkit.openStarSystemSheet = openStarSystemSheet;
+  game.sta2eToolkit.repairStarSystemSheetBindings = repairStarSystemSheetBindings;
   // Move any star system actors off old content-hashed composite files onto
   // the per-actor overwritten scheme (no-op once migrated).
   migrateStarSystemCompositeImages().catch(err => console.warn("STA2e Toolkit | Composite migration error:", err));
+  // Release ordinary actors that a world default or a pre-1.16.7 conversion
+  // left pointing at the Star System sheet (no-op on a healthy world).
+  repairStarSystemSheetBindings().catch(err => console.warn("STA2e Toolkit | Star System sheet repair error:", err));
   // Expose NPC roller launcher so the widget button can call it
   game.sta2eToolkit.launchNpcRoller = _npcRollerLaunch;
 
@@ -1090,6 +1099,20 @@ Hooks.once("ready", async () => {
         x: msg.x, y: msg.y, x2: msg.x2, y2: msg.y2,
         radius: msg.radius, heading: msg.heading, phase: msg.phase,
       });
+      return;
+    }
+
+    // Point Defense tracers are native PIXI, while the intercepted torpedo and
+    // its destruction effect remain Sequencer-synchronized. The firing client
+    // draws locally before emitting because Foundry sockets do not loop back.
+    if (msg.action === "pointDefenseTracerVfx") {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+        playNativeTracerBetweenPoints(msg.sourcePoint, msg.targetPoint, {
+          color: msg.color,
+          layer: msg.layer,
+          hit: true,
+        });
+      }
       return;
     }
 

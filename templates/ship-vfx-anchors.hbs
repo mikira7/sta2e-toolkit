@@ -357,6 +357,7 @@
       position: relative;
       display: inline-block;
       max-width: 100%;
+      --sta2e-emitter-marker-scale: 1;
       transform-origin: 0 0;
       will-change: transform;
     }
@@ -423,6 +424,8 @@
       font-weight: 800;
       line-height: 12px;
       text-align: center;
+      transform: scale(var(--sta2e-emitter-marker-scale));
+      transform-origin: center;
     }
     .sta2e-anchor-marker::after {
       content: "";
@@ -507,6 +510,8 @@
       font-weight: 800;
       line-height: 10px;
       text-align: center;
+      transform: scale(var(--sta2e-emitter-marker-scale));
+      transform-origin: center;
     }
     .sta2e-array-curve-marker.is-control {
       width: 12px;
@@ -849,6 +854,54 @@
     <div class="sta2e-vfx-preview-bar">
       <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Source: {{previewSourceName}}</div>
       <div class="sta2e-vfx-preview-status" title="{{previewTargetName}}">Target: {{previewTargetName}}</div>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
+      <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
+    </div>
+  </div>
+  {{/if}}
+
+  {{#if isPointDefenseTab}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading">
+      <span>Point Defense Settings</span>
+      <button type="button" data-reset-point-defense title="Reset this ship's Point Defense settings"><i class="fas fa-undo"></i> Reset</button>
+    </div>
+    <div class="sta2e-anchor-value">
+      Place independent defensive emitters on the hull. Tracers use the global native tracer shape and timing; the nearest emitters engage incoming torpedoes automatically.
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-point-defense-colormode">Color</label>
+        <select id="sta2e-point-defense-colormode" data-point-defense-setting="colorMode">
+          {{#each pointDefenseColorModeOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-point-defense-customcolor">Custom Hex</label>
+        <div class="sta2e-vfx-color-control">
+          <input id="sta2e-point-defense-customcolor" type="text" value="{{activePointDefenseSettings.customColor}}" placeholder="#44bbff or blank" data-point-defense-setting="customColor" data-hex-color-text />
+          <input class="sta2e-vfx-color-swatch" type="color" value="{{pointDefensePickerColor}}" title="Point Defense custom color" data-hex-color-picker data-hex-color-scope="point-defense" data-hex-color-key="customColor" />
+        </div>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Resolved</label>
+        <span class="sta2e-anchor-value"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid rgba(255,255,255,0.4);background:{{resolvedPointDefenseColor}};"></span> {{resolvedPointDefenseColor}}</span>
+      </div>
+      {{#if activeEmitterArcControls}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-point-defense-layer">Emitter Layer</label>
+        <select id="sta2e-point-defense-layer" data-emitter-setting="layer">
+          <option value="above" {{#if activeEmitterArcControls.layerAboveSelected}}selected{{/if}}>Above Token</option>
+          <option value="below" {{#if activeEmitterArcControls.layerBelowSelected}}selected{{/if}}>Below Token</option>
+        </select>
+      </div>
+      {{/if}}
+    </div>
+    <div class="sta2e-vfx-preview-bar">
+      <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Defender: {{previewSourceName}}</div>
+      <div class="sta2e-vfx-preview-status" title="{{previewTargetName}}">Intercept: {{previewTargetName}}</div>
       <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
       <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
     </div>

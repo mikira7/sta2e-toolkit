@@ -56,6 +56,14 @@ export function hasRapidFireTorpedoLauncher(actor) {
   );
 }
 
+/** Point Defense System starship talent, tolerant of punctuation/hyphen variants. */
+export function hasPointDefenseSystem(actor) {
+  if (!actor?.items) return false;
+  return actor.items.some(item =>
+    normalizeTalentName(item?.name).includes("point defense system")
+  );
+}
+
 export function hasChiefTacticalOfficer(actor) {
   if (!actor?.items) return false;
   return !!findRoleAbilityTalent(actor, ["chief tactical officer"]);
@@ -608,4 +616,3 @@ export const TASK_PARAMS = {
   "create-trait":      { difficulty: 1,  charAttr: null,       charDisc: null,          shipSystemKey: null,        shipDeptKey: null,          ctx: "Task Roll · Difficulty 1 (GM may adjust)" },
   "cloak-toggle":      { difficulty: 2,  charAttr: "control",  charDisc: "engineering", shipSystemKey: "engines",   shipDeptKey: "security",    ctx: "Control + Engineering · Difficulty 2 · Engines + Security" },
 };
-

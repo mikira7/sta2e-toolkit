@@ -33,6 +33,7 @@ import {
   findChiefMedicalOfficerTalent,
   findChiefOfSecurityTalent,
   hasChiefTacticalOfficer,
+  hasPointDefenseSystem,
 } from "./combat/combat-definitions.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
 
@@ -2390,6 +2391,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 letter-spacing:0.06em;text-transform:uppercase;margin-bottom:2px;">
                 ${state.opposedDefenseType === "evasive-action" ? "↗️ Opposed — Evasive Action"
           : state.opposedDefenseType === "defensive-fire" ? "🛡️ Opposed — Defensive Fire"
+            : state.opposedDefenseType === "point-defense" ? "✦ Opposed — Point Defense"
             : state.opposedDefenseType === "melee" ? "⚔️ Opposed — Melee"
               : "🪨 Opposed — Cover"}
               </div>
@@ -3846,7 +3848,7 @@ export function buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, showAssistRollToggle = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, pointDefenseActive = false, pointDefensePenalty = 0, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, showAssistRollToggle = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
 
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
@@ -4307,6 +4309,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     baseComplicationRange: startComplicationRange ?? null,
     opposedDifficulty,
     opposedDefenseType,
+    pointDefenseActive: !!pointDefenseActive,
+    pointDefensePenalty: Math.max(0, Number(pointDefensePenalty) || 0),
     defenderSuccesses,
     opposedDefenderBonus: Math.max(0, Number(opposedDefenderBonus) || 0),
     hasTargetingSolution: _hasTargetingSolution,
@@ -4675,6 +4679,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       hasCalibrateWeapons: state.hasCalibrateWeapons ?? false,
       defenderSuccesses: state.defenderSuccesses ?? null,
       opposedDefenseType: state.opposedDefenseType ?? null,
+      pointDefenseActive: !!state.pointDefenseActive,
+      pointDefensePenalty: Number(state.pointDefensePenalty ?? 0),
       opposedDefenderBonus: state.opposedDefenderBonus ?? 0,
       groundMode: state.groundMode ?? false,
       groundIsNpc: state.groundIsNpc ?? false,
@@ -4924,6 +4930,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 piercingSalvoAvailable: !!state.hasPiercingSalvo,
                 defenderSuccesses: state.defenderSuccesses,
                 opposedDefenseType: state.opposedDefenseType,
+                pointDefenseActive: !!state.pointDefenseActive,
+                pointDefensePenalty: Number(state.pointDefensePenalty ?? 0),
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
                 opposedDefenderBonus: state.opposedDefenderBonus ?? 0,
                 floatingMomentum: _floatingMomentum,
@@ -5385,12 +5393,25 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
   // token may be a TokenDocument or null; checkOpposedTaskForTokens only uses
   // it for the pending-task write (handled below), so pass null safely here.
   const checkFn = game.sta2eToolkit?.checkOpposedTaskForTokens;
+  let pointDefenseActive = false;
+  let pointDefensePenalty = 0;
   if (checkFn) {
-    await checkFn(state.weaponContext?.name ?? "", token ?? null, [targetToken]);
+    const shipWeapon = state.weaponContext?.weaponId
+      ? actor?.items?.get?.(state.weaponContext.weaponId)
+      : actor?.items?.find?.(i => i.type === "starshipweapon2e" && i.name === state.weaponContext?.name);
+    const checked = await checkFn(state.weaponContext?.name ?? "", attackerToken ?? token ?? null, [targetToken], {
+      weapon: shipWeapon ?? null,
+    });
+    if (checked?.proceed === "pending") {
+      defMode = checked.defMode ?? defMode;
+      pointDefenseActive = !!checked.pointDefenseActive;
+      pointDefensePenalty = Number(checked.pointDefensePenalty ?? 0);
+    }
   }
 
   const defLabel = defMode === "evasive-action" ? "Evasive Action"
-    : defMode === "defensive-fire" ? "Defensive Fire" : "Cover";
+    : defMode === "defensive-fire" ? "Defensive Fire"
+    : defMode === "point-defense" ? "Point Defense" : "Cover";
   const attackPatternPenalty = game.sta2eToolkit?.CombatHUD
     ?.getAttackPatternDifficultyReduction?.(targetToken) ?? 0;
 
@@ -5403,6 +5424,8 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       defenderActorId: targetToken.actor.id,
       defenderTokenId: targetToken.id,
       defenseType: defMode,
+      pointDefenseActive,
+      pointDefensePenalty,
       weaponContext: state.weaponContext,
       hasTargetingSolution: state.hasTargetingSolution ?? false,
       hasRapidFireTorpedo: state.hasRapidFireTorpedo ?? false,
@@ -5424,6 +5447,8 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
     attackerActorId: _actorId,
     isNpcAttacker:   state._isNpc ?? false,
     defMode,
+    pointDefenseActive,
+    pointDefensePenalty,
     weaponName:      state.weaponContext?.name ?? "",
     attackPatternPenalty,
     rollerOpts: {
@@ -7428,11 +7453,20 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
 
             // Read defence flags directly — synchronous, no async needed.
             let defMode = null;
+            state._pointDefenseActive = false;
             if (defTargetToken) {
               defMode = defTargetToken.document?.getFlag(MODULE, "defenseMode") ?? null;
               if (!defMode && defTargetToken.document?.getFlag(MODULE, "coverActive")) {
                 defMode = "cover";
               }
+              const pointDefenseOperational = !!(
+                state.weaponContext?.isTorpedo
+                && hasPointDefenseSystem(defTargetToken.actor)
+                && Math.max(0, Number(defTargetToken.actor?.system?.systems?.weapons?.breaches ?? 0) || 0) === 0
+                && !defTargetToken.document?.getFlag(MODULE, "_warpActive")
+              );
+              state._pointDefenseActive = pointDefenseOperational;
+              if (!defMode && pointDefenseOperational) defMode = "point-defense";
             }
             if (state.groundMode && !state.weaponContext) {
               defMode = null;
@@ -7443,10 +7477,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
 
             const defLabel = defMode === "evasive-action" ? "Evasive Action"
               : defMode === "defensive-fire" ? "Defensive Fire"
+              : defMode === "point-defense" ? "Point Defense"
               : defMode === "cover" ? "Cover"
               : null;
             const defIcon = defMode === "evasive-action" ? "↗️"
               : defMode === "defensive-fire" ? "🛡️"
+              : defMode === "point-defense" ? "✦"
               : defMode === "cover" ? "🪨"
               : null;
 
