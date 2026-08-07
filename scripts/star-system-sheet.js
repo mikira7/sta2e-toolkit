@@ -2346,11 +2346,17 @@ export async function undoStarSystemConversion(actor) {
   }
   if (!actor) return false;
 
-  // Conversions made before v1.16.6 never wrote a backup, and a sheet bound by
-  // a world-level default writes nothing at all. Both still need a way out, so
-  // fall back to simply clearing the binding rather than refusing.
+  // Conversions made before v1.16.6 never wrote a backup, so fall back to
+  // clearing the binding rather than refusing.
   const backup = getStarSystemConversionBackup(actor);
   if (!backup && !hasStarSystemSheetBinding(actor)) {
+    // Nothing on the actor points here, so a world-level default is doing it
+    // and the fix is world-wide rather than per actor.
+    if (usesStarSystemSheet(actor)) {
+      await repairStarSystemSheetBindings();
+      renderRestoredSheet(actor);
+      return true;
+    }
     ui.notifications.warn(`STA2e Toolkit: ${actor.name} is not bound to the Star System sheet, so there is nothing to restore.`);
     return false;
   }
@@ -2364,9 +2370,22 @@ export async function undoStarSystemConversion(actor) {
   await actor.update(update);
   await actor.unsetFlag(MODULE_ID, STAR_SYSTEM_FLAG);
   await actor.unsetFlag(MODULE_ID, STAR_SYSTEM_CONVERSION_FLAG);
-  actor.sheet?.render?.(true);
+  renderRestoredSheet(actor);
   ui.notifications.info(`STA2e Toolkit: Restored ${actor.name} to its previous actor sheet.`);
   return true;
+}
+
+/**
+ * Open an actor's sheet after a restore, but never the Star System sheet.
+ *
+ * Foundry rebuilds `actor.sheet` asynchronously in `_onSheetChange`, so the
+ * cached instance can still be the Star System sheet for a moment. Rendering it
+ * would trip the guard in `StarSystemActorSheet#render` and fire a "not a Star
+ * System" warning immediately after a successful undo.
+ */
+function renderRestoredSheet(actor) {
+  const sheet = actor?.sheet;
+  if (sheet && !(sheet instanceof StarSystemActorSheet)) sheet.render(true);
 }
 
 export function openStarSystemSheet(actor) {
@@ -3187,13 +3206,33 @@ function actorFromContextElement(element) {
 }
 
 /**
- * Offer the Undo entry for anything wearing the Star System sheet that should
- * not be: an actor with a conversion backup, or one merely branded with the
- * sheet class without ever becoming a star system.
+ * Offer the Undo entry for anything that opens with the Star System sheet, full
+ * stop.
+ *
+ * Narrower tests kept failing the actors that most need it: a character
+ * converted before v1.16.6 has no backup flag, and once its sheet was saved it
+ * carries generated stars, so "has no star system data" excluded it. An actor
+ * pulled in by a world-level default carries no flag at all. Undo is GM-only
+ * and behind a confirmation, so offering it wherever the sheet is in play — a
+ * real star system included — costs nothing and always leaves a way out.
  */
 function isConvertedStarSystemActor(actor) {
-  if (getStarSystemConversionBackup(actor)) return true;
-  return hasStarSystemSheetBinding(actor) && !looksLikeStarSystem(actor);
+  return !!getStarSystemConversionBackup(actor) || usesStarSystemSheet(actor);
+}
+
+/**
+ * True when this actor resolves to the Star System sheet by any route: its own
+ * `flags.core.sheetClass`, or a world-level default resolved through
+ * CONFIG.Actor.sheetClasses.
+ */
+function usesStarSystemSheet(actor) {
+  if (!actor) return false;
+  if (hasStarSystemSheetBinding(actor)) return true;
+  try {
+    return actor._getSheetClass?.() === StarSystemActorSheet;
+  } catch {
+    return false;
+  }
 }
 
 /**
