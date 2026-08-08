@@ -26,6 +26,10 @@ import {
   playShieldImpactVFX,
 } from "./shield-impact-vfx.js";
 import {
+  broadcastTorpedoTravel,
+  playTorpedoTravelLocal,
+} from "./torpedo-travel-vfx.js";
+import {
   getSceneZones,
   getZoneAtPoint,
 } from "./zone-data.js";
@@ -1225,65 +1229,77 @@ function usesToolkitTorpedoSprite(config) {
   return isMovingTorpedoSprite(config?.effect);
 }
 
-function applyTorpedoTravel(s, config, source, target, { missed = false, finalDamage = 0 } = {}) {
-  const effectPath = config.effect;
-  const base = s.effect().file(effectPath);
+// Resolves a torpedo shot into a pure-JSON flight plan that torpedo-travel-vfx.js
+// can replay on any client. Everything is flattened to absolute canvas pixels
+// here, on the firing client, so receivers never re-resolve tokens or emitters.
+function buildTorpedoTravelPlan(config, source, target, { missed = false, finalDamage = 0 } = {}) {
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  // The launch point is resolved to an ABSOLUTE canvas point rather than
+  // handing Sequencer a token + offset: Sequencer's own offset processing
+  // doesn't place the effect on the emitter, which made torpedoes appear to
+  // launch from the wrong emitter position.
+  const launch = resolveTravelPoint(source);
+  if (!launch) return null;
 
-  if (isMovingTorpedoSprite(effectPath)) {
-    const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
-    const px = Math.max(8, Math.round(gridSize * SHIP_TORPEDO_SPRITE_GRID_FRACTION));
-    const travelMs = torpedoTravelMs(config);
-    // The toolkit sprites spin in place, so Sequencer cannot stretch them like
-    // JB2A strips. Keep the effect parked at an absolute launch point and move
-    // the sprite container over a small, bounded set of arc segments.
-    // The launch point is resolved to an ABSOLUTE canvas point rather than
-    // handing Sequencer a token + offset: Sequencer's own offset processing
-    // doesn't place the effect on the emitter, which made torpedoes appear to
-    // launch from the wrong emitter position.
-    const launchPoint = resolveTravelPoint(source);
-    const launchLoc = launchPoint
-      ? { location: launchPoint, layer: source?.layer ?? null }
-      : source;
-    let effect = atSequenceLocation(base, launchLoc)
-      .size(px)
-      .duration(travelMs);
-    const arc = buildTorpedoArcOffsets(source, target, { gridSize, missed });
-    if (arc) {
-      // Keep this deliberately compact. Large salvos used to build dozens of
-      // delayed spriteContainer tweens in one Sequence, which could eventually
-      // leave only the start frame and impact visible during long combats.
-      const segs = arc.x.length - 1;
-      const segMs = travelMs / segs;
-      for (let i = 0; i < segs; i++) {
-        effect = effect
-          .animateProperty("spriteContainer", "position.x", { from: arc.x[i], to: arc.x[i + 1], duration: segMs, delay: i * segMs, ease: "linear", absolute: true })
-          .animateProperty("spriteContainer", "position.y", { from: arc.y[i], to: arc.y[i + 1], duration: segMs, delay: i * segMs, ease: "linear", absolute: true });
-      }
-    } else {
-      // Degenerate case (unresolvable points / zero distance): fall back to a
-      // plain straight flight so the torpedo never just sits at the emitter.
-      effect = effect.moveTowards(target?.location ?? target, { ease: "linear", duration: travelMs });
-      if (missed && typeof effect.missed === "function") effect = effect.missed();
-    }
-    // Plasma torpedoes launch as a large bolt sized by the damage dealt, then
-    // shrink as they converge on the target. Other torpedo types keep a
-    // constant size.
-    if (config.torpedoType === "plasma") {
-      const dmg = Math.max(0, Number(finalDamage) || 0);
-      // 75% of the original launch-size curve (was min(3.5, 1.2 + dmg * 0.18)).
-      const startScale = Math.min(2.625, 0.9 + dmg * 0.135);
-      const endScale = 0.8;
-      effect = effect
-        .scale(startScale)
-        .animateProperty("spriteContainer", "scale.x", { from: startScale, to: endScale, duration: travelMs, ease: "linear", absolute: true })
-        .animateProperty("spriteContainer", "scale.y", { from: startScale, to: endScale, duration: travelMs, ease: "linear", absolute: true });
-    }
-    // Misses are handled inside the waypoint path (fanned-off endpoint), not
-    // via .missed(), which without stretchTo/rotateTowards would randomize
-    // the LAUNCH location instead of the target.
-    return effect;
+  // Keep the waypoint count deliberately low — every segment becomes a pair of
+  // delayed property tweens on the receiving client.
+  const arc = buildTorpedoArcOffsets(source, target, { gridSize, missed });
+  const fallbackTarget = arc ? null : resolveTravelPoint(target);
+
+  // Plasma torpedoes launch as a large bolt sized by the damage dealt, then
+  // shrink as they converge on the target. Other torpedo types keep a
+  // constant size.
+  let scaleFrom = null;
+  let scaleTo = null;
+  if (config.torpedoType === "plasma") {
+    const dmg = Math.max(0, Number(finalDamage) || 0);
+    // 75% of the original launch-size curve (was min(3.5, 1.2 + dmg * 0.18)).
+    scaleFrom = Math.min(2.625, 0.9 + dmg * 0.135);
+    scaleTo = 0.8;
   }
 
+  return {
+    file: config.effect,
+    px: Math.max(8, Math.round(gridSize * SHIP_TORPEDO_SPRITE_GRID_FRACTION)),
+    travelMs: torpedoTravelMs(config),
+    launch,
+    layer: source?.layer ?? null,
+    arcX: arc ? arc.x : null,
+    arcY: arc ? arc.y : null,
+    fallbackTarget,
+    // Misses are handled inside the waypoint path (fanned-off endpoint), not
+    // via .missed(), which without stretchTo/rotateTowards would randomize the
+    // LAUNCH location instead of the target. So this flag only matters on the
+    // degenerate straight-flight fallback.
+    missed,
+    scaleFrom,
+    scaleTo,
+  };
+}
+
+// Appends the torpedo's flight to sequence `s`.
+//
+// For the toolkit's own spinning sprites the flight is NOT put on `s` as a
+// broadcast Sequencer effect. Sequencer fast-forwards custom property
+// animations by the wall-clock difference between the firing client and each
+// viewing client, which silently teleports the torpedo onto the target hull
+// whenever that delta reaches the travel time (see torpedo-travel-vfx.js).
+// Instead `s` gets a thenDo — which runs only on the originating client — that
+// plays the flight here and broadcasts the plan for everyone else to play
+// locally. Callers keep their own `s.wait(torpedoTravelMs(config))` to schedule
+// the impact.
+function applyTorpedoTravel(s, config, source, target, { missed = false, finalDamage = 0, broadcast = true } = {}) {
+  const effectPath = config.effect;
+
+  if (isMovingTorpedoSprite(effectPath)) {
+    const plan = buildTorpedoTravelPlan(config, source, target, { missed, finalDamage });
+    if (plan) s.thenDo(() => (broadcast ? broadcastTorpedoTravel(plan) : playTorpedoTravelLocal(plan)));
+    return s;
+  }
+
+  // JB2A strips and other overrides are stretched from launcher to target, so
+  // they carry no custom animations and are unaffected by the fast-forward.
+  const base = s.effect().file(effectPath);
   let effect = stretchToSequenceLocation(
     atSequenceLocation(shipTravelEffect(base, config), source),
     target
@@ -1940,8 +1956,11 @@ export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoin
   }
 
   const sourcePoint = shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, 0);
+  // emitterSequenceLocation (not sequenceLocation) so the preview carries the
+  // emitter's launchDeg. Without it the arc falls back to the ship's bow and
+  // the preview doesn't match what actually fires.
   const source = sourcePoint
-    ? sequenceLocation(sourceToken, sourcePoint)
+    ? emitterSequenceLocation(sourceToken, sourcePoint)
     : sequenceLocation(sourceToken, null);
   const target = pointSequenceLocation(targetPoint);
   const s = seq();
@@ -1950,7 +1969,9 @@ export async function previewShipWeaponAnimation(sourceToken, weapon, targetPoin
     await playSequencerArrayCurveCharge(config, sourceToken, weapon, targetPoint, true);
   }
 
-  applyTorpedoTravel(s, config, source, target);
+  // Local only — previewing a weapon config shouldn't fire a torpedo across
+  // every connected player's screen.
+  applyTorpedoTravel(s, config, source, target, { broadcast: false });
 
   if (config.impact) {
     s.wait(Math.min(650, Math.max(180, Number(options.beamDuration) || 420)));
@@ -2157,6 +2178,11 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
       if (soundPath) s.sound().file(soundPath).volume(1);
       s.wait(150);
       applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true, finalDamage });
+      // Toolkit-sprite travel is dispatched by a thenDo that returns
+      // immediately, so the sequence has to span the flight itself — otherwise
+      // s.play() resolves early and the attack-animation queue starts the next
+      // shot mid-flight. JB2A strips still block on their own effect section.
+      if (usesToolkitTorpedoSprite(config)) s.wait(torpedoTravelMs(config));
     }
     await s.play();
   }
@@ -2224,6 +2250,10 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         if (soundPath) s.sound().file(soundPath).volume(1);
         s.wait(100);
         applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true, finalDamage });
+        // thenDo-dispatched travel returns instantly — hold the sequence open
+        // for the flight so the animation queue doesn't advance early. JB2A
+        // strips still block on their own effect section.
+        if (usesToolkitTorpedoSprite(config)) s.wait(torpedoTravelMs(config));
       }
       await s.play();
     }
@@ -2270,6 +2300,10 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
         applyTorpedoTravel(s, config, shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter), shipWeaponMissTargetLocation(target), { missed: true, finalDamage });
+        // thenDo-dispatched travel returns instantly — hold the sequence open
+        // for the flight so the animation queue doesn't advance early. JB2A
+        // strips still block on their own effect section.
+        if (usesToolkitTorpedoSprite(config)) s.wait(torpedoTravelMs(config));
       }
 
       await s.play();

@@ -36,6 +36,7 @@ import {
   hasPointDefenseSystem,
 } from "./combat/combat-definitions.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
+import { clearAssistPending } from "./assist-pending.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -215,15 +216,167 @@ export function canSucceedAtCost(source) {
 // Key: callbackId (random string), Value: { taskCallback, actor, token }
 export const PlayerRollCallbacks = new Map();
 
+// ── Pending assist resolution ─────────────────────────────────────────────────
+// Shared by the two places a roller learns about declared Assists / Directs:
+//   • roller open time, when the caller supplied a stationId (combat HUD path)
+//   • combat-task selection time, when a character-sheet roll picks a station and
+//     the entries have to be read from the SHIP token instead of the PC token
+//
+// Storage is documented in assist-pending.js; legacy string / single-object shapes
+// are still accepted on read.
+
 /**
- * Remove a station's assistPending flag entry from a token document.
- * Called from the confirm button handler in the chat card.
+ * Resolve the raw assistPending entries for one key into display-ready records.
+ *
+ * An assist from the ship itself (actorId === ownerActorId) or with no actorId is
+ * NPC crew assisting at crew quality — it must NOT be treated as a named officer
+ * (that would run readOfficerStats on the ship actor and show ship stats in the
+ * attr/disc selects).
+ *
+ * @param {TokenDocument} tokenDoc      Token carrying the flag.
+ * @param {string}        key           Station id, or "ground".
+ * @param {string|null}   ownerActorId  Actor that owns the token (the ship, in ship mode).
+ * @returns {Array<{name, actorId, stats, isNpcCrew, type}>}
  */
-export async function clearStationAssistFlag(tokenDoc, stationId) {
-  if (!tokenDoc || !stationId) return;
-  const existing = tokenDoc.getFlag("sta2e-toolkit", "assistPending") ?? {};
-  if (!(stationId in existing)) return;
-  await tokenDoc.update({ [`flags.sta2e-toolkit.assistPending.-=${stationId}`]: null });
+export function resolveAssistEntries(tokenDoc, key, ownerActorId = null) {
+  if (!tokenDoc || !key) return [];
+  const raw = (tokenDoc.getFlag(MODULE, "assistPending") ?? {})[key] ?? null;
+  const arr = !raw ? []
+    : Array.isArray(raw) ? raw
+      : typeof raw === "string" ? [{ name: raw, actorId: null }]
+        : [raw]; // legacy single-object
+
+  return arr.map(a => {
+    const isNpcCrew = !a.actorId || a.actorId === ownerActorId;
+    const resolvedActor = isNpcCrew ? null : game.actors.get(a.actorId);
+    const stats = resolvedActor ? readOfficerStats(resolvedActor) : null;
+    return { name: a.name ?? "Unknown", actorId: a.actorId ?? null, stats, isNpcCrew, type: a.type ?? null };
+  });
+}
+
+/**
+ * Turn resolved assist records into roller state entries, one die each.
+ * Direct always rolls Control + Command regardless of station; standard assists
+ * pick the best matching attr/disc for the station they are assisting.
+ *
+ * @param {Array}  resolved   Output of resolveAssistEntries (named officers only).
+ * @param {object} defaults   { attr, disc } — the station's canonical pair.
+ */
+export function buildAssistOfficerStates(resolved, defaults) {
+  return (resolved ?? []).map(a => {
+    const isDirect = a.type === "direct";
+    const aoDefaultAttr = isDirect ? "control"
+      : a.stats
+        ? (a.stats.attributes[defaults.attr] !== null ? defaults.attr
+          : Object.keys(a.stats.attributes).find(k => a.stats.attributes[k] !== null) ?? defaults.attr)
+        : defaults.attr;
+    const aoDefaultDisc = isDirect ? "command"
+      : a.stats
+        ? (a.stats.disciplines[defaults.disc] !== null ? defaults.disc
+          : Object.keys(a.stats.disciplines).find(k => a.stats.disciplines[k] !== null) ?? defaults.disc)
+        : defaults.disc;
+    return {
+      name: a.name,
+      actorId: a.actorId,
+      stats: a.stats,   // null if actor not found / lacks STA2e data
+      attrKey: aoDefaultAttr,
+      discKey: aoDefaultDisc,
+      type: a.type ?? null,   // "direct" | null — preserved for label display
+      hasFocus: false,
+      hasDedicatedFocus: false,
+    };
+  });
+}
+
+// Station-aware default Attribute + Discipline for officer mode.
+// Each station has a canonical pair used for the most common tasks.
+const STATION_OFFICER_DEFAULTS = {
+  command: { attr: "presence", disc: "command" },
+  comms: { attr: "presence", disc: "command" },
+  helm: { attr: "control", disc: "conn" },
+  navigator: { attr: "reason", disc: "conn" },
+  operations: { attr: "control", disc: "engineering" },
+  sensors: { attr: "control", disc: "science" },
+  tactical: { attr: "control", disc: "security" },
+  medical: { attr: "control", disc: "medicine" },
+};
+
+/** The canonical attr/disc pair for a station, with a Command fallback. */
+export function stationOfficerDefaults(stationId) {
+  return STATION_OFFICER_DEFAULTS[stationId] ?? { attr: "presence", disc: "command" };
+}
+
+/** Locate the combat ship's token document from a roller's combatTaskContext. */
+function _combatShipTokenDoc(state) {
+  const ship = state?.combatTaskContext?.combatShip ?? null;
+  if (!ship) return null;
+  return (ship.sceneId ? game.scenes.get(ship.sceneId)?.tokens?.get(ship.tokenId) : null)
+    ?? canvas.tokens?.get(ship.tokenId)?.document
+    ?? canvas.tokens?.placeables.find(t => t.actor?.id === ship.actorId)?.document
+    ?? null;
+}
+
+/**
+ * Load a station's declared assists onto roller state for a character-sheet roll.
+ *
+ * Sheet rolls open with the PC token and no stationId — the station is only chosen
+ * when the player picks a task in the combat panel, and the flag lives on the ship
+ * token. Without this the roller never sees a Direct declared from the combat HUD.
+ *
+ * Records the token + station it read from so _clearAssistFlag can clean up the
+ * right key after the task resolves.
+ *
+ * @param {object} state      Live roller state.
+ * @param {string} stationId  Station whose task was just selected.
+ */
+export function loadStationAssistsForSheetRoll(state, stationId) {
+  if (!state?.combatTaskContext || !stationId) return [];
+  const shipTd = _combatShipTokenDoc(state);
+  const shipActorId = state.combatTaskContext.combatShip?.actorId ?? null;
+
+  // Named officers only — an entry with no actorId (or the ship's own) is NPC crew,
+  // which a player ship never uses.
+  const resolved = shipTd
+    ? resolveAssistEntries(shipTd, stationId, shipActorId).filter(a => !a.isNpcCrew)
+    : [];
+
+  // Methodical Planning assists come from trait selection, not from the station flag —
+  // keep them across a task change (syncMethodicalPlanningAssists preserves ours in turn).
+  const preserved = (state.assistOfficers ?? []).filter(ao => ao?.type === "methodical-planning");
+
+  state.assistOfficers = [
+    ...buildAssistOfficerStates(resolved, stationOfficerDefaults(stationId)),
+    ...preserved,
+  ];
+  state._assistTokenDoc  = shipTd;
+  state._assistStationId = shipTd && resolved.length > 0 ? stationId : null;
+  // Keep the banner's source of truth in sync so a dialog re-render agrees with
+  // the live DOM update in _syncPendingAssistBanner.
+  state.pendingAssistName = state.assistOfficers.length > 0
+    ? state.assistOfficers.map(ao => ao.name).join(", ")
+    : null;
+  return state.assistOfficers;
+}
+
+/**
+ * Refresh the setup dialog's "assist declared by…" banner after a station change.
+ * Player-mode rollers defer every assist die to the Working Results card, so this
+ * is the only place the player is told an assist is waiting before they roll.
+ */
+function _syncPendingAssistBanner(el, state) {
+  const banner = el?.querySelector?.("#pending-assist-banner");
+  if (!banner) return;
+  const name  = state.pendingAssistName;
+  const count = (state.assistOfficers ?? []).length;
+  if (!name) {
+    banner.style.display = "none";
+    banner.textContent = "";
+    return;
+  }
+  banner.style.display = "block";
+  banner.textContent = state.playerMode
+    ? `🤝 ${name} will roll their own assist ${count > 1 ? "dice" : "die"} via the Working Results card`
+    : `✋ Assist declared by ${name} — will clear after task is posted`;
 }
 
 export async function clearCompletedBridgeTaskMinors(rollData = {}, fallbackToken = null) {
@@ -435,7 +588,7 @@ function detectCommunicationsOfficer(actor) {
 
 function detectMakeYourOwnLuck(actor) {
   if (!actor?.items) return { hasTalent: false, source: null };
-  const found = actor.items.find(i => i.name.toLowerCase().includes("make your own luck"));
+  const found = actor.items.find(i => normalizeTalentName(i.name).includes("make your own luck"));
   return found ? { hasTalent: true, source: found.name } : { hasTalent: false, source: null };
 }
 
@@ -2019,14 +2172,18 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             Attack patterns, coordinated maneuvers, etc.
             <span style="color:${LC.orange ?? LC.red};"> · Only counts if crew scores ≥1 success</span>
           </div>` : ""}
-          ${pendingAssistName ? `
-          <div style="font-size:9px;font-weight:700;color:${LC.primary};font-family:${LC.font};
+          ${/* Rendered even when empty in sheetMode — the station (and therefore the
+                declared assists) is only known once the player picks a combat task,
+                and the task-select handler fills this in. */""}
+          <div id="pending-assist-banner"
+            style="font-size:9px;font-weight:700;color:${LC.primary};font-family:${LC.font};
             padding:3px 8px;margin-top:2px;border-left:2px solid ${LC.primary};
-            background:rgba(255,153,0,0.06);border-radius:2px;">
-            ${state.playerMode
+            background:rgba(255,153,0,0.06);border-radius:2px;
+            display:${pendingAssistName ? "block" : "none"};">
+            ${pendingAssistName ? (state.playerMode
           ? `🤝 ${pendingAssistName} will roll their own assist ${(assistOfficers?.length ?? 0) > 1 ? "dice" : "die"} via the Working Results card`
-          : `✋ Assist declared by ${pendingAssistName} — will clear after task is posted`}
-          </div>` : ""}
+          : `✋ Assist declared by ${pendingAssistName} — will clear after task is posted`) : ""}
+          </div>
 
           ${(assistOfficers?.length > 0 && !state.playerMode) ? assistOfficers.map((ao, idx) => {
             // Each assisting officer gets a mini-section showing their name, attr/disc
@@ -3874,27 +4031,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _tsInitSystem = _tsFlagObj?.system ?? null;
 
   // Read any pending crew assist declarations for this station.
-  // New format: { [stationId]: [{ name, actorId }, ...] }
-  // Legacy formats: { [stationId]: "name" } (string) or { [stationId]: { name, actorId } } (single object).
   // Multiple assisters can stack — e.g. Helm declares Attack Pattern assist for Tactical.
-  const _assistPending = tokenDoc?.getFlag(MODULE, "assistPending") ?? {};
-  const _rawAssist = stationId ? (_assistPending[stationId] ?? null) : null;
-  // Normalise to array regardless of storage format
-  const _assistArray = !_rawAssist ? []
-    : Array.isArray(_rawAssist) ? _rawAssist
-      : typeof _rawAssist === "string" ? [{ name: _rawAssist, actorId: null }]
-        : [_rawAssist]; // legacy single-object
-
-  // Resolve each assist entry.
-  // An assist from the ship itself (actorId === actor.id) or with no actorId is NPC crew
-  // assisting at crew quality — it should NOT be treated as a named officer (that would
-  // run readOfficerStats on the ship actor and show ship stats in the attr/disc selects).
-  const _resolvedAssists = _assistArray.map(a => {
-    const isNpcCrew = !a.actorId || a.actorId === actor.id;
-    const resolvedActor = isNpcCrew ? null : game.actors.get(a.actorId);
-    const stats = resolvedActor ? readOfficerStats(resolvedActor) : null;
-    return { name: a.name ?? "Unknown", actorId: a.actorId ?? null, stats, isNpcCrew, type: a.type ?? null };
-  });
+  // Storage format and legacy shapes are handled in assist-pending.js / resolveAssistEntries.
+  //
+  // Character-sheet rolls arrive with stationId null (the station is only known once
+  // the player picks a task in the combat panel) and with the PC token rather than the
+  // ship token — that path re-resolves in the task-select handler further down.
+  const _resolvedAssists = stationId
+    ? resolveAssistEntries(tokenDoc, stationId, actor.id)
+    : [];
 
   // Named character assists — separate actors with their own dice + attr/disc display
   const _namedCharAssists = _resolvedAssists.filter(a => !a.isNpcCrew);
@@ -3903,17 +4048,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
   // Ground mode: read assistPending["ground"] from the rolling character's own token.
   // These are declared by other characters via the HUD Assist / Direct actions.
-  const _groundAssistRaw = groundMode
-    ? (tokenDoc?.getFlag(MODULE, "assistPending")?.["ground"] ?? null)
-    : null;
-  const _groundAssistArray = !_groundAssistRaw ? []
-    : Array.isArray(_groundAssistRaw) ? _groundAssistRaw
-      : [_groundAssistRaw];
-  const _groundAssists = _groundAssistArray.map(a => {
-    const resolvedActor = a.actorId ? game.actors.get(a.actorId) : null;
-    const stats = resolvedActor ? readOfficerStats(resolvedActor) : null;
-    return { name: a.name ?? "Unknown", actorId: a.actorId ?? null, stats, isNpcCrew: false, type: a.type ?? "assist" };
-  });
+  // ownerActorId is deliberately null — a ground assist never comes from the token's
+  // own actor, so every entry with an actorId resolves as a named character.
+  const _groundAssists = groundMode
+    ? resolveAssistEntries(tokenDoc, "ground", null)
+      .map(a => ({ ...a, isNpcCrew: false, type: a.type ?? "assist" }))
+    : [];
 
   // Effective named assists: ground mode uses ground-declared assists; ship mode uses station assists
   const _effectiveNamedAssists = groundMode ? _groundAssists : _namedCharAssists;
@@ -3925,30 +4065,20 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     : null;
 
   // Helper: clear this station's assist flag once the task result is posted.
-  // Guards on stationId only — pendingAssistName may be null for legacy string flags
+  // Guards on the key only — pendingAssistName may be null for legacy string flags
   // but the key still needs to be removed.
+  //
+  // Character-sheet rolls have no stationId and hold the PC token; the task-select
+  // handler records the ship token + station it actually loaded assists from, and
+  // those take priority. clearAssistPending routes through the GM when the roller
+  // is a player who cannot update the ship token.
   const _clearAssistFlag = async () => {
-    if (!tokenDoc) return;
-    try {
-      if (groundMode) {
-        // Clear the "ground" key from the rolling character's token
-        const pending = tokenDoc.getFlag(MODULE, "assistPending") ?? {};
-        if (!("ground" in pending)) return;
-        await tokenDoc.update({ [`flags.${MODULE}.assistPending.-=ground`]: null });
-        return;
-      }
-      if (!stationId) return;
-      // Use Foundry's deletion-key syntax (`-=key`) in a raw update() call.
-      // setFlag/unsetFlag route through mergeObject which *merges* nested objects
-      // rather than replacing them — so a spread-delete-then-setFlag approach
-      // silently leaves the deleted key intact, particularly on unlinked (wildcard)
-      // tokens.  The -=key notation instructs mergeObject to actually remove the entry.
-      const pending = tokenDoc.getFlag(MODULE, "assistPending") ?? {};
-      if (!(stationId in pending)) return;   // nothing to clear
-      await tokenDoc.update({ [`flags.${MODULE}.assistPending.-=${stationId}`]: null });
-    } catch (e) {
-      console.warn("STA2e Toolkit | Could not clear assist flag:", e);
+    if (groundMode) return clearAssistPending(tokenDoc, "ground");
+    if (state?._assistStationId) {
+      return clearAssistPending(state._assistTokenDoc ?? tokenDoc, state._assistStationId);
     }
+    if (!stationId) return;
+    return clearAssistPending(tokenDoc, stationId);
   };
 
   // Temporary bridge minor actions expire once any bridge task on the same ship
@@ -3984,18 +4114,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     : null;
 
   // Station-aware default Attribute + Discipline for officer mode.
-  // Each station has a canonical pair used for the most common tasks.
-  const STATION_OFFICER_DEFAULTS = {
-    command: { attr: "presence", disc: "command" },
-    comms: { attr: "presence", disc: "command" },
-    helm: { attr: "control", disc: "conn" },
-    navigator: { attr: "reason", disc: "conn" },
-    operations: { attr: "control", disc: "engineering" },
-    sensors: { attr: "control", disc: "science" },
-    tactical: { attr: "control", disc: "security" },
-    medical: { attr: "control", disc: "medicine" },
-  };
-  const stationDefaults = STATION_OFFICER_DEFAULTS[stationId] ?? { attr: "presence", disc: "command" };
+  const stationDefaults = stationOfficerDefaults(stationId);
   // Station-officer defaults (attr/disc key pre-selection)
   const defaultOfficerAttr = defaultAttr ?? (officerStats
     ? (officerStats.attributes[stationDefaults.attr] !== null ? stationDefaults.attr
@@ -4026,31 +4145,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
   const _assistOfficerStates = [
     ..._stationAssistEntries,
-    ..._effectiveNamedAssists.map(a => {
-      // Direct task always uses Control + Command regardless of station.
-      // Standard assists pick the best matching attr/disc for this station.
-      const isDirect = a.type === "direct";
-      const aoDefaultAttr = isDirect ? "control"
-        : a.stats
-          ? (a.stats.attributes[stationDefaults.attr] !== null ? stationDefaults.attr
-            : Object.keys(a.stats.attributes).find(k => a.stats.attributes[k] !== null) ?? stationDefaults.attr)
-          : stationDefaults.attr;
-      const aoDefaultDisc = isDirect ? "command"
-        : a.stats
-          ? (a.stats.disciplines[stationDefaults.disc] !== null ? stationDefaults.disc
-            : Object.keys(a.stats.disciplines).find(k => a.stats.disciplines[k] !== null) ?? stationDefaults.disc)
-          : stationDefaults.disc;
-      return {
-        name: a.name,
-        actorId: a.actorId,
-        stats: a.stats,   // null if actor not found / lacks STA2e data
-        attrKey: aoDefaultAttr,
-        discKey: aoDefaultDisc,
-        type: a.type ?? null,   // "direct" | null — preserved for label display
-        hasFocus: false,
-        hasDedicatedFocus: false,
-      };
-    }),
+    ...buildAssistOfficerStates(_effectiveNamedAssists, stationDefaults),
   ];
 
   // Pull live system/dept maps from the actor
@@ -4507,6 +4602,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       selectedTaskKey: state.selectedTaskKey ?? null,
       selectedTaskStationId: state.selectedTaskStationId ?? null,
       combatShipActorId: state.combatTaskContext?.combatShip?.actorId ?? null,
+      // Where the pending assists were actually read from. On a character-sheet roll
+      // that is the SHIP token, not this card's token — the confirm handler needs it
+      // to clear the right key.
+      assistStationId: state._assistStationId ?? null,
+      assistTokenId:   state._assistTokenDoc?.id ?? null,
+      assistSceneId:   state._assistTokenDoc?.parent?.id ?? null,
       paymentSpent: state.paymentSpent ?? null,
 
       taskLabel: state.taskLabel ?? "",
@@ -6776,6 +6877,13 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           state.selectedTaskKey = taskKey;
           state.selectedTaskStationId = taskStationId;
 
+          // Now that the station is known, pull any Assist / Direct declared for it
+          // off the SHIP token (this roller holds the character token).
+          if (state.sheetMode && !state.groundMode) {
+            loadStationAssistsForSheetRoll(state, taskStationId);
+            _syncPendingAssistBanner(el, state);
+          }
+
           // Store task defaults so Multi-Tasking checkbox can revert on uncheck
           state._taskDefaultDisc = disc;
           state._taskDefaultShipDept = state.combatTaskContext?.taskParams?.[taskKey]?.shipDeptKey ?? null;
@@ -7276,6 +7384,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           state.selectedTaskStationId = "tactical";
           state.hasCalibratesensors = false;
           state.csRerollUsed = false;
+
+          // A Direct/Assist declared for Tactical applies to a weapon attack too
+          if (state.sheetMode && !state.groundMode) {
+            loadStationAssistsForSheetRoll(state, "tactical");
+            _syncPendingAssistBanner(el, state);
+          }
           if (targetResolution?.token?.actor?.id) state.selectedTargetId = targetResolution.token.actor.id;
 
           // Re-detect talent rerolls for security discipline (Cautious/Bold security, Precision Targeting)

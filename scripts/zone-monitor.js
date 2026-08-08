@@ -9,6 +9,7 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { getSceneZones, getZoneAtPoint } from "./zone-data.js";
+import { clampHudPos, clampHudElement, onViewportResize } from "./hud-position.js";
 
 const MONITOR_ID         = "sta2e-zone-monitor";
 const POS_KEY            = "sta2e-toolkit.zoneMonitorPos";
@@ -44,6 +45,7 @@ export class ZoneMonitor {
     this._collapseState   = this._loadCollapse();
     this._debounceTimer   = null;
     this._followupTimer   = null;
+    this._stopResizeFix   = null;
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -56,6 +58,8 @@ export class ZoneMonitor {
     if (!this._el) this._build();
     this._el.style.display = "flex";
     this._visible = true;
+    // Recovers a monitor stranded off-screen by an earlier drag or a window resize.
+    this._clampIntoView();
     this.refresh();
   }
 
@@ -67,6 +71,8 @@ export class ZoneMonitor {
   destroy() {
     if (this._debounceTimer) clearTimeout(this._debounceTimer);
     if (this._followupTimer) clearTimeout(this._followupTimer);
+    this._stopResizeFix?.();
+    this._stopResizeFix = null;
     this._el?.remove();
     this._el   = null;
     this._body = null;
@@ -311,7 +317,16 @@ export class ZoneMonitor {
     document.body.appendChild(el);
     this._el = el;
 
+    // Now measurable — pull a stale/off-screen saved position back into view.
+    this._clampIntoView();
+
     this._makeDraggable(header, el);
+
+    this._stopResizeFix?.();
+    this._stopResizeFix = onViewportResize(
+      () => this._el,
+      (pos) => this._savePos(pos.x, pos.y),
+    );
   }
 
   // ── Zone section rendering ─────────────────────────────────────────────────
@@ -856,8 +871,9 @@ export class ZoneMonitor {
     let startX, startY, startLeft, startTop;
 
     const onMove = (e) => {
-      el.style.left = `${startLeft + e.clientX - startX}px`;
-      el.style.top  = `${startTop  + e.clientY - startY}px`;
+      const pos = clampHudPos(el, startLeft + e.clientX - startX, startTop + e.clientY - startY);
+      el.style.left = `${pos.x}px`;
+      el.style.top  = `${pos.y}px`;
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
@@ -867,7 +883,7 @@ export class ZoneMonitor {
     };
 
     handle.addEventListener("mousedown", (e) => {
-      if (e.target.tagName === "BUTTON") return;
+      if (e.target.closest("button")) return;
       e.preventDefault();
       startX    = e.clientX;
       startY    = e.clientY;
@@ -880,6 +896,12 @@ export class ZoneMonitor {
   }
 
   // ── Persistence ─────────────────────────────────────────────────────────────
+
+  /** Snap the monitor back inside the viewport and persist the corrected spot. */
+  _clampIntoView() {
+    const pos = clampHudElement(this._el);
+    if (pos) this._savePos(pos.x, pos.y);
+  }
 
   _savePos(x, y) {
     localStorage.setItem(POS_KEY, JSON.stringify({ x, y }));

@@ -152,7 +152,13 @@ export function makeSpendContext({
     attackerTokenId: attackerTokenId ?? null,
     intenseTalentBonus: Math.max(0, intenseTalentBonus | 0),
     trackerMessageId: trackerMessageId ?? null,
-    momentumPool: momentumPool === "alliedNpcMomentum" ? "alliedNpcMomentum" : null,
+    // Keep "momentum" as well as "alliedNpcMomentum": an allied NPC flagged to
+    // draw on the player's pool resolves to "momentum", and flattening that to
+    // null made the fallbacks below re-derive from attackerIsNpc and bill
+    // Threat. "threat" still normalizes to null — that's the non-allied default.
+    momentumPool: (momentumPool === "alliedNpcMomentum" || momentumPool === "momentum")
+      ? momentumPool
+      : null,
     chiefTacticalOfficer: !!chiefTacticalOfficer,
   };
 }
@@ -251,7 +257,9 @@ function buildSpendPanelHtml(spendCtx, targetTokenId, { isSecondaryAreaTarget = 
   const extraCost = extraDamageCost(q, hasChiefTactical);
   const groundMax = !q.isShip ? 2 : null;
 
-  const sourceDefault = spendCtx.momentumPool === "alliedNpcMomentum" ? "momentum" : (spendCtx.attackerIsNpc ? "threat" : "momentum");
+  // Any resolved momentumPool means an allied NPC with a designated pool, so the
+  // Momentum side is the default even though the attacker is an NPC.
+  const sourceDefault = spendCtx.momentumPool ? "momentum" : (spendCtx.attackerIsNpc ? "threat" : "momentum");
   const momentumLabel = spendCtx.momentumPool === "alliedNpcMomentum" ? "ALLY" : "MOM";
 
   // Live tracker state — try by explicit messageId first, then fall back to

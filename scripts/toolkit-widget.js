@@ -10,6 +10,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
+import { clampHudPos, clampHudElement, onViewportResize } from "./hud-position.js";
 
 const WIDGET_ID  = "sta2e-toolkit-widget";
 const POS_KEY    = "sta2e-toolkit.widgetPos";
@@ -17,8 +18,9 @@ const POS_KEY    = "sta2e-toolkit.widgetPos";
 export class ToolkitWidget {
 
   constructor() {
-    this._el      = null;
-    this._visible = false;
+    this._el            = null;
+    this._visible       = false;
+    this._stopResizeFix = null;
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -35,6 +37,8 @@ export class ToolkitWidget {
     if (!this._el) this._build();
     this._el.style.display = "flex";
     this._visible = true;
+    // Recovers a widget stranded off-screen by an earlier drag or a window resize.
+    this._clampIntoView();
   }
 
   hide() {
@@ -434,7 +438,16 @@ export class ToolkitWidget {
     document.body.appendChild(el);
     this._el = el;
 
+    // Now measurable — pull a stale/off-screen saved position back into view.
+    this._clampIntoView();
+
     this._makeDraggable(header, el);
+
+    this._stopResizeFix?.();
+    this._stopResizeFix = onViewportResize(
+      () => this._el,
+      (pos) => this._savePos(pos.x, pos.y),
+    );
   }
 
   // ── Drag ────────────────────────────────────────────────────────────────────
@@ -443,8 +456,9 @@ export class ToolkitWidget {
     let startX, startY, startLeft, startTop;
 
     const onMove = (e) => {
-      el.style.left = `${startLeft + e.clientX - startX}px`;
-      el.style.top  = `${startTop  + e.clientY - startY}px`;
+      const pos = clampHudPos(el, startLeft + e.clientX - startX, startTop + e.clientY - startY);
+      el.style.left = `${pos.x}px`;
+      el.style.top  = `${pos.y}px`;
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
@@ -454,7 +468,7 @@ export class ToolkitWidget {
     };
 
     handle.addEventListener("mousedown", (e) => {
-      if (e.target.tagName === "BUTTON") return;
+      if (e.target.closest("button")) return;
       e.preventDefault();
       startX    = e.clientX;
       startY    = e.clientY;
@@ -467,6 +481,12 @@ export class ToolkitWidget {
   }
 
   // ── Position persistence ─────────────────────────────────────────────────
+
+  /** Snap the widget back inside the viewport and persist the corrected spot. */
+  _clampIntoView() {
+    const pos = clampHudElement(this._el);
+    if (pos) this._savePos(pos.x, pos.y);
+  }
 
   _savePos(x, y) {
     localStorage.setItem(POS_KEY, JSON.stringify({ x, y }));

@@ -5,6 +5,7 @@
 
 import { adjustPool, canUserAdjustPool, poolLimit, readPool, setPool } from "./pool-service.js";
 import { getLcTokens } from "./lcars-theme.js";
+import { clampHudPos, clampHudElement } from "./hud-position.js";
 
 const MODULE = "sta2e-toolkit";
 const WIDGET_ID = "sta2e-pool-tracker";
@@ -450,6 +451,12 @@ export class ToolkitPoolTracker {
       this._el.style.top = `${pos.y}px`;
       this._el.style.right = "";
       this._el.style.bottom = "";
+      // _onResize routes back here, so this also recovers the tracker after the
+      // window shrinks past a position saved on a wider viewport.
+      const clamped = clampHudElement(this._el);
+      if (clamped && (clamped.x !== pos.x || clamped.y !== pos.y)) {
+        this._savePos(clamped.x, clamped.y);
+      }
     } else {
       this._el.style.left = "";
       this._el.style.top = "";
@@ -537,8 +544,13 @@ export class ToolkitPoolTracker {
     let startTop = 0;
 
     const onMove = (event) => {
-      el.style.left = `${startLeft + event.clientX - startX}px`;
-      el.style.top = `${startTop + event.clientY - startY}px`;
+      const pos = clampHudPos(
+        el,
+        startLeft + event.clientX - startX,
+        startTop + event.clientY - startY,
+      );
+      el.style.left = `${pos.x}px`;
+      el.style.top = `${pos.y}px`;
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);

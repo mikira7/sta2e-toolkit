@@ -40,7 +40,7 @@ import {
 
 import {
   openNpcRoller, openPlayerRoller,
-  PlayerRollCallbacks, rollPool, clearStationAssistFlag, buildPlayerRollCardHtml,
+  PlayerRollCallbacks, rollPool, buildPlayerRollCardHtml,
   clearCompletedBridgeTaskMinors,
   dsnShowPool, wireCardDieSelection,
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
@@ -48,6 +48,7 @@ import {
   callOutTargetsSourceForActor, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum,
   rollSuccessTotal, allRolledDice, rollPassed, succeedAtCostComplications,
 } from "../npc-roller.js";
+import { addAssistPending, clearAssistPending } from "../assist-pending.js";
 import {
   STATION_SLOTS,
   getCrewManifest,
@@ -58,6 +59,7 @@ import {
   OFFICER_DISCIPLINES,
 } from "../crew-manifest.js";
 import { getLcTokens }  from "../lcars-theme.js";
+import { clampHudPos, clampHudElement, onViewportResize } from "../hud-position.js";
 import { adjustPool } from "../pool-service.js";
 import {
   createActorTrait,
@@ -676,7 +678,30 @@ async function _rollEditApplyPaymentDelta(oldRollData, newRollData) {
   }
 }
 
-async function _applyMakeYourOwnLuckStress(actor, { apply = true } = {}) {
+/**
+ * Actor that pays a talent's Stress cost for a task roll.
+ *
+ * Talents are detected on the *officer* (npc-roller's `_officerActorFull`), never on the
+ * rolling actor — on a bridge-station task the rolling actor is the ship, which has no
+ * Stress track at all. So the officer pays whenever the roll has a distinct one.
+ * Otherwise fall back to the token's actor first, so an unlinked ground token is charged
+ * on its own delta rather than on the world actor it was stamped from.
+ */
+export function resolveTalentStressActor(rollData = {}) {
+  const officerId = rollData?.officerActorId ?? null;
+  if (officerId && officerId !== rollData?.actorId) {
+    return game.actors.get(officerId) ?? null;
+  }
+  return canvas?.tokens?.get(rollData?.tokenId)?.actor
+    ?? (rollData?.actorId ? game.actors.get(rollData.actorId) : null);
+}
+
+/**
+ * Spend the 1 Stress a talent costs. `apply: false` computes the result without writing,
+ * so a client without permission can find out whether the cost is even payable.
+ * Returns `{ before, after, mode }`, or null when the cost cannot be paid.
+ */
+export async function applyTalentStressCost(actor, { apply = true } = {}) {
   if (!actor?.system?.stress) {
     ui.notifications.warn(`${actor?.name ?? "Actor"} has no Stress track.`);
     return null;
@@ -702,7 +727,7 @@ async function _applyMakeYourOwnLuckStress(actor, { apply = true } = {}) {
   return { before: current, after: next, mode: stressMode };
 }
 
-function _rollDataHasAnyRerollUsed(rollData) {
+export function rollDataHasAnyRerollUsed(rollData) {
   return !!(
     rollData?.talentRerollUsed || rollData?.advisorRerollUsed
     || rollData?.systemRerollUsed || rollData?.shipTalentRerollUsed
@@ -1408,6 +1433,7 @@ export class CombatHUD {
     this._defenderSuccesses   = null;   // raw defender roll count for the chat card delta
     this._shieldPortraitMode  = localStorage.getItem("sta2e-toolkit-shieldPortraitMode") === "1";  // toggle between bubbles and portrait view
     this._portraitUrl         = null;   // cached portrait URL for current token
+    this._stopResizeFix       = null;   // cleanup for the viewport-clamp resize listener
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -1436,6 +1462,8 @@ export class CombatHUD {
     }
 
     if (this._el) this._el.style.display = "flex";
+    // Recovers a HUD stranded off-screen by an earlier drag or a window resize.
+    this._clampIntoView();
   }
 
   close() {
@@ -1499,6 +1527,7 @@ export class CombatHUD {
       console.error("STA2e Toolkit | CombatHUD roster render error:", err);
     }
     if (this._el) this._el.style.display = "flex";
+    this._clampIntoView();
   }
 
   /** Re-render HUD contents for the current token (e.g. after flag update). */
@@ -1642,8 +1671,17 @@ export class CombatHUD {
     document.body.appendChild(el);
     this._el = el;
 
+    // Now measurable — pull a stale/off-screen saved position back into view.
+    this._clampIntoView();
+
     this._refresh();
     this._makeDraggable();
+
+    this._stopResizeFix?.();
+    this._stopResizeFix = onViewportResize(
+      () => this._el,
+      (pos) => this._savePos(pos.x, pos.y),
+    );
   }
 
   _refresh() {
@@ -3841,7 +3879,27 @@ export class CombatHUD {
       shipActorId: payload.attackerActorId ?? null,
     }, null, { warn: false });
     const targetToken = targetOverride ?? canvas.tokens?.get(payload.tokenId ?? payload.primaryTokenId);
-    if (!attackerToken || !targetToken || !payload.weaponImg) return;
+    if (!attackerToken || !targetToken || !payload.weaponImg) {
+      // Token lookup is by plain id against canvas.tokens — i.e. the scene this
+      // client is currently VIEWING — so a GM parked on another scene resolves
+      // nothing. Say so rather than returning silently: a missing animation and
+      // a broken one are otherwise indistinguishable in the console.
+      const missing = [
+        !attackerToken ? "attacker token" : null,
+        !targetToken ? "target token" : null,
+        !payload.weaponImg ? "weaponImg" : null,
+      ].filter(Boolean).join(", ");
+      console.warn(
+        `STA2e Toolkit | Ship attack animation skipped — could not resolve ${missing}.`,
+        {
+          attackerTokenId: payload.attackerTokenId ?? null,
+          attackerActorId: payload.attackerActorId ?? null,
+          targetTokenId: payload.tokenId ?? payload.primaryTokenId ?? null,
+          viewedSceneId: canvas?.scene?.id ?? null,
+        },
+      );
+      return;
+    }
     const slug = payload.weaponImg.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "");
     // Prefer the resolved weapon item so name-based torpedo type resolution in
     // getWeaponConfig() applies; fall back to the raw img slug when the item
@@ -4066,7 +4124,7 @@ export class CombatHUD {
         attackerActorId: token?.actor?.id ?? null,
         attackerTokenId: (token?.document ?? token)?.id ?? null,
         intenseTalentBonus: 0,
-        momentumPool: CombatHUD.alliedNpcMomentumPool(token?.actor),
+        momentumPool: CombatHUD.alliedSpendPool(token?.actor),
       }) : null;
 
       ChatMessage.create({
@@ -4252,7 +4310,7 @@ export class CombatHUD {
             versatile:      _weaponVersatile,
             weaponName:     weapon?.name ?? null,
             pool:           momentumPool
-              ?? CombatHUD.alliedNpcMomentumPool(actor)
+              ?? CombatHUD.alliedSpendPool(actor)
               ?? (CombatHUD.isNpcShip(actor) ? "threat" : "momentum"),
             speakerToken:   token,
           });
@@ -4347,7 +4405,7 @@ export class CombatHUD {
         spreadAvailable,
         spread:         spreadActive,
         attackerIsNpc:  CombatHUD.isNpcShip(actor),
-        momentumPool:   momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
+        momentumPool:   momentumPool ?? CombatHUD.alliedSpendPool(actor),
         weaponImg:      weapon.img ?? null,
         weaponId:       weapon.id ?? null,
         weaponName:     weapon.name,
@@ -4374,7 +4432,7 @@ export class CombatHUD {
       attackerTokenId: (token?.document ?? token)?.id ?? null,
       intenseTalentBonus,
       trackerMessageId: _resolvedTrackerId,
-      momentumPool: momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
+      momentumPool: momentumPool ?? CombatHUD.alliedSpendPool(actor),
       chiefTacticalOfficer: !!chiefTacticalOfficerAvailable,
     }) : null;
     // `attackerName`/`weaponId`/`attackerActorId`/`isHit` are stored so the card
@@ -4414,7 +4472,7 @@ export class CombatHUD {
           weapon,
           targetData,
           targetNames,
-          momentumPool: momentumPool ?? CombatHUD.alliedNpcMomentumPool(actor),
+          momentumPool: momentumPool ?? CombatHUD.alliedSpendPool(actor),
           trackerMessageId: _resolvedTrackerId,
         });
       } catch (err) {
@@ -5941,15 +5999,8 @@ export class CombatHUD {
         const target = await this._pickGroundCharacter(token?.id);
         if (!target) return;
 
-        if (game.user.isGM && target.tokenDoc) {
-          try {
-            const existing      = target.tokenDoc.getFlag("sta2e-toolkit", "assistPending") ?? {};
-            await target.tokenDoc.setFlag("sta2e-toolkit", "assistPending", {
-              ...existing,
-              ground: [{ name: actor.name, actorId: actor.id, type: "assist" }],
-            });
-          } catch(e) { console.warn("STA2e Toolkit | Could not set ground assist flag:", e); }
-        }
+        await addAssistPending(target.tokenDoc, "ground",
+          { name: actor.name, actorId: actor.id, type: "assist" });
 
         ChatMessage.create({
           content: lcarsCard("🙌 ASSIST", LC.primary, `
@@ -5987,15 +6038,8 @@ export class CombatHUD {
         });
         if (!confirmed) return;
 
-        if (game.user.isGM && directTarget.tokenDoc) {
-          try {
-            const existing      = directTarget.tokenDoc.getFlag("sta2e-toolkit", "assistPending") ?? {};
-            await directTarget.tokenDoc.setFlag("sta2e-toolkit", "assistPending", {
-              ...existing,
-              ground: [{ name: actor.name, actorId: actor.id, type: "direct" }],
-            });
-          } catch(e) { console.warn("STA2e Toolkit | Could not set ground direct flag:", e); }
-        }
+        await addAssistPending(directTarget.tokenDoc, "ground",
+          { name: actor?.name, actorId: actor?.id ?? null, type: "direct" });
 
         ChatMessage.create({
           content: lcarsCard("📣 DIRECT", LC.primary, `
@@ -8368,13 +8412,8 @@ export class CombatHUD {
     // Store an assist-pending flag on the ship token so the NPC roller auto-checks
     // the crew-assist die when the target station's next task is rolled.
     // Also store the actor ID so the roller can load the assister's attr/disc stats.
-    if (game.user.isGM) {
-      try {
-        const existing = token.document.getFlag("sta2e-toolkit", "assistPending") ?? {};
-        await token.document.setFlag("sta2e-toolkit", "assistPending",
-          { ...existing, [targetId]: { name: actorName, actorId: officers[0]?.id ?? null } });
-      } catch(e) { console.warn("STA2e Toolkit | Could not set assist flag:", e); }
-    }
+    await addAssistPending(token?.document, targetId,
+      { name: actorName, actorId: officers[0]?.id ?? null });
 
     const targetStation = STATION_SLOTS.find(s => s.id === targetId);
 
@@ -8526,27 +8565,10 @@ export class CombatHUD {
     // Store assist-pending flags for each target station so the NPC roller
     // auto-checks the crew-assist die when those stations next roll a task.
     // Also store the actor ID so the roller can load the assister's attr/disc stats.
-    if (game.user.isGM) {
-      try {
-        const existing       = token.document.getFlag("sta2e-toolkit", "assistPending") ?? {};
-        const officerActorId = chosenOfficer?.id ?? null;
-        const newAssist      = { name: officerName, actorId: officerActorId };
-        // Push onto a per-station array so multiple assists can stack
-        // (e.g. Helm declaring Attack Pattern assist for Tactical).
-        for (const targetId of [targetId1, targetId2].filter(Boolean)) {
-          const raw = existing[targetId];
-          const arr = !raw ? []
-            : Array.isArray(raw) ? raw
-            : typeof raw === "string" ? [{ name: raw, actorId: null }]
-            : [raw]; // legacy single-object
-          // Guard: same actor can only assist a station once
-          if (!arr.some(a => a.actorId === officerActorId && a.name === officerName)) {
-            arr.push(newAssist);
-          }
-          existing[targetId] = arr;
-        }
-        await token.document.setFlag("sta2e-toolkit", "assistPending", existing);
-      } catch(e) { console.warn("STA2e Toolkit | Could not set assist flags:", e); }
+    // Entries stack per station (e.g. Helm declaring Attack Pattern assist for Tactical).
+    for (const targetId of [targetId1, targetId2].filter(Boolean)) {
+      await addAssistPending(token?.document, targetId,
+        { name: officerName, actorId: chosenOfficer?.id ?? null });
     }
 
     const assistingLine = tgt2
@@ -8761,24 +8783,11 @@ export class CombatHUD {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    if (game.user.isGM) {
-      try {
-        const existing       = token.document.getFlag("sta2e-toolkit", "assistPending") ?? {};
-        const officerActorId = chosenOfficer?.id ?? null;
-        const newAssist      = { name: officerName, actorId: officerActorId, type: "direct" };
-        const raw            = existing[targetId];
-        const arr            = !raw ? []
-          : Array.isArray(raw) ? raw
-          : typeof raw === "string" ? [{ name: raw, actorId: null }]
-          : [raw];
-        // Guard: same actor can only declare Direct for a station once
-        if (!arr.some(a => a.actorId === officerActorId && a.type === "direct")) {
-          arr.push(newAssist);
-        }
-        existing[targetId] = arr;
-        await token.document.setFlag("sta2e-toolkit", "assistPending", existing);
-      } catch(e) { console.warn("STA2e Toolkit | Could not set direct flag:", e); }
-    }
+    // Stored on the ship token so the target station's next roller picks it up as a
+    // named assist. addAssistPending routes through the GM when the declaring user
+    // cannot update the token themselves.
+    await addAssistPending(token?.document, targetId,
+      { name: officerName, actorId: chosenOfficer?.id ?? null, type: "direct" });
 
     // Player ship: "Open Task Roller" button — the directed officer clicks to open their roller.
     // The commander's Direct entry is already stored in assistPending so it shows as a named
@@ -11253,14 +11262,22 @@ export class CombatHUD {
   _makeDraggable() {
     const handle = this._el?.querySelector(".sta2e-chud-header");
     if (!handle || !this._el) return;
+    // _refresh() re-invokes this on every render; without the guard each render
+    // stacks another mousedown listener on the header. A rebuilt header (innerHTML
+    // replacement) carries no dataset flag, so it re-binds correctly.
+    if (handle.dataset.staDragBound) return;
+    handle.dataset.staDragBound = "1";
 
     let startX, startY, startLeft, startTop;
 
     const onMouseMove = (e) => {
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      this._el.style.left = `${startLeft + dx}px`;
-      this._el.style.top  = `${startTop  + dy}px`;
+      const pos = clampHudPos(
+        this._el,
+        startLeft + e.clientX - startX,
+        startTop  + e.clientY - startY,
+      );
+      this._el.style.left = `${pos.x}px`;
+      this._el.style.top  = `${pos.y}px`;
     };
 
     const onMouseUp = () => {
@@ -11274,7 +11291,7 @@ export class CombatHUD {
     };
 
     handle.addEventListener("mousedown", (e) => {
-      if (e.target.tagName === "BUTTON") return;
+      if (e.target.closest("button")) return;
       e.preventDefault();
       startX    = e.clientX;
       startY    = e.clientY;
@@ -11287,6 +11304,13 @@ export class CombatHUD {
   }
 
   // ── Position persistence ───────────────────────────────────────────────────
+
+  /** Snap the HUD back inside the viewport and persist the corrected spot. */
+  _clampIntoView() {
+    if (!this._el || this._el.style.display === "none") return;
+    const pos = clampHudElement(this._el);
+    if (pos) this._savePos(pos.x, pos.y);
+  }
 
   _savePos(x, y) {
     localStorage.setItem(POS_KEY, JSON.stringify({ x, y }));
@@ -11390,6 +11414,22 @@ export class CombatHUD {
       ?? baseActor?.getFlag?.("sta2e-toolkit", "alliedMomentumSource")
       ?? "allied";
     return source === "player" ? null : "alliedNpcMomentum";
+  }
+
+  /**
+   * Pool an allied NPC SPENDS from, or null when the actor isn't an allied NPC.
+   *
+   * alliedNpcMomentumPool() returns null for BOTH "not an allied NPC" and
+   * "allied NPC configured to draw on the player's Momentum pool". That
+   * overloading is why callers written as
+   *   alliedNpcMomentumPool(actor) ?? (isNpc ? "threat" : "momentum")
+   * silently charged Threat for a player-pool ally: an allied NPC ship IS an
+   * NPC, so the fallback picked the wrong branch. This resolver never conflates
+   * the two — a non-ally returns null, an ally always returns a real pool.
+   */
+  static alliedSpendPool(actor) {
+    if (!CombatHUD.isAlliedNpcActor(actor)) return null;
+    return CombatHUD.alliedNpcMomentumPool(actor) ?? "momentum";
   }
 
   static opposedShipRewardPool(actor) {
@@ -14524,13 +14564,18 @@ export class CombatHUD {
       const halfDmg       = Math.ceil(finalDamage / 2);
       const spread        = payload.spread ?? false;
       const atkIsNpc      = payload.attackerIsNpc ?? false;
-      const poolLabel     = atkIsNpc ? "THREAT" : "MOMENTUM";
+      // Carry the resolved pool through to applyDevastatingAttack. Without it
+      // the handler re-derived from attackerIsNpc and charged an allied NPC
+      // Threat even when it's flagged to draw on the player's Momentum.
+      const devPool       = payload.momentumPool ?? (atkIsNpc ? "threat" : "momentum");
+      const poolLabel     = CombatHUD.poolDisplayName(devPool).toUpperCase();
       const devCost       = spread ? `1 ${poolLabel} — SPREAD` : `2 ${poolLabel}`;
       const devPayload = encodeURIComponent(JSON.stringify({
         tokenId, actorId, halfDamage: halfDmg, spread,
         attackerTokenId: payload.attackerTokenId ?? null,
         attackerActorId: payload.attackerActorId ?? null,
         attackerIsNpc:   atkIsNpc,
+        momentumPool:    devPool,
         weaponImg:       payload.weaponImg ?? null,
         weaponId:        payload.weaponId ?? null,
         weaponName:      payload.weaponName ?? null,
@@ -14663,8 +14708,12 @@ export class CombatHUD {
   }
 
   static async _spendCounterattackCost({ actor = null, token = null, isNpc = false, cost = 2 } = {}) {
-    const pool = isNpc ? "threat" : "momentum";
-    const label = isNpc ? "Threat" : "Momentum";
+    // Allied NPCs pay from whichever pool they're flagged for — the player's
+    // Momentum or the separate Allied Momentum pool. Without this an allied
+    // counterattack billed Threat, because an allied NPC is still an NPC.
+    const spendActor = actor ?? token?.actor ?? null;
+    const pool = CombatHUD.alliedSpendPool(spendActor) ?? (isNpc ? "threat" : "momentum");
+    const label = CombatHUD.poolDisplayName(pool);
     const actorId = actor?.id ?? token?.actor?.id ?? null;
     const { readTrackerState } = await import("../momentum-spend.js");
     const tracker = readTrackerState(null, actorId);
@@ -14888,9 +14937,14 @@ export class CombatHUD {
     //   versatile (eligible) → tracker float → tracker bonus → pool
     // versatile/float/bonus all live on the active tracker for the attacker.
     const devCost = spread ? 1 : 2;
-    const pool    = payload.momentumPool ?? (atkIsNpc ? "threat" : "momentum");
-    const poolLabel = pool === "threat" ? "Threat" : pool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
     const attackerActor = attackerToken?.actor ?? (payload.attackerActorId ? game.actors.get(payload.attackerActorId) : null);
+    // The pool now rides on the payload. The allied lookup is kept as a fallback
+    // so damage cards posted before that field existed still bill the right
+    // pool; only then fall back to the attacker's side.
+    const pool = payload.momentumPool
+      ?? CombatHUD.alliedSpendPool(attackerActor)
+      ?? (atkIsNpc ? "threat" : "momentum");
+    const poolLabel = CombatHUD.poolDisplayName(pool);
     const { readTrackerState } = await import("../momentum-spend.js");
     const tracker = readTrackerState(payload.trackerMessageId ?? null, attackerActor?.id ?? null);
 
@@ -17712,22 +17766,8 @@ export async function applyDirectForOfficer(shipActor, shipToken, officerActor) 
   }
 
   // ── Set assistPending flag on the ship token (GM writes; players request via socket) ──
-  if (game.user.isGM) {
-    try {
-      const existing  = shipToken?.document?.getFlag("sta2e-toolkit", "assistPending") ?? {};
-      const newAssist = { name: officerName, actorId: officerActorId, type: "direct" };
-      const raw       = existing[targetId];
-      const arr       = !raw ? []
-        : Array.isArray(raw) ? raw
-        : typeof raw === "string" ? [{ name: raw, actorId: null }]
-        : [raw];
-      if (!arr.some(a => a.actorId === officerActorId && a.type === "direct")) {
-        arr.push(newAssist);
-      }
-      existing[targetId] = arr;
-      await shipToken?.document?.setFlag("sta2e-toolkit", "assistPending", existing);
-    } catch(e) { console.warn("STA2e Toolkit | Could not set direct flag:", e); }
-  }
+  await addAssistPending(shipToken?.document, targetId,
+    { name: officerName, actorId: officerActorId, type: "direct" });
 
   // ── Build "Open Task Roller" button payload ────────────────────────────────
   const _directBtnHtml = !isNpc ? (() => {
@@ -18954,6 +18994,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           // evasive-action, defensive-fire, attack-pattern
           await applyDefenseModeForOfficer(shipActor, tokenObj, taskKey);
         }
+        // No roll happens here, so the Direct entry has nothing to attach to —
+        // clear it rather than let it leak onto an unrelated later task.
+        await clearAssistPending(tokenObj?.document, stationId);
         return;
       }
 
@@ -19357,7 +19400,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       try {
         const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
         if (payload.makeYourOwnLuckUsed) return;
-        if (_rollDataHasAnyRerollUsed(payload)) {
+        if (rollDataHasAnyRerollUsed(payload)) {
           ui.notifications.warn("Make Your Own Luck cannot be used after rerolling on this task.");
           return;
         }
@@ -19371,9 +19414,15 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         }
 
         const applyLuck = async (choice) => {
-          const actor = payload.actorId
-            ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(payload.actorId))
-            : null;
+          // The talent lives on the officer, so the officer pays — never the ship the
+          // task was rolled for (ships have no Stress track at all).
+          const actor = resolveTalentStressActor(payload);
+          if (!actor) {
+            ui.notifications.warn(
+              `Cannot find the character who owns ${payload.makeYourOwnLuckSource ?? "Make Your Own Luck"} — no Stress can be spent.`,
+            );
+            return false;
+          }
           const canApplyStressDirect = !!(
             game.user.isGM
             || actor?.canUserModify?.(game.user, "update")
@@ -19383,16 +19432,17 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           let stressResult = null;
           if (canApplyStressDirect) {
             try {
-              stressResult = await _applyMakeYourOwnLuckStress(actor);
+              stressResult = await applyTalentStressCost(actor);
               stressAlreadyApplied = !!stressResult;
             } catch (err) {
               if (game.user.isGM) throw err;
               console.warn("STA2e Toolkit | Make Your Own Luck direct stress update failed; asking GM client.", err);
-              stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
+              stressResult = await applyTalentStressCost(actor, { apply: false });
               stressAlreadyApplied = false;
             }
           } else {
-            stressResult = await _applyMakeYourOwnLuckStress(actor, { apply: false });
+            // Dry run only — confirms the cost is payable before we ask the GM to charge it.
+            stressResult = await applyTalentStressCost(actor, { apply: false });
           }
           // Stress refused — leave the selection armed so the player can retry.
           if (!stressResult) return false;
@@ -19457,10 +19507,15 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             }
           }
 
-          btn.disabled = true;
-          btn.style.opacity = "0.5";
-          btn.style.cursor = "default";
-          btn.textContent = "Used";
+          // Only the rebuilt card proves the talent landed, so never mark the button
+          // "Used" up front: on the socket path the GM may still refuse the request,
+          // and a stale "Used" would hide that the Stress was never spent.
+          const markUsed = () => {
+            btn.disabled = true;
+            btn.style.opacity = "0.5";
+            btn.style.cursor = "default";
+            btn.textContent = "Used";
+          };
           const canUpdateMessageDirect = game.user.isGM || message.author?.id === game.user.id;
           const emitMakeYourOwnLuckUpdate = () => {
             game.socket.emit("module.sta2e-toolkit", {
@@ -19477,6 +19532,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 content: buildPlayerRollCardHtml(newRollData),
                 "flags.sta2e-toolkit.rollData": newRollData,
               });
+              markUsed();
             } catch (err) {
               if (game.user.isGM) throw err;
               console.warn("STA2e Toolkit | Make Your Own Luck direct card update failed; asking GM client.", err);
@@ -19669,13 +19725,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               if (!paid) return false;
             }
             if (isAdaptAndExcel) {
-              const stressActorId = payload.officerActorId ?? payload.actorId ?? null;
-              const actor = stressActorId
-                ? (stressActorId === payload.actorId
-                  ? (canvas.tokens?.get(payload.tokenId)?.actor ?? game.actors.get(stressActorId))
-                  : game.actors.get(stressActorId))
-                : null;
-              const stressResult = await _applyMakeYourOwnLuckStress(actor);
+              const stressResult = await applyTalentStressCost(resolveTalentStressActor(payload));
               if (!stressResult) return false;
             }
 
@@ -20052,19 +20102,21 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           speaker: ChatMessage.getSpeaker({ token: tokenObj }),
         });
 
-        // Clear assist flag on token (GM only — avoids permission errors for players)
-        if (!skipCompletionEffects && game.user.isGM && tokenDoc) {
-          if (groundMode) {
-            // Ground assist is stored under the "ground" key, not stationId
-            const pending = tokenDoc.getFlag("sta2e-toolkit", "assistPending") ?? {};
-            if ("ground" in pending) {
-              tokenDoc.update({ [`flags.sta2e-toolkit.assistPending.-=ground`]: null }).catch(err =>
-                console.warn("STA2e Toolkit | clearGroundAssistFlag error:", err)
-              );
-            }
-          } else if (stationId) {
-            clearStationAssistFlag(tokenDoc, stationId).catch(err =>
-              console.warn("STA2e Toolkit | clearStationAssistFlag error:", err)
+        // Clear the assist flag now the task is confirmed. clearAssistPending routes
+        // through the GM when this user cannot update the token themselves.
+        // A character-sheet roll read its assists off the SHIP token (recorded in
+        // assistTokenId/assistStationId), not off this card's token.
+        if (!skipCompletionEffects) {
+          const _assistTd = payload.assistTokenId
+            ? (game.scenes.get(payload.assistSceneId)?.tokens?.get(payload.assistTokenId)
+               ?? canvas.tokens?.get(payload.assistTokenId)?.document
+               ?? null)
+            : tokenDoc;
+          // Ground assists are stored under the "ground" key, not a station id
+          const _assistKey = groundMode ? "ground" : (payload.assistStationId ?? stationId);
+          if (_assistTd && _assistKey) {
+            clearAssistPending(_assistTd, _assistKey).catch(err =>
+              console.warn("STA2e Toolkit | clearAssistPending error:", err)
             );
           }
         }
@@ -20184,7 +20236,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 attackerTokenId: tokenId ?? null,
                 intenseTalentBonus: _intenseBonus + _trackerShowOffBonus + _callOutTargetsBonus + _planOfActionBonus + _chiefMedicalSpendBonus,
                 trackerMessageId: _trackerMessageId,
-                momentumPool: CombatHUD.alliedNpcMomentumPool(charActor),
+                momentumPool: CombatHUD.alliedSpendPool(charActor),
               }) : null;
 
               // For an opposed ground attack resolved by a player, the resolved

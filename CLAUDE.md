@@ -82,6 +82,8 @@ Zones are stored as scene flags. The ruler measurement is patched in `main.js` t
 | [scripts/warp-calc.js](scripts/warp-calc.js) | Warp travel calculator dialog |
 | [scripts/alert-hud.js](scripts/alert-hud.js) | Alert status HUD overlay |
 | [scripts/toolkit-widget.js](scripts/toolkit-widget.js) | Floating toolbar widget |
+| [scripts/hud-position.js](scripts/hud-position.js) | Viewport clamping shared by every draggable HUD panel — keeps a dragged/restored header on screen |
+| [scripts/assist-pending.js](scripts/assist-pending.js) | Sole owner of the `assistPending` token flag (declared Assist / Direct). Writes self-route: direct when the user can update the token, otherwise a socket request the GM executes |
 | [scripts/wildcard-namer.js](scripts/wildcard-namer.js) | Auto-names wildcard tokens from rollable tables |
 | [scripts/elevation-ruler.js](scripts/elevation-ruler.js) | Patches FoundryVTT ruler for 3D elevation |
 | [scripts/star-system-scene.js](scripts/star-system-scene.js) | Builds a scene map from a Star System actor (tiles, orbit rings, per-orbit zones, hover tooltips) |

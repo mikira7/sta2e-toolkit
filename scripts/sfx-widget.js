@@ -16,6 +16,7 @@
  */
 
 import { getLcCssVars, getActiveLcThemeKey } from "./lcars-theme.js";
+import { clampHudPos, clampHudElement } from "./hud-position.js";
 import {
   MODULE_ID,
   getVisibleSfxEntries,
@@ -412,6 +413,12 @@ export class SfxWidget {
       el.style.right  = "auto";
       el.style.bottom = "auto";
       el.style.setProperty("--sfx-max-width", "320px");
+      // This runs on resize too, so a position saved on a wider viewport gets
+      // pulled back into reach rather than clipping off-screen.
+      const clamped = clampHudElement(el);
+      if (clamped && (clamped.x !== pos.x || clamped.y !== pos.y)) {
+        this._savePos(clamped.x, clamped.y);
+      }
       return;
     }
 
@@ -481,8 +488,9 @@ export class SfxWidget {
     let startX = 0, startY = 0, startLeft = 0, startTop = 0;
 
     const onMove = ev => {
-      el.style.left   = `${startLeft + ev.clientX - startX}px`;
-      el.style.top    = `${startTop + ev.clientY - startY}px`;
+      const pos = clampHudPos(el, startLeft + ev.clientX - startX, startTop + ev.clientY - startY);
+      el.style.left   = `${pos.x}px`;
+      el.style.top    = `${pos.y}px`;
       el.style.right  = "auto";
       el.style.bottom = "auto";
     };
@@ -491,8 +499,7 @@ export class SfxWidget {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       handle.style.cursor = "grab";
-      const x = Math.max(0, parseInt(el.style.left, 10) || 0);
-      const y = Math.max(0, parseInt(el.style.top, 10) || 0);
+      const { x, y } = clampHudPos(el, parseInt(el.style.left, 10), parseInt(el.style.top, 10));
       this._savePos(x, y);
       this._renderGrid();   // reveals the Re-dock control
     };

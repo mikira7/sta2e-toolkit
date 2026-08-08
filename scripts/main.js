@@ -15,11 +15,12 @@ import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
-import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination } from "./combat-hud.js";
+import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
 import { buildWeaponContext, refreshTorpedoSpriteCache } from "./weapon-configs.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
+import { applyAssistPendingRequest } from "./assist-pending.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { openShipSpawner } from "./ship-spawner.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
@@ -40,6 +41,7 @@ import { registerShipCommandHud } from "./ship-command-hud.js";
 import { registerTokenWeaponHud } from "./token-weapon-hud.js";
 import { playNativeWarpFlash } from "./warp-jump-vfx.js";
 import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
+import { playTorpedoTravelLocal } from "./torpedo-travel-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
 import { ZoneMovementLog } from "./zone-movement-log.js";
@@ -132,46 +134,18 @@ function getShipCardUserAccess(message, payload = {}, userId = game.user.id) {
   };
 }
 
-function taskRollDataHasAnyRerollUsed(rollData) {
-  return !!(
-    rollData?.talentRerollUsed || rollData?.advisorRerollUsed
-    || rollData?.systemRerollUsed || rollData?.shipTalentRerollUsed
-    || rollData?.detRerollUsed || rollData?.genericRerollUsed
-    || rollData?.tsRerollUsed || rollData?.csRerollUsed
-    || rollData?.techExpertiseUsed || rollData?.rfRerollUsed
-    || ((rollData?.aimRerollsUsed ?? 0) > 0)
-  );
-}
-
-async function applyMakeYourOwnLuckStressFromRollData(rollData = {}) {
-  const actor = rollData.tokenId
-    ? (canvas?.tokens?.get(rollData.tokenId)?.actor ?? game.actors.get(rollData.actorId))
-    : game.actors.get(rollData.actorId);
-  if (!actor?.system?.stress) {
-    console.warn("STA2e Toolkit | Make Your Own Luck: actor has no Stress track", rollData.actorId);
-    return null;
-  }
-
-  const stressMode = game.settings.get("sta2e-toolkit", "stressMode") ?? "countdown";
-  const current = Number(actor.system.stress.value ?? 0);
-  const max = Number(actor.system.stress.max ?? 0);
-  if (stressMode === "countup") {
-    if (max > 0 && current >= max) {
-      console.warn(`STA2e Toolkit | Make Your Own Luck: ${actor.name} cannot suffer more Stress.`);
-      return null;
-    }
-    const next = max > 0 ? Math.min(max, current + 1) : current + 1;
-    await actor.update({ "system.stress.value": next });
-    return { before: current, after: next, mode: stressMode };
-  }
-
-  if (current <= 0) {
-    console.warn(`STA2e Toolkit | Make Your Own Luck: ${actor.name} has no Stress available.`);
-    return null;
-  }
-  const next = Math.max(0, current - 1);
-  await actor.update({ "system.stress.value": next });
-  return { before: current, after: next, mode: stressMode };
+/**
+ * Tell the user who asked for a talent why the GM client refused it. A silent bail-out
+ * leaves them staring at an unchanged card with no idea the cost was never paid.
+ */
+function whisperTalentRefusal(requesterUserId, reason) {
+  console.warn(`STA2e Toolkit | Make Your Own Luck refused: ${reason}`);
+  const recipients = [requesterUserId, ...game.users.filter(u => u.isGM).map(u => u.id)]
+    .filter((id, i, arr) => id && arr.indexOf(id) === i);
+  ChatMessage.create({
+    content: `<p><strong>Make Your Own Luck</strong> — ${reason}</p>`,
+    whisper: recipients,
+  }).catch(e => console.error("STA2e Toolkit | talent refusal whisper failed:", e));
 }
 
 function canUserStartGroundOpposedTask(opts = {}, userId = game.user.id) {
@@ -1116,6 +1090,19 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // Torpedo flight paths are replayed per-client instead of being pushed by
+    // Sequencer. Sequencer fast-forwards custom property animations by the
+    // wall-clock delta between the firing client and this one, which teleports
+    // the torpedo onto the target hull on hosted games. Each client building
+    // its own sequence from the plan keeps that delta at ~0. See
+    // torpedo-travel-vfx.js.
+    if (msg.action === "torpedoTravelVfx") {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+        playTorpedoTravelLocal(msg.plan);
+      }
+      return;
+    }
+
     // GM saved the SFX board — rebuild every client's button grid. Cosmetic and
     // touches no documents, so it runs on ALL receivers with no GM gate.
     if (msg.action === "sfxBoardUpdated") {
@@ -1320,6 +1307,22 @@ Hooks.once("ready", async () => {
         console.error("STA2e Toolkit | applyAssistToTaskCard update failed:", e));
     }
 
+    else if (msg.action === "assistPendingUpdate" && _isResponsibleGM()) {
+      // A player declared (or resolved) an Assist / Direct on a token they cannot
+      // update — their own ship token, or another character's token in ground combat.
+      const { op, sceneId, tokenId, key, entry } = msg;
+      if (!tokenId || !key) return;
+      const scene = sceneId ? game.scenes.get(sceneId) : null;
+      const td = scene?.tokens?.get(tokenId)
+        ?? canvas.tokens?.get(tokenId)?.document
+        ?? null;
+      if (!td) {
+        console.warn(`STA2e Toolkit | assistPendingUpdate: token ${tokenId} not found`);
+        return;
+      }
+      await applyAssistPendingRequest(td, op, key, entry);
+    }
+
     else if (msg.action === "applyMakeYourOwnLuckTaskRoll" && _isResponsibleGM()) {
       const { messageId, requesterUserId, stressAlreadyApplied } = msg;
       let newRollData = msg.newRollData;
@@ -1329,15 +1332,35 @@ Hooks.once("ready", async () => {
         console.warn(`STA2e Toolkit | applyMakeYourOwnLuckTaskRoll: message ${messageId} not found`);
         return;
       }
-      if (!getShipCardUserAccess(m, newRollData, requesterUserId).canUse) return;
-      if (m.getFlag("sta2e-toolkit", "confirmed")) return;
+      if (!getShipCardUserAccess(m, newRollData, requesterUserId).canUse) {
+        whisperTalentRefusal(requesterUserId, "you do not have permission to use this talent on that task.");
+        return;
+      }
+      if (m.getFlag("sta2e-toolkit", "confirmed")) {
+        whisperTalentRefusal(requesterUserId, "the results of that task were already confirmed.");
+        return;
+      }
 
       const currentRollData = m.getFlag("sta2e-toolkit", "rollData") ?? {};
-      if (currentRollData.makeYourOwnLuckUsed || taskRollDataHasAnyRerollUsed(currentRollData)) return;
+      if (currentRollData.makeYourOwnLuckUsed) {
+        whisperTalentRefusal(requesterUserId, "the talent has already been used on that task.");
+        return;
+      }
+      if (rollDataHasAnyRerollUsed(currentRollData)) {
+        whisperTalentRefusal(requesterUserId, "it cannot be used after rerolling on that task.");
+        return;
+      }
 
       if (!stressAlreadyApplied) {
-        const stressResult = await applyMakeYourOwnLuckStressFromRollData(newRollData);
-        if (!stressResult) return;
+        const stressActor = resolveTalentStressActor(newRollData);
+        const stressResult = stressActor ? await applyTalentStressCost(stressActor) : null;
+        if (!stressResult) {
+          whisperTalentRefusal(
+            requesterUserId,
+            `${stressActor?.name ?? "the character"} cannot pay the 1 Stress cost, so nothing was changed.`,
+          );
+          return;
+        }
         newRollData = { ...newRollData, makeYourOwnLuckStress: stressResult };
       }
 
@@ -3324,6 +3347,10 @@ function _applySheetRollerOverride(app, html) {
           combatShip: {
             label:   combatCtx.shipActor.name,
             actorId: combatCtx.shipActor.id,
+            // Declared assists live on the ship TOKEN, but the roller is opened with
+            // the character token — same bridge as targetingSolution below.
+            tokenId: _shipToken?.id ?? null,
+            sceneId: _shipToken?.scene?.id ?? null,
           },
           shipWeapons,
           targetShips:  _getCombatTargetShips(combatCtx.shipActor.id),
