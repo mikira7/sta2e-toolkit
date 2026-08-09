@@ -2411,7 +2411,15 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             ★ Attack Run: Difficulty penalty suppressed — attacks against this ship
             are not reduced.
           </div>`}
-          ${state.helmOfficer ? `
+          ${state.apPending ? `
+          <!-- An actor holds Helm — the attr/disc/focus choice is theirs, made in
+               their own dialog when they click the assist button on the chat card. -->
+          <div style="font-size:10px;color:${LC.secondary};font-family:${LC.font};
+            padding:3px 6px;border-left:2px solid ${LC.secondary};border-radius:2px;
+            background:rgba(0,150,255,0.06);">
+            🤝 ${state.helmOfficer?.name ?? helmActorName ?? "Helm Officer"} will roll
+            their own Attack Pattern die via the Working Results card.
+          </div>` : state.helmOfficer ? `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
             <div>
               <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
@@ -3886,7 +3894,7 @@ export function buildPlayerRollCardHtml(rollData) {
           border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
           font-family:${LC.font};font-size:10px;font-weight:700;
           color:${LC.primary};letter-spacing:0.04em;text-align:left;">
-        🎲 Roll Assist Die — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 " : "🤝 "}${ao.name}${ao.type === "methodical-planning" ? " (Methodical Planning)" : ""}
+        🎲 Roll Assist Die — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 " : ao.type === "attack-pattern" ? "⚡ " : "🤝 "}${ao.name}${ao.type === "methodical-planning" ? " (Methodical Planning)" : ao.type === "attack-pattern" ? " (Attack Pattern)" : ""}
       </button>`).join("")}
     </div>
   </div>` : ""}
@@ -4465,6 +4473,11 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     apHasFocus: false,
     apDedicatedFocus: false,
     apAssistDice: [],     // rolled AP assist dice
+    // The Helm officer rolls their own Attack Pattern die from the Working Results
+    // card whenever an actor holds the Helm slot — the same deal every other assist
+    // gets. A bare crew-quality Helm (nobody assigned) still auto-rolls in _doRoll.
+    helmActorId: helmOfficer?.id ?? _helmActorIds.find(Boolean) ?? null,
+    apPending: hasAttackPattern && !!(helmOfficer || _hasActorAtHelm),
     rallyContext,         // true = Rally task — ship does not assist, post Threat card on result
     taskLabel,            // short label shown in dialog title + chat card header, e.g. "Rally"
     taskContext,          // optional longer description shown in chat card subheader
@@ -4760,21 +4773,40 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       assistApplied: null,
 
       // Pending assist officers (not yet rolled)
-      pendingAssists: (state.assistOfficers ?? []).map(ao => ({
-        name: ao.name,
-        actorId: ao.actorId ?? null,
-        attrKey: ao.attrKey,
-        discKey: ao.discKey,
-        type: ao.type ?? null,
-        hasFocus: ao.hasFocus,
-        hasDedicatedFocus: ao.hasDedicatedFocus,
-        callOutTargetsSource: state.callOutTargetsEligible && ao.actorId
-          ? callOutTargetsSourceForActor(game.actors.get(ao.actorId), ao.name)
-          : null,
-        // Pre-compute target values so handler doesn't need live actor lookups
-        attrVal: ao.stats ? (ao.stats.attributes[ao.attrKey] ?? 9) : 9,
-        discVal: ao.stats ? (ao.stats.disciplines[ao.discKey] ?? 2) : 2,
-      })),
+      pendingAssists: [
+        ...(state.assistOfficers ?? []).map(ao => ({
+          name: ao.name,
+          actorId: ao.actorId ?? null,
+          attrKey: ao.attrKey,
+          discKey: ao.discKey,
+          type: ao.type ?? null,
+          hasFocus: ao.hasFocus,
+          hasDedicatedFocus: ao.hasDedicatedFocus,
+          callOutTargetsSource: state.callOutTargetsEligible && ao.actorId
+            ? callOutTargetsSourceForActor(game.actors.get(ao.actorId), ao.name)
+            : null,
+          // Pre-compute target values so handler doesn't need live actor lookups
+          attrVal: ao.stats ? (ao.stats.attributes[ao.attrKey] ?? 9) : 9,
+          discVal: ao.stats ? (ao.stats.disciplines[ao.discKey] ?? 2) : 2,
+        })),
+        // Attack Pattern — the Helm officer's own die, deferred to them.
+        // Not held in state.assistOfficers: that array drives the setup dialog's
+        // assist section, the NPC named-assist auto-roll and _clearAssistFlag, and
+        // this die belongs to none of them. It joins the queue only here.
+        ...(state.apPending ? [{
+          name: state.helmOfficer?.name ?? state.helmActorName ?? "Helm Officer",
+          actorId: state.helmActorId ?? null,
+          attrKey: state.apAttrKey,
+          discKey: state.apDiscKey,
+          type: "attack-pattern",
+          hasFocus: state.apHasFocus,
+          hasDedicatedFocus: state.apDedicatedFocus,
+          callOutTargetsSource: null,
+          // No stats on the actor → the crew-quality target, matching the old auto-roll.
+          attrVal: state.helmOfficer?.attributes?.[state.apAttrKey] ?? state.crewAttr,
+          discVal: state.helmOfficer?.disciplines?.[state.apDiscKey] ?? state.crewDept,
+        }] : []),
+      ],
 
       hasRapidFireTorpedo: state.hasRapidFireTorpedo ?? false,
       hasCalibrateWeapons: state.hasCalibrateWeapons ?? false,
@@ -6055,7 +6087,10 @@ async function _doRoll(state, speaker) {
   // Helm officer (or crew quality fallback) rolls 1 die using Control + Conn.
   // Always rolls (same rule as all assist dice); its successes score only when
   // the crew pool scored at least one.
-  if (state.hasAttackPattern) {
+  //
+  // apPending: an actor holds the Helm slot, so the die is theirs to roll — it is
+  // emitted as a pendingAssists entry on the chat card instead of being rolled here.
+  if (state.hasAttackPattern && !state.apPending) {
     let apAttr, apDisc;
     if (state.helmOfficer) {
       // Named helm officer: use their actual attribute + discipline values

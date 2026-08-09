@@ -18664,6 +18664,22 @@ function _taskButtonIsGmOnly(isSucceedAtCost) {
   try { return game.settings.get("sta2e-toolkit", key) === true; } catch { return false; }
 }
 
+/**
+ * How many declared assists still owe this card a die.
+ * A task cannot be resolved while any of them are outstanding.
+ *
+ * Prefers the message flag — every assist roll rewrites it, so it is current even
+ * when the button's baked-in payload is a render behind.
+ */
+function _pendingAssistCount(message, btn) {
+  const fromFlag = message?.getFlag?.("sta2e-toolkit", "rollData")?.pendingAssists;
+  if (Array.isArray(fromFlag)) return fromFlag.length;
+  try {
+    const payload = JSON.parse(decodeURIComponent(btn?.dataset?.payload ?? "{}"));
+    return (payload.pendingAssists ?? []).length;
+  } catch { return 0; }
+}
+
 // ── renderChatMessageHTML hook ───────────────────────────────────────────────
 // v13: passes (message, htmlElement) — no jQuery wrapper
 // Ground injury buttons are visible to ALL users (players choose to avoid/take).
@@ -18684,7 +18700,16 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       || (rollOwnerUserId ? game.user.id === rollOwnerUserId : false)
       || allowedUserIds.includes(game.user.id);
     if (!canUseWorkingRoll) {
-      html.querySelectorAll(".sta2e-working-actions").forEach(section => section.remove());
+      // A player who owns one of the unrolled assists keeps that one block — it is
+      // their die to roll (Attack Pattern Helm, declared Assist, Direct). They still
+      // lose the reroll and confirm rows; only the roll owner and the GM resolve.
+      const _pendingAssists = toolkitFlags.rollData?.pendingAssists ?? [];
+      const ownsPendingAssist = _pendingAssists.some(ao =>
+        ao?.actorId && game.actors.get(ao.actorId)?.testUserPermission?.(game.user, "OWNER"));
+      html.querySelectorAll(".sta2e-working-actions").forEach(section => {
+        if (ownsPendingAssist && section.classList.contains("sta2e-working-actions--assists")) return;
+        section.remove();
+      });
     }
   }
 
@@ -19280,29 +19305,51 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         btn.style.cursor  = "default";
         btn.textContent   = "✓ Rolled";
 
-        // Build updated rollData: append die to namedAssistDice, remove officer from pendingAssists
-        const newRollData = {
-          ...payload,
-          namedAssistDice: [
-            ...(payload.namedAssistDice ?? []),
-            {
-              ...die,
-              officerName: ao.name,
-              assistActorId: ao.actorId ?? null,
-              attrKey: selected.attrKey,
-              discKey: selected.discKey,
-            },
-          ],
-          callOutTargetsSources: (payload.weaponContext || payload.callOutTargetsEligible) && ao.callOutTargetsSource
-            ? [...(payload.callOutTargetsSources ?? []), ao.callOutTargetsSource]
-            : (payload.callOutTargetsSources ?? []),
-          pendingAssists: pendingAssists.filter((_, i) => i !== assistIndex),
+        // Build updated rollData: append the die to its pool, remove the officer
+        // from pendingAssists. Attack Pattern rides in apAssistDice so it keeps its
+        // own "⚡ Helm" dice row and Attack Run/AP display rules; everything else
+        // is a named assist.
+        const rolled = {
+          ...die,
+          officerName: ao.name,
+          assistActorId: ao.actorId ?? null,
+          attrKey: selected.attrKey,
+          discKey: selected.discKey,
         };
+        const stillPending = pendingAssists.filter((_, i) => i !== assistIndex);
+        const newRollData = ao.type === "attack-pattern"
+          ? {
+            ...payload,
+            apAssistDice: [...(payload.apAssistDice ?? []), { ...rolled, isApAssist: true }],
+            pendingAssists: stillPending,
+          }
+          : {
+            ...payload,
+            namedAssistDice: [...(payload.namedAssistDice ?? []), rolled],
+            callOutTargetsSources: (payload.weaponContext || payload.callOutTargetsEligible) && ao.callOutTargetsSource
+              ? [...(payload.callOutTargetsSources ?? []), ao.callOutTargetsSource]
+              : (payload.callOutTargetsSources ?? []),
+            pendingAssists: stillPending,
+          };
 
-        await message.update({
-          content: buildPlayerRollCardHtml(newRollData),
-          "flags.sta2e-toolkit.rollData": newRollData,
-        });
+        // The assisting player usually does not author the card they are updating —
+        // that is the whole point of this button — so route through the GM when we
+        // lack permission, the same way .sta2e-assist-to-roll does.
+        const newContent = buildPlayerRollCardHtml(newRollData);
+        const canDirect = game.user.isGM || message.author?.id === game.user.id;
+        if (canDirect) {
+          await message.update({
+            content: newContent,
+            "flags.sta2e-toolkit.rollData": newRollData,
+          });
+        } else {
+          game.socket.emit("module.sta2e-toolkit", {
+            action: "applyAssistToTaskCard",
+            messageId: message.id,
+            newContent,
+            newRollData,
+          });
+        }
       } catch(err) {
         console.error("STA2e Toolkit | player assist roll error:", err);
         ui.notifications.error("Assist die roll failed — see console.");
@@ -19811,6 +19858,18 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       btn.title         = "Results already confirmed";
       return;
     }
+    // Waiting on an assisting player's die — same treatment: the button stays put
+    // but is dead, so the table can see what the card is waiting for. The GM is
+    // never gated; they resolve the card when an assister is offline or declines.
+    const n = game.user.isGM ? 0 : _pendingAssistCount(message, btn);
+    if (n > 0) {
+      btn.disabled      = true;
+      btn.style.opacity = "0.4";
+      btn.style.cursor  = "not-allowed";
+      btn.textContent   = `⏳ Awaiting ${n} assist roll${n === 1 ? "" : "s"}`;
+      btn.title         = "This task cannot resolve until every declared assist has been rolled.";
+      return;
+    }
     // Reserved for the GM by world setting — leave the button in place but dead,
     // so players can see the card is waiting on the GM rather than the row vanishing.
     if (!game.user.isGM && _taskButtonIsGmOnly(isSucceedAtCost)) {
@@ -19826,6 +19885,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       // Re-check: the GM may have enabled the restriction after this card rendered.
       if (!game.user.isGM && _taskButtonIsGmOnly(isSucceedAtCost)) {
         ui.notifications?.warn("The GM resolves this task.");
+        return;
+      }
+      // Re-check: an assist may have been declared onto the card since it rendered.
+      if (!game.user.isGM && _pendingAssistCount(message, btn) > 0) {
+        ui.notifications?.warn("Waiting on an assist roll before this task can resolve.");
         return;
       }
       // Lock every button in this action row — Confirm and Succeed at Cost are

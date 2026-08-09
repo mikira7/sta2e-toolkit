@@ -188,8 +188,10 @@ export function renderSlimTaskCard(view) {
         data-payload="${p}"
         data-assist-index="${i}"
         style="${btnStyle(LC.primary, { left: true, tint: "rgba(255,153,0,0.10)" })}">
-        🎲 Assist — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 " : "🤝 "}${ao.name}${
-          ao.type === "methodical-planning" ? " (Methodical Planning)" : ""}
+        🎲 Assist — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 "
+          : ao.type === "attack-pattern" ? "⚡ " : "🤝 "}${ao.name}${
+          ao.type === "methodical-planning" ? " (Methodical Planning)"
+          : ao.type === "attack-pattern" ? " (Attack Pattern)" : ""}
       </button>`).join(""))
     : ""}
 
