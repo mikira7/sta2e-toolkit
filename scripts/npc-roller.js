@@ -37,6 +37,9 @@ import {
 } from "./combat/combat-definitions.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
 import { clearAssistPending } from "./assist-pending.js";
+import {
+  getExtraActionDifficulty, clearExtraActionDifficulty, markTaskRollMajor,
+} from "./combat/initiative-order.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -83,7 +86,10 @@ function autoComplications(source) {
 export function taskDifficulty(source) {
   const base = Math.max(0, Number(source?.difficulty ?? 0) || 0);
   const traitDelta = Number(source?.traitDifficultyDelta ?? 0) || 0;
-  return Math.max(0, base + traitDelta + (source?.showOffSelected ? 1 : 0));
+  // A Major Action bought with Momentum costs +1 Difficulty on its Task
+  // (combat/initiative-order.js seeds this from the combatant's turn budget).
+  const extraAction = Math.max(0, Number(source?.extraActionDifficulty ?? 0) || 0);
+  return Math.max(0, base + traitDelta + extraAction + (source?.showOffSelected ? 1 : 0));
 }
 
 export function showOffBonusMomentum(source, passed) {
@@ -2577,6 +2583,14 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             <span id="difficulty-final" title="Final Difficulty after trait effects"
               style="display:none;font-size:13px;font-weight:700;color:${LC.secondary};
               font-family:${LC.font};white-space:nowrap;"></span>
+            <!-- Starship Cumbersome: +1 Difficulty (the ground rule is a Prepare
+                 gate instead, so this never shows for a character weapon). -->
+            <span id="sta2e-cumbersome-note"
+              title="Cumbersome — this weapon is difficult to bring to bear, increasing the Difficulty of an attack by 1"
+              style="${state.weaponContext?.cumbersome && !state.groundMode ? "display:inline" : "display:none"};
+              font-size:9px;color:${LC.textDim};font-family:${LC.font};white-space:nowrap;">
+              +1 Cumbersome
+            </span>
             <span style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
               (0 = routine, no limit)
             </span>
@@ -3201,6 +3215,7 @@ function buildChatCard(actorName, state) {
         state.hasAutoSuccessTrade ? "Auto-Success Trade (−1 die, +1 success)" : null,
         state.persistentUsed ? "Persistent (+1 success, +1 complication)" : null,
         state.showOffSelected ? `${state.showOffSource ?? "Show-Off"} (+1 Difficulty, +2 bonus Momentum on success)` : null,
+        (state.extraActionDifficulty > 0) ? "Extra Major Action (+1 Difficulty)" : null,
         state.meticulousUsed ? `${state.meticulousSource ?? "Meticulous"} (die set to 1, +1 interval)` : null,
         state.percussiveMaintenanceUsed ? `${state.percussiveMaintenanceSource ?? "Percussive Maintenance"} (+1 Threat, Daring for Control, -1 interval on success)` : null,
         callOutTargetsPotential > 0 ? `Call Out Targets (+${callOutTargetsPotential} bonus Momentum on success)` : null,
@@ -4095,6 +4110,23 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   // its reroll is optional.
   const _clearCompletedTaskMinors = async () => {
     await clearCompletedBridgeTaskMinors(state, token);
+    // A Major Action bought with Momentum charges its +1 Difficulty to exactly one
+    // Task. Called from all three roll-resolution paths, so the debt is settled
+    // whichever way the roll finished.
+    if (state.extraActionDifficulty > 0) {
+      state.extraActionDifficulty = 0;
+      await clearExtraActionDifficulty(actor).catch(err =>
+        console.warn("STA2e Toolkit | could not clear extra-action difficulty:", err));
+    }
+
+    // Making a Task roll IS a Major Action. Flagging it here catches every roll,
+    // including those made from a character sheet or the LCARS ring rather than
+    // the Combat HUD's action buttons. Idempotent, so an action that both pressed
+    // a HUD button and opened this roller is only charged once.
+    await markTaskRollMajor(actor, {
+      stationId:    stationId ?? null,
+      isAssistRoll: !!isAssistRoll,
+    }).catch(err => console.warn("STA2e Toolkit | could not flag the Major Action:", err));
   };
 
   // Station's own officer — passed in from the caller (crew manifest lookup).
@@ -4441,6 +4473,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     traitDifficultyDirections: foundry.utils.deepClone(initialTraitDifficultyDirections ?? {}),
     appliedTraitEffects: [],
     traitDifficultyDelta: 0,
+    // +1 owed by a Major Action bought with Momentum this turn. Read once at open
+    // time so the readout cannot drift if the turn ends mid-dialog.
+    extraActionDifficulty: getExtraActionDifficulty(actor),
     traitComplicationDelta: 0,
     traitBonusMomentum: 0,
     traitBonusThreat: 0,
@@ -4639,6 +4674,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           salvoMode: state.weaponContext.salvoMode ?? null,
           useStun: state.weaponContext.useStun ?? null,
           deadlyCostsThreat: state.weaponContext.deadlyCostsThreat ?? false,
+          // Ground Charge quality picked at declaration ("area"|"intense"|"piercing")
+          chargeQuality: state.weaponContext.chargeQuality ?? null,
         }
         : null,
       callOutTargetsEligible: state.callOutTargetsEligible ?? false,
@@ -4692,6 +4729,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       aimRerollsUsed: state.aimRerollsUsed ?? 0,
       appliedTraitEffects: state.appliedTraitEffects ?? [],
       traitDifficultyDelta: state.traitDifficultyDelta ?? 0,
+      extraActionDifficulty: state.extraActionDifficulty ?? 0,
       traitComplicationDelta: state.traitComplicationDelta ?? 0,
       traitBonusMomentum: state.traitBonusMomentum ?? 0,
       traitBonusThreat: state.traitBonusThreat ?? 0,
@@ -5566,6 +5604,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       helmOfficer: state.helmOfficer ?? null,
       attackRunActive: state.attackRunActive ?? false,
       attackPatternPenalty,
+      cumbersomePenalty: state.weaponContext?.cumbersome ? 1 : 0,
       attackerOfficer: state.officer ?? null,
       attackerStationId: state.stationId ?? "tactical",
       attackerCrewQuality: state._isNpc && !state.officer ? state.crewQuality : null,
@@ -5592,6 +5631,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       hasAttackPattern:     state.hasAttackPattern      ?? false,
       helmOfficer:          state.helmOfficer            ?? null,
       attackRunActive:      state.attackRunActive        ?? false,
+      cumbersomePenalty:    state.weaponContext?.cumbersome ? 1 : 0,
       taskLabel:            state.taskLabel ?? `Attack — ${state.weaponContext?.name ?? "Weapon"}`,
       taskContext:          `Opposed — ${defLabel}`,
       // Character-sheet roller identity — required so the reopened roller
@@ -6161,7 +6201,10 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
       });
       applyTraitSelectionsToState(state, state.traitSuggestions ?? [], selectedTraitIds, dirs);
       if (_diffFinalEl && _diffInputEl) {
-        const delta = Number(state.traitDifficultyDelta ?? 0) || 0;
+        // The readout covers every non-base modifier, so a bought extra Major
+        // Action's +1 shows up here the same way a trait's delta does.
+        const delta = (Number(state.traitDifficultyDelta ?? 0) || 0)
+          + (Number(state.extraActionDifficulty ?? 0) || 0);
         if (state.opposedDefenseType || delta === 0) {
           _diffFinalEl.style.display = "none";
         } else {
@@ -6797,6 +6840,13 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
     if (state.combatTaskContext) {
       // Task buttons — update attr/disc, difficulty, ship pool on selection
       const _syncCombatDifficultyInput = () => {
+        // Runs before the early returns: the note is just as true when the
+        // difficulty is locked by an opposed task (the +1 is already baked in).
+        const cumbNote = el.querySelector("#sta2e-cumbersome-note");
+        if (cumbNote) {
+          cumbNote.style.display = state.weaponContext?.cumbersome && !state.groundMode
+            ? "inline" : "none";
+        }
         const diffInput = el.querySelector("#difficulty");
         if (!diffInput) return;
         if (state.opposedDefenseType && state.opposedDifficulty !== null) {

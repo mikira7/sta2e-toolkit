@@ -31,6 +31,7 @@ import { labelFromKey as _labelFromKey, orderedShipsForActor, serializeShipsForR
 import { CombatHUD } from "./combat-hud.js";
 import { createTracker } from "./momentum-tracker.js";
 import { planOfActionBonusMomentum } from "./trait-service.js";
+import { getExtraActionDifficulty } from "./combat/initiative-order.js";
 // The setup UI now lives in the Task Maker's "Opposed Task" tab.  opposed-panel.js
 // imports nothing but lcars-theme.js, so pulling from it here stays cycle-free —
 // importing task-maker.js directly would not (see the note atop opposed-panel.js).
@@ -121,13 +122,15 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
   const pointDefensePenalty = Number(options.pointDefensePenalty ?? 0);
   const attackPatternPenalty = Number(options.attackPatternPenalty ?? 0);
+  // +1 owed by a Major Action the attacker bought with Momentum this turn.
+  const extraActionPenalty = Number(options.extraActionPenalty ?? 0);
   const traitDelta = _traitModifierDelta(options);
   const defenderTraitDelta = -_opposedRollTraitDelta(taskData.defender);
   const attackerTraitDelta = taskData.attacker?.rolled
     ? _opposedRollTraitDelta(taskData.attacker)
     : 0;
-  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
-  return { base, guardPenalty, chiefSecurityPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, attackPatternPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
+  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty + extraActionPenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
+  return { base, guardPenalty, chiefSecurityPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, attackPatternPenalty, extraActionPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -300,6 +303,9 @@ export async function startGroundCombatOpposedTask(opts = {}) {
       guardPenalty,
       chiefSecurityPenalty,
       pronePenalty,
+      // Derived from the attacker rather than passed in by each caller, so every
+      // ground attack path picks up a bought extra Major Action's +1 automatically.
+      extraActionPenalty: getExtraActionDifficulty(attackerActor),
       targetIsProne,
       targetIsProneInCover: !!opts.targetIsProneInCover,
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
@@ -401,6 +407,9 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
       cumbersomePenalty: Number(opts.cumbersomePenalty ?? 0),
       pointDefensePenalty: Number(opts.pointDefensePenalty ?? (opts.pointDefenseActive ? 1 : 0)),
       pointDefenseActive: !!opts.pointDefenseActive,
+      // In ship combat the tracker activates the *officer*, not the ship, so the
+      // bought extra Major Action's debt sits on the officer's combatant.
+      extraActionPenalty: getExtraActionDifficulty(attackerOfficers[0] ?? attackerActor),
       attackPatternPenalty: opts.attackPatternPenalty ? 1 : Number(opts.attackPatternPenalty ?? 0),
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
       attackerComplicationRange: opts.attackerComplicationRange ?? 1,
@@ -661,8 +670,10 @@ function _renderCardHtml(d) {
       if (chiefSecurityPenalty) breakdownParts.push(`Chief of Security +${chiefSecurityPenalty}`);
       if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
       if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
+      if (difficultyInfo.cumbersomePenalty) breakdownParts.push(`Cumbersome +${difficultyInfo.cumbersomePenalty}`);
       if (difficultyInfo.pointDefensePenalty) breakdownParts.push(`Point Defense +${difficultyInfo.pointDefensePenalty}`);
       if (difficultyInfo.attackPatternPenalty) breakdownParts.push(`Attack Pattern -${difficultyInfo.attackPatternPenalty}`);
+      if (difficultyInfo.extraActionPenalty) breakdownParts.push(`Extra Major Action +${difficultyInfo.extraActionPenalty}`);
       if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);
       if (difficultyInfo.defenderTraitDelta) breakdownParts.push(`Defender Traits ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.defenderTraitDelta)} (${_esc(_opposedRollTraitLabels(d.defender, -1))})`);
       if (difficultyInfo.attackerTraitDelta) breakdownParts.push(`Attacker Traits ${difficultyInfo.attackerTraitDelta > 0 ? "+" : "-"}${Math.abs(difficultyInfo.attackerTraitDelta)} (${_esc(_opposedRollTraitLabels(d.attacker, 1))})`);

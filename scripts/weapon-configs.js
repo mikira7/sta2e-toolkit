@@ -2,6 +2,7 @@ import {
   advanceShipArrayCurveWalk,
   getClosestShipArrayCurvePoint,
   getShipWeaponEmitterArcSelection,
+  getShipWeaponEmitterCluster,
   getShipHitLocationPointForShot,
   getShipWeaponVfxSettings,
   getShipWeaponEmitterAnchors,
@@ -821,11 +822,16 @@ export function getWeaponConfig(item) {
 export function buildWeaponContext(weapon) {
   const config    = getWeaponConfig(weapon);
   const isTorpedo = config?.type === "torpedo";
+  // Ship and ground weapons never share a quality key, so one map covers both:
+  // `piercing` only exists on starshipweapon2e, `piercingx` only on
+  // characterweapon2e (rendered as a checkbox despite the `x` suffix).
   const QUALITY_LABELS = {
-    area:        "Area",         calibration: "Calibration", cumbersome:  "Cumbersome",
-    dampening:   "Dampening",    depleting:   "Depleting",   devastating: "Devastating",
-    highyield:   "High Yield",   intense:     "Intense",     jamming:     "Jamming",
-    persistent:  "Persistent",   piercing:    "Piercing",    slowing:     "Slowing",
+    accurate:    "Accurate",     area:        "Area",        calibration: "Calibration",
+    charge:      "Charge",       cumbersome:  "Cumbersome",  dampening:   "Dampening",
+    debilitating:"Debilitating", depleting:   "Depleting",   devastating: "Devastating",
+    grenade:     "Grenade",      highyield:   "High Yield",  inaccurate:  "Inaccurate",
+    intense:     "Intense",      jamming:     "Jamming",     persistent:  "Persistent",
+    piercing:    "Piercing",     piercingx:   "Piercing",    slowing:     "Slowing",
     spread:      "Spread",
   };
   const q     = weapon.system?.qualities ?? {};
@@ -1093,11 +1099,20 @@ function shipWeaponEmitterPointForShot(sourceToken, weapon, targetPoint, shotInd
     return null;
   }
 
-  // Build an ordered list of emitter points so consecutive shots fire from
-  // different emitters (e.g. a Bird-of-Prey alternating its two forward
-  // disruptor cannons). The pre-selected arc emitter goes first so shot 0 still
-  // comes from where the ship turned to fire; the rest follow by proximity to
-  // the target. With arcRestrict (torpedoes), cycling is limited to emitters
+  // Companion emitters first: a twin bank or a pair of forward cannons trades
+  // shots between the two ports that make up the mount, rather than walking
+  // every emitter on the hull. The cluster is already arc-filtered, so it
+  // satisfies arcRestrict as a strict subset of what that check would allow.
+  const cluster = getShipWeaponEmitterCluster(sourceToken, weapon, targetPoint, selectedEmitter);
+  if (cluster?.length) {
+    const pick = cluster[Math.abs(shotIndex) % cluster.length];
+    return { x: pick.x, y: pick.y, layer: pick.layer, facingDeg: pick.facingDeg };
+  }
+
+  // Otherwise build an ordered list of emitter points so consecutive shots fire
+  // from different emitters. The pre-selected arc emitter goes first so shot 0
+  // still comes from where the ship turned to fire; the rest follow by
+  // proximity to the target. With arcRestrict (torpedoes), cycling is limited to emitters
   // whose facing arc covers the target at the ship's current (post-turn)
   // heading — otherwise a multi-torpedo shot would happily pull in an aft
   // launcher against a target dead ahead. If nothing covers (e.g. residual

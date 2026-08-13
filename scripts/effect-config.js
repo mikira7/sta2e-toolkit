@@ -418,6 +418,10 @@ const BEAM_VFX_FIELD_GROUPS = Object.freeze([
         hint: "\"add\" gives the glowing additive look; \"normal\" draws flat." },
       { key: "cleanupDelay", label: "Cleanup delay", kind: "range", min: 0, max: 1000, step: 10, unit: "ms",
         hint: "Extra time before the graphics are destroyed. Raise only if beams vanish early." },
+      { key: "emitterPairDistance", label: "Companion emitter distance", kind: "range", min: 0, max: 0.5, step: 0.01,
+        hint: "How close two emitters must sit on the ship image to count as a pair and alternate their shots, "
+          + "as a fraction of the image size. Set to 0 to switch automatic pairing off; emitters linked by hand "
+          + "with \"Alternates With\" in the Ship VFX Anchors editor still alternate. Arrays and lances never pair." },
     ],
   },
   {

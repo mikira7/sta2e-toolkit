@@ -494,22 +494,24 @@ function siblingControls(panelEl) {
 }
 
 /**
- * Momentum owed for Area secondary targets on this row.
+ * Momentum owed for Area secondary targets on this row — 1 each.
  *
- * Ship: the card carries a live checkbox list of additional ships, so the cost
- * tracks whatever is ticked right now — 1 each. Reading the DOM rather than the
- * spend context is deliberate; the count changes after the card was built.
+ * Both scopes carry a live checkbox list of additional targets in the primary's
+ * zone, so the ticked count is read from the DOM rather than the spend context:
+ * it changes after the card was built.
  *
- * Ground: every targeted token already has its own damage row, so each row past
- * the first owes a flat 1, fixed at panel-build time.
+ * Ground adds a second, non-overlapping source. Every token the attacker
+ * targeted directly already has its own damage row, and each row past the first
+ * owes a flat 1 fixed at panel-build time. Those tokens are excluded from the
+ * picker (see `_getGroundAreaSecondaryTargets`), so the two never double-bill
+ * the same character and simply sum.
  */
 function areaSecondaryCostFor(panelEl, blob, qualities) {
-  if (qualities.isShip) {
-    const controls = siblingControls(panelEl);
-    const checked = controls?.querySelectorAll(".sta2e-main-area-target:checked").length ?? 0;
-    return checked * SECONDARY_TARGET_COST;
-  }
-  return Math.max(0, Number(blob.areaSecondaryCost) || 0);
+  const controls = siblingControls(panelEl);
+  const checked = controls?.querySelectorAll(".sta2e-main-area-target:checked").length ?? 0;
+  const picked = checked * SECONDARY_TARGET_COST;
+  if (qualities.isShip) return picked;
+  return picked + Math.max(0, Number(blob.areaSecondaryCost) || 0);
 }
 
 /**

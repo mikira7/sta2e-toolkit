@@ -1,0 +1,333 @@
+/*
+ * sta2e-toolkit | combat-tracker.css
+ * Round-robin turn order injected into the `sta` system's sidebar Combat Tracker.
+ *
+ * DOM structure, top to bottom (built by scripts/combat/initiative-tracker-ui.js):
+ *
+ *   .combat-tracker[data-sta2e-init]        ← the system's <ol>, we stamp --init-* vars on it
+ *     li.sta2e-init__band--acted            "ACTED"
+ *     li.combatant.sta2e-init--acted        … dimmed, in activation order
+ *     li.sta2e-init__band--next             "▸ UP NEXT: CREW"
+ *     li.combatant.sta2e-init--up           … first in the running order
+ *     li.combatant.sta2e-init--queued       … the rest, INTERLEAVED Crew → NPC → Crew
+ *
+ *   The upcoming rows are a genuine round-robin projection, not two side groups:
+ *   projectedOrder() alternates sides and drains to whichever side has slots left.
+ *
+ *   Injected into every .combatant row:
+ *     .sta2e-init__order                    1, 2, 3 … position (or "2·×4" for a Scale-4 ship)
+ *     .sta2e-init__chip--crew | --npc       side badge
+ *     .sta2e-init__pips                     ◆ major / ⬡ minor, .is-used when spent
+ *
+ *   Injected around the <ol>:
+ *     #sta2e-init-header                    "Round 2 · Crew first · Up: NPC"
+ *     #sta2e-init-footer
+ *       .sta2e-init__buys                   + Minor / + Major, for the acting combatant
+ *       .sta2e-init__btn--keep | --seize    Keep / Seize the Initiative
+ *
+ * The buy buttons live in the footer rather than inside the active row: the
+ * sidebar is ~300px wide and the system's .combatant row is a fixed flex layout
+ * that a full-width child would fight.
+ *
+ * Colours come from getLcCssVars("init") stamped on the <ol> at render time, so
+ * the tracker follows the active campaign's LCARS theme like every other panel.
+ */
+
+/* ── Group bands ─────────────────────────────────────────────────────────── */
+
+.combat-tracker > li.sta2e-init__band {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin: 4px 0 2px;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+  border-left: 3px solid var(--init-border-dim, #555);
+  font-family: var(--init-font, sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--init-text-dim, #999);
+  cursor: default;
+}
+
+.combat-tracker > li.sta2e-init__band--next {
+  border-left-color: var(--init-primary, #f80);
+  color: var(--init-primary, #f80);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.combat-tracker > li.sta2e-init__band--next.is-crew {
+  border-left-color: var(--init-secondary, #9cf);
+  color: var(--init-secondary, #9cf);
+}
+
+.combat-tracker > li.sta2e-init__band .sta2e-init__band-note {
+  margin-left: auto;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: var(--init-text-dim, #999);
+}
+
+/* ── Row states ──────────────────────────────────────────────────────────── */
+
+.combat-tracker > li.combatant.sta2e-init--acted {
+  opacity: 0.45;
+}
+
+/* A ship standing by while its officers act. Present, but takes no turns. */
+.combat-tracker > li.combatant.sta2e-init--standby {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
+
+.combat-tracker > li.sta2e-init__band--standby {
+  border-left-color: var(--init-border-dim, #555);
+}
+
+/* The selected combatant: mid-turn, not yet spent. */
+.combat-tracker > li.combatant.sta2e-init--acting {
+  box-shadow: inset 3px 0 0 var(--init-green, #4c6);
+  background: rgba(68, 204, 102, 0.07);
+}
+
+.combat-tracker > li.sta2e-init__band--acting {
+  border-left-color: var(--init-green, #4c6);
+  color: var(--init-green, #4c6);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.combat-tracker > li.combatant.sta2e-init--acting .sta2e-init__order {
+  background: var(--init-green, #4c6);
+  color: #000;
+}
+
+/* Queued rows are live, just not first — kept legible, unlike acted rows. */
+.combat-tracker > li.combatant.sta2e-init--queued {
+  opacity: 0.85;
+}
+
+.combat-tracker > li.combatant.sta2e-init--up {
+  box-shadow: inset 3px 0 0 var(--init-primary, #f80);
+}
+
+/* Position in the running order. Makes the Crew → NPC → Crew alternation
+   readable top-to-bottom instead of having to infer it from the side chips. */
+.sta2e-init__order {
+  display: inline-block;
+  min-width: 14px;
+  padding: 0 3px;
+  margin-right: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.45);
+  font-family: var(--init-font, sans-serif);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  color: var(--init-text-dim, #999);
+  vertical-align: middle;
+}
+
+.combat-tracker > li.combatant.sta2e-init--up .sta2e-init__order {
+  background: var(--init-primary, #f80);
+  color: #000;
+}
+
+/* ── Side chip ───────────────────────────────────────────────────────────── */
+
+.sta2e-init__chip {
+  display: inline-block;
+  padding: 0 4px;
+  margin-right: 4px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: var(--init-font, sans-serif);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 13px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.sta2e-init__chip--crew { color: var(--init-secondary, #9cf); }
+.sta2e-init__chip--npc  { color: var(--init-red, #c33); }
+
+/* ── Minor / Major pips ──────────────────────────────────────────────────── */
+
+/* Never let our additions squeeze the system's own row controls off the end.
+   The ✓ turn-done toggle and the N/M actions readout are load-bearing UI. */
+.combat-tracker .combatant .token-turn-completed,
+.combat-tracker .combatant .token-actions-remaining {
+  flex: 0 0 auto;
+}
+
+/* Pips live inside .token-name (a flex column), so they occupy their own line
+   under the name rather than competing for the row's width. */
+.sta2e-init__pips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.sta2e-init__pips:empty {
+  display: none;
+}
+
+/* Compact form once there are too many actions to draw one glyph each. */
+.sta2e-init__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: var(--init-font, sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  user-select: none;
+}
+
+.sta2e-init__count-glyph {
+  font-size: 10px;
+}
+
+.sta2e-init__count.is-used {
+  opacity: 0.35;
+}
+
+.sta2e-init__count.is-clickable {
+  cursor: pointer;
+}
+
+.sta2e-init__count.is-clickable:hover {
+  opacity: 1;
+  text-shadow: 0 0 4px currentColor;
+}
+
+.sta2e-init__pip {
+  color: var(--init-text-bright, #fff);
+  cursor: default;
+  user-select: none;
+  transition: opacity 0.12s ease;
+}
+
+.sta2e-init__pip--major { color: var(--init-orange, #f90); }
+.sta2e-init__pip--minor { color: var(--init-secondary, #9cf); }
+
+.sta2e-init__pip.is-used {
+  opacity: 0.28;
+}
+
+.sta2e-init__pip.is-clickable {
+  cursor: pointer;
+}
+
+.sta2e-init__pip.is-clickable:hover {
+  opacity: 1;
+  text-shadow: 0 0 4px currentColor;
+}
+
+/* The +1 Difficulty a bought Major action still owes. */
+.sta2e-init__diff-badge {
+  padding: 0 3px;
+  border: 1px solid var(--init-yellow, #fc3);
+  border-radius: 2px;
+  font-family: var(--init-font, sans-serif);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--init-yellow, #fc3);
+}
+
+/* ── Buy buttons (active row) and footer ─────────────────────────────────── */
+
+.sta2e-init__buys {
+  display: flex;
+  gap: 4px;
+  flex: 1 1 100%;
+}
+
+/* Names whoever the spend buttons act on — the turn pointer is often unset. */
+.sta2e-init__target {
+  flex: 1 1 100%;
+  font-family: var(--init-font, sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--init-primary, #f80);
+}
+
+#sta2e-init-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  border-top: 1px solid var(--init-border-dim, #444);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.sta2e-init__btn {
+  flex: 1 1 auto;
+  padding: 3px 6px;
+  border: 1px solid var(--init-border, #888);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  font-family: var(--init-font, sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--init-text, #ddd);
+  cursor: pointer;
+  /* Crew-side labels spell out both payment routes ("2 Momentum or 2 Threat"),
+     which will not fit the sidebar on one line — let them wrap rather than
+     abbreviating the currency into something cryptic. */
+  white-space: normal;
+  line-height: 1.25;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sta2e-init__btn:hover:not(:disabled) {
+  background: var(--init-primary, #f80);
+  color: #000;
+}
+
+.sta2e-init__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sta2e-init__btn--keep  { border-color: var(--init-secondary, #9cf); color: var(--init-secondary, #9cf); }
+.sta2e-init__btn--seize { border-color: var(--init-red, #c33);       color: var(--init-red, #c33); }
+
+.sta2e-init__btn--keep:hover:not(:disabled)  { background: var(--init-secondary, #9cf); color: #000; }
+.sta2e-init__btn--seize:hover:not(:disabled) { background: var(--init-red, #c33);       color: #000; }
+
+/* ── Header summary line ─────────────────────────────────────────────────── */
+
+#sta2e-init-header {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--init-border-dim, #444);
+  background: rgba(0, 0, 0, 0.3);
+  font-family: var(--init-font, sans-serif);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--init-text-dim, #999);
+}
+
+#sta2e-init-header strong {
+  color: var(--init-primary, #f80);
+  font-weight: 700;
+}

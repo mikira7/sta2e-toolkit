@@ -46,6 +46,7 @@ function _sourceLabel(source) {
     regenShields: "Regen Shields",
     traitCreation: "Trait Creation",
     traitCreationRefund: "Trait Creation Refund",
+    turnOrder: "Turn Order",
     toolkit: "Toolkit",
   };
   return labels[source] ?? source ?? "Toolkit";
@@ -324,7 +325,10 @@ export function canUserAdjustPool(pool, source = "toolkit", delta = 0) {
   const key = _key(pool);
   if (game.user?.isGM) return true;
   if (key === "momentum" || key === "alliedNpcMomentum") return true;
-  return ["diceRoller", "torpedoAttack"].includes(source) && Number(delta) > 0;
+  // Players may only ever ADD Threat, and only from an allow-listed source.
+  // "turnOrder" is the STA alternative payment route: rather than spending
+  // Momentum on a turn-order spend, a player hands the GM the same in Threat.
+  return ["diceRoller", "torpedoAttack", "turnOrder"].includes(source) && Number(delta) > 0;
 }
 
 export async function setPool(pool, value, options = {}) {

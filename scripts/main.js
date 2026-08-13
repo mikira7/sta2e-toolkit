@@ -21,6 +21,12 @@ import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { applyAssistPendingRequest } from "./assist-pending.js";
+import {
+  onTurnChanged, onRoundChanged, reconcileActivations,
+  applyTurnOrderSpend, setActionUsed, getExtraActionDifficulty,
+} from "./combat/initiative-order.js";
+import { registerInitiativeTrackerUI } from "./combat/initiative-tracker-ui.js";
+import { registerShipTurnMarker } from "./combat/initiative-turn-marker.js";
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { openShipSpawner } from "./ship-spawner.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
@@ -293,6 +299,8 @@ Hooks.once("init", () => {
   registerTokenWeaponHud();
   registerHullDecals();
   registerTraitItemSheetFields();
+  registerInitiativeTrackerUI();
+  registerShipTurnMarker();
   registerStarSystemActorSheet();
   registerStarSystemActorDirectoryHooks();
   registerStarSystemMapHover();
@@ -695,9 +703,24 @@ Hooks.once("ready", async () => {
     const cumbersomePenalty = pending.rollerOpts?.cumbersomePenalty ?? pending.cumbersomePenalty ?? 0;
     const pointDefensePenalty = pending.pointDefensePenalty ?? pending.rollerOpts?.pointDefensePenalty ?? 0;
     const attackPatternPenalty = pending.attackPatternPenalty ?? pending.rollerOpts?.attackPatternPenalty ?? 0;
+    // +1 owed by a Major Action the attacker bought with Momentum this turn. In
+    // ship combat the tracker activates the officer, not the ship, so check the
+    // officer first and fall back to the ship actor for ground/solo attackers.
+    //
+    // NOTE: this is a second, hand-rolled copy of opposed-task.js's
+    // `_calculateOpposedDifficulty`. The two must be kept in step — this one
+    // still omits the trait deltas that the other applies.
+    const _atkOfficer = pending.rollerOpts?.officer?.id
+      ? game.actors.get(pending.rollerOpts.officer.id)
+      : null;
+    const _atkActor = game.actors?.get(pending.attackerActorId)
+      ?? canvas.tokens?.get(pending.attackerTokenId)?.actor
+      ?? null;
+    const extraActionPenalty = getExtraActionDifficulty(_atkOfficer)
+      || getExtraActionDifficulty(_atkActor);
     const rawDifficulty = pending.overridePenalty
-      ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty
-      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty;
+      ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty + extraActionPenalty
+      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty + extraActionPenalty;
     const difficulty = Math.max(0, rawDifficulty - attackPatternPenalty);
 
     // Build the taskContext string now that defender's actual successes are known
@@ -1117,6 +1140,7 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.lcarsRing?.refresh?.();
       game.sta2eToolkit?.sfxWidget?.refresh?.();
       _applySheetTheme();   // re-inject sheet CSS on every client when theme changes
+      try { ui.combat?.render(); } catch {}   // turn-order strip re-reads LC tokens
     }
 
     else if (msg.action === "refreshPoolTracker") {
@@ -1321,6 +1345,27 @@ Hooks.once("ready", async () => {
         return;
       }
       await applyAssistPendingRequest(td, op, key, entry);
+    }
+
+    else if (msg.action === "initiativeSpend" && _isResponsibleGM()) {
+      // A player bought a turn-order spend for a combatant they own. Which pool
+      // moves, and in which direction, is derived from the combatant's side
+      // inside applyTurnOrderSpend — not from whoever is executing this — so the
+      // relay through the GM cannot flip a player's Threat payment into a spend.
+      const { kind, combatantId, payment, userName } = msg;
+      if (!kind) return;
+      await applyTurnOrderSpend({ kind, combatantId, payment, userName });
+    }
+
+    else if (msg.action === "initiativeSetActions" && _isResponsibleGM()) {
+      const { combatantId, kind, value } = msg;
+      const combatant = game.combat?.combatants?.get(combatantId);
+      if (!combatant) {
+        console.warn(`STA2e Toolkit | initiativeSetActions: combatant ${combatantId} not found`);
+        return;
+      }
+      await setActionUsed(combatant, kind, value);
+      try { ui.combat?.render(); } catch {}
     }
 
     else if (msg.action === "applyMakeYourOwnLuckTaskRoll" && _isResponsibleGM()) {
@@ -2148,6 +2193,32 @@ Hooks.on("updateCombat", async (combat, changes) => {
     await CombatHUD.applyPersistentShipDamageForRound?.().catch(err =>
       console.warn("STA2e Toolkit | Persistent ship damage round-start failed:", err)
     );
+  }
+
+  // ── Round-robin turn order ────────────────────────────────────────────────
+  // Deliberately ahead of the combatHud/guardActive blocks below: the guardActive
+  // block early-returns when the active combatant has no token, and tokenless
+  // crew officers are the norm in ship combat (see the createCombatant hook).
+  //
+  // `Combat2d20#setTurn` ends in `this.update({round, turn})`, so a row-click in
+  // the system's popcorn tracker lands here just like next/previous turn does.
+  if (_isResponsibleGM()) {
+    try {
+      // `else if` is load-bearing. Foundry's nextRound()/startCombat() send
+      // `{round, turn}` in ONE update, so treating the two independently would
+      // log whoever happens to sit at turns[0] as having already taken a turn in
+      // the new round — burning their activation and firing a bogus
+      // "acted out of turn" warning against the side that should be going first.
+      if ("round" in changes) await onRoundChanged(combat);
+      else if ("turn" in changes && combat.combatant) await onTurnChanged(combat, combat.combatant);
+      // No turn change, but a turn may still have been spent: the sta tracker's
+      // ✓ "take action" control only writes flags.sta.actionsRemaining on the
+      // Combat document. Reconcile picks those up. It only ever adds entries the
+      // log is missing, so it is a no-op after the two branches above.
+      else await reconcileActivations(combat);
+    } catch (err) {
+      console.warn("STA2e Toolkit | Turn-order update failed:", err);
+    }
   }
 
   const combatHud = game.sta2eToolkit?.combatHud;

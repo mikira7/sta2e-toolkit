@@ -848,7 +848,21 @@
           <option value="below" {{#if activeEmitterArcControls.layerBelowSelected}}selected{{/if}}>Below Token</option>
         </select>
       </div>
+      {{#if activeEmitterArcControls.showEmitterLink}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-emitter-link">Alternates With</label>
+        <select id="sta2e-emitter-link" data-emitter-link>
+          <option value="">Nearby emitters (automatic)</option>
+          {{#each activeEmitterArcControls.emitterLinkOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      {{/if}}
     </div>
+    {{#if activeEmitterArcControls.showEmitterLink}}
+    <div class="sta2e-anchor-value">{{#if activeEmitterArcControls.emitterLinkSummary}}{{activeEmitterArcControls.emitterLinkSummary}} Choose "Nearby emitters" to break the link.{{else}}Emitters placed close together already alternate their shots. Pick another emitter here to pair them explicitly, however far apart they sit — both ends are linked for you.{{/if}}</div>
+    {{/if}}
     {{/if}}
 
     <div class="sta2e-vfx-preview-bar">
@@ -1128,7 +1142,7 @@
         {{/each}}
         {{/if}}
         {{#each activeMarkers}}
-        <div class="sta2e-anchor-marker {{#if selected}}is-selected{{/if}} {{#if showFacingArrow}}has-facing-arrow{{/if}}" data-anchor-marker data-move-emitter="{{index}}" title="{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} - Facing {{facingDeg}} deg / Arc {{arcWidthDeg}} deg / {{layerLabel}}{{/if}}" style="left: {{left}}; top: {{top}}; background: {{markerColor}}; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28), 0 0 14px {{markerColor}};">
+        <div class="sta2e-anchor-marker {{#if selected}}is-selected{{/if}} {{#if showFacingArrow}}has-facing-arrow{{/if}}" data-anchor-marker data-move-emitter="{{index}}" title="{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} - Facing {{facingDeg}} deg / Arc {{arcWidthDeg}} deg / {{layerLabel}}{{/if}}{{#if pairGroupLabel}} / {{pairGroupLabel}}{{/if}}" style="left: {{left}}; top: {{top}}; background: {{markerColor}}; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.28), 0 0 14px {{markerColor}};">
           {{#if showFacingArrow}}<span class="sta2e-anchor-facing-arrow" style="transform: rotate({{facingDeg}}deg);"></span>{{/if}}
           {{displayIndex}}
         </div>
@@ -1181,7 +1195,7 @@
       {{#each activeMarkers}}
         <div class="sta2e-anchor-list-row {{#if selected}}is-selected{{/if}}" data-select-emitter="{{index}}">
         <div class="sta2e-anchor-pill" style="background: {{markerColor}};">{{displayIndex}}</div>
-        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} / {{facingDeg}} deg{{#if showArcWidth}} / {{arcWidthDeg}} deg{{/if}} / {{layerLabel}}{{/if}}</div>
+        <div>{{#if systemLabel}}{{systemLabel}} - {{/if}}{{coords}}{{#if showFacingArrow}} / {{facingDeg}} deg{{#if showArcWidth}} / {{arcWidthDeg}} deg{{/if}} / {{layerLabel}}{{/if}}{{#if pairGroupLabel}} / {{pairGroupLabel}}{{/if}}</div>
         <button type="button" class="sta2e-anchor-remove" data-remove-emitter="{{index}}" title="Remove point {{displayIndex}}">
           <i class="fas fa-trash"></i>
         </button>

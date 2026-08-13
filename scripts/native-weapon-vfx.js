@@ -10,6 +10,7 @@ import {
   getShipWeaponVfxSettings,
   getShipHitLocationPointForShot,
   getShipWeaponEmitterArcSelection,
+  getShipWeaponEmitterCluster,
   getShipWeaponEmitterAnchors,
   getTokenAlphaMask,
   isShipArrayWeapon,
@@ -97,6 +98,7 @@ export const DEFAULT_BEAM_VFX_SETTINGS = Object.freeze({
     easing: "inQuad",
     blendMode: "add",
     cleanupDelay: 120,
+    emitterPairDistance: 0.12,
   }),
   // Per-era tint for phaser BANKS, keyed off the ship's phaserEra weapon
   // setting. Blank means "no era tint" — the beam keeps its normal colour.
@@ -145,6 +147,7 @@ const BEAM_VFX_RANGES = Object.freeze({
 
   "shared.holdPercent": [0.05, 0.95],
   "shared.cleanupDelay": [0, 2000],
+  "shared.emitterPairDistance": [0, 0.5],
 
   "tracer.boltLength": [4, 400], "tracer.boltCount": [1, 24],
   "tracer.boltSpacing": [5, 500], "tracer.travelDuration": [40, 2000],
@@ -531,6 +534,12 @@ function _sourcePointForShot(sourceToken, weapon, targetPoint, shotIndex = 0, vf
     const nearestPoint = _nearestShipWeaponEmitterPoint(sourceToken, weapon, targetPoint, vfxSettings);
     if (nearestPoint) return nearestPoint;
   }
+
+  // Twin banks and paired cannons/launchers trade shots between companion
+  // emitters. This has to come before the selectedEmitter branch below, which
+  // pins every shot of the volley to the one emitter the ship turned to aim.
+  const cluster = getShipWeaponEmitterCluster(sourceToken, weapon, targetPoint, selectedEmitter, vfxSettings);
+  if (cluster?.length) return cluster[Math.abs(shotIndex) % cluster.length];
 
   if (selectedEmitter?.anchor && !isShipArrayWeapon(weapon)) {
     const point = shipWeaponAnchorToCanvasPoint(sourceToken, weapon, selectedEmitter.anchor, vfxSettings, targetPoint);

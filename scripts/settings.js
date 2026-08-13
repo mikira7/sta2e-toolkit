@@ -113,6 +113,119 @@ export function registerSettings() {
     default: { order: [], hidden: [], columns: 2 },
   });
 
+  // ── Round-robin initiative ────────────────────────────────────────────────
+  // The `sta` system's popcorn tracker lets the GM activate any combatant. These
+  // settings layer STA 2e's side alternation, per-turn action economy and the
+  // turn-order spends on top of it. See combat/initiative-order.js.
+
+  game.settings.register("sta2e-toolkit", "initiativeRoundRobin", {
+    name:     "STA2E.Settings.InitiativeRoundRobin.Name",
+    hint:     "STA2E.Settings.InitiativeRoundRobin.Hint",
+    scope:    "world",
+    config:   true,
+    type:     Boolean,
+    default:  true,
+    onChange: () => { try { ui.combat?.render(); } catch {} },
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativeShipStandby", {
+    name:     "STA2E.Settings.InitiativeShipStandby.Name",
+    hint:     "STA2E.Settings.InitiativeShipStandby.Hint",
+    scope:    "world",
+    config:   true,
+    type:     Boolean,
+    default:  true,
+    onChange: () => { try { ui.combat?.render(); } catch {} },
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativeShipTurnMarker", {
+    name:    "STA2E.Settings.InitiativeShipTurnMarker.Name",
+    hint:    "STA2E.Settings.InitiativeShipTurnMarker.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativeTurnMarkerFit", {
+    name:     "STA2E.Settings.InitiativeTurnMarkerFit.Name",
+    hint:     "STA2E.Settings.InitiativeTurnMarkerFit.Hint",
+    scope:    "world",
+    config:   true,
+    type:     Boolean,
+    default:  true,
+    onChange: () => game.sta2eToolkit?.refreshTurnMarkerSizes?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativeTurnMarkerScale", {
+    name:     "STA2E.Settings.InitiativeTurnMarkerScale.Name",
+    hint:     "STA2E.Settings.InitiativeTurnMarkerScale.Hint",
+    scope:    "world",
+    config:   true,
+    type:     Number,
+    range:    { min: 0.25, max: 3, step: 0.05 },
+    default:  1,
+    onChange: () => game.sta2eToolkit?.refreshTurnMarkerSizes?.(),
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativePlayerSpends", {
+    name:     "STA2E.Settings.InitiativePlayerSpends.Name",
+    hint:     "STA2E.Settings.InitiativePlayerSpends.Hint",
+    scope:    "world",
+    config:   true,
+    type:     Boolean,
+    default:  true,
+    onChange: () => { try { ui.combat?.render(); } catch {} },
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativePlayerThreatPayment", {
+    name:     "STA2E.Settings.InitiativePlayerThreatPayment.Name",
+    hint:     "STA2E.Settings.InitiativePlayerThreatPayment.Hint",
+    scope:    "world",
+    config:   true,
+    type:     Boolean,
+    default:  true,
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativeAutoTrackActions", {
+    name:    "STA2E.Settings.InitiativeAutoTrackActions.Name",
+    hint:    "STA2E.Settings.InitiativeAutoTrackActions.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "initiativeApplyExtraMajorDifficulty", {
+    name:    "STA2E.Settings.InitiativeApplyExtraMajorDifficulty.Name",
+    hint:    "STA2E.Settings.InitiativeApplyExtraMajorDifficulty.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  const _initiativeCost = (key, label, hint, def) => {
+    game.settings.register("sta2e-toolkit", key, {
+      name:    label,
+      hint,
+      scope:   "world",
+      config:  true,
+      type:    Number,
+      range:   { min: 0, max: 6, step: 1 },
+      default: def,
+    });
+  };
+
+  _initiativeCost("keepInitiativeCost",
+    "STA2E.Settings.KeepInitiativeCost.Name", "STA2E.Settings.KeepInitiativeCost.Hint", 2);
+  _initiativeCost("seizeInitiativeCost",
+    "STA2E.Settings.SeizeInitiativeCost.Name", "STA2E.Settings.SeizeInitiativeCost.Hint", 2);
+  _initiativeCost("extraMinorCost",
+    "STA2E.Settings.ExtraMinorCost.Name", "STA2E.Settings.ExtraMinorCost.Hint", 1);
+  _initiativeCost("extraMajorCost",
+    "STA2E.Settings.ExtraMajorCost.Name", "STA2E.Settings.ExtraMajorCost.Hint", 2);
+
   game.settings.register("sta2e-toolkit", "poolTrackerMode", {
     name:    "STA2E.Settings.PoolTrackerMode.Name",
     hint:    "STA2E.Settings.PoolTrackerMode.Hint",

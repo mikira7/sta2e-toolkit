@@ -13,6 +13,14 @@ import {
   isMultiZoneToken as _isMultiZoneToken,
 } from "./zone-data.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { refreshTurnMarkerSizes as _refreshTurnMarkerSizes } from "./combat/initiative-turn-marker.js";
+import {
+  getTurnOrder as _getTurnOrder,
+  expectedSide as _expectedSide,
+  sideOf as _sideOf,
+  getTurnActions as _getTurnActions,
+  requestTurnOrderSpend as _requestTurnOrderSpend,
+} from "./combat/initiative-order.js";
 
 export class ToolkitAPI {
 
@@ -41,9 +49,53 @@ export class ToolkitAPI {
     game.sta2eToolkit?.sfxWidget?.refresh?.();
     // Re-inject sheet CSS on the local (GM) client immediately
     game.sta2eToolkit?.refreshSheetTheme?.();
+    // Re-render the combat tracker so the turn-order strip re-reads LC tokens.
+    try { ui.combat?.render(); } catch {}
     // Socket message re-applies sheet CSS on all player clients too (see main.js renderHUD handler)
     game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
   }
+
+  // ---------------------------------------------------------------------------
+  // Round-robin turn order
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Snapshot of the current round's turn order.
+   * @returns {{round, firstSide, lastSide, sequence, hold, expected}|null}
+   */
+  getTurnOrder(combat = game.combat) { return _getTurnOrder(combat); }
+
+  /** Which side ("crew"|"npc") should act next. */
+  getExpectedSide(combat = game.combat) { return _expectedSide(combat); }
+
+  /** Which side a combatant fights on. Safe on tokenless crew combatants. */
+  getCombatSide(combatant) { return _sideOf(combatant); }
+
+  /** A combatant's Minor/Major budget for the turn it is currently taking. */
+  getTurnActions(combatant) { return _getTurnActions(combatant); }
+
+  /**
+   * Buy a turn-order spend. Routes itself — the GM applies it directly, a player
+   * asks the responsible GM over the socket.
+   * @param {"keep"|"seize"|"extraMinor"|"extraMajor"} kind
+   * @param {string} combatantId
+   * @param {"momentum"|"threat"} payment
+   */
+  declareTurnOrderSpend(kind, combatantId, payment = "momentum") {
+    return _requestTurnOrderSpend({ kind, combatantId, payment });
+  }
+
+  /** Convenience wrappers for macros. */
+  declareKeepInitiative(combatantId, payment = "momentum") {
+    return this.declareTurnOrderSpend("keep", combatantId, payment);
+  }
+
+  seizeInitiative(combatantId = null) {
+    return this.declareTurnOrderSpend("seize", combatantId, "threat");
+  }
+
+  /** Re-size every active turn marker — called when the scale settings change. */
+  refreshTurnMarkerSizes() { return _refreshTurnMarkerSizes(); }
 
   // ---------------------------------------------------------------------------
   // Campaign data access

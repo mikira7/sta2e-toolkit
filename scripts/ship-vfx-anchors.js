@@ -12,7 +12,7 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 11;
+const SHIP_VFX_ANCHORS_VERSION = 12;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -21,6 +21,10 @@ const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
 const WEAPON_EMITTER_LANCE_MIN_ARC_WIDTH_DEG = 0;
 const WEAPON_EMITTER_MAX_ARC_WIDTH_DEG = 180;
 const WEAPON_EMITTER_LAYERS = Object.freeze(["above", "below"]);
+// Two emitters closer than this on the ship image (normalized units, so the
+// value survives any token scale/rotation) count as companions and alternate
+// their shots. Overridden by the shared.emitterPairDistance beam VFX setting.
+const DEFAULT_EMITTER_PAIR_DISTANCE = 0.12;
 const POINT_DEFENSE_COLOR_MODES = Object.freeze(["auto", "custom"]);
 export const DEFAULT_POINT_DEFENSE_SETTINGS = Object.freeze({
   colorMode: "auto",
@@ -265,7 +269,39 @@ function _normalizeWeaponEmitter(anchor) {
     facingDeg: _normalizeDegrees(anchor?.facingDeg, _defaultEmitterFacingDeg(normalized)),
     arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg, _emitterArcMinForWeaponImg(anchor?.weaponImg)),
     layer: _normalizeEmitterLayer(anchor?.layer),
+    pairGroup: _normalizePairGroup(anchor?.pairGroup),
   };
+}
+
+// Optional manual companion tag. Blank means "pair automatically by proximity".
+function _normalizePairGroup(value) {
+  return String(value ?? "").trim().slice(0, 32);
+}
+
+// Smallest unused link name, so groups read as "Link 1", "Link 2" in tooltips.
+function _nextEmitterLinkId(emitters) {
+  const used = new Set(
+    (emitters ?? []).map(anchor => _normalizePairGroup(anchor?.pairGroup).toLowerCase()).filter(Boolean),
+  );
+  for (let n = 1; n <= 99; n++) {
+    if (!used.has(`link ${n}`)) return `Link ${n}`;
+  }
+  return `Link ${Date.now()}`;
+}
+
+// A link needs two ends: clear a group tag that's down to one emitter so it
+// falls back to automatic proximity pairing instead of firing solo forever.
+function _pruneEmitterLinks(emitters) {
+  const counts = new Map();
+  for (const anchor of emitters) {
+    const group = _normalizePairGroup(anchor?.pairGroup).toLowerCase();
+    if (group) counts.set(group, (counts.get(group) ?? 0) + 1);
+  }
+  return emitters.map(anchor => {
+    const group = _normalizePairGroup(anchor?.pairGroup).toLowerCase();
+    if (!group || counts.get(group) > 1) return anchor;
+    return { ...anchor, pairGroup: "" };
+  });
 }
 
 function _normalizeEngineKind(value) {
@@ -1025,6 +1061,110 @@ function _compareScore(a, b) {
     if (av > bv) return 1;
   }
   return 0;
+}
+
+// ── Companion emitter clusters ──────────────────────────────────────────────
+// A twin phaser bank is two emitters sitting side by side on the hull; firing
+// it should trade off between them rather than pour every bolt out of one port.
+
+function _emitterPairDistance() {
+  try {
+    const raw = Number(game.settings.get(MODULE, "beamVfxAppearance")?.shared?.emitterPairDistance);
+    if (Number.isFinite(raw)) return Math.min(0.5, Math.max(0, raw));
+  } catch { /* setting not registered yet */ }
+  return DEFAULT_EMITTER_PAIR_DISTANCE;
+}
+
+// Anchors are re-normalized on every read, so object identity never survives a
+// round trip; locate a remembered anchor by its image-space position instead.
+function _matchAnchorIndex(anchors, anchor) {
+  if (!anchor) return -1;
+  return anchors.findIndex(a => Math.abs(a.x - anchor.x) < 0.0005 && Math.abs(a.y - anchor.y) < 0.0005);
+}
+
+function _emitterArcCoversTarget(anchor, weapon, targetBearing) {
+  const facingDeg = _normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor));
+  const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg, _emitterArcMinForWeaponImg(_weaponImg(weapon)));
+  return _angleDistanceDeg(targetBearing, facingDeg) <= (arcWidthDeg / 2);
+}
+
+/**
+ * Ordered emitters that share one volley: the emitter the ship brought to bear,
+ * followed by its companions. Callers index this with the shot number so
+ * consecutive shots alternate — A, B, A for a twin bank; A, B, C, A for a triple.
+ *
+ * Companions are the emitters sharing the primary's Pair Group or, when it has
+ * none, those sitting within the pair distance of it on the ship image. A
+ * companion only joins if its own firing arc covers the target — measured at
+ * the ship's current heading, so this runs after any turn-to-fire. The primary
+ * is kept regardless, since it is the emitter the ship turned to aim.
+ *
+ * Returns null rather than a one-entry list when pairing does not apply, so
+ * callers fall through to their existing single-emitter pick. Arrays walk a
+ * curve instead of discrete emitters, and lances are single-shot spinal mounts;
+ * both opt out.
+ *
+ * Every input is an actor flag, the token's rotation, or the target point, so
+ * each client replays the same sequence from the broadcast animation payload.
+ */
+export function getShipWeaponEmitterCluster(token, weapon, targetPoint, selection = null, settingsOverride = null) {
+  if (!token || !weapon || !targetPoint) return null;
+  if (_isArrayWeapon(weapon) || _isLanceWeaponImg(_weaponImg(weapon))) return null;
+
+  const anchors = getShipWeaponEmitterAnchors(token, weapon);
+  if (anchors.length < 2) return null;
+
+  let primaryIndex = _matchAnchorIndex(anchors, selection?.anchor);
+  if (primaryIndex < 0) {
+    primaryIndex = _matchAnchorIndex(
+      anchors,
+      getShipWeaponEmitterArcSelection(token, weapon, targetPoint, settingsOverride)?.anchor,
+    );
+  }
+  if (primaryIndex < 0) primaryIndex = 0;
+  const primary = anchors[primaryIndex];
+
+  const group = _normalizePairGroup(primary.pairGroup).toLowerCase();
+  const pairDistance = _emitterPairDistance();
+  const targetBearing = shipTargetBearingToLocalDeg(token, targetPoint);
+
+  const members = [];
+  anchors.forEach((anchor, index) => {
+    if (index === primaryIndex) return;
+    const anchorGroup = _normalizePairGroup(anchor.pairGroup).toLowerCase();
+    // A tagged emitter only ever fires with its own named group, so proximity
+    // pairing skips it entirely.
+    const paired = group
+      ? anchorGroup === group
+      : !anchorGroup
+        && pairDistance > 0
+        // Epsilon so a spacing that exactly matches the configured distance
+        // isn't excluded by float noise (0.56 - 0.44 lands just over 0.12).
+        && Math.hypot(anchor.x - primary.x, anchor.y - primary.y) <= pairDistance + 1e-6;
+    if (!paired || !_emitterArcCoversTarget(anchor, weapon, targetBearing)) return;
+    members.push(index);
+  });
+  if (!members.length) return null;
+
+  // Primary first, companions in anchor order. Stable ordering (rather than
+  // by distance to target) is what keeps the alternation predictable and stops
+  // shot 0 and shot 1 landing on the same emitter.
+  const points = [primaryIndex, ...members]
+    .map(index => {
+      const anchor = anchors[index];
+      const point = shipWeaponAnchorToCanvasPoint(token, weapon, anchor, settingsOverride, targetPoint);
+      if (!point) return null;
+      return {
+        x: point.x,
+        y: point.y,
+        layer: _normalizeEmitterLayer(anchor.layer),
+        facingDeg: _normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor)),
+        index,
+      };
+    })
+    .filter(Boolean);
+
+  return points.length > 1 ? points : null;
 }
 
 export function getClosestShipWeaponEmitterPoint(token, weapon, targetPoint, settingsOverride = null) {
@@ -1824,6 +1964,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._activeHitSystem = "structure";
     this._activePlacementMode = "points";
     this._selectedEmitterIndex = 0;
+    // Which emitter the settings form currently shows; see _readEmitterArcFromForm.
+    this._emitterFormIndex = null;
     this._pendingCurvePoints = [];
     this._pendingZonePoints = [];
     this._autoPreview = false;
@@ -2464,6 +2606,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, isEngineTab ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
       arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg, arcMin),
       layerLabel: _normalizeEmitterLayer(anchor.layer) === "below" ? "Below" : "Above",
+      pairGroupLabel: isWeaponEmitterTab ? _normalizePairGroup(anchor.pairGroup) : "",
     }));
   }
 
@@ -2476,12 +2619,14 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _activeEmitterArcControls() {
+    this._emitterFormIndex = null;
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
     if (!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
+    this._emitterFormIndex = selected.index;
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
     const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor);
     const minArcWidthDeg = isWeaponEmitterTab
@@ -2494,6 +2639,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       arcWidthDeg: _normalizeEmitterArcWidth(selected.anchor.arcWidthDeg, minArcWidthDeg),
       minArcWidthDeg,
       showArcWidth: isWeaponEmitterTab,
+      ...this._emitterLinkControls(isWeaponEmitterTab, selected),
       isEngine: isEngineTab,
       isPointDefense: isPointDefenseTab,
       layer,
@@ -2502,28 +2648,93 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     };
   }
 
+  // ── Companion emitter links ───────────────────────────────────────────────
+  // Two emitters that share a pairGroup alternate their shots. The editor
+  // presents that as "link this emitter to that one" and writes both ends, so
+  // the GM never has to type a matching tag on each emitter in turn.
+
+  _emitterLinkControls(isWeaponEmitterTab, selected) {
+    // Lances are single-shot spinal mounts, so they never alternate.
+    const showEmitterLink = isWeaponEmitterTab && !_isLanceWeaponImg(_weaponImg(this._weaponForTab()));
+    if (!showEmitterLink) return { showEmitterLink: false };
+
+    const emitters = this._activeEmitters();
+    const linked = this._linkedEmitterIndexes(emitters, selected.index);
+    return {
+      showEmitterLink: emitters.length > 1,
+      emitterLinkOptions: emitters
+        .map((anchor, index) => ({ anchor, index }))
+        .filter(entry => entry.index !== selected.index)
+        .map(entry => ({
+          value: String(entry.index),
+          label: `Emitter ${entry.index + 1}`,
+          selected: linked[0] === entry.index,
+        })),
+      emitterLinkSummary: linked.length
+        ? `Alternates with ${linked.map(index => `Emitter ${index + 1}`).join(", ")}.`
+        : "",
+    };
+  }
+
+  /** Other emitters sharing this one's link group, in emitter order. */
+  _linkedEmitterIndexes(emitters, index) {
+    const group = _normalizePairGroup(emitters[index]?.pairGroup).toLowerCase();
+    if (!group) return [];
+    return emitters.reduce((acc, anchor, other) => {
+      if (other !== index && _normalizePairGroup(anchor.pairGroup).toLowerCase() === group) acc.push(other);
+      return acc;
+    }, []);
+  }
+
+  _linkEmitters(index, partnerIndex) {
+    const emitters = [...this._activeEmitters()];
+    const anchor = emitters[index];
+    const partner = emitters[partnerIndex];
+    if (!anchor || !partner || index === partnerIndex) return;
+    // Prefer the partner's existing group so linking a third emitter onto an
+    // established pair grows that group instead of splitting it in two.
+    const group = _normalizePairGroup(partner.pairGroup)
+      || _normalizePairGroup(anchor.pairGroup)
+      || _nextEmitterLinkId(emitters);
+    emitters[index] = _normalizeWeaponEmitter({ ...anchor, pairGroup: group });
+    emitters[partnerIndex] = _normalizeWeaponEmitter({ ...partner, pairGroup: group });
+    this._setActiveEmitters(_pruneEmitterLinks(emitters));
+  }
+
+  _unlinkEmitter(index) {
+    const emitters = [...this._activeEmitters()];
+    const anchor = emitters[index];
+    if (!anchor) return;
+    emitters[index] = _normalizeWeaponEmitter({ ...anchor, pairGroup: "" });
+    this._setActiveEmitters(_pruneEmitterLinks(emitters));
+  }
+
   _readEmitterArcFromForm() {
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
     if ((!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab) || !this.element) return null;
-    const selected = this._selectedEmitter();
-    if (!selected?.anchor) return null;
+    // Write back to the emitter the form was rendered for, not to whatever is
+    // selected right now. Clicking another marker moves the selection on
+    // pointerdown, which lands before the blur/change of the control the user
+    // was editing — reading the live index there would copy the old value onto
+    // the newly selected emitter.
+    const index = Number.isInteger(this._emitterFormIndex) ? this._emitterFormIndex : this._selectedEmitterIndex;
     const emitters = [...this._activeEmitters()];
-    const current = emitters[selected.index];
+    const current = emitters[index];
     if (!current) return null;
     const facingDeg = this.element.querySelector('[data-emitter-setting="facingDeg"]')?.value ?? current.facingDeg;
     const layer = this.element.querySelector('[data-emitter-setting="layer"]')?.value ?? current.layer;
     if (isPointDefenseTab) {
-      emitters[selected.index] = _normalizePointDefenseEmitter({ ...current, layer });
+      emitters[index] = _normalizePointDefenseEmitter({ ...current, layer });
     } else if (isEngineTab) {
-      emitters[selected.index] = _normalizeEngineEmitter({ ...current, facingDeg, layer });
+      emitters[index] = _normalizeEngineEmitter({ ...current, facingDeg, layer });
     } else {
       const arcWidthDeg = this.element.querySelector('[data-emitter-setting="arcWidthDeg"]')?.value ?? current.arcWidthDeg;
-      emitters[selected.index] = _normalizeWeaponEmitter({ ...current, facingDeg, arcWidthDeg, layer });
+      emitters[index] = _normalizeWeaponEmitter({ ...current, facingDeg, arcWidthDeg, layer });
     }
     this._setActiveEmitters(emitters);
-    return emitters[selected.index];
+    return emitters[index];
   }
 
   // ── Engine trail settings ─────────────────────────────────────────────────
@@ -3133,6 +3344,19 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         this._scheduleAutoPreview();
         this.render({ force: true });
       });
+    });
+
+    el.querySelector("[data-emitter-link]")?.addEventListener("change", event => {
+      const index = this._emitterFormIndex;
+      if (!Number.isInteger(index)) return;
+      // Test the raw value, not Number(value) — the "automatic" option is the
+      // empty string, and Number("") is 0, which is a valid emitter index.
+      const raw = String(event.currentTarget.value ?? "");
+      const partnerIndex = Number(raw);
+      if (raw !== "" && Number.isInteger(partnerIndex)) this._linkEmitters(index, partnerIndex);
+      else this._unlinkEmitter(index);
+      this._scheduleAutoPreview();
+      this.render({ force: true });
     });
 
     el.querySelector("[data-auto-preview]")?.addEventListener("change", event => {

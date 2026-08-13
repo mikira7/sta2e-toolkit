@@ -120,6 +120,11 @@ import {
   runWarpEngageCard,
   runWarpFleeCard,
 } from "./ship-card-movement.js";
+import {
+  useAction as _useTurnAction,
+  resolveTurnCombatant as _findTurnCombatant,
+  initiativeEnabled as _turnOrderEnabled,
+} from "./initiative-order.js";
 const MODULE      = "sta2e-toolkit";
 const HUD_ID      = "sta2e-combat-hud";
 const POS_KEY     = `${MODULE}-combat-hud-pos`;
@@ -130,6 +135,56 @@ const PINNED_KEY  = `${MODULE}-combat-hud-pinned`;
 const LC = new Proxy({}, {
   get(_, prop) { return getLcTokens()[prop]; },
 });
+
+// ── Minor / Major action classification ──────────────────────────────────────
+// Built once from the action catalogs so the turn tracker can mark an action as
+// used when it is actually taken. Keys absent from the map (the Targeting
+// Solution system-picker sub-actions, for instance) are parts of an already
+// counted action and deliberately count for nothing.
+let _actionKindMap = null;
+
+// Actions whose Major cost is charged by the code that actually resolves them,
+// not by the catalog entry. "ground-attack" has no case in _handleQuickAction —
+// an attack is made by clicking a weapon, and _resolveWeapon marks it. Counting
+// it in both places would spend two Major Actions for one attack.
+const _ACTION_KIND_RESOLVED_ELSEWHERE = new Set(["ground-attack"]);
+
+function _actionKind(key) {
+  if (!key || _ACTION_KIND_RESOLVED_ELSEWHERE.has(key)) return null;
+  if (!_actionKindMap) {
+    _actionKindMap = new Map();
+    for (const station of BRIDGE_STATIONS ?? []) {
+      for (const a of station.minor ?? []) if (a?.key) _actionKindMap.set(a.key, "minor");
+      for (const a of station.major ?? []) if (a?.key) _actionKindMap.set(a.key, "major");
+    }
+    for (const a of GROUND_ACTIONS?.minor ?? []) if (a?.key) _actionKindMap.set(a.key, "minor");
+    for (const a of GROUND_ACTIONS?.major ?? []) if (a?.key) _actionKindMap.set(a.key, "major");
+  }
+  return _actionKindMap.get(key) ?? null;
+}
+
+/**
+ * Mark a Minor or Major action as spent on the acting combatant's turn budget.
+ *
+ * Never throws and never blocks — going over budget only warns, because the
+ * table may be doing something the module does not model.
+ */
+async function _markTurnAction(actor, kind, stationId = null) {
+  if (!kind || !actor) return;
+  try {
+    if (!_turnOrderEnabled()) return;
+    if (game.settings.get(MODULE, "initiativeAutoTrackActions") === false) return;
+    if (!game.combat?.started) return;
+    // `stationId` lets a ship action land on the officer manning that station
+    // rather than on the ship, which stands by during starship combat.
+    const combatant = _findTurnCombatant(actor, game.combat, { stationId });
+    if (!combatant) return;
+    await _useTurnAction(combatant, kind);
+    try { ui.combat?.render(); } catch {}
+  } catch (err) {
+    console.warn("STA2e Toolkit | Could not mark turn action:", err);
+  }
+}
 
 function _weaponQualityFlag(weapon, key) {
   return weapon?.system?.qualities?.[key] === true;
@@ -1427,6 +1482,7 @@ export class CombatHUD {
     this._pinned              = localStorage.getItem(PINNED_KEY) === "1";
     this._pendingWeapon       = null;
     this._pendingSalvoMode    = null;
+    this._pendingChargeQuality = null;  // ground Charge choice: "area"|"intense"|"piercing"|null
     this._pendingStunMode     = true;   // for dual Stun/Deadly weapons — true = using stun (default)
     this._opposedDifficulty   = null;   // set when attacker weapon is fired against a defending ship
     this._opposedDefenseType  = null;   // "evasive-action" | "defensive-fire" | null
@@ -1441,9 +1497,18 @@ export class CombatHUD {
   open(token) {
     const canvasToken = token?.object ?? token;
     if (!canvasToken?.actor) return;
+    // Aim / Prepare are staged per character, so switching tokens must drop
+    // them. Without this a Prepare taken by one character would arm the next
+    // character's Cumbersome or Charge weapon. Prone is re-read from the new
+    // token's own status rather than cleared.
+    if (this._token?.id !== canvasToken.id) {
+      this._expireGroundMinorActions();
+      this._syncProneToggle(canvasToken);
+    }
     this._token               = canvasToken;
     this._pendingWeapon       = null;
     this._pendingSalvoMode    = null;
+    this._pendingChargeQuality = null;
     this._pendingStunMode     = true;   // default to Stun — Deadly costs Threat
     this._opposedDifficulty   = null;
     this._opposedDefenseType  = null;
@@ -1508,10 +1573,48 @@ export class CombatHUD {
   }
 
   _clearGroundState() {
+    this[`_groundToggle_ground-prone`]   = false;
+    this._expireGroundMinorActions();
+  }
+
+  /**
+   * Drop the turn-scoped ground minor actions. Aim and Prepare only benefit an
+   * attack made in the same turn, and a Charge choice is staged by a Prepare.
+   *
+   * Prone is deliberately excluded: it persists until the character stands up
+   * and is mirrored by a real Foundry status effect, so clearing the toggle
+   * alone would leave the button unlit on a still-prone character.
+   */
+  _expireGroundMinorActions() {
     this[`_groundToggle_ground-aim`]     = false;
     this[`_groundToggle_ground-prepare`] = false;
-    this[`_groundToggle_ground-prone`]   = false;
     this._groundAimRerolls               = 0;
+    this._pendingChargeQuality           = null;
+  }
+
+  /** Re-read the Prone toggle from the token's actual status effect. */
+  _syncProneToggle(token = this._token) {
+    this[`_groundToggle_ground-prone`] = token?.actor?.statuses?.has("prone") ?? false;
+  }
+
+  /** Snapshot the staged ground minor actions so a detour can restore them. */
+  _snapshotGroundState() {
+    return {
+      aim:     this[`_groundToggle_ground-aim`],
+      prepare: this[`_groundToggle_ground-prepare`],
+      prone:   this[`_groundToggle_ground-prone`],
+      rerolls: this._groundAimRerolls,
+      charge:  this._pendingChargeQuality,
+    };
+  }
+
+  _restoreGroundState(snap) {
+    if (!snap) return;
+    this[`_groundToggle_ground-aim`]     = snap.aim;
+    this[`_groundToggle_ground-prepare`] = snap.prepare;
+    this[`_groundToggle_ground-prone`]   = snap.prone;
+    this._groundAimRerolls               = snap.rerolls;
+    this._pendingChargeQuality           = snap.charge;
   }
 
   /** Open the HUD in roster mode (no token selected) during active combat. */
@@ -1542,6 +1645,11 @@ export class CombatHUD {
    */
   async triggerRingAction(token, action, station = null) {
     if (!token?.actor || !action?.key) return;
+    // Staged minor actions belong to the character that took them — see open().
+    if (this._token?.id !== token.id) {
+      this._expireGroundMinorActions();
+      this._syncProneToggle(token);
+    }
     this._token = token;
     await this._handleQuickAction(action, station);
   }
@@ -1552,6 +1660,11 @@ export class CombatHUD {
    */
   triggerRingWeapon(token, weaponId) {
     if (!token?.actor || !weaponId) return;
+    // Staged minor actions belong to the character that took them — see open().
+    if (this._token?.id !== token.id) {
+      this._expireGroundMinorActions();
+      this._syncProneToggle(token);
+    }
     this._token = token;
     const weapons = this._buildWeapons(token.actor);
     const button = [...weapons.querySelectorAll("[data-sta2e-weapon-id]")]
@@ -1574,7 +1687,9 @@ export class CombatHUD {
    *
    * Two deliberate departures from the Combat HUD's own path:
    * - The Cumbersome / Prepare gate is skipped. This is a GM tool, in the same
-   *   spirit as the GM cloak toggle skipping its Reserve Power cost.
+   *   spirit as the GM cloak toggle skipping its Reserve Power cost. Charge is
+   *   the exception: it grants a benefit rather than blocking one, so it still
+   *   requires a Prepare staged on this same token.
    * - Deadly intent grants its Threat here. `_resolveWeapon` does not, because
    *   the Combat HUD already granted it at declaration time; this path has no
    *   declaration step, so without this the Threat would be silently lost.
@@ -1597,7 +1712,13 @@ export class CombatHUD {
       salvoMode:      this._pendingSalvoMode,
       stunMode:       this._pendingStunMode,
       explicitTarget: this._pendingExplicitTargetTokenId,
+      ground:         this._snapshotGroundState(),
     };
+
+    // This path reaches _resolveWeapon without going through the weapon button,
+    // so the per-attack guard has to be opened here or the Major Action would be
+    // suppressed by whatever attack ran before it.
+    this._beginWeaponAttack();
 
     try {
       // `useStun` is the toggle's position; a weapon with only one of the two
@@ -1611,10 +1732,24 @@ export class CombatHUD {
         if (profile.isPlayerOwned) await CombatHUD._applyToPool("threat", 1, token);
       }
 
+      // Charge still requires Prepare here, unlike the Cumbersome gate above.
+      // The staged Prepare belongs to whichever token the HUD was showing, so
+      // only offer the choice when that is the token being resolved.
+      let chargeQuality = null;
+      if (weapon.type === "characterweapon2e"
+          && _weaponQualityFlag(weapon, "charge")
+          && restore.ground.prepare
+          && restore.token?.id === token.id) {
+        chargeQuality = await CombatHUD._promptChargeQuality(weapon);
+        if (chargeQuality === "cancel") return;
+        if (chargeQuality) restore.ground.prepare = false;   // spent — don't restore it
+      }
+
       const modeInfo = CombatHUD._shipAreaSpreadModeInfo(weapon, getWeaponConfig(weapon));
       this._token                        = token;
       this._pendingWeapon                = weapon;
       this._pendingSalvoMode             = modeInfo.needsMode ? (salvoMode ?? "area") : null;
+      this._pendingChargeQuality         = chargeQuality;
       this._pendingStunMode              = useStun;
       this._pendingExplicitTargetTokenId = null;
 
@@ -1625,6 +1760,7 @@ export class CombatHUD {
       this._pendingSalvoMode             = restore.salvoMode;
       this._pendingStunMode              = restore.stunMode;
       this._pendingExplicitTargetTokenId = restore.explicitTarget;
+      this._restoreGroundState(restore.ground);
       this._refresh();
     }
   }
@@ -2003,23 +2139,32 @@ export class CombatHUD {
   /**
    * Returns active weapon qualities as a formatted string.
    * e.g. "High Yield, Spread, Versatile 2"
+   *
+   * Ship and ground weapons never share a quality key, so one map covers both:
+   * `piercing` only exists on starshipweapon2e, `piercingx` only on
+   * characterweapon2e (rendered as a checkbox despite the `x` suffix).
    */
   _weaponQualityString(weapon) {
     const LABELS = {
-      accurate:    "Accurate",
-      area:        "Area",
-      calibration: "Calibration",
-      cumbersome:  "Cumbersome",
-      dampening:   "Dampening",
-      depleting:   "Depleting",
-      devastating: "Devastating",
-      highyield:   "High Yield",
-      intense:     "Intense",
-      jamming:     "Jamming",
-      persistent:  "Persistent",
-      piercing:    "Piercing",
-      slowing:     "Slowing",
-      spread:      "Spread",
+      accurate:     "Accurate",
+      area:         "Area",
+      calibration:  "Calibration",
+      charge:       "Charge",
+      cumbersome:   "Cumbersome",
+      dampening:    "Dampening",
+      debilitating: "Debilitating",
+      depleting:    "Depleting",
+      devastating:  "Devastating",
+      grenade:      "Grenade",
+      highyield:    "High Yield",
+      inaccurate:   "Inaccurate",
+      intense:      "Intense",
+      jamming:      "Jamming",
+      persistent:   "Persistent",
+      piercing:     "Piercing",
+      piercingx:    "Piercing",
+      slowing:      "Slowing",
+      spread:       "Spread",
     };
     const q = weapon.system?.qualities ?? {};
     const parts = [];
@@ -2160,6 +2305,9 @@ export class CombatHUD {
         });
 
         btn.addEventListener("click", async () => {
+          // Fresh attack — the gates below may still cancel it, so nothing is
+          // charged until one of the commit points calls _markWeaponMajor().
+          this._beginWeaponAttack();
           const isNpcShip = weapon.type === "starshipweapon2e" && CombatHUD.isNpcShip(actor);
 
           // ── Ground weapon path (characterweapon2e) — completely separate from ship flow ──
@@ -2210,6 +2358,31 @@ export class CombatHUD {
               this[prepFlag] = false;
               this._refresh();
             }
+
+            // ── Charge gate ──────────────────────────────────────────────────
+            // Charge lets a Prepared attacker add Area, Intense, or Piercing to
+            // this attack. It runs after the Cumbersome gate deliberately: that
+            // gate already spent the Prepare, so a weapon that is both
+            // Cumbersome and Charge arrives here with nothing left to spend and
+            // gets no prompt. One Prepare, one benefit.
+            let chargeQuality = null;
+            if (_weaponQualityFlag(weapon, "charge") && this[`_groundToggle_ground-prepare`]) {
+              chargeQuality = await CombatHUD._promptChargeQuality(weapon);
+              if (chargeQuality === "cancel") return;
+              if (chargeQuality) {
+                this[`_groundToggle_ground-prepare`] = false;   // spent on the quality
+                this._refresh();
+                const chargeLabel = chargeQuality === "area" ? "Area"
+                  : chargeQuality === "intense" ? "Intense" : "Piercing";
+                ChatMessage.create({
+                  content: `<b>${actor?.name}</b> channels a charged shot from <b>${weapon.name}</b> — <b>${chargeLabel}</b>.`
+                    + (chargeQuality === "area" ? ` <i>Severity reduced by 1.</i>` : ""),
+                  speaker: ChatMessage.getSpeaker({ token: this._token }),
+                });
+              }
+            }
+            weaponCtx.chargeQuality    = chargeQuality;
+            this._pendingChargeQuality = chargeQuality;
 
             // Detect target defensive states BEFORE showing the choice dialog
             // so the dialog can reflect cover / guard info accurately.
@@ -2302,6 +2475,8 @@ export class CombatHUD {
               weaponCtx.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
               weaponCtx.targetTokenIds = [meleeTarget.id];
 
+              // Attack committed — charge the Major Action (idempotent per attack).
+              await this._markWeaponMajor();
               const starter = game.sta2eToolkit?.startGroundCombatOpposedTask;
               if (!starter) {
                 ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
@@ -2426,6 +2601,8 @@ export class CombatHUD {
               weaponCtx.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
               weaponCtx.targetTokenIds = [coveredTarget.id];
 
+              // Attack committed — charge the Major Action (idempotent per attack).
+              await this._markWeaponMajor();
               const coverStarter = game.sta2eToolkit?.startGroundCombatOpposedTask;
               if (!coverStarter) {
                 ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
@@ -2588,6 +2765,8 @@ export class CombatHUD {
               this[`_groundToggle_ground-aim`] = false;
               this._groundAimRerolls = 0;
 
+              // Attack committed — charge the Major Action (idempotent per attack).
+              await this._markWeaponMajor();
               await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
                 taskId:          `${this._token.id}-${Date.now()}`,
                 attackerUserId:  getActorRollUserId(actor),
@@ -2634,6 +2813,8 @@ export class CombatHUD {
 
               weaponCtx.targetTokenIds = [coveredTarget.id];
 
+              // Attack committed — charge the Major Action (idempotent per attack).
+              await this._markWeaponMajor();
               const coverStarter = game.sta2eToolkit?.startGroundCombatOpposedTask;
               if (!coverStarter) {
                 ui.notifications.error("STA2e Toolkit | Ground opposed task helper is not ready.");
@@ -2795,6 +2976,8 @@ export class CombatHUD {
               return;
             }
 
+            // Attack committed — charge the Major Action (idempotent per attack).
+            await this._markWeaponMajor();
             await game.settings.set("sta2e-toolkit", "pendingOpposedTask", {
               taskId:          `${this._token.id}-${Date.now()}`,
               attackerUserId:  getActorRollUserId(actor),
@@ -3631,6 +3814,80 @@ export class CombatHUD {
   }
 
   /**
+   * Fold a Charge choice and the weapon's own qualities into one shape the
+   * ground damage paths can consume.
+   *
+   * Charge (STA 2e): "If you perform the Prepare minor action before attacking
+   * with this weapon, you may add one of the following qualities to the attack:
+   * Area, Intense, or Piercing. If you choose Area, the attack's severity is
+   * reduced by 1."
+   *
+   * A granted quality stacks with one the weapon already has — it simply
+   * cannot be granted twice, so `||` is the right combinator. Ground Piercing
+   * (`piercingx`, a checkbox) ignores the target's Protection rating outright.
+   *
+   * @param {Item}        weapon
+   * @param {string|null} chargeQuality  "area" | "intense" | "piercing" | null
+   */
+  static _groundChargeEffects(weapon, chargeQuality = null) {
+    const q = weapon?.system?.qualities ?? {};
+    return {
+      chargeQuality:   chargeQuality ?? null,
+      severityPenalty: chargeQuality === "area" ? 1 : 0,
+      area:            !!q.area    || chargeQuality === "area",
+      intense:         !!q.intense || chargeQuality === "intense",
+      piercing:        q.piercingx === true || chargeQuality === "piercing",
+    };
+  }
+
+  /**
+   * Ask which quality a Charge weapon adds to this attack.
+   *
+   * Returns the chosen quality key, `null` when the attacker declines (the
+   * Prepare is kept for something else), or `"cancel"` to abort the attack
+   * entirely. Callers must distinguish the last two.
+   *
+   * @param {Item} weapon
+   * @returns {Promise<"area"|"intense"|"piercing"|null|"cancel">}
+   */
+  static async _promptChargeQuality(weapon) {
+    const choice = await foundry.applications.api.DialogV2.wait({
+      window:  { title: `⚡ ${weapon.name} — Charge` },
+      content: `
+        <div style="font-family:${LC.font};padding:4px 0;">
+          <div style="font-size:11px;color:${LC.text};margin-bottom:8px;">
+            You Prepared before attacking with
+            <strong style="color:${LC.primary};">${weapon.name}</strong>.
+            Add one quality to this attack:
+          </div>
+          <div style="font-size:10px;color:${LC.textDim};line-height:1.7;padding:5px 8px;
+            border-left:3px solid ${LC.borderDim};border-radius:0 2px 2px 0;
+            background:rgba(255,153,0,0.04);">
+            ⚡ <strong style="color:${LC.text};">Area</strong> — additional targets in the
+              same zone may be hit for 1 Momentum each.
+              <span style="color:${LC.red};">Severity −1.</span><br>
+            ✦ <strong style="color:${LC.text};">Intense</strong> — bonus Severity costs
+              1 Momentum instead of 2.<br>
+            ➤ <strong style="color:${LC.text};">Piercing</strong> — the attack ignores the
+              target's Protection rating entirely.
+          </div>
+          <div style="font-size:9px;color:${LC.textDim};margin-top:7px;letter-spacing:0.04em;">
+            Choosing a quality spends the Prepare. <em>None</em> keeps it.
+          </div>
+        </div>`,
+      buttons: [
+        { action: "area",     label: "⚡ Area",     icon: "fas fa-bomb",       default: true },
+        { action: "intense",  label: "✦ Intense",   icon: "fas fa-bolt" },
+        { action: "piercing", label: "➤ Piercing",  icon: "fas fa-crosshairs" },
+        { action: "none",     label: "None",        icon: "fas fa-ban" },
+        { action: "cancel",   label: "Cancel",      icon: "fas fa-times" },
+      ],
+    });
+    if (choice === "cancel" || choice == null) return "cancel";
+    return choice === "none" ? null : choice;
+  }
+
+  /**
    * Play the First Aid success animation + sound on the target token.
    * Safe to call from any client — Sequencer handles routing.
    */
@@ -3795,6 +4052,47 @@ export class CombatHUD {
     const targets = (canvas.tokens?.placeables ?? []).filter(t => {
       if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
       if (!CombatHUD._isShipToken(t)) return false;
+      if (usingZones) {
+        return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
+      }
+      const center = CombatHUD._centerOfToken(t);
+      return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
+    });
+
+    return { targets, usingZones, zoneName: primaryZones[0]?.name ?? null };
+  }
+
+  /**
+   * Characters an Area ground attack could spill onto: everyone sharing a zone
+   * with the primary target. The ship twin above is the model — same zone-first
+   * logic, but filtered to character tokens and with a grid-relative fallback
+   * when the scene has no zones (ground scenes are far tighter than space).
+   *
+   * `excludeTokenIds` drops tokens that already have their own damage row, so a
+   * directly-targeted character is never offered here — it would be billed twice
+   * (once by its own row's Area cost, once by this picker).
+   *
+   * @param {string}   primaryTokenId
+   * @param {string}   attackerTokenId
+   * @param {string[]} excludeTokenIds
+   */
+  static _getGroundAreaSecondaryTargets(primaryTokenId, attackerTokenId, excludeTokenIds = []) {
+    const primaryToken = canvas.tokens?.get(primaryTokenId);
+    if (!primaryToken) return { targets: [], usingZones: false, zoneName: null };
+
+    // Roughly "same room" when no zones are drawn — two grid squares out.
+    const RADIUS_PX = (canvas?.grid?.size ?? 100) * 2;
+    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
+    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
+    const zones = zonesEnabled ? getSceneZones() : [];
+    const primaryZones   = zones.length ? getZonesForToken(primaryToken, zones) : [];
+    const primaryZoneIds = new Set(primaryZones.map(z => z.id));
+    const usingZones = primaryZones.length > 0;
+    const excluded = new Set([primaryTokenId, attackerTokenId, ...excludeTokenIds].filter(Boolean));
+
+    const targets = (canvas.tokens?.placeables ?? []).filter(t => {
+      if (excluded.has(t.id)) return false;
+      if (!t.actor || CombatHUD._isShipToken(t)) return false;
       if (usingZones) {
         return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
       }
@@ -4034,6 +4332,36 @@ export class CombatHUD {
     };
   }
 
+  /**
+   * Begin a weapon attack — call before the Cumbersome/Charge/mode gates so a
+   * cancelled attack never charges an action.
+   */
+  _beginWeaponAttack() {
+    this._weaponMajorMarked = false;
+  }
+
+  /**
+   * Charge one Major Action for the attack in progress, at most once.
+   *
+   * A single attack reaches several commit points depending on the path it takes
+   * — flat hit/miss, a ground opposed task, a ship opposed task awaiting the
+   * defender, or the officer's weapon roller. Each of them calls this, and the
+   * guard means the first one to fire wins and the rest are no-ops. That is much
+   * more robust than trying to find the one true choke point in a branch tree
+   * with a dozen early returns.
+   */
+  async _markWeaponMajor() {
+    if (this._weaponMajorMarked) return;
+    this._weaponMajorMarked = true;
+
+    const actor  = this._token?.actor;
+    const isShip = actor?.type === "starship" || actor?.type === "spacecraft2e"
+      || actor?.items?.some(i => i.type === "starshipweapon2e");
+    // Ship weapons are fired from Tactical, so charge that officer rather than
+    // the standing-by ship. Ground attacks charge the character directly.
+    await _markTurnAction(actor, "major", isShip ? "tactical" : null);
+  }
+
   async _resolveWeapon(isHit) {
     const weapon  = this._pendingWeapon;
     const token   = this._token;
@@ -4045,6 +4373,9 @@ export class CombatHUD {
       return;
     }
 
+    // An attack is a Major Action. Idempotent per attack — see _markWeaponMajor.
+    await this._markWeaponMajor();
+
     const config        = getWeaponConfig(weapon);
     const isGroundWeapon = weapon.type === "characterweapon2e";
 
@@ -4055,6 +4386,8 @@ export class CombatHUD {
       const isDual     = hasStun && hasDeadly;
       const useStun    = hasStun && (!hasDeadly || this._pendingStunMode);
       const severity   = getGroundWeaponSeverity(weapon);
+      // Charge quality declared before the roll (Prepare → Area / Intense / Piercing)
+      const chg        = CombatHUD._groundChargeEffects(weapon, this._pendingChargeQuality);
       const complicationInfo = isHit
         ? await CombatHUD._resolveComplicationDamagePenalty({
             complications: 0,
@@ -4062,7 +4395,7 @@ export class CombatHUD {
             attackerName: token?.name ?? actor?.name ?? "Attacker",
           })
         : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
-      const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty);
+      const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty - chg.severityPenalty);
       // Threat for Deadly was already applied at weapon declaration (before the roll)
       const attackerProfile    = CombatHUD.getGroundCombatProfile(token?.actor, token?.document ?? null);
       const deadlyCostsThreat  = !useStun && hasDeadly && !!attackerProfile?.isPlayerOwned;
@@ -4070,12 +4403,20 @@ export class CombatHUD {
 
       const targetData = targets.map(t => {
         const tActor     = t.actor;
-        const protection = CombatHUD._getTargetProtection(tActor);
+        // Ground Piercing ignores the target's Protection rating outright; keep
+        // the base figure so the card can report what was bypassed.
+        const baseProtection = CombatHUD._getTargetProtection(tActor);
+        const protection = chg.piercing ? 0 : baseProtection;
         const hasBraklul = CombatHUD._hasBraklul(tActor);
         const rawPotency = effectiveSeverity - protection;
         const potency    = effectiveSeverity > 0 ? Math.max(1, rawPotency) : 0;
         const profile = CombatHUD.getGroundCombatProfile(tActor, t.document);
         return {
+          chargeQuality:     chg.chargeQuality,
+          chargeSeverityPenalty: chg.severityPenalty,
+          areaActive:        chg.area,
+          piercingApplied:   chg.piercing,
+          protectionIgnored: chg.piercing ? baseProtection : 0,
           attackerTokenId: token?.id ?? null,
           attackerActorId: actor?.id ?? null,
           tokenId:       t.id,
@@ -4109,14 +4450,15 @@ export class CombatHUD {
         };
       });
 
-      const _hudWq = weapon.system?.qualities ?? {};
+      // `chg` already folds the weapon's own qualities together with anything
+      // Charge granted. Ground weapons have no Spread quality at all.
       const _hudSpendCtx = isHit ? makeSpendContext({
         floatingMomentum: 0,
         qualities: {
-          intense:   !!_hudWq.intense,
-          area:      !!_hudWq.area,
-          spread:    !!_hudWq.spread,
-          piercing:  !!_hudWq.piercing,
+          intense:   chg.intense,
+          area:      chg.area,
+          spread:    false,
+          piercing:  chg.piercing,
           versatile: 0,
         },
         scope: "ground",
@@ -4140,8 +4482,9 @@ export class CombatHUD {
         }, 300);
       }
 
-      this._pendingWeapon   = null;
-      this._pendingStunMode = true;
+      this._pendingWeapon        = null;
+      this._pendingChargeQuality = null;
+      this._pendingStunMode      = true;
       this._refresh();
       return;
     }
@@ -5423,6 +5766,16 @@ export class CombatHUD {
     const actor   = token?.actor;
     const targets = Array.from(game.user.targets);
     const target  = targets[0] ?? null;
+
+    // Charge this action against the turn's Minor/Major budget. Toggles only
+    // count on the way ON — standing up from Prone or un-Aiming is not a second
+    // Minor Action. Unknown keys (sub-action buttons) count for nothing.
+    {
+      const kind = _actionKind(action?.key);
+      const turningOff = action?.isToggle && this[`_groundToggle_${action.key}`] === true;
+      // Pass the station so a ship action charges the officer manning it.
+      if (kind && !turningOff) await _markTurnAction(actor, kind, station?.id ?? null);
+    }
 
     // v13 helper — DialogV2 returns the button action string
     const confirm = async (title, content) => {
@@ -9085,6 +9438,7 @@ export class CombatHUD {
         isTorpedo,
         isArray:   modeInfo.isArray,
         isSalvo:   modeInfo.isSalvo,
+        cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
         damage:    dmgParts.join(" "),
         qualities: this._weaponQualityString(weapon),
         salvoMode: selectedSalvoMode,
@@ -9120,6 +9474,7 @@ export class CombatHUD {
             pointDefenseActive: !!opposed.pointDefenseActive,
             pointDefensePenalty: Number(opposed.pointDefensePenalty ?? 0),
             overridePenalty: 1,
+            cumbersomePenalty: _weaponQualityFlag(weapon, "cumbersome") ? 1 : 0,
             attackPatternPenalty: _attackPatternPenalty,
             weaponContext: weaponCtx,
             hasTargetingSolution: _hasTS,
@@ -9149,6 +9504,7 @@ export class CombatHUD {
             stationId:            station.id,
             officer:              resolvedOfficer,
             crewQuality:          isNpc && !resolvedOfficer ? CombatHUD.getCrewQuality(actor) : null,
+            cumbersomePenalty:    _weaponQualityFlag(weapon, "cumbersome") ? 1 : 0,
             difficulty:           null,  // will be set to opposedDifficulty by socket handler
             taskLabel:            `Override — Fire ${weapon.name}`,
             taskContext:          `${overrideContext} · Opposed — ${_defLabel}`,
@@ -14707,6 +15063,87 @@ export class CombatHUD {
     }
   }
 
+  /**
+   * Ground twin of `_applyAreaSecondaryTargets`: spill an Area attack onto the
+   * characters ticked on the primary target's injury card, 1 Momentum/Threat
+   * each, funded from the same buckets (tracker float → tracker bonus → pool).
+   *
+   * Unlike the ship version this does *not* copy a fixed damage number across.
+   * Ground damage is Severity − that target's own Protection, so each secondary
+   * is recomputed against its own armour and gets its own injury decision card
+   * with the avoidance rules its character type is entitled to.
+   */
+  static async _applyGroundAreaSecondaryTargets(payload) {
+    if (payload._isAreaSecondary || !payload.area) return;
+    const selectedIds = Array.from(new Set(
+      (Array.isArray(payload.areaSecondaryTokenIds) ? payload.areaSecondaryTokenIds : [])
+        .filter(Boolean)
+    ));
+    const severity = Number(payload.severity) || 0;
+    if (!selectedIds.length || severity <= 0) return;
+
+    const attackerIsNpc = payload.attackerIsNpc ?? false;
+    const costPool = payload.momentumPool ?? (attackerIsNpc ? "threat" : "momentum");
+    const costPoolLabel = costPool === "threat" ? "Threat" : costPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
+    const prepaid = Math.max(0, Number(payload.areaSecondaryPrepaid ?? 0) || 0);
+    const totalCost = Math.max(0, selectedIds.length - prepaid);
+
+    const tracker = readTrackerState(payload.trackerMessageId ?? null, payload.attackerActorId ?? null);
+    const poolAvail = readPool(costPool);
+    let remaining = totalCost;
+    const floatUsed = Math.min(tracker.float, remaining); remaining -= floatUsed;
+    const bonusUsed = Math.min(tracker.bonus, remaining); remaining -= bonusUsed;
+    const poolUsed  = Math.min(poolAvail, remaining);     remaining -= poolUsed;
+
+    if (remaining > 0) {
+      ui.notifications.warn(`STA2e Toolkit: Not enough ${costPoolLabel} for Area attack (need ${totalCost}; have float ${tracker.float} + bonus ${tracker.bonus} + pool ${poolAvail}). Secondary targets were NOT injured.`);
+      return;
+    }
+
+    if (tracker.messageId && (floatUsed > 0 || bonusUsed > 0)) {
+      try {
+        const mod = await import("../momentum-tracker.js");
+        await mod.decrementTracker(tracker.messageId, { float: floatUsed, bonus: bonusUsed });
+      } catch (err) { console.error("STA2e Toolkit | decrementTracker (ground area) error:", err); }
+    }
+    if (poolUsed > 0) await writePool(costPool, poolAvail - poolUsed);
+
+    for (const tId of selectedIds) {
+      const tToken = canvas.tokens?.get(tId);
+      const tActor = tToken?.actor;
+      if (!tActor) continue;
+
+      const protection = payload.piercingApplied ? 0 : CombatHUD._getTargetProtection(tActor);
+      const potency    = Math.max(1, severity - protection);
+      const profile    = CombatHUD.getGroundCombatProfile(tActor, tToken.document ?? null);
+      const injuryName = CombatHUD._groundInjuryName(
+        payload.weaponName, payload.useStun, potency, severity);
+
+      await CombatHUD.applyGroundInjury({
+        ...payload,
+        tokenId:       tId,
+        actorId:       tActor.id,
+        name:          tToken.name,
+        injuryName,
+        severity,
+        potency,
+        basePotency:   potency,
+        protection,
+        hasBraklul:    CombatHUD._hasBraklul(tActor),
+        npcType:       profile.npcType,
+        isPlayerOwned: profile.isPlayerOwned,
+        currentStress: tActor.system?.stress?.value ?? 0,
+        maxStress:     tActor.system?.stress?.max   ?? 0,
+        // Do not let a secondary spawn its own spill, and never re-bill.
+        area:                  false,
+        areaSecondaryTokenIds: [],
+        areaSecondaryPrepaid:  0,
+        chiefOfSecurityAvailable: false,
+        _isAreaSecondary: true,
+      });
+    }
+  }
+
   static async _spendCounterattackCost({ actor = null, token = null, isNpc = false, cost = 2 } = {}) {
     // Allied NPCs pay from whichever pool they're flagged for — the player's
     // Momentum or the separate Allied Momentum pool. Without this an allied
@@ -15086,16 +15523,36 @@ export class CombatHUD {
    * @param {boolean} useStun       - true if attacker chose Stun on a dual weapon
    */
   static _groundChatCard(attackerName, weapon, targetData, isHit, useStun, deadlyCostsThreat = false, opposedInfo = null) {
-    const severity   = getGroundWeaponSeverity(weapon);
     const hasStun    = weapon.system?.qualities?.stun   ?? false;
     const hasDeadly  = weapon.system?.qualities?.deadly ?? false;
     const isDual     = hasStun && hasDeadly;
 
-    // Quality tags — skip stun/deadly, shown as injury type badge
-    const qualityTags = Object.entries(weapon.system?.qualities ?? {})
-      .filter(([k, v]) => k !== "stun" && k !== "deadly" && v === true)
-      .map(([k]) => k.replace("piercingx", "piercing").replace("hiddenx", "hidden"))
-      .join(", ");
+    // Charge is declared per attack, so it lives on the target rows rather than
+    // on the weapon. Every row carries the same value — read the first.
+    const chargeQuality = targetData[0]?.chargeQuality ?? null;
+    const chargeLabel   = chargeQuality === "area" ? "Area"
+      : chargeQuality === "intense" ? "Intense"
+        : chargeQuality === "piercing" ? "Piercing" : null;
+
+    // Severity as actually resolved. The raw item value ignores the Charge
+    // Area penalty and any complication the attack already absorbed, so show
+    // the row's figures instead and surface the delta.
+    const severity     = targetData[0]?.severity ?? getGroundWeaponSeverity(weapon);
+    const baseSeverity = targetData[0]?.baseSeverity ?? severity;
+    const severityHtml = baseSeverity !== severity
+      ? `SEV <span style="text-decoration:line-through;opacity:0.6;">${baseSeverity}</span> → <strong>${severity}</strong>`
+      : `SEV ${severity}`;
+
+    // Quality tags — skip stun/deadly, shown as injury type badge. Once a Charge
+    // has been spent the granted quality says everything "charge" would, so the
+    // raw tag is dropped in favour of the specific one.
+    const qualityTags = [
+      ...Object.entries(weapon.system?.qualities ?? {})
+        .filter(([k, v]) => k !== "stun" && k !== "deadly" && v === true)
+        .filter(([k]) => !(chargeLabel && k === "charge"))
+        .map(([k]) => k.replace("piercingx", "piercing").replace("hiddenx", "hidden")),
+      ...(chargeLabel ? [`charged: ${chargeLabel.toLowerCase()}`] : []),
+    ].join(", ");
 
     if (!isHit) {
       const missOpposedHtml = (() => {
@@ -15158,7 +15615,23 @@ export class CombatHUD {
          </div>`
       : "";
 
-    const targetsHtml = targetData.map(t => {
+    // Area spills onto other characters sharing the primary target's zone. The
+    // picker is rendered once, on the primary (first) row: rows past the first
+    // are directly-targeted characters that already pay their own Area cost.
+    const areaActive       = !!targetData[0]?.areaActive;
+    const directTargetIds  = targetData.map(t => t.tokenId).filter(Boolean);
+    const areaInfo = areaActive
+      ? CombatHUD._getGroundAreaSecondaryTargets(
+        targetData[0]?.tokenId, targetData[0]?.attackerTokenId, directTargetIds)
+      : { targets: [], usingZones: false, zoneName: null };
+    const areaAttackerActor = targetData[0]?.attackerTokenId
+      ? (canvas.tokens?.get(targetData[0].attackerTokenId)?.actor ?? null)
+      : (targetData[0]?.attackerActorId ? game.actors.get(targetData[0].attackerActorId) : null);
+    const areaCostLabel = targetData[0]?.momentumPool
+      ? "Momentum"
+      : (CombatHUD.isGroundNpcActor(areaAttackerActor) ? "Threat" : "Momentum");
+
+    const targetsHtml = targetData.map((t, rowIdx) => {
       const npcType   = t.npcType;
       // isPlayerOwned is true for STACharacterSheet2e and STASupportingSheet2e.
       // For NPCs (STANPCSheet2e), npcType is reliable: minor/notable/major.
@@ -15254,9 +15727,44 @@ export class CombatHUD {
           chiefOfSecuritySource: t.chiefOfSecuritySource ?? null,
           trackerMessageId: t.trackerMessageId ?? null,
           momentumPool: t.momentumPool ?? null,
+          // Area spill — only the primary row carries the picker. The checked
+          // ids are written in by the ground-controls handler on apply.
+          area:                  areaActive && rowIdx === 0,
+          areaSecondaryTokenIds: [],
+          piercingApplied:       !!t.piercingApplied,
+          attackerIsNpc:         CombatHUD.isGroundNpcActor(areaAttackerActor),
         };
       const encodedPayload = encodeURIComponent(JSON.stringify(basePayloadObj));
       const encodedBase    = encodedPayload;
+
+      // Area secondary-target picker — primary row only. Reuses the ship card's
+      // class names so the spend panel's live cost recompute (which watches
+      // `.sta2e-main-area-target`) picks it up with no extra wiring.
+      const areaPickerHtml = (areaActive && rowIdx === 0) ? `
+        <div class="sta2e-main-area-targets" style="margin-bottom:5px;
+          padding:5px 6px;border:1px solid ${LC.borderDim};border-radius:2px;
+          background:rgba(255,153,0,0.05);">
+          <div style="font-size:9px;color:${LC.primary};font-family:${LC.font};
+            text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;font-weight:700;">
+            ⚡ Area — ${areaInfo.usingZones
+    ? `additional targets in ${areaInfo.zoneName ?? "the target's zone"}`
+    : "additional targets nearby"}
+          </div>
+          ${areaInfo.targets.length ? areaInfo.targets.map(tok => `
+            <label style="display:flex;align-items:center;gap:6px;margin:3px 0;
+              font-size:10px;color:${LC.text};font-family:${LC.font};cursor:pointer;">
+              <input class="sta2e-main-area-target" type="checkbox" value="${tok.id}"
+                style="cursor:pointer;accent-color:${LC.primary};"/>
+              ${tok.name}
+            </label>`).join("") : `
+            <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};">
+              No other characters in range.
+            </div>`}
+          ${areaInfo.targets.length ? `
+          <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};margin-top:4px;">
+            Cost: 1 ${areaCostLabel} per selected target. Each gets their own injury card.
+          </div>` : ""}
+        </div>` : "";
       // Static method — the attacker comes from the target row, not a param.
       const traitDamageHtml = damageTraitControlsHtml(damageTraitSuggestions({
         mode: "ground",
@@ -15314,6 +15822,7 @@ export class CombatHUD {
           </button>` : ""}
           <div class="sta2e-ground-controls">
             ${traitDamageHtml}
+            ${areaPickerHtml}
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
               <label style="font-size:9px;color:${LC.textDim};white-space:nowrap;
                 text-transform:uppercase;letter-spacing:0.1em;font-family:${LC.font};">
@@ -15336,6 +15845,16 @@ export class CombatHUD {
                 = Potency <strong style="color:${LC.tertiary};">${pot}</strong>
               </span>
             </div>
+            ${t.piercingApplied ? `
+            <div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};
+              margin-bottom:4px;padding-left:2px;">
+              ➤ Piercing: ${(t.protectionIgnored ?? 0) > 0
+    ? `Protection <span style="text-decoration:line-through;">${t.protectionIgnored}</span> ignored`
+    : `target had no Protection`}
+              ${t.hasBraklul ? `<span style="color:${LC.primary};">(incl. +1 Brak'lul)</span>` : ""}
+              ${t.isProneCovered ? `<span style="color:${LC.secondary};">(incl. +1 Prone in Cover)</span>` : ""}
+              → Potency ${pot}
+            </div>` : `
             ${prot > 0 ? `
             <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
               margin-bottom:4px;padding-left:2px;">
@@ -15348,7 +15867,7 @@ export class CombatHUD {
             <div style="font-size:9px;color:${LC.primary};font-family:${LC.font};
               margin-bottom:4px;padding-left:2px;">
               ★ Brak'lul: +1 Protection → Potency ${pot}
-            </div>` : ""}
+            </div>` : ""}`}
             <button class="sta2e-apply-injury"
               data-payload="${encodedPayload}"
               style="width:100%;padding:4px;
@@ -15366,11 +15885,17 @@ export class CombatHUD {
       <div style="margin-bottom:6px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
         <div style="font-size:11px;color:${LC.tertiary};font-family:${LC.font};">
           <strong style="color:${LC.textBright};">${weapon.name}</strong>
-          — SEV ${severity}
+          — ${severityHtml}
           <span style="color:${injColor};font-weight:700;font-size:9px;
             text-transform:uppercase;letter-spacing:0.1em;margin-left:6px;">
             ${useStun ? "⚡ STUN" : "☠ DEADLY"}
           </span>
+          ${chargeLabel ? `
+          <span style="color:${LC.secondary};font-weight:700;font-size:9px;
+            text-transform:uppercase;letter-spacing:0.1em;margin-left:6px;"
+            title="Charge quality added via the Prepare minor action">
+            ⚡ Charged · ${chargeLabel}
+          </span>` : ""}
         </div>
         ${qualityTags ? `<div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">${qualityTags}</div>` : ""}
       </div>
@@ -18786,18 +19311,42 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           if (controls.querySelector(".sta2e-trait-damage-cb:checked")) syncGroundControls();
         }
 
+        // Area secondary-target checkboxes. The spend panel already watches them
+        // for the live cost; these listeners only stop the click reaching the
+        // chat message (which would collapse it).
+        const areaBoxes = controls.querySelectorAll(".sta2e-main-area-target");
+        areaBoxes.forEach(cb => {
+          cb.addEventListener("mousedown", e => e.stopPropagation());
+          cb.addEventListener("click", e => e.stopPropagation());
+        });
+
         // Wire apply button
         if (applyBtn) {
           applyBtn.addEventListener("click", async () => {
             try {
               const payload = JSON.parse(decodeURIComponent(applyBtn.dataset.payload));
+              // Ticked Area targets are read at click time — the list changes
+              // after the card was built, so it cannot be baked into the payload.
+              payload.areaSecondaryTokenIds = Array.from(
+                controls.querySelectorAll(".sta2e-main-area-target:checked")
+              ).map(cb => cb.value);
+              // The spend panel charged the Area cost in its capture-phase
+              // handler; record what it covered so we don't double-bill.
+              if (applyBtn.dataset.spendResult) {
+                try {
+                  const spendResult = JSON.parse(decodeURIComponent(applyBtn.dataset.spendResult));
+                  payload.areaSecondaryPrepaid = Math.max(0, Number(spendResult.areaSecondaryCost ?? 0) || 0);
+                } catch { /* leave unpaid — _applyGroundAreaSecondaryTargets will bill it */ }
+              }
               await CombatHUD.applyGroundInjury(payload);
+              await CombatHUD._applyGroundAreaSecondaryTargets(payload);
               applyBtn.disabled      = true;
               applyBtn.textContent   = "✓ Decision Sent";
               applyBtn.style.opacity = "0.5";
               if (adjInput) adjInput.disabled = true;
               controls.querySelectorAll(".sta2e-trait-damage-cb")
                 .forEach(cb => { cb.disabled = true; });
+              areaBoxes.forEach(cb => { cb.disabled = true; });
             } catch(err) {
               console.error("STA2e Toolkit | applyGroundInjury error:", err);
               ui.notifications.error("Failed to resolve injury — see console for details.");
@@ -19091,6 +19640,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           isTorpedo,
           isArray:   modeInfo.isArray,
           isSalvo:   modeInfo.isSalvo,
+          cumbersome: _weaponQualityFlag(weapon, "cumbersome"),
           damage:    weapon.system?.damage ?? 0,
           qualities: _quals,
           salvoMode,
@@ -20208,6 +20758,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               const hasStun   = weapon.system?.qualities?.stun   ?? false;
               const hasDeadly = weapon.system?.qualities?.deadly ?? false;
               const severity  = getGroundWeaponSeverity(weapon);
+              // Charge quality declared before the roll (Prepare → Area / Intense / Piercing)
+              const chg = CombatHUD._groundChargeEffects(weapon, weaponContext.chargeQuality ?? null);
               const complicationInfo = passed
                 ? await CombatHUD._resolveComplicationDamagePenalty({
                     complications: totalComplications,
@@ -20215,7 +20767,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                     attackerName: tokenObj?.name ?? charActor.name,
                   })
                 : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
-              const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty);
+              const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty - chg.severityPenalty);
 
               // Stun/Deadly was declared before the roll — read from weaponContext
               const isDual            = hasStun && hasDeadly;
@@ -20229,13 +20781,20 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 const isProneCovered = opposedDefenseType === "cover"
                   && (tActor?.statuses?.has("prone") ?? false)
                   && !!(t.document?.getFlag(MODULE, "coverActive"));
-                const baseProtection = CombatHUD._getTargetProtection(tActor);
-                const protection     = baseProtection + (isProneCovered ? 1 : 0);
+                // Ground Piercing ignores the target's Protection rating outright;
+                // keep the base figure so the card can report what was bypassed.
+                const fullProtection = CombatHUD._getTargetProtection(tActor) + (isProneCovered ? 1 : 0);
+                const protection     = chg.piercing ? 0 : fullProtection;
                 const hasBraklul = CombatHUD._hasBraklul(tActor);
                 const rawPotency = effectiveSeverity - protection;
                 const potency    = effectiveSeverity > 0 ? Math.max(1, rawPotency) : 0;
                 const profile = CombatHUD.getGroundCombatProfile(tActor, t.document);
                 return {
+                  chargeQuality:     chg.chargeQuality,
+                  chargeSeverityPenalty: chg.severityPenalty,
+                  areaActive:        chg.area,
+                  piercingApplied:   chg.piercing,
+                  protectionIgnored: chg.piercing ? fullProtection : 0,
                   attackerTokenId: tokenObj?.id ?? null,
                   attackerActorId: charActor?.id ?? null,
                   tokenId:       t.id,
@@ -20279,7 +20838,6 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               // Build spendContext for the ground damage card so the spend panel
               // surfaces floating momentum / quality-aware spends.
               // Float = unbankable overflow returned by createTracker.
-              const _wq = weapon.system?.qualities ?? {};
               const _floatingMomentum = _trackerFloat;
               const _intenseBonus = _intenseBonusFor(charActor);
               const _callOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
@@ -20287,11 +20845,13 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               const _chiefMedicalSpendBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
               const _spendCtx = passed ? makeSpendContext({
                 floatingMomentum: _floatingMomentum,
+                // `chg` already folds the weapon's own qualities together with
+                // anything Charge granted. Ground weapons have no Spread quality.
                 qualities: {
-                  intense:   !!_wq.intense,
-                  area:      !!_wq.area,
-                  spread:    !!_wq.spread,
-                  piercing:  !!_wq.piercing,
+                  intense:   chg.intense,
+                  area:      chg.area,
+                  spread:    false,
+                  piercing:  chg.piercing,
                   versatile: 0,
                 },
                 scope: "ground",
@@ -22867,5 +23427,22 @@ Hooks.on("updateCombat", async (combat, changes, options, userId) => {
   for (const token of ejectedCores) {
     await new Promise(r => setTimeout(r, 600));
     await CombatHUD.rollEjectedCoreCheck(token);
+  }
+});
+
+// ── updateCombat hook — expire staged ground minor actions on a turn change ──
+// Aim and Prepare are taken on the character's own turn and only benefit an
+// attack made in that same turn; a staged Charge choice goes with the Prepare.
+// Prone is left alone — it persists until the character stands up. These live on
+// each client's CombatHUD singleton, so every client clears its own (not GM-gated).
+Hooks.on("updateCombat", (_combat, changes) => {
+  if (!("turn" in changes) && !("round" in changes)) return;
+  const hud = game.sta2eToolkit?.combatHud;
+  if (!hud) return;
+  try {
+    hud._expireGroundMinorActions();
+    hud.refresh();
+  } catch (err) {
+    console.warn("STA2e Toolkit | Could not expire ground minor actions on turn change:", err);
   }
 });
