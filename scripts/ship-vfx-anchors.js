@@ -12,7 +12,7 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 12;
+const SHIP_VFX_ANCHORS_VERSION = 13;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -61,6 +61,8 @@ export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
     alpha: 0.85,
     fade: 420,
     blendMode: "add",
+    // Bloom radius (px) of the pre-warp spline glow filter; 0 disables it.
+    glowSize: 18,
   }),
 });
 // Legacy setting retained for existing actor data; action handlers now choose
@@ -86,6 +88,15 @@ const SHIELD_COLOR_OPTIONS = Object.freeze([
   { value: "orange", label: "Orange" },
   { value: "custom", label: "Custom Hex" },
 ]);
+// How far outside the hull artwork the shield envelope sits, as a multiplier on
+// the art's half-extents. Ship art varies wildly in how much transparent margin
+// it carries, so one constant cannot serve every fleet — hence a world setting
+// with a per-ship override. Declared up here because the settings normalizer
+// below clamps against them.
+export const SHIELD_STANDOFF_MIN = 1;
+export const SHIELD_STANDOFF_MAX = 2;
+export const SHIELD_STANDOFF_DEFAULT = 1.35;
+
 const SHIP_SYSTEMS = Object.freeze([
   { key: "communications", label: "Communications", color: "#66ccff" },
   { key: "computers",      label: "Computers",      color: "#99dd66" },
@@ -105,6 +116,10 @@ const DEFAULT_SOURCE_OFFSET = Object.freeze({
 export const DEFAULT_ARRAY_CHARGE_SETTINGS = Object.freeze({
   hitDuration: 460,
   missDuration: 320,
+  // Repeat strikes charge locally: the orbs start this fraction of the spine
+  // either side of the point that strike fires from, instead of sweeping in
+  // from both ends. 0 gives every strike the full opening sweep.
+  repeatSpread: 0.25,
   easing: "outQuad",
   blendMode: "add",
   colorOverride: "",
@@ -187,14 +202,22 @@ function _normalizeEmitterArcWidth(value, minArc = WEAPON_EMITTER_MIN_ARC_WIDTH_
 }
 
 // Spinal Lance emitters may aim down to 0 deg; all other weapon emitters floor
-// at the standard minimum arc width.
-function _isLanceWeaponImg(weaponImg) {
+// at the standard minimum arc width. Only phaser/disruptor/polaron lances have
+// a "-array-spread" icon, so the name has to count too — an "Antiproton Spinal
+// Lance" on a borrowed icon is still a lance.
+const LANCE_NAME_PATTERN = /\bspinal lance\b|\blances?\b/i;
+
+function _isLanceLabel(weaponImg, weaponName) {
   const img = String(weaponImg || "").split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "");
-  return img.includes("-array-spread");
+  return img.includes("-array-spread") || LANCE_NAME_PATTERN.test(String(weaponName || ""));
 }
 
-function _emitterArcMinForWeaponImg(weaponImg) {
-  return _isLanceWeaponImg(weaponImg)
+function _isLanceWeapon(weapon) {
+  return _isLanceLabel(_weaponImg(weapon), _weaponName(weapon));
+}
+
+function _emitterArcMinForWeapon(weaponImg, weaponName) {
+  return _isLanceLabel(weaponImg, weaponName)
     ? WEAPON_EMITTER_LANCE_MIN_ARC_WIDTH_DEG
     : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
 }
@@ -267,7 +290,7 @@ function _normalizeWeaponEmitter(anchor) {
     weaponName: String(anchor?.weaponName || ""),
     weaponImg: String(anchor?.weaponImg || ""),
     facingDeg: _normalizeDegrees(anchor?.facingDeg, _defaultEmitterFacingDeg(normalized)),
-    arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg, _emitterArcMinForWeaponImg(anchor?.weaponImg)),
+    arcWidthDeg: _normalizeEmitterArcWidth(anchor?.arcWidthDeg, _emitterArcMinForWeapon(anchor?.weaponImg, anchor?.weaponName)),
     layer: _normalizeEmitterLayer(anchor?.layer),
     pairGroup: _normalizePairGroup(anchor?.pairGroup),
   };
@@ -353,6 +376,10 @@ function _normalizeEngineModeSettings(settings = {}, kind = "impulse") {
     alpha: Math.round(_clampNumber(settings?.alpha, defaults.alpha, 0, 1) * 100) / 100,
     fade: Math.round(_clampNumber(settings?.fade, defaults.fade, 60, 4000)),
     blendMode: ENGINE_BLEND_OPTIONS.includes(settings?.blendMode) ? settings.blendMode : defaults.blendMode,
+    // Only the warp mode declares a glowSize default; impulse has no glow.
+    ...(defaults.glowSize !== undefined
+      ? { glowSize: Math.round(_clampNumber(settings?.glowSize, defaults.glowSize, 0, 200)) }
+      : {}),
   };
 }
 
@@ -430,7 +457,18 @@ export function normalizeShipShieldImpactSettings(settings = {}) {
   return {
     colorPreset: _normalizeShieldColorPreset(settings?.colorPreset),
     customColor: _normalizeHexColor(settings?.customColor),
+    // How far outside the hull art this ship's shield envelope sits. 0 means
+    // "use the world default" — same blank-falls-through convention the colour
+    // fields use, so a ship only carries a value once a GM sets one.
+    standoff: _normalizeShieldStandoff(settings?.standoff),
   };
+}
+
+/** 0 (unset) or a factor inside the range the world setting also enforces. */
+function _normalizeShieldStandoff(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.max(SHIELD_STANDOFF_MIN, Math.min(SHIELD_STANDOFF_MAX, numeric));
 }
 
 export function normalizeShipArrayChargeSettings(settings = {}) {
@@ -438,6 +476,7 @@ export function normalizeShipArrayChargeSettings(settings = {}) {
   return {
     hitDuration: Math.round(_clampNumber(settings.hitDuration, defaults.hitDuration, 80, 5000)),
     missDuration: Math.round(_clampNumber(settings.missDuration, defaults.missDuration, 80, 5000)),
+    repeatSpread: _clampNumber(settings.repeatSpread, defaults.repeatSpread, 0, 1),
     easing: CHARGE_EASING_OPTIONS.includes(settings.easing) ? settings.easing : defaults.easing,
     blendMode: CHARGE_BLEND_OPTIONS.includes(settings.blendMode) ? settings.blendMode : defaults.blendMode,
     colorOverride: _normalizeHexColor(settings.colorOverride),
@@ -531,6 +570,33 @@ function _normalizeArrayCurve(curve) {
     weaponImg: String(curve?.weaponImg || ""),
     label: String(curve?.label || "Array curve"),
   };
+}
+
+// ── Warp glow splines ────────────────────────────────────────────────────────
+// Poly-bezier curves drawn along the warp nacelles. They power the pre-warp
+// charge glow and replace point warp emitters for the trail: each curve's aft
+// end becomes the trail emission point. Legacy point emitters (kind "warp")
+// stay in engineEmitters as a fallback for ships with no curves drawn.
+function _normalizeWarpCurveDirection(value) {
+  return value === "forward" || value === "reverse" ? value : "auto";
+}
+
+function _normalizeWarpCurve(curve) {
+  const layer = curve?.layer === "below" ? "below" : "above";
+  const direction = _normalizeWarpCurveDirection(curve?.direction);
+  const nodes = Array.isArray(curve?.nodes)
+    ? curve.nodes.map(node => _normalizeCurveNode(node)).filter(Boolean)
+    : [];
+  if (nodes.length >= 2) {
+    return { nodes, label: String(curve?.label || "Warp curve"), layer, direction };
+  }
+  const points = Array.isArray(curve?.points)
+    ? curve.points.map(point => _normalizeCurvePoint(point)).filter(Boolean)
+    : [];
+  if (points.length >= 2) {
+    return { points, label: String(curve?.label || "Warp curve"), layer, direction };
+  }
+  return null;
 }
 
 function _systemLabel(systemKey) {
@@ -668,6 +734,9 @@ function _weaponMatchesEmitter(anchor, weapon) {
 }
 
 function _isArrayWeapon(weapon) {
+  // A lance is never an array, however it is named or iconed — "Antiproton
+  // Spinal Lance Array" is a lance, and lances have no spine to walk.
+  if (_isLanceWeapon(weapon)) return false;
   const img = _weaponImg(weapon).split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "");
   if (img.includes("-array") && !img.includes("-array-spread")) return true;
   return /\barrays?\b/i.test(_weaponName(weapon));
@@ -717,6 +786,10 @@ export function normalizeShipVfxAnchors(data = {}) {
   const arrayCurves = Array.isArray(data?.anchors?.arrayCurves)
     ? data.anchors.arrayCurves.map(curve => _normalizeArrayCurve(curve)).filter(Boolean)
     : [];
+
+  const warpCurves = Array.isArray(data?.anchors?.warpCurves)
+    ? data.anchors.warpCurves.map(curve => _normalizeWarpCurve(curve)).filter(Boolean)
+    : [];
   const weaponVfx = Array.isArray(data?.settings?.weaponVfx)
     ? data.settings.weaponVfx.map(setting => normalizeShipWeaponVfxSetting(setting)).filter(setting => (
       setting.weaponId || setting.weaponName || setting.weaponImg
@@ -734,6 +807,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       hitLocations,
       hitPolygons,
       arrayCurves,
+      warpCurves,
     },
     settings: {
       weaponVfx,
@@ -772,10 +846,71 @@ export function getShipShieldImpactSettings(actorOrToken) {
 }
 
 export function getShipEngineEmitters(actorOrToken, kind = null) {
-  const all = getShipVfxAnchors(actorOrToken).anchors.engineEmitters ?? [];
+  const anchors = getShipVfxAnchors(actorOrToken).anchors;
+  const all = anchors.engineEmitters ?? [];
   if (!kind) return all;
   const wanted = _normalizeEngineKind(kind);
+  if (wanted === "warp") {
+    // Warp splines supersede point emitters: each curve's aft end streams the
+    // trail. Ships with no curves drawn keep their legacy point emitters.
+    const derived = (anchors.warpCurves ?? [])
+      .map((curve, index) => warpCurveTrailEmitter(curve, index))
+      .filter(Boolean);
+    if (derived.length) return derived;
+  }
   return all.filter(anchor => anchor.kind === wanted);
+}
+
+export function getShipWarpCurves(actorOrToken) {
+  return getShipVfxAnchors(actorOrToken).anchors.warpCurves ?? [];
+}
+
+// Point on a normalized-space warp curve at parameter t (0..1).
+function _warpCurvePoint(curve, t) {
+  if (Array.isArray(curve?.nodes) && curve.nodes.length >= 2) return _polyBezierPoint(curve.nodes, t);
+  if (Array.isArray(curve?.points) && curve.points.length >= 2) return _catmullRomPoint(curve.points, t);
+  return null;
+}
+
+// Which end of a warp curve is aft — where the trail streams from and where
+// the charge sweep finishes. "forward" pins aft to the last-placed point,
+// "reverse" to the first; "auto" picks the end with larger image-space y
+// (ship art faces up). Returns true when aft is the t=1 end.
+export function warpCurveAftIsEnd(curve) {
+  const direction = curve?.direction;
+  if (direction === "forward") return true;
+  if (direction === "reverse") return false;
+  const start = _warpCurvePoint(curve, 0);
+  const end = _warpCurvePoint(curve, 1);
+  if (!start || !end) return true;
+  return end.y >= start.y;
+}
+
+// Derive the trail pseudo-emitter for one warp curve: its aft endpoint, facing
+// along the curve's outward end tangent. Shape matches a placed engine emitter
+// so the trail spawner consumes it unchanged.
+export function warpCurveTrailEmitter(curve, index = 0) {
+  const start = _warpCurvePoint(curve, 0);
+  const end = _warpCurvePoint(curve, 1);
+  if (!start || !end) return null;
+  const aftIsEnd = warpCurveAftIsEnd(curve);
+  const tip = aftIsEnd ? end : start;
+  const inner = _warpCurvePoint(curve, aftIsEnd ? 0.96 : 0.04);
+  let facingDeg = DEFAULT_ENGINE_EMITTER_FACING_DEG;
+  const dx = tip.x - (inner?.x ?? tip.x);
+  const dy = tip.y - (inner?.y ?? tip.y);
+  if (Math.hypot(dx, dy) > 1e-6) {
+    // Ship-local facing: 0 = fore = -y on the unrotated art, 90 = starboard = +x.
+    facingDeg = _normalizeDegrees(Math.atan2(dx, -dy) * (180 / Math.PI), DEFAULT_ENGINE_EMITTER_FACING_DEG);
+  }
+  return {
+    x: tip.x,
+    y: tip.y,
+    label: String(curve?.label || `Warp emitter ${index + 1}`),
+    kind: "warp",
+    facingDeg,
+    layer: curve?.layer === "below" ? "below" : "above",
+  };
 }
 
 export function getShipEngineTrailSettings(actorOrToken) {
@@ -893,6 +1028,58 @@ export function resolvePointDefenseColorHex(actorOrToken, settingsOverride = nul
     : getShipPointDefenseSettings(actorOrToken);
   if (settings.colorMode === "custom" && settings.customColor) return settings.customColor;
   return POINT_DEFENSE_FACTION_COLORS[resolveActorFactionKey(actorOrToken)] ?? POINT_DEFENSE_FALLBACK_COLOR;
+}
+
+// Shield impacts get their own palette again. A shield flare is a sheet of
+// light seen edge-on, not a beam body: it reads brighter, cooler and less
+// saturated than the tractor/point-defense colours, so a shared table would
+// have to compromise one of them. Federation and anything unrecognised take
+// the blue-white Starfleet shields have always flashed on screen.
+export const SHIELD_FALLBACK_COLOR = "#9fd8ff";
+
+export const SHIELD_FACTION_COLORS = Object.freeze({
+  klingon:    "#ff5a44",
+  romulan:    "#4dea86",
+  borg:       "#7cff5a",
+  cardassian: "#ffb03a",
+  ferengi:    "#ffc94a",
+  dominion:   "#a97cff",
+  tos:        "#ffe089",
+});
+
+// Keyed to SHIELD_COLOR_OPTIONS, the per-ship override offered by the VFX
+// Anchors editor. "" means "auto by traits/name" and falls through to the
+// faction table; "custom" reads the ship's own hex instead.
+export const SHIELD_PRESET_COLORS = Object.freeze({
+  blueWhite: "#9fd8ff",
+  teal:      "#43e0d0",
+  green:     "#4dea86",
+  red:       "#ff5a44",
+  purple:    "#a97cff",
+  orange:    "#ffb03a",
+});
+
+export function resolveShieldImpactColorHex(actorOrToken, settingsOverride = null) {
+  const settings = settingsOverride
+    ? normalizeShipShieldImpactSettings(settingsOverride)
+    : getShipShieldImpactSettings(actorOrToken);
+  if (settings.colorPreset === "custom" && settings.customColor) return settings.customColor;
+  if (SHIELD_PRESET_COLORS[settings.colorPreset]) return SHIELD_PRESET_COLORS[settings.colorPreset];
+  return SHIELD_FACTION_COLORS[resolveActorFactionKey(actorOrToken)] ?? SHIELD_FALLBACK_COLOR;
+}
+
+export function resolveShieldStandoffFactor(actorOrToken, settingsOverride = null) {
+  const settings = settingsOverride
+    ? normalizeShipShieldImpactSettings(settingsOverride)
+    : getShipShieldImpactSettings(actorOrToken);
+  if (settings.standoff > 0) return settings.standoff;
+
+  let world = SHIELD_STANDOFF_DEFAULT;
+  try { world = Number(game.settings.get(MODULE, "shieldBubbleStandoff")); }
+  catch { /* setting not registered yet */ }
+  if (!Number.isFinite(world) || world <= 0) return SHIELD_STANDOFF_DEFAULT;
+
+  return Math.max(SHIELD_STANDOFF_MIN, Math.min(SHIELD_STANDOFF_MAX, world));
 }
 
 export function shipPointDefenseEmitterToCanvasPoint(token, anchor) {
@@ -1019,7 +1206,7 @@ export function getShipWeaponEmitterArcSelection(token, weapon, targetPoint, set
     if (!point) return;
 
     const facingDeg = _normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor));
-    const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg, _emitterArcMinForWeaponImg(_weaponImg(weapon)));
+    const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg, _emitterArcMinForWeapon(_weaponImg(weapon), _weaponName(weapon)));
     const bearingDelta = _angleDistanceDeg(targetBearing, facingDeg);
     const inArc = bearingDelta <= (arcWidthDeg / 2);
     const desiredRotation = shipFacingDegToRotationForTarget(token, targetPoint, facingDeg);
@@ -1084,7 +1271,7 @@ function _matchAnchorIndex(anchors, anchor) {
 
 function _emitterArcCoversTarget(anchor, weapon, targetBearing) {
   const facingDeg = _normalizeDegrees(anchor.facingDeg, _defaultEmitterFacingDeg(anchor));
-  const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg, _emitterArcMinForWeaponImg(_weaponImg(weapon)));
+  const arcWidthDeg = _normalizeEmitterArcWidth(anchor.arcWidthDeg, _emitterArcMinForWeapon(_weaponImg(weapon), _weaponName(weapon)));
   return _angleDistanceDeg(targetBearing, facingDeg) <= (arcWidthDeg / 2);
 }
 
@@ -1109,7 +1296,7 @@ function _emitterArcCoversTarget(anchor, weapon, targetBearing) {
  */
 export function getShipWeaponEmitterCluster(token, weapon, targetPoint, selection = null, settingsOverride = null) {
   if (!token || !weapon || !targetPoint) return null;
-  if (_isArrayWeapon(weapon) || _isLanceWeaponImg(_weaponImg(weapon))) return null;
+  if (_isArrayWeapon(weapon) || _isLanceWeapon(weapon)) return null;
 
   const anchors = getShipWeaponEmitterAnchors(token, weapon);
   if (anchors.length < 2) return null;
@@ -2095,6 +2282,21 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     return !!weapon && _isArrayWeapon(weapon);
   }
 
+  _isWarpCurveTab() {
+    return this._resolveActiveTab() === "engineWarp";
+  }
+
+  // Tabs whose placement tools draw bezier splines: array weapons (points and
+  // curves toggleable) and the warp tab (splines only — points are legacy).
+  _isCurveTab() {
+    return this._isActiveArrayWeaponTab() || this._isWarpCurveTab();
+  }
+
+  _curveModeActive() {
+    if (this._isWarpCurveTab()) return true;
+    return this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve";
+  }
+
   _activeWeaponSettings() {
     const weapon = this._weaponForTab();
     return weapon ? getShipWeaponVfxSettingsFromData(this._anchors, weapon) : null;
@@ -2137,6 +2339,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     return [
       { key: "hitDuration", label: "Hit Duration", type: "number", min: 80, max: 5000, step: 20, value: c.hitDuration },
       { key: "missDuration", label: "Miss Duration", type: "number", min: 80, max: 5000, step: 20, value: c.missDuration },
+      { key: "repeatSpread", label: "Repeat Spread", type: "number", min: 0, max: 1, step: 0.01, value: c.repeatSpread },
       { key: "colorOverride", label: "Color Override", type: "text", value: c.colorOverride, placeholder: "#ff9a33 or blank", isColor: true, pickerValue: c.colorOverride || "#ff9a33" },
       { key: "coreColorOverride", label: "Core Override", type: "text", value: c.coreColorOverride, placeholder: "#fff2c0 or blank", isColor: true, pickerValue: c.coreColorOverride || "#fff2c0" },
       { key: "orbGlowRadius", label: "Orb Glow Radius", type: "number", min: 1, max: 120, step: 1, value: c.orbGlowRadius },
@@ -2191,15 +2394,24 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     };
   }
 
+  // Shield colour belongs to the ship, not to the weapon whose tab happens to
+  // be open, so it is read on its own — the weapon read below bails out on a
+  // non-weapon tab and would take this with it.
+  _readShieldImpactSettingsFromForm() {
+    if (!this.element) return;
+    const current = this._activeShieldImpactSettings();
+    this._setShieldImpactSettings({
+      colorPreset: this.element.querySelector('[data-shield-impact-setting="colorPreset"]')?.value ?? current.colorPreset,
+      customColor: this.element.querySelector('[data-shield-impact-setting="customColor"]')?.value ?? current.customColor,
+      standoff: this.element.querySelector('[data-shield-impact-setting="standoff"]')?.value ?? current.standoff,
+    });
+  }
+
   _readWeaponSettingsFromForm() {
+    this._readShieldImpactSettingsFromForm();
     const weapon = this._weaponForTab();
     if (!weapon || !this.element) return null;
     const current = this._activeWeaponSettings() ?? getDefaultShipWeaponVfxSettings(weapon);
-    const currentShieldImpact = this._activeShieldImpactSettings();
-    this._setShieldImpactSettings({
-      colorPreset: this.element.querySelector('[data-shield-impact-setting="colorPreset"]')?.value ?? currentShieldImpact.colorPreset,
-      customColor: this.element.querySelector('[data-shield-impact-setting="customColor"]')?.value ?? currentShieldImpact.customColor,
-    });
     const sourceOffset = {
       x: _number(this.element.querySelector('[data-vfx-setting="sourceOffset.x"]')?.value, current.sourceOffset.x),
       y: _number(this.element.querySelector('[data-vfx-setting="sourceOffset.y"]')?.value, current.sourceOffset.y),
@@ -2282,6 +2494,32 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     }
     this._readEngineSettingsFromForm();
     this._readEmitterArcFromForm();
+    // Warp no longer streams a trail — its preview is the charge glow alone.
+    if (kind === "warp") {
+      if (!(this._anchors.anchors.warpCurves ?? []).length) {
+        if (!silent) ui.notifications.warn("STA2e Toolkit: Draw at least one warp curve to preview the charge glow.");
+        return;
+      }
+      try {
+        // The charge glow reads curves from the actor flag; persist in-memory
+        // edits first so the preview matches the splines on screen.
+        try {
+          if (game.user?.isGM && this.actor) {
+            this._anchors = await _saveShipVfxAnchors(this.actor, { ...this._anchors, textureSrc: this.textureSrc });
+          }
+        } catch (err) {
+          console.warn("STA2e Toolkit | Could not persist anchors before preview:", err);
+        }
+        const { playWarpChargeGlow } = await import("./warp-jump-vfx.js");
+        const glow = playWarpChargeGlow(sourceToken, { sweepMs: 500 });
+        setTimeout(() => { try { glow?.stop?.(); } catch { /* preview only */ } }, 1300);
+      } catch (err) {
+        console.warn("STA2e Toolkit | Warp glow preview failed:", err);
+        if (!silent) ui.notifications.warn("STA2e Toolkit: Warp glow preview failed. See console for details.");
+      }
+      return;
+    }
+
     const emitters = this._activeEmitters();
     if (!emitters.length) {
       if (!silent) ui.notifications.warn(`STA2e Toolkit: Place at least one ${kind} emitter point to preview.`);
@@ -2332,12 +2570,27 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _activeCurves() {
+    if (this._isWarpCurveTab()) return this._anchors.anchors.warpCurves ?? [];
     const weapon = this._weaponForTab();
     if (!weapon || !_isArrayWeapon(weapon)) return [];
     return (this._anchors.anchors.arrayCurves ?? []).filter(curve => _weaponMatchesEmitter(curve, weapon));
   }
 
   _setActiveCurves(curves) {
+    if (this._isWarpCurveTab()) {
+      this._anchors = normalizeShipVfxAnchors({
+        ...this._anchors,
+        textureSrc: this.textureSrc,
+        anchors: {
+          ...this._anchors.anchors,
+          warpCurves: curves.map((curve, index) => ({
+            ...curve,
+            label: curve.label || `Warp curve ${index + 1}`,
+          })),
+        },
+      });
+      return;
+    }
     const weapon = this._weaponForTab();
     if (!weapon || !_isArrayWeapon(weapon)) return;
     const otherCurves = (this._anchors.anchors.arrayCurves ?? [])
@@ -2589,7 +2842,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       : null;
     const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : 0;
     const arcMin = isWeaponEmitterTab
-      ? _emitterArcMinForWeaponImg(_weaponImg(this._weaponForTab()))
+      ? _emitterArcMinForWeapon(_weaponImg(this._weaponForTab()), _weaponName(this._weaponForTab()))
       : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
     return emitters.map((anchor, index) => ({
       ...anchor,
@@ -2630,7 +2883,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
     const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor);
     const minArcWidthDeg = isWeaponEmitterTab
-      ? _emitterArcMinForWeaponImg(_weaponImg(this._weaponForTab()))
+      ? _emitterArcMinForWeapon(_weaponImg(this._weaponForTab()), _weaponName(this._weaponForTab()))
       : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
     return {
       index: selected.index,
@@ -2655,7 +2908,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _emitterLinkControls(isWeaponEmitterTab, selected) {
     // Lances are single-shot spinal mounts, so they never alternate.
-    const showEmitterLink = isWeaponEmitterTab && !_isLanceWeaponImg(_weaponImg(this._weaponForTab()));
+    const showEmitterLink = isWeaponEmitterTab && !_isLanceWeapon(this._weaponForTab());
     if (!showEmitterLink) return { showEmitterLink: false };
 
     const emitters = this._activeEmitters();
@@ -2775,6 +3028,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       alpha: _number(read("alpha", mode.alpha), mode.alpha),
       fade: _number(read("fade", mode.fade), mode.fade),
       blendMode: read("blendMode", mode.blendMode),
+      // Warp only — the input is absent on the impulse tab and the normalizer
+      // strips the key for modes without a glowSize default.
+      glowSize: _number(read("glowSize", mode.glowSize), mode.glowSize),
     };
     const next = {
       ...current,
@@ -2801,6 +3057,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         index,
         displayIndex: index + 1,
         isNodes: Array.isArray(curve.nodes),
+        layerBelowSelected: curve.layer === "below",
+        directionForwardSelected: curve.direction === "forward",
+        directionReverseSelected: curve.direction === "reverse",
+        directionAutoSelected: curve.direction !== "forward" && curve.direction !== "reverse",
         path: _arrayCurveSvgPathData(curve),
         handles: _arrayCurveHandleRows(curve, index),
         pointMarkers: _arrayCurveMarkerRows(curve, index),
@@ -2894,7 +3154,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isHitLocationsTab = this._resolveActiveTab() === "hitLocations";
     const isArrayWeaponTab = this._isActiveArrayWeaponTab();
     const activeWeapon = this._weaponForTab();
-    const curveModeActive = isArrayWeaponTab && this._activePlacementMode === "curve";
+    const isCurveTab = this._isCurveTab();
+    const curveModeActive = this._curveModeActive();
     const pointModeActive = !curveModeActive;
     const activeWeaponSettings = this._activeWeaponSettings();
     const activeEmitterArcControls = this._activeEmitterArcControls();
@@ -2949,6 +3210,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       activeCurves: activeCurveRows,
       hasActiveCurves: activeCurveRows.length > 0,
       isArrayWeaponTab,
+      isCurveTab,
+      isWarpCurveTab: this._isWarpCurveTab(),
       isWeaponTab: !!this._weaponForTab(),
       activeWeaponSettings,
       activeEmitterArcControls,
@@ -2993,6 +3256,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         ...option,
         selected: option.value === this._activeShieldImpactSettings().colorPreset,
       })),
+      resolvedShieldColor: resolveShieldImpactColorHex(this.actor, this._activeShieldImpactSettings()),
+      shieldPickerColor: this._activeShieldImpactSettings().customColor
+        || resolveShieldImpactColorHex(this.actor, this._activeShieldImpactSettings()),
+      resolvedShieldStandoff: resolveShieldStandoffFactor(this.actor, this._activeShieldImpactSettings()),
       showPhaserEraSelector: _isEraPhaserWeapon(activeWeapon),
       phaserEraOptions: PHASER_ERA_OPTIONS.map(option => ({
         ...option,
@@ -3388,12 +3655,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
     el.querySelector("[data-finish-curve]")?.addEventListener("click", event => {
       event.preventDefault();
-      if (!this._isActiveArrayWeaponTab() || this._pendingCurvePoints.length < 2) return;
+      if (!this._isCurveTab() || this._pendingCurvePoints.length < 2) return;
       const activeCurves = this._activeCurves();
       const curve = {
         nodes: _pointsToNodes(this._pendingCurvePoints),
-        label: `${this._activeTabLabel()} array curve ${activeCurves.length + 1}`,
+        label: this._isWarpCurveTab()
+          ? `Warp curve ${activeCurves.length + 1}`
+          : `${this._activeTabLabel()} array curve ${activeCurves.length + 1}`,
       };
+      if (this._isWarpCurveTab()) curve.layer = "above";
       this._setActiveCurves([...activeCurves, curve]);
       this._pendingCurvePoints = [];
       this._opaqueState = null;
@@ -3409,7 +3679,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
     el.querySelector("[data-convert-curve]")?.addEventListener("click", event => {
       event.preventDefault();
-      if (!this._isActiveArrayWeaponTab()) return;
+      if (!this._isCurveTab()) return;
       let changed = false;
       const converted = this._activeCurves().map(curve => {
         if (Array.isArray(curve.nodes)) return curve;
@@ -3545,7 +3815,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       const x = _clamp((event.clientX - rect.left) / rect.width);
       const y = _clamp((event.clientY - rect.top) / rect.height);
 
-      if (this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve") {
+      if (this._curveModeActive()) {
         // Shift-click inserts a node into the most recent handle curve, splitting
         // the nearest segment, rather than starting a new pending point.
         if (event.shiftKey && !this._pendingCurvePoints.length) {
@@ -3658,6 +3928,28 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       });
     });
 
+    el.querySelectorAll("[data-curve-layer]").forEach(select => {
+      select.addEventListener("change", event => {
+        const index = Number(event.currentTarget.dataset.curveLayer);
+        const curves = this._activeCurves().map(curve => _cloneCurve(curve));
+        if (!Number.isInteger(index) || index < 0 || index >= curves.length) return;
+        curves[index] = { ...curves[index], layer: event.currentTarget.value === "below" ? "below" : "above" };
+        this._setActiveCurves(curves);
+        this.render({ force: true });
+      });
+    });
+
+    el.querySelectorAll("[data-curve-direction]").forEach(select => {
+      select.addEventListener("change", event => {
+        const index = Number(event.currentTarget.dataset.curveDirection);
+        const curves = this._activeCurves().map(curve => _cloneCurve(curve));
+        if (!Number.isInteger(index) || index < 0 || index >= curves.length) return;
+        curves[index] = { ...curves[index], direction: _normalizeWarpCurveDirection(event.currentTarget.value) };
+        this._setActiveCurves(curves);
+        this.render({ force: true });
+      });
+    });
+
     el.querySelectorAll("[data-move-emitter]").forEach(marker => {
       marker.addEventListener("click", event => {
         event.preventDefault();
@@ -3764,7 +4056,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
             moveMarkerElement(target, point);
             refreshCurveSvg(index, curves[index]);
           }
-          if (coords) coords.textContent = `${curves.length} array curve(s) for ${this._activeTabLabel()}`;
+          if (coords) coords.textContent = `${curves.length} curve(s) for ${this._activeTabLabel()}`;
         });
       });
     });
@@ -3787,8 +4079,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   static async _onClear(_event, _target) {
     if (!game.user?.isGM || !this.actor) return;
     const clearedLabel = this._activeTabLabel();
-    if (this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve") {
+    if (this._curveModeActive()) {
       this._setActiveCurves([]);
+      // The warp tab's Clear also removes legacy point emitters, which have no
+      // other bulk-removal control now that placement there is curve-only.
+      if (this._isWarpCurveTab()) this._setActiveEmitters([]);
     } else if (this._resolveActiveTab() === "hitLocations") {
       this._setActiveZones([]);
       this._setActiveEmitters([]);
@@ -3799,8 +4094,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._opaqueState = null;
     this._pendingCurvePoints = [];
     this._pendingZonePoints = [];
-    const pointKind = this._isActiveArrayWeaponTab() && this._activePlacementMode === "curve"
-      ? "array curves"
+    const pointKind = this._curveModeActive()
+      ? (this._isWarpCurveTab() ? "warp curves and legacy points" : "array curves")
       : (this._resolveActiveTab() === "hitLocations" ? "hit zones and legacy points" : "emitter points");
     ui.notifications.info(`STA2e Toolkit: ${clearedLabel} ${pointKind} cleared for ${this.actor.name}.`);
     this.render({ force: true });

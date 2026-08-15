@@ -45,10 +45,16 @@ import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } fr
 import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerShipCommandHud } from "./ship-command-hud.js";
 import { registerTokenWeaponHud } from "./token-weapon-hud.js";
-import { playNativeWarpFlash } from "./warp-jump-vfx.js";
+import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
 import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
+import {
+  playShieldBubbleLocal,
+  registerShieldBubbleVfxHooks,
+  testShieldBubble,
+} from "./shield-bubble-vfx.js";
 import { playTorpedoTravelLocal } from "./torpedo-travel-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
+import { registerTokenSelectGlow } from "./token-select-glow.js";
 import { ZoneDragRuler } from "./zone-drag-ruler.js";
 import { ZoneMovementLog } from "./zone-movement-log.js";
 import { ZoneHazard } from "./zone-hazard.js";
@@ -291,6 +297,7 @@ Hooks.once("init", () => {
   console.log("STA 2e Toolkit | Initializing");
   registerSettings();
   registerTractorBeamVfxHooks();
+  registerShieldBubbleVfxHooks();
   registerTransporterSettings();
   registerMomentumSpend();
   registerMomentumTracker();
@@ -788,6 +795,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openVfxTestPanel = _openVfxTestPanel;
   game.sta2eToolkit.testTractorBeamVFX = options => NativeTractorBeamVFX.testSelectedToTargeted(options);
   game.sta2eToolkit.stopTractorBeamVFX = () => NativeTractorBeamVFX.stopActive();
+  game.sta2eToolkit.testShieldBubbleVFX = options => testShieldBubble(options);
   game.sta2eToolkit.openShipVfxAnchorEditor = openShipVfxAnchorEditor;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   game.sta2eToolkit.createStarSystemActor = createStarSystemActor;
@@ -1099,6 +1107,26 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // Pre-warp nacelle glow — each client samples the ship's warp splines
+    // locally, so the payload is just the token and timing. The stop message
+    // lands the pop-fade on the depart flash; the glow also self-expires in
+    // case that message is lost.
+    if (msg.action === "warpChargeVfx") {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+        const chargeTok = canvas?.tokens?.get(msg.tokenId);
+        if (chargeTok) {
+          playWarpChargeGlow(chargeTok, {
+            sweepMs: msg.sweepMs, peakHoldMs: msg.peakHoldMs, fadeMs: msg.fadeMs,
+          });
+        }
+      }
+      return;
+    }
+    if (msg.action === "stopWarpChargeVfx") {
+      stopWarpChargeGlow(msg.tokenId);
+      return;
+    }
+
     // Point Defense tracers are native PIXI, while the intercepted torpedo and
     // its destruction effect remain Sequencer-synchronized. The firing client
     // draws locally before emitting because Foundry sockets do not loop back.
@@ -1122,6 +1150,26 @@ Hooks.once("ready", async () => {
     if (msg.action === "torpedoTravelVfx") {
       if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
         playTorpedoTravelLocal(msg.plan);
+      }
+      return;
+    }
+
+    // Shield bubbles are native PIXI, drawn by the GM applying the damage and
+    // broadcast from there. The colour and intensity are resolved once on the
+    // sender; each client recomputes only the geometry, which is local to its
+    // own canvas. See shield-bubble-vfx.js.
+    if (msg.action === "shieldBubbleVfx") {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+        playShieldBubbleLocal({
+          tokenId: msg.tokenId,
+          x: msg.x, y: msg.y,
+          sx: msg.sx, sy: msg.sy,
+          color: msg.color,
+          intensity: msg.intensity,
+          standoff: msg.standoff,
+          capT: msg.capT,
+          broke: msg.broke,
+        });
       }
       return;
     }
@@ -2083,6 +2131,9 @@ Hooks.once("setup", () => {
 
   // Patch Token._getTooltipText so the elevation badge can be hidden.
   registerTokenElevationDisplay();
+
+  // Patch Token._refreshBorder and wire the silhouette selection glow.
+  registerTokenSelectGlow();
 
   // Patch Token._onDragLeftStart and _onDragLeftDrop to feed the ZoneDragRuler
   const TokenClass = foundry.canvas?.placeables?.Token ?? Token;

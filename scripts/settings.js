@@ -11,6 +11,7 @@ import {
 import { DEFAULT_BEAM_VFX_SETTINGS, NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
 import { resyncAllHullDecals, refreshAllHullDecals } from "./hull-decals.js";
 import { refreshAllTokenElevationTooltips } from "./token-elevation-display.js";
+import { refreshAllTokenSelectGlow } from "./token-select-glow.js";
 import { WildcardNamerConfig } from "./wildcard-namer.js";
 import { CharacterCreatorConfig, CHARACTER_CREATOR_DEFAULT_DATA } from "./character-creator.js";
 import {
@@ -671,6 +672,72 @@ export function registerSettings() {
     onChange: () => refreshAllTokenElevationTooltips(),
   });
 
+  // ── Token Selection Glow ─────────────────────────────────────────────────
+  // Replaces Foundry's rectangular selection border with a silhouette glow.
+  // Client scope: every user picks their own look.
+
+  game.settings.register("sta2e-toolkit", "tokenSelectGlow", {
+    name:    "STA2E.Settings.TokenSelectGlow.Name",
+    hint:    "STA2E.Settings.TokenSelectGlow.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => refreshAllTokenSelectGlow(),
+  });
+
+  game.settings.register("sta2e-toolkit", "tokenSelectGlowHideBorder", {
+    name:    "STA2E.Settings.TokenSelectGlowHideBorder.Name",
+    hint:    "STA2E.Settings.TokenSelectGlowHideBorder.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => refreshAllTokenSelectGlow(),
+  });
+
+  game.settings.register("sta2e-toolkit", "tokenSelectGlowDistance", {
+    name:    "STA2E.Settings.TokenSelectGlowDistance.Name",
+    hint:    "STA2E.Settings.TokenSelectGlowDistance.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Number,
+    range:   { min: 4, max: 40, step: 1 },
+    default: 14,
+    onChange: () => refreshAllTokenSelectGlow(),
+  });
+
+  game.settings.register("sta2e-toolkit", "tokenSelectGlowStrength", {
+    name:    "STA2E.Settings.TokenSelectGlowStrength.Name",
+    hint:    "STA2E.Settings.TokenSelectGlowStrength.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Number,
+    range:   { min: 0.5, max: 6, step: 0.1 },
+    default: 2.6,
+    onChange: () => refreshAllTokenSelectGlow(),
+  });
+
+  game.settings.register("sta2e-toolkit", "tokenSelectGlowHover", {
+    name:    "STA2E.Settings.TokenSelectGlowHover.Name",
+    hint:    "STA2E.Settings.TokenSelectGlowHover.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => refreshAllTokenSelectGlow(),
+  });
+
+  game.settings.register("sta2e-toolkit", "tokenSelectGlowTarget", {
+    name:    "STA2E.Settings.TokenSelectGlowTarget.Name",
+    hint:    "STA2E.Settings.TokenSelectGlowTarget.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => refreshAllTokenSelectGlow(),
+  });
+
   // ── JB2A Tier ────────────────────────────────────────────────────────────
 
   game.settings.register("sta2e-toolkit", "jb2aTier", {
@@ -950,6 +1017,28 @@ export function registerSettings() {
     default: true,
   });
 
+  // Separate toggle rather than a pixi/sequencer renderer switch (cf. the
+  // tractor beam): the bubble and the JB2A flash are meant to play together,
+  // so this only decides whether the native layer is one of them.
+  game.settings.register("sta2e-toolkit", "shieldBubbleVFX", {
+    name:    "STA2E.Settings.ShieldBubbleVFX.Name",
+    hint:    "STA2E.Settings.ShieldBubbleVFX.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "shieldBubbleStandoff", {
+    name:    "STA2E.Settings.ShieldBubbleStandoff.Name",
+    hint:    "STA2E.Settings.ShieldBubbleStandoff.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 1, max: 2, step: 0.05 },
+    default: 1.35,
+  });
+
   game.settings.register("sta2e-toolkit", "shieldImpactPreset", {
     name:    "STA2E.Settings.ShieldImpactPreset.Name",
     hint:    "STA2E.Settings.ShieldImpactPreset.Hint",
@@ -1213,6 +1302,15 @@ export function registerSettings() {
     name: "Warp Corridor Max Wait (ms)",
     hint: "Longest the ship stays hidden waiting for the corridor animation to finish before dropping out of warp.",
     scope: "world", config: false, type: Number, default: 2000,
+  });
+
+  // Size multiplier (percent) for the Warp-Flash animation at both ends of a
+  // jump. Managed via Sounds & Animations → Ship Tasks; world scope so every
+  // client renders the flash the same size.
+  game.settings.register("sta2e-toolkit", "warpFlashScale", {
+    name: "Warp Flash Size (%)",
+    hint: "Scales the warp depart/arrive flash animation. 100 = default size.",
+    scope: "world", config: false, type: Number, default: 100,
   });
 
   // Ship spawner dialog state. Per-client so two GMs do not fight over the

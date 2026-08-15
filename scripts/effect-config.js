@@ -8,6 +8,8 @@ import {
   BEAM_VFX_EASING_OPTIONS,
   BEAM_VFX_TRACER_ERA_OPTIONS,
   DEFAULT_BEAM_VFX_SETTINGS,
+  DEFAULT_ENERGY_VFX_TYPE,
+  ENERGY_VFX_TYPES,
   NATIVE_WEAPON_VFX_MODE_ROWS,
   getBeamVfxSettings,
   normalizeBeamVfxSettings,
@@ -285,10 +287,13 @@ function buildTabDefs() {
         { label: "Tractor Beam",           slot: "Animation", sndKey: null,                     animKey: "shipTasks.tractorBeam.anim",
           defaultHint: "Default: jb2a.energy_conduit.bluepurple.circle.01" },
         { label: "Impulse — Engage",       slot: "", sndKey: "sndImpulseEngage",   animKey: null, defaultHint: null },
-        { label: "Warp — Depart (Boom)",   slot: "", sndKey: "sndWarpEngage",      animKey: "shipTasks.warpDepart.anim",
-          defaultHint: jb2aHint("jb2a.impact.007.white", "jb2a.impact.007.yellow") },
-        { label: "Warp — Arrive",          slot: "", sndKey: "sndWarpArrive",      animKey: "shipTasks.warpArrive.anim",
-          defaultHint: jb2aHint("jb2a.impact.007.white", "jb2a.impact.007.yellow") },
+        // Depart/arrive flashes are the module's Warp-Flash animation; only
+        // their sounds and the flash size are configurable.
+        { label: "Warp — Depart (Boom)",   slot: "", sndKey: "sndWarpEngage",      animKey: null, defaultHint: null },
+        { label: "Warp — Arrive",          slot: "", sndKey: "sndWarpArrive",      animKey: null, defaultHint: null },
+        { label: "Warp — Flash Size",      slot: "", sndKey: null,                 animKey: null,
+          delayKey: "warpFlashScale", unit: "%", step: 5,
+          defaultHint: "Default: 100% — scales the Warp-Flash animation at both ends of the jump." },
         { label: "Warp — Corridor",        slot: "", sndKey: null,                 animKey: "shipTasks.warpCorridor.anim",
           defaultHint: jb2aHint(
             "jb2a.energy_strands.range.standard.blue.04.90ft",
@@ -354,68 +359,138 @@ function buildEnergyWeaponRows() {
 
 // Field list for the Beam VFX tab, kept as data so the template stays one
 // generic loop. `path` is the dot-path into the beamVfxAppearance setting.
+// Banks and cannons draw the same bolt; arrays and lances draw the same strip
+// beam. Spelled once each so the four family tables cannot drift apart.
+const BOLT_FAMILY_FIELDS = Object.freeze([
+  { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
+  { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "glowWidth",        label: "Glow width",         kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "glowAlpha",        label: "Glow opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "muzzleFillRadius", label: "Muzzle flare radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "muzzleFillAlpha",  label: "Muzzle flare opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "muzzleRingRadius", label: "Muzzle ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "muzzleRingWidth",  label: "Muzzle ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "muzzleRingAlpha",  label: "Muzzle ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "hitDuration",      label: "Bolt lifetime (hit)",  kind: "range", min: 60, max: 2000, step: 20, unit: "ms" },
+  { key: "missDuration",     label: "Bolt lifetime (miss)", kind: "range", min: 60, max: 2000, step: 20, unit: "ms" },
+  { key: "burstGap",         label: "Gap between bursts",   kind: "range", min: 0,  max: 600,  step: 5,  unit: "ms" },
+  { key: "targetGap",        label: "Gap between targets",  kind: "range", min: 0,  max: 2000, step: 20, unit: "ms" },
+]);
+
+const BEAM_FAMILY_FIELDS = Object.freeze([
+  { key: "haloWidth",        label: "Halo width",         kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "haloAlpha",        label: "Halo opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "railWidth",        label: "Side rail width",    kind: "range", min: 0,  max: 40,   step: 0.5  },
+  { key: "railAlpha",        label: "Side rail opacity",  kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "railOffset",       label: "Side rail offset",   kind: "range", min: 0,  max: 40,   step: 0.5  },
+  { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
+  { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "sweepWidth",       label: "Sweep line width",   kind: "range", min: 0,  max: 20,   step: 0.5  },
+  { key: "sweepAlpha",       label: "Sweep line opacity", kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "sweepColor",       label: "Sweep line colour",  kind: "color",
+    hint: "Clear to make the sweep follow the beam's own core colour." },
+  { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "hitDuration",      label: "Beam lifetime (hit)",  kind: "range", min: 60, max: 3000, step: 20, unit: "ms" },
+  { key: "missDuration",     label: "Beam lifetime (miss)", kind: "range", min: 60, max: 3000, step: 20, unit: "ms" },
+  { key: "shotGap",          label: "Gap between strikes",  kind: "range", min: 0,  max: 1000, step: 10, unit: "ms" },
+]);
+
+// Cannons fire discrete travelling bolts, so they trade the held line's
+// lifetime for the bolt's flight dials.
+const CANNON_FIELDS = Object.freeze([
+  { key: "coreWidth",        label: "Bolt core width",    kind: "range", min: 0,  max: 30,   step: 0.5  },
+  { key: "coreAlpha",        label: "Bolt core opacity",  kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "glowWidth",        label: "Bolt glow width",    kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "glowAlpha",        label: "Bolt glow opacity",  kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "boltLength",       label: "Bolt length",        kind: "range", min: 2,  max: 400,  step: 2,
+    hint: "Short relative to the core width reads as a droplet; long reads as a streak." },
+  { key: "boltCount",        label: "Bolts per shot",     kind: "range", min: 1,  max: 24,   step: 1,
+    hint: "1 gives one droplet per shot — the volley's length already comes from the cannon shot count "
+      + "on the Energy Weapons tab." },
+  { key: "boltSpacing",      label: "Time between bolts", kind: "range", min: 5,  max: 500,  step: 5, unit: "ms",
+    hint: "Only matters above one bolt per shot. Lower than the travel time means several are in flight." },
+  { key: "travelDuration",   label: "Bolt travel time",   kind: "range", min: 40, max: 2000, step: 10, unit: "ms",
+    hint: "Also when the shield/hull impact lands." },
+  { key: "tailFade",         label: "Dim over flight",    kind: "range", min: 0,  max: 1,    step: 0.02,
+    hint: "How much a bolt dims by the time it reaches the target. 0 keeps it at full brightness." },
+  { key: "muzzleFillRadius", label: "Muzzle flare radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "muzzleFillAlpha",  label: "Muzzle flare opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "muzzleRingRadius", label: "Muzzle ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "muzzleRingWidth",  label: "Muzzle ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "muzzleRingAlpha",  label: "Muzzle ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "burstGap",         label: "Gap between shots",  kind: "range", min: 0,  max: 600,  step: 5,  unit: "ms" },
+  { key: "targetGap",        label: "Gap between targets",kind: "range", min: 0,  max: 2000, step: 20, unit: "ms" },
+]);
+
+// Two swatches per energy type, in the order the types are matched.
+const ENERGY_COLOR_FIELDS = Object.freeze(ENERGY_VFX_TYPES.flatMap(({ id, label }) => [
+  { key: `${id}Color`, label: `${label} — primary`, kind: "color" },
+  { key: `${id}Core`,  label: `${label} — core`,    kind: "color" },
+]));
+
 const BEAM_VFX_FIELD_GROUPS = Object.freeze([
   {
     group: "bank",
-    label: "Phaser Bank",
-    hint: "Short amber bolts, fired as a burst per target. Widths and radii are in canvas pixels.",
-    fields: [
-      { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
-      { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "glowWidth",        label: "Glow width",         kind: "range", min: 0,  max: 60,   step: 1    },
-      { key: "glowAlpha",        label: "Glow opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "muzzleFillRadius", label: "Muzzle flare radius",kind: "range", min: 0,  max: 40,   step: 1    },
-      { key: "muzzleFillAlpha",  label: "Muzzle flare opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
-      { key: "muzzleRingRadius", label: "Muzzle ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
-      { key: "muzzleRingWidth",  label: "Muzzle ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
-      { key: "muzzleRingAlpha",  label: "Muzzle ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
-      { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
-      { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
-      { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
-      { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "hitDuration",      label: "Bolt lifetime (hit)",  kind: "range", min: 60, max: 2000, step: 20, unit: "ms" },
-      { key: "missDuration",     label: "Bolt lifetime (miss)", kind: "range", min: 60, max: 2000, step: 20, unit: "ms" },
-      { key: "burstGap",         label: "Gap between bursts",   kind: "range", min: 0,  max: 600,  step: 5,  unit: "ms" },
-      { key: "targetGap",        label: "Gap between targets",  kind: "range", min: 0,  max: 2000, step: 20, unit: "ms" },
-    ],
+    label: "Energy Banks",
+    hint: "A held beam, fired as a burst per target. Shared by every energy type — the colour comes "
+      + "from Energy Weapon Colours below. Widths and radii are in canvas pixels.",
+    fields: BOLT_FAMILY_FIELDS,
   },
   {
     group: "array",
-    label: "Phaser Array",
-    hint: "Continuous strip beam: a wide halo, two offset side rails, a core, and a thin hot sweep line over the top.",
-    fields: [
-      { key: "haloWidth",        label: "Halo width",         kind: "range", min: 0,  max: 60,   step: 1    },
-      { key: "haloAlpha",        label: "Halo opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "railWidth",        label: "Side rail width",    kind: "range", min: 0,  max: 40,   step: 0.5  },
-      { key: "railAlpha",        label: "Side rail opacity",  kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "railOffset",       label: "Side rail offset",   kind: "range", min: 0,  max: 40,   step: 0.5  },
-      { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
-      { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "sweepWidth",       label: "Sweep line width",   kind: "range", min: 0,  max: 20,   step: 0.5  },
-      { key: "sweepAlpha",       label: "Sweep line opacity", kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "sweepColor",       label: "Sweep line colour",  kind: "color",
-        hint: "Clear to make the sweep follow the beam's own core colour." },
-      { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
-      { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
-      { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
-      { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
-      { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
-      { key: "hitDuration",      label: "Beam lifetime (hit)",  kind: "range", min: 60, max: 3000, step: 20, unit: "ms" },
-      { key: "missDuration",     label: "Beam lifetime (miss)", kind: "range", min: 60, max: 3000, step: 20, unit: "ms" },
-      { key: "shotGap",          label: "Gap between strikes",  kind: "range", min: 0,  max: 1000, step: 10, unit: "ms" },
-    ],
+    label: "Energy Arrays",
+    hint: "Continuous strip beam: a wide halo, two offset side rails, a core, and a thin hot sweep "
+      + "line over the top. Opens with a charge-up along the ship's array spine.",
+    fields: BEAM_FAMILY_FIELDS,
+  },
+  {
+    group: "lance",
+    label: "Spinal Lances",
+    hint: "The array beam fired from an emitter instead of the spine — no charge-up. Give it a "
+      + "fatter core than the arrays to read as the heavier weapon.",
+    fields: BEAM_FAMILY_FIELDS,
+  },
+  {
+    group: "cannon",
+    label: "Energy Cannons",
+    hint: "Never a held beam: each shot is a discrete bolt that travels to the target, so a volley "
+      + "reads as a stream of droplets. The bolt's lifetime comes from its travel time, so there is "
+      + "no separate hit/miss duration.",
+    fields: CANNON_FIELDS,
   },
   {
     group: "shared",
     label: "Shared",
-    hint: "Applies to both beams.",
+    hint: "Applies to every family.",
     fields: [
       { key: "holdPercent",  label: "Hold before fade", kind: "range", min: 0.05, max: 0.95, step: 0.05,
         hint: "Fraction of the lifetime the beam stays at full opacity before it starts fading." },
       { key: "easing",       label: "Fade easing",  kind: "select", options: BEAM_VFX_EASING_OPTIONS },
       { key: "blendMode",    label: "Blend mode",   kind: "select", options: BEAM_VFX_BLEND_OPTIONS,
         hint: "\"add\" gives the glowing additive look; \"normal\" draws flat." },
+      { key: "glowSize",     label: "Glow size", kind: "range", min: 0, max: 40, step: 1, unit: "px",
+        hint: "How far the halo bleeds past the beam, bolt or charge-up orb. 0 switches the halo off entirely." },
+      { key: "glowStrength", label: "Glow strength", kind: "range", min: 0, max: 8, step: 0.1,
+        hint: "Brightness of the outer halo. Only matters above a glow size of 0." },
+      { key: "glowInnerStrength", label: "Glow inner strength", kind: "range", min: 0, max: 4, step: 0.1,
+        hint: "Extra heat inside the stroke itself, on top of the outer halo." },
+      { key: "glowQuality",  label: "Glow quality", kind: "range", min: 0.05, max: 1, step: 0.05,
+        hint: "Lower is cheaper — the halo costs a render pass per effect, per frame for travelling bolts and "
+          + "the array charge-up. Raise only if the halo looks banded." },
       { key: "cleanupDelay", label: "Cleanup delay", kind: "range", min: 0, max: 1000, step: 10, unit: "ms",
         hint: "Extra time before the graphics are destroyed. Raise only if beams vanish early." },
       { key: "emitterPairDistance", label: "Companion emitter distance", kind: "range", min: 0, max: 0.5, step: 0.01,
@@ -425,11 +500,21 @@ const BEAM_VFX_FIELD_GROUPS = Object.freeze([
     ],
   },
   {
+    group: "energyColors",
+    label: "Energy Weapon Colours",
+    hint: "One primary + core pair per energy type, applied to every family. The type comes from the "
+      + "weapon's NAME (falling back to its icon), so \"Antiproton Beam Array\" fires violet whatever "
+      + "icon it carries. Precedence: a ship's own colour override in its Ship VFX Anchors editor beats "
+      + "these, and (for phaser banks only) the era colours below beat them too.",
+    fields: ENERGY_COLOR_FIELDS,
+  },
+  {
     group: "eraColors",
-    label: "Era Colours (Phaser Banks)",
+    label: "Era Colours (Phaser Banks only)",
     hint: "Tints a phaser bank by the ship's era, set per weapon in that ship's Ship VFX Anchors editor. "
-      + "Precedence: the ship's own colour override beats these, these beat the weapon-name guess, "
-      + "and a cleared swatch falls through to stock amber. Phaser arrays are not affected.",
+      + "Precedence: the ship's own colour override beats these, these beat the energy type colour above, "
+      + "and a cleared swatch falls through to the type colour. Arrays, lances, cannons and non-phaser "
+      + "banks are not affected.",
     fields: [
       { key: "entColor", label: "ENT — primary",        kind: "color" },
       { key: "entCore",  label: "ENT — core",           kind: "color" },
@@ -443,7 +528,7 @@ const BEAM_VFX_FIELD_GROUPS = Object.freeze([
   },
   {
     group: "tracer",
-    label: "Tracer Fire (Phaser Banks)",
+    label: "Tracer Fire (Phaser Banks only)",
     hint: "The selected era's phaser banks fire a stream of short travelling bolts instead of a held beam. "
       + "Bolts launch one after another so several are in flight at once. Muzzle flare and impact flash "
       + "are shared with the Phaser Bank settings above.",
@@ -482,6 +567,19 @@ const BEAM_VFX_PREVIEW_ERAS = Object.freeze([
   { value: "tos", label: "TOS" },
   { value: "tmp", label: "TMP" },
   { value: "tng", label: "TNG/DS9/VOY" },
+]);
+
+// Which energy type's colour the preview buttons fire in.
+const BEAM_VFX_PREVIEW_TYPES = Object.freeze(
+  ENERGY_VFX_TYPES.map(({ id, label }) => ({ value: id, label, selected: id === DEFAULT_ENERGY_VFX_TYPE })),
+);
+
+// The four preview buttons, one per energy weapon family.
+const BEAM_VFX_PREVIEW_FAMILIES = Object.freeze([
+  { family: "bank",   label: "Bank" },
+  { family: "array",  label: "Array" },
+  { family: "lance",  label: "Lance" },
+  { family: "cannon", label: "Cannon" },
 ]);
 
 /** Build the Beam VFX tab rows from the current (or supplied) settings. */
@@ -615,6 +713,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       arrayAreaCap: tab.energyWeaponCounts ? getArrayAreaShotCap() : null,
       beamVfxGroups: tab.beamVfx ? buildBeamVfxGroups() : null,
       beamPreviewEras: tab.beamVfx ? BEAM_VFX_PREVIEW_ERAS : null,
+      beamPreviewTypes: tab.beamVfx ? BEAM_VFX_PREVIEW_TYPES : null,
+      beamPreviewFamilies: tab.beamVfx ? BEAM_VFX_PREVIEW_FAMILIES : null,
     }));
 
     return { tabs, activeTab: tabs[0]?.id ?? "" };
@@ -810,7 +910,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       return;
     }
     previewBeamVfxAppearance(source, target, {
-      weaponKey: btn.dataset.beamPreview === "array" ? "weapon-phaser-array" : "weapon-phaser-bank",
+      family: btn.dataset.beamPreview || "bank",
+      energyType: this.element.querySelector("[data-beam-preview-type]")?.value ?? "",
       beamSettings: readBeamVfxForm(this.element),
       era: this.element.querySelector("[data-beam-preview-era]")?.value ?? "",
     });

@@ -23,6 +23,7 @@
 
 import { getActingCombatant } from "./initiative-order.js";
 import { getCrewManifest, STATION_SLOTS } from "../crew-manifest.js";
+import { getTokenArtMetrics, onArtBoundsMeasured } from "../art-bounds.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -39,48 +40,106 @@ function _setting(key, fallback) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Marker size
+// Marker layout
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Core sizes the marker in `Token#_refreshSize`:
+ * Core lays the marker out across two methods (v14):
  *
- *   mesh.width = mesh.height = this.externalRadius * 3;
- *   // externalRadius === Math.min(width, height) / 2
+ *   _refreshSize():      mesh.width = mesh.height = this.externalRadius * 3;
+ *                        // externalRadius === Math.min(gridW, gridH) / 2
+ *   _refreshPosition():  turnMarker.position.set(center.x - x, center.y - y);
  *
- * so the marker is 150% of the token's SMALLER dimension. That reads fine on the
- * square tokens most systems use, but starship art is routinely rectangular — on
- * a 4x2 ship the marker is sized off the 2 and sits well inside the hull instead
- * of ringing it.
+ * so the ring is 150% of the token's smaller GRID dimension, centred on the
+ * token's grid square. Both are wrong for starship art. The footprint is not the
+ * artwork: a 4x2 ship is sized off the 2 and sits inside the hull, art with
+ * transparent margin (or scaled down in Token Config) gets a ring floating well
+ * off the hull, and art drawn off-centre in its frame is ringed off-centre.
  *
- * `initiativeTurnMarkerFit` measures the longer dimension instead, so the marker
- * grows with the ship's actual footprint, and `initiativeTurnMarkerScale` is a
- * plain multiplier on top for taste. Defaults reproduce core exactly on square
- * tokens.
+ * With `initiativeTurnMarkerFit` on we measure the art instead:
+ *
+ *   drawn size    the sprite as actually drawn — the texture `fit` mode and the
+ *                 token's texture scale, neither of which `getSize()` knows about
+ *   × art bounds  the opaque fraction of that sprite (art-bounds.js), so
+ *                 transparent margin stops inflating and skewing the marker
+ *
+ * The longer side wins, as one uniform value, so a round marker texture stays
+ * round; `initiativeTurnMarkerScale` is a plain multiplier on top for taste.
+ * With the setting off, core's behaviour is reproduced exactly.
+ *
+ * Note the offset goes on the marker CONTAINER, never on its mesh: `animate()`
+ * spins the container about its own origin, so an offset mesh would orbit the
+ * token instead of sitting on it.
  */
-export function markerSizeFor(token) {
-  const { width, height } = token.document.getSize();
-  const fit  = _setting("initiativeTurnMarkerFit", true) !== false;
-  const base = fit ? Math.max(width, height) : Math.min(width, height);
+
+/**
+ * Marker size, and the offset from core's centred position, in token-local px.
+ * @returns {{size: number, offsetX: number, offsetY: number}}
+ */
+function _markerLayout(token) {
   const scale = Number(_setting("initiativeTurnMarkerScale", 1)) || 1;
-  return base * 1.5 * scale;
+
+  if (_setting("initiativeTurnMarkerFit", true) === false) {
+    const { width, height } = token.document.getSize();
+    return { size: Math.min(width, height) * 1.5 * scale, offsetX: 0, offsetY: 0 };
+  }
+
+  const art  = getTokenArtMetrics(token);
+  const size = Math.max(art.width, art.height) * 1.5 * scale;
+
+  // The offset is measured on the unrotated artwork, and core turns the sprite
+  // with `mesh.angle` (skipped when the token locks rotation), so turn with it.
+  const degrees = token.document.lockRotation ? 0 : (Number(token.document.rotation) || 0);
+  const radians = (degrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+
+  return {
+    size,
+    offsetX: art.offsetX * cos - art.offsetY * sin,
+    offsetY: art.offsetX * sin + art.offsetY * cos,
+  };
 }
 
-/** Re-apply our sizing after core has set its own. */
-function _applyMarkerSize(token) {
-  const mesh = token?.turnMarker?.mesh;
-  if (!mesh) return;
-  try { mesh.width = mesh.height = markerSizeFor(token); }
-  catch (err) { console.warn("STA2e Toolkit | Could not size the turn marker:", err); }
+export function markerSizeFor(token) {
+  return _markerLayout(token).size;
 }
 
-/** Ask every currently-marked token to resize. Used when a setting changes. */
+/**
+ * Re-apply our size and centring after core has set its own.
+ *
+ * Both halves are recomputed from scratch — the container position is rebuilt
+ * from core's own `center - position` expression rather than nudged — so this
+ * stays correct no matter how many times core refreshes in between.
+ */
+function _applyMarkerLayout(token) {
+  const marker = token?.turnMarker;
+  if (!marker?.mesh) return;
+
+  try {
+    const { size, offsetX, offsetY } = _markerLayout(token);
+    if (!(size > 0)) return;   // nothing measurable — leave core's marker alone
+    marker.mesh.width = marker.mesh.height = size;
+
+    const { x, y } = token.document;
+    const center = token.center;
+    marker.position.set(center.x - x + offsetX, center.y - y + offsetY);
+  } catch (err) {
+    console.warn("STA2e Toolkit | Could not lay out the turn marker:", err);
+  }
+}
+
+/** Ask every currently-marked token to re-lay-out. Used when a setting changes. */
 export function refreshTurnMarkerSizes() {
   if (!canvas?.ready) return;
   for (const token of canvas.tokens.turnMarkers) {
-    token.renderFlags.set({ refreshSize: true });
+    token.renderFlags.set({ refreshSize: true, refreshPosition: true });
   }
 }
+
+// An art measurement that lands after the marker is already on screen needs the
+// marker to resize; measuring is one-shot per texture, so this is not a loop.
+onArtBoundsMeasured(() => refreshTurnMarkerSizes());
 
 function _isShipActor(actor) {
   return !!actor && (actor.type === "starship" || actor.type === "spacecraft2e");
@@ -201,15 +260,19 @@ function _installMarkerProxyPatch(proto) {
 }
 
 /**
- * Re-apply our marker sizing after core's.
+ * Re-apply our marker layout after core's.
  *
- * Installed independently of the ship-marker proxy above: marker size is a
+ * Core writes the marker's size in `_refreshSize` and its position in
+ * `_refreshPosition`, and either can fire without the other — a token that only
+ * moves never re-runs sizing — so both are chained.
+ *
+ * Installed independently of the ship-marker proxy above: marker layout is a
  * presentation preference that applies to every token, whether or not the
  * officer→ship redirection is in play or even available on this Foundry version.
  */
 function _installMarkerSizePatch(proto) {
-  if (!proto?._refreshSize) {
-    console.warn("STA2e Toolkit | Token#_refreshSize not found — turn marker scaling disabled.");
+  if (!proto?._refreshSize || !proto?._refreshPosition) {
+    console.warn("STA2e Toolkit | Token#_refreshSize/_refreshPosition not found — turn marker fitting disabled.");
     return;
   }
   if (proto._sta2eMarkerSizePatched) return;
@@ -217,8 +280,15 @@ function _installMarkerSizePatch(proto) {
   const originalRefreshSize = proto._refreshSize;
   proto._refreshSize = function () {
     originalRefreshSize.call(this);
-    _applyMarkerSize(this);
+    _applyMarkerLayout(this);
   };
+
+  const originalRefreshPosition = proto._refreshPosition;
+  proto._refreshPosition = function () {
+    originalRefreshPosition.call(this);
+    _applyMarkerLayout(this);
+  };
+
   proto._sta2eMarkerSizePatched = true;
 }
 

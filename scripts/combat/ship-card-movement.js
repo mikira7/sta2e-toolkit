@@ -9,8 +9,10 @@ import {
   playWarpFlash,
   playWarpCorridor,
   getWarpCorridorMaxWaitMs,
+  broadcastWarpChargeGlow,
   WARP_DEPART_MS,
   WARP_ARRIVE_MS,
+  WARP_FLASH_PEAK_MS,
 } from "../warp-jump-vfx.js";
 
 export async function promptShipCardDestination({ overlayId, title, color, tokenId = null, actorId = null, maxZones = null }) {
@@ -459,6 +461,10 @@ export async function runWarpEngageCard(payload, destination) {
   // is posted manually after the final position update (same as impulse).
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
 
+  // Nacelle power-up: the glow sweeps the warp splines through the rotation
+  // and run-up, holds at peak, and its stop() pop lands on the depart flash.
+  const chargeGlow = broadcastWarpChargeGlow(tok, { sweepMs: 500 });
+
   try {
     const angle = Math.atan2(finalDestination.y - startPosition.y, finalDestination.x - startPosition.x) * (180 / Math.PI);
     targetRotation = angle - 90;
@@ -480,10 +486,6 @@ export async function runWarpEngageCard(payload, destination) {
   // finally that restores alpha and lifts the zone-log suppression.
   try {
     // ── 1. Run-up — a single accelerating lunge along the heading ──────────
-    const departTrail = broadcastEngineTrail(tok, "warp", {
-      emitDuration: 900,
-      drift: false,
-    });
     const launchPoint = {
       x: startPosition.x + vec.ux * vec.runIn,
       y: startPosition.y + vec.uy * vec.runIn,
@@ -496,16 +498,19 @@ export async function runWarpEngageCard(payload, destination) {
       await new Promise(r => setTimeout(r, WARP_RUN_IN_MS));
     }
 
-    // ── 2. Flash out ───────────────────────────────────────────────────────
+    // ── 2. Flash out — the clip's biggest frame lands at WARP_FLASH_PEAK_MS,
+    //       so the ship fades to be gone exactly at the peak, and the nacelle
+    //       glow pops out with it. The clip's tail plays over empty space.
     playWarpFlash(tok, "depart", {
       heading: vec.heading,
       x: launchPoint.x + halfW,
       y: launchPoint.y + halfH,
       soundKey: "sndWarpEngage",
     });
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_OUT_MS)));
+    chargeGlow?.stop?.();
     await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
-    departTrail?.stop?.();
-    await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FADE_OUT_MS)));
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FLASH_PEAK_MS)));
 
     // ── 3. The jump — one update, no waypoints. Land short of the destination
     //       by the run-out distance so the glide below finishes exactly on it.
@@ -536,28 +541,24 @@ export async function runWarpEngageCard(payload, destination) {
       new Promise(r => setTimeout(r, getWarpCorridorMaxWaitMs())),
     ]);
 
-    // ── 4. Flash in ────────────────────────────────────────────────────────
+    // ── 4. Flash in — the ship materialises on the clip's peak frame ───────
     playWarpFlash(tok, "arrive", {
       heading: vec.heading,
       x: arrivalPoint.x + halfW,
       y: arrivalPoint.y + halfH,
       soundKey: "sndWarpArrive",
     });
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_IN_MS)));
     await tok.document.update({ alpha: 1 }, { animate: true, animation: { duration: WARP_FADE_IN_MS } });
-    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FADE_IN_MS)));
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FLASH_PEAK_MS)));
 
     // ── 5. Run-out — decelerate onto the snapped destination ───────────────
     if (vec.runOut > 0) {
-      const arriveTrail = broadcastEngineTrail(tok, "warp", {
-        emitDuration: 600,
-        drift: false,
-      });
       await tok.document.update(
         { x: finalDestination.x, y: finalDestination.y },
         _scriptedGlideOptions(WARP_RUN_OUT_MS, "easeOutCircle")
       );
       await new Promise(r => setTimeout(r, WARP_RUN_OUT_MS));
-      arriveTrail?.stop?.();
     } else {
       await tok.document.update({ x: finalDestination.x, y: finalDestination.y });
     }
@@ -571,6 +572,9 @@ export async function runWarpEngageCard(payload, destination) {
     );
   } finally {
     game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
+    // Idempotent — a no-op when the glow already stopped at the depart flash,
+    // but keeps it from lingering if anything above threw before that.
+    chargeGlow?.stop?.();
     try {
       if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
     } catch { /* token may have been deleted mid-jump */ }
@@ -620,19 +624,15 @@ export async function runShipWarpArrival(tok, heading) {
       y: arrival.y + halfH,
       soundKey: "sndWarpArrive",
     });
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_IN_MS)));
     await tok.document.update({ alpha: 1 }, { animate: true, animation: { duration: WARP_FADE_IN_MS } });
-    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FADE_IN_MS)));
+    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FLASH_PEAK_MS)));
 
-    const arriveTrail = broadcastEngineTrail(tok, "warp", {
-      emitDuration: 600,
-      drift: false,
-    });
     await tok.document.update(
       { x: destination.x, y: destination.y },
       _scriptedGlideOptions(WARP_RUN_OUT_MS, "easeOutCircle")
     );
     await new Promise(r => setTimeout(r, WARP_RUN_OUT_MS));
-    arriveTrail?.stop?.();
   } finally {
     try {
       if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
@@ -667,6 +667,8 @@ export async function runWarpFleeCard(payload) {
   else                            destY = sceneY + sceneH + gridSize;
 
   let targetRotation = tok.document.rotation || 0;
+  // Same nacelle power-up as an engage jump; its stop() lands on the flash.
+  const chargeGlow = broadcastWarpChargeGlow(tok, { sweepMs: 500 });
   try {
     const angle = Math.atan2(destY - tok.y, destX - tok.x) * (180 / Math.PI);
     targetRotation = angle - 90;
@@ -690,10 +692,6 @@ export async function runWarpFleeCard(payload) {
   // No zone log for a ship leaving the map — suppress cards for the whole exit.
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
 
-  const trail = broadcastEngineTrail(tok, "warp", {
-    emitDuration: 900,
-    drift: false,
-  });
   const launchPoint = {
     x: startX + vec.ux * vec.runIn,
     y: startY + vec.uy * vec.runIn,
@@ -718,9 +716,11 @@ export async function runWarpFleeCard(payload) {
     { x: destX + halfW,         y: destY + halfH },
     { width: Math.max(halfW, halfH) }
   );
+  // Ship gone exactly at the clip's peak frame, glow popping out with it.
+  await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_OUT_MS)));
+  chargeGlow?.stop?.();
   await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
-  trail?.stop?.();
-  await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FADE_OUT_MS)));
+  await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FLASH_PEAK_MS)));
 
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
   try {

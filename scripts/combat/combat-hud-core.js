@@ -14671,6 +14671,13 @@ export class CombatHUD {
     const triggerBreach = breachCount > 0;
     const shakenNote    = shakenNotes.join(" · ");
 
+    // Tell the VFX layer whether this shot got through. A breach can land while
+    // the shields are still up — the 50%/25% punch-through branches above — and
+    // that is the case where the weapon must be drawn passing THROUGH the
+    // shield bubble rather than stopping against it. Set here rather than where
+    // shieldImpact is built, because breachCount is not known until now.
+    if (shieldImpact) shieldImpact.breached = triggerBreach;
+
     // ── Write shield value ────────────────────────────────────────────────────
     const updates = { "system.shields.value": newShields };
 

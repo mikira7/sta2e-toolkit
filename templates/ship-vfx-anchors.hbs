@@ -670,7 +670,7 @@
     <div class="sta2e-anchor-label">Texture</div>
     <div class="sta2e-anchor-value" title="{{textureSrc}}">{{#if textureSrc}}{{textureSrc}}{{else}}No image found{{/if}}</div>
     <div class="sta2e-anchor-label">Points</div>
-    <div class="sta2e-anchor-value" data-anchor-coords>{{#if isHitLocationsTab}}{{activeZoneCount}} zone(s) / {{activeEmitterCount}} legacy point(s){{else}}{{activeEmitterCount}} {{activePointKind}} point(s){{#if isArrayWeaponTab}} / {{activeCurveCount}} curve(s){{/if}}{{/if}} for {{activeTabLabel}}</div>
+    <div class="sta2e-anchor-value" data-anchor-coords>{{#if isHitLocationsTab}}{{activeZoneCount}} zone(s) / {{activeEmitterCount}} legacy point(s){{else}}{{activeEmitterCount}} {{activePointKind}} point(s){{#if isCurveTab}} / {{activeCurveCount}} curve(s){{/if}}{{/if}} for {{activeTabLabel}}</div>
     <div class="sta2e-anchor-label">Alpha</div>
     <div class="sta2e-anchor-value" data-anchor-opacity>{{#if opaqueState}}{{opaqueState}}{{else}}Not checked{{/if}}</div>
   </div>
@@ -711,6 +711,7 @@
   </div>
   {{/if}}
 
+  {{#if isCurveTab}}
   {{#if isArrayWeaponTab}}
   <div class="sta2e-anchor-mode-picker">
     <button type="button" class="sta2e-anchor-mode-button {{#if pointModeActive}}is-active{{/if}}" data-placement-mode="points" title="Place regular emitter points">
@@ -723,6 +724,7 @@
       {{#if curveModeActive}}<span class="sta2e-anchor-tab-count">{{pendingCurveCount}}</span>{{/if}}
     </button>
   </div>
+  {{/if}}
   {{#if curveModeActive}}
   <div class="sta2e-curve-build-actions">
     <button type="button" class="sta2e-curve-finish" data-finish-curve {{#unless canFinishCurve}}disabled{{/unless}}>
@@ -740,7 +742,7 @@
     <span class="sta2e-anchor-value">{{pendingCurveCount}} point(s) placed; click {{nextCurvePointLabel}}</span>
   </div>
   <div class="sta2e-curve-build-hint">
-    Drag a numbered anchor to move it (its handles follow). Drag a small handle dot to bend the segment. Shift-click the ship to add a point on the curve. Right-click an anchor to remove it.
+    {{#if isWarpCurveTab}}Draw a spline along each nacelle: click points, then Finish Curve. The pre-warp glow sweeps each spline toward its aft end. {{/if}}Drag a numbered anchor to move it (its handles follow). Drag a small handle dot to bend the segment. Shift-click the ship to add a point on the curve. Right-click an anchor to remove it.
   </div>
   {{/if}}
   {{/if}}
@@ -1002,7 +1004,7 @@
       <button type="button" data-reset-engine title="Reset {{engineKindLabel}} trail settings"><i class="fas fa-undo"></i> Reset</button>
     </div>
     <div class="sta2e-anchor-value">
-      Place emitter points on the nacelles below. Facing biases the exhaust direction (0 fore, 180 aft). Impulse points fire from the Impulse minor action; warp points fire from the Warp major action.
+      {{#if isWarpCurveTab}}Draw warp splines along the nacelles below. The pre-warp charge glow sweeps each spline toward its aft end when the Warp major action fires, then the Warp-Flash animation plays. Width, Color, and Glow Size shape the glow.{{else}}Place emitter points on the nacelles below. Facing biases the exhaust direction (0 fore, 180 aft). Impulse points fire from the Impulse minor action.{{/if}}
     </div>
     <div class="sta2e-vfx-settings-grid">
       <div class="sta2e-vfx-settings-row">
@@ -1056,6 +1058,12 @@
           {{/each}}
         </select>
       </div>
+      {{#if isWarpCurveTab}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-glowsize" title="Bloom radius of the pre-warp spline glow, in pixels. 0 turns the glow filter off.">Glow Size</label>
+        <input id="sta2e-engine-glowsize" type="number" min="0" max="200" step="1" value="{{activeEngineModeSettings.glowSize}}" data-engine-setting="glowSize" />
+      </div>
+      {{/if}}
     </div>
 
     {{#if showEmitterArcSettings}}
@@ -1090,6 +1098,46 @@
   </div>
   {{/if}}
 
+  {{!-- Shield colour belongs to the ship rather than to any one emitter, so it
+        sits outside the tab blocks and stays reachable from wherever you are. --}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading">
+      <span>Shield Impact Settings</span>
+    </div>
+    <div class="sta2e-anchor-value">
+      Colour of the shield bubble and the impact flash when a hit is absorbed. Leave on Auto to follow the faction guessed from this ship's name and traits.
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-shield-colorpreset">Color</label>
+        <select id="sta2e-shield-colorpreset" data-shield-impact-setting="colorPreset">
+          {{#each shieldColorOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-shield-customcolor">Custom Hex</label>
+        <div class="sta2e-vfx-color-control">
+          <input id="sta2e-shield-customcolor" type="text" value="{{activeShieldImpactSettings.customColor}}" placeholder="#9fd8ff or blank" data-shield-impact-setting="customColor" data-hex-color-text />
+          <input class="sta2e-vfx-color-swatch" type="color" value="{{shieldPickerColor}}" title="Shield impact custom color" data-hex-color-picker data-hex-color-scope="shield-impact" data-hex-color-key="customColor" />
+        </div>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Resolved</label>
+        <span class="sta2e-anchor-value"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid rgba(255,255,255,0.4);background:{{resolvedShieldColor}};"></span> {{resolvedShieldColor}}</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-shield-standoff" title="How far outside this ship's artwork the bubble sits. 0 uses the world default.">Standoff</label>
+        <input id="sta2e-shield-standoff" type="number" min="0" max="2" step="0.05" value="{{activeShieldImpactSettings.standoff}}" placeholder="0 = world default" data-shield-impact-setting="standoff" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>In use</label>
+        <span class="sta2e-anchor-value">{{resolvedShieldStandoff}}x the hull art</span>
+      </div>
+    </div>
+  </div>
+
   <div class="sta2e-anchor-stage-wrap">
     {{#if hasTexture}}
     <div class="sta2e-anchor-stage" data-anchor-stage>
@@ -1105,7 +1153,7 @@
         {{else}}
         <img src="{{textureSrc}}" alt="{{actorName}}" data-anchor-image />
         {{/if}}
-        {{#if isArrayWeaponTab}}
+        {{#if isCurveTab}}
         <svg class="sta2e-array-curve-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {{#each activeCurves}}
           {{#each handles}}
@@ -1155,22 +1203,33 @@
   </div>
 
   <div class="sta2e-anchor-list">
-    {{#if isArrayWeaponTab}}
-      <div class="sta2e-anchor-list-heading">Array Curves</div>
+    {{#if isCurveTab}}
+      <div class="sta2e-anchor-list-heading">{{#if isWarpCurveTab}}Warp Curves{{else}}Array Curves{{/if}}</div>
       {{#if hasActiveCurves}}
         {{#each activeCurves}}
         <div class="sta2e-anchor-list-row">
-          <div class="sta2e-anchor-pill" style="background: #ff9a33;">{{displayIndex}}</div>
+          <div class="sta2e-anchor-pill" style="background: {{#if ../isWarpCurveTab}}#66bbff{{else}}#ff9a33{{/if}};">{{displayIndex}}</div>
           <div>{{coords}}</div>
+          {{#if ../isWarpCurveTab}}
+          <select data-curve-direction="{{index}}" title="Which end of the spline is aft: the charge sweep travels toward it and the warp trail streams from it">
+            <option value="auto" {{#if directionAutoSelected}}selected{{/if}}>Aft: Auto</option>
+            <option value="forward" {{#if directionForwardSelected}}selected{{/if}}>Aft: Last Point</option>
+            <option value="reverse" {{#if directionReverseSelected}}selected{{/if}}>Aft: First Point</option>
+          </select>
+          <select data-curve-layer="{{index}}" title="Draw the glow and trail above or below the hull">
+            <option value="above" {{#unless layerBelowSelected}}selected{{/unless}}>Above Hull</option>
+            <option value="below" {{#if layerBelowSelected}}selected{{/if}}>Below Hull</option>
+          </select>
+          {{/if}}
           <button type="button" class="sta2e-anchor-remove" data-remove-curve="{{index}}" title="Remove curve {{displayIndex}}">
             <i class="fas fa-trash"></i>
           </button>
         </div>
         {{/each}}
       {{else}}
-        <div class="sta2e-anchor-empty">No array curves saved for {{activeTabLabel}}.</div>
+        <div class="sta2e-anchor-empty">{{#if isWarpCurveTab}}No warp curves drawn yet. Click along a nacelle to start one.{{else}}No array curves saved for {{activeTabLabel}}.{{/if}}</div>
       {{/if}}
-      <div class="sta2e-anchor-list-heading">Emitter Points</div>
+      <div class="sta2e-anchor-list-heading">{{#if isWarpCurveTab}}Legacy Emitter Points (used only when no curves){{else}}Emitter Points{{/if}}</div>
     {{/if}}
     {{#if isHitLocationsTab}}
       <div class="sta2e-anchor-list-heading">{{activeHitSystemLabel}} Hit Zones</div>

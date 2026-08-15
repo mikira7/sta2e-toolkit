@@ -4,15 +4,15 @@
  * The flash that sells a warp jump — the ship blows out in a burst of light at
  * the origin and blows back in at the destination, the way it reads on screen.
  *
- * Two rendering paths, picked at call time:
+ * The depart/arrive flashes are always native PIXI (streak + shock ring + core
+ * burst) — client-local, so a `warpFlashVfx` socket message is broadcast
+ * alongside them; the warp runners execute only on the responsible GM, and
+ * without the broadcast nobody else would see anything. Same problem, same
+ * fix, as spawnEngineTrailVfx. Only the corridor still goes through Sequencer
+ * + JB2A when available (Sequencer routes that one to every client itself).
  *
- *   1. Sequencer + a configured JB2A file (Sounds & Animations → Ship Tasks →
- *      "Warp — Depart" / "Warp — Arrive").  Sequencer routes the effect to every
- *      client itself, so we must NOT also broadcast it.
- *   2. Native PIXI, built here.  This one is client-local, so we broadcast a
- *      `warpFlashVfx` socket message alongside it — the warp runners execute
- *      only on the responsible GM, and without the broadcast nobody else would
- *      see anything.  Same problem, same fix, as spawnEngineTrailVfx.
+ * This file also owns the pre-warp nacelle charge glow, which sweeps the warp
+ * splines drawn in the Ship VFX Anchors editor (see playWarpChargeGlow below).
  *
  * The socket payload carries explicit canvas coordinates rather than a tokenId:
  * the arrival flash fires immediately after a teleport, and a remote client
@@ -27,12 +27,24 @@
  *   playNativeWarpFlash({ x, y, radius, heading, phase })   // socket receiver
  */
 
+import {
+  getShipWarpCurves,
+  getShipEngineTrailSettings,
+  resolveEngineTrailColorHex,
+  sampleShipArrayCurve,
+  tokenArrayCurveToCanvasCurve,
+  warpCurveAftIsEnd,
+} from "./ship-vfx-anchors.js";
+
 const MODULE = "sta2e-toolkit";
 
 // How long each phase occupies in the warp runners' timeline. Exported so the
-// movement code and the animation can never drift apart.
-export const WARP_DEPART_MS = 700;
-export const WARP_ARRIVE_MS = 550;
+// movement code and the animation can never drift apart. The flash is the
+// Warp-Flash.webm clip: ~1s long with its biggest frame ~3/4 in — the runners
+// vanish/reveal the ship at WARP_FLASH_PEAK_MS, not at the clip start.
+export const WARP_DEPART_MS = 1000;
+export const WARP_ARRIVE_MS = 1000;
+export const WARP_FLASH_PEAK_MS = 750;
 
 // Warp light is cold and very bright — white core, blue-white falloff.
 const WARP_COLORS = {
@@ -54,19 +66,32 @@ function _addBlend() {
   return "add";
 }
 
-function _gLine(g, width, color, alpha) {
-  if (typeof g.lineStyle === "function") g.lineStyle(width, color, alpha);
-  else g._sta2eStroke = { width, color, alpha };
+function _gPolyline(g, pts, width, color, alpha) {
+  if (pts.length < 2) return;
+  if (typeof g.lineStyle === "function") {
+    g.lineStyle(width, color, alpha);
+    g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.lineStyle(0);
+  } else {
+    g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.stroke({ width, color, alpha });
+  }
 }
 
-function _gCircle(g, cx, cy, r) {
-  if (typeof g.drawCircle === "function") {
-    g.drawCircle(cx, cy, r);
-  } else {
-    g.circle(cx, cy, r);
-    if (g._sta2eFill)   { g.fill(g._sta2eFill);     delete g._sta2eFill; }
-    if (g._sta2eStroke) { g.stroke(g._sta2eStroke); delete g._sta2eStroke; }
-  }
+function _parseHexColor(hex, fallback) {
+  const parsed = Number.parseInt(String(hex ?? "").replace(/^#/, ""), 16);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+// Mix a 24-bit color toward white by `amount` (0..1) for the bright core pass.
+function _lighten(color, amount) {
+  const r = (color >> 16) & 0xff;
+  const gch = (color >> 8) & 0xff;
+  const b = color & 0xff;
+  const mix = c => Math.min(255, Math.round(c + (255 - c) * amount));
+  return (mix(r) << 16) | (mix(gch) << 8) | mix(b);
 }
 
 // ── animejs ──────────────────────────────────────────────────────────────────
@@ -93,147 +118,78 @@ function _effectLayer() {
 
 // ── Native flash pieces ──────────────────────────────────────────────────────
 
-/**
- * Radial white-hot core. Expands and fades; on arrival it runs in reverse
- * (large and dim → tight and bright) so the ship looks like it is condensing
- * out of the flash rather than exploding into it.
- */
-function _coreBurst(layer, x, y, radius, phase, zBase) {
-  const oc  = document.createElement("canvas");
-  oc.width  = 128;
-  oc.height = 128;
-  const ctx = oc.getContext("2d");
-  const rg  = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  rg.addColorStop(0,    "rgba(255,255,255,1)");
-  rg.addColorStop(0.18, "rgba(255,255,255,0.9)");
-  rg.addColorStop(0.42, `${WARP_COLORS.hex}dd`);
-  rg.addColorStop(0.72, `${WARP_COLORS.hex}44`);
-  rg.addColorStop(1,    "rgba(0,0,0,0)");
-  ctx.fillStyle = rg;
-  ctx.fillRect(0, 0, 128, 128);
+// The hand-made flash animation. ~1s long; the biggest frame of the flash sits
+// about 3/4 in, which is the moment the ship should vanish (depart) or appear
+// (arrive) — WARP_FLASH_PEAK_MS below encodes that for the warp runners.
+const WARP_FLASH_ANIM_SRC = "modules/sta2e-toolkit/assets/vfx/Warp-Flash.webm";
 
-  const sprite = new PIXI.Sprite(PIXI.Texture.from(oc));
-  sprite.anchor.set(0.5);
-  sprite.blendMode = _addBlend();
-  sprite.width  = radius * 3;
-  sprite.height = radius * 3;
-
-  const container  = new PIXI.Container();
-  container.x      = x;
-  container.y      = y;
-  container.zIndex = zBase + 3;
-  container.alpha  = 0;
-  container.addChild(sprite);
-  layer.addChild(container);
-
-  if (phase === "depart") {
-    container.scale.set(0.3);
-    _tween(container,       { alpha: 1, duration: 70, ease: "outQuad" });
-    _tween(container.scale, { x: 2.4, y: 2.4, duration: 420, ease: "outQuad" });
-    _tween(container,       { alpha: 0, duration: 380, ease: "inQuad" }, 120);
-  } else {
-    container.scale.set(2.2);
-    _tween(container,       { alpha: 1, duration: 90, ease: "outQuad" });
-    _tween(container.scale, { x: 0.45, y: 0.45, duration: 340, ease: "inQuad" });
-    _tween(container,       { alpha: 0, duration: 260, ease: "inQuad" }, 200);
-  }
-
-  setTimeout(() => {
-    try { container.destroy({ children: true }); } catch { /**/ }
-  }, 700);
+// GM-tunable size multiplier (Sounds & Animations → Ship Tasks → "Warp — Flash
+// Size", stored as a percent). World scope, so every client scales alike.
+function _warpFlashScale() {
+  try {
+    const pct = Number(game.settings.get(MODULE, "warpFlashScale"));
+    if (!Number.isFinite(pct) || pct <= 0) return 1;
+    return Math.min(5, Math.max(0.1, pct / 100));
+  } catch { return 1; }   // setting not registered yet
 }
 
 /**
- * Shockwave ring. Departure throws it outward; arrival snaps it inward.
+ * Play the Warp-Flash webm as a PIXI video sprite at a canvas point. The same
+ * clip serves depart and arrive; the runners time the token fade against
+ * WARP_FLASH_PEAK_MS instead of the clip playing differently per phase.
+ * Additive blend keeps any black background reading as pure light.
  */
-function _shockRing(layer, x, y, radius, phase, zBase) {
-  const g = new PIXI.Graphics();
-  _gLine(g, 3, WARP_COLORS.bright, 0.9);
-  _gCircle(g, 0, 0, radius);
-  // Set on the Graphics, not the Container — Container.blendMode only exists in
-  // PIXI v8, so the parent would silently do nothing under v7.
-  g.blendMode = _addBlend();
+function _webmFlash(layer, x, y, radius, zBase) {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.loop = false;
+  video.preload = "auto";
+  video.src = WARP_FLASH_ANIM_SRC;
 
-  const container  = new PIXI.Container();
-  container.x      = x;
-  container.y      = y;
-  container.zIndex = zBase + 2;
-  container.alpha  = 0.9;
-  container.addChild(g);
-  layer.addChild(container);
+  let container = null;
+  let done = false;
+  const cleanup = () => {
+    if (done) return;
+    done = true;
+    try { container?.destroy({ children: true }); } catch { /**/ }
+    container = null;
+    // Release the media element so the browser drops the decoder right away.
+    try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /**/ }
+  };
 
-  if (phase === "depart") {
-    container.scale.set(0.35);
-    _tween(container.scale, { x: 2.8, y: 2.8, duration: 480, ease: "outCubic" });
-    _tween(container,       { alpha: 0, duration: 440, ease: "inQuad" }, 60);
-  } else {
-    container.scale.set(2.6);
-    _tween(container.scale, { x: 0.4, y: 0.4, duration: 320, ease: "inCubic" });
-    _tween(container,       { alpha: 0, duration: 300, ease: "inQuad" }, 60);
-  }
+  video.addEventListener("loadeddata", () => {
+    if (done || !layer || layer.destroyed) return;
+    let sprite;
+    try {
+      sprite = new PIXI.Sprite(PIXI.Texture.from(video));
+    } catch (err) {
+      console.warn("STA2e Toolkit | warp flash video texture failed:", err);
+      cleanup();
+      return;
+    }
+    sprite.anchor.set(0.5);
+    sprite.blendMode = _addBlend();
+    const vw = video.videoWidth || 1;
+    const vh = video.videoHeight || 1;
+    const scale = (radius * 6 * _warpFlashScale()) / Math.max(vw, vh);
+    sprite.width  = vw * scale;
+    sprite.height = vh * scale;
 
-  setTimeout(() => {
-    try { container.destroy({ children: true }); } catch { /**/ }
-  }, 700);
-}
+    container = new PIXI.Container();
+    container.x      = x;
+    container.y      = y;
+    container.zIndex = zBase + 2;
+    container.addChild(sprite);
+    layer.addChild(container);
+    video.play().catch(() => { /* autoplay policy — muted, should not happen */ });
+  }, { once: true });
 
-/**
- * The streak — a soft light bar laid along the heading. This is the piece that
- * gives the flash a direction: on departure it stretches away from the ship, on
- * arrival it comes in from behind and collapses onto it.
- *
- * @param {number} heading  Direction of travel in radians (canvas atan2 space).
- */
-function _warpStreak(layer, x, y, radius, heading, phase, zBase) {
-  const oc  = document.createElement("canvas");
-  oc.width  = 512;
-  oc.height = 64;
-  const ctx = oc.getContext("2d");
-  const lg  = ctx.createLinearGradient(0, 0, 512, 0);
-  lg.addColorStop(0,    "rgba(0,0,0,0)");
-  lg.addColorStop(0.35, `${WARP_COLORS.hex}66`);
-  lg.addColorStop(0.62, "rgba(255,255,255,0.95)");
-  lg.addColorStop(0.80, `${WARP_COLORS.hex}88`);
-  lg.addColorStop(1,    "rgba(0,0,0,0)");
-  ctx.fillStyle = lg;
-  ctx.fillRect(0, 0, 512, 64);
-
-  const sprite = new PIXI.Sprite(PIXI.Texture.from(oc));
-  sprite.anchor.set(0.5);
-  sprite.blendMode = _addBlend();
-  sprite.height = Math.max(6, radius * 0.55);
-
-  const container  = new PIXI.Container();
-  container.x      = x;
-  container.y      = y;
-  container.zIndex = zBase + 4;
-  container.rotation = heading;
-  container.alpha  = 0;
-  container.addChild(sprite);
-  layer.addChild(container);
-
-  const longLength  = radius * 14;
-  const shortLength = radius * 1.5;
-
-  if (phase === "depart") {
-    // Grows forward: the far end runs ahead of the ship.
-    sprite.width = shortLength;
-    sprite.x     = shortLength / 2;
-    _tween(container, { alpha: 1, duration: 90,  ease: "outQuad" });
-    _tween(sprite,    { width: longLength, x: longLength / 2, duration: 380, ease: "inQuad" });
-    _tween(container, { alpha: 0, duration: 260, ease: "inQuad" }, 300);
-  } else {
-    // Arrives from behind and collapses onto the hull.
-    sprite.width = longLength;
-    sprite.x     = -longLength / 2;
-    _tween(container, { alpha: 1, duration: 70,  ease: "outQuad" });
-    _tween(sprite,    { width: shortLength, x: -shortLength / 2, duration: 300, ease: "outQuad" });
-    _tween(container, { alpha: 0, duration: 220, ease: "inQuad" }, 180);
-  }
-
-  setTimeout(() => {
-    try { container.destroy({ children: true }); } catch { /**/ }
-  }, 700);
+  video.addEventListener("ended", cleanup, { once: true });
+  video.addEventListener("error", cleanup, { once: true });
+  // Backstop for a stalled decode or a lost "ended" event.
+  setTimeout(cleanup, 4000);
+  video.load();
 }
 
 /**
@@ -310,9 +266,7 @@ export function playNativeWarpFlash({ x, y, x2, y2, radius = 50, heading = 0, ph
       _warpCorridor(layer, { x, y }, { x: x2, y: y2 }, radius * 0.5, zBase);
       return;
     }
-    _warpStreak(layer, x, y, radius, heading, phase, zBase);
-    _shockRing(layer, x, y, radius, phase, zBase);
-    _coreBurst(layer, x, y, radius, phase, zBase);
+    _webmFlash(layer, x, y, radius, zBase);
   } catch (err) {
     console.warn("STA2e Toolkit | warp flash render failed:", err);
   }
@@ -320,25 +274,15 @@ export function playNativeWarpFlash({ x, y, x2, y2, radius = 50, heading = 0, ph
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
+// The depart/arrive flashes are always native PIXI now (the old JB2A impact
+// burst never read as a warp flash); only the corridor still uses a JB2A
+// ranged asset, overridable in Sounds & Animations → Ship Tasks.
 const ANIM_KEYS = {
-  depart:   "shipTasks.warpDepart.anim",
-  arrive:   "shipTasks.warpArrive.anim",
   corridor: "shipTasks.warpCorridor.anim",
 };
 
-// An impact burst is the closest stock JB2A asset to an on-screen warp flash;
-// its white variant is patron-only, so the free pack falls back to yellow.
 // The corridor is a ranged (stretch-to) asset — same key in both tiers.
-// All three are overridable in Sounds & Animations → Ship Tasks.
 const ANIM_DEFAULTS = {
-  depart: {
-    patron: "jb2a.impact.007.white",
-    free:   "jb2a.impact.007.yellow",
-  },
-  arrive: {
-    patron: "jb2a.impact.007.white",
-    free:   "jb2a.impact.007.yellow",
-  },
   corridor: {
     patron: "jb2a.energy_strands.range.standard.blue.04.90ft",
     free:   "jb2a.energy_strands.range.standard.purple.04.90ft",
@@ -361,7 +305,7 @@ function _isPatron() {
 
 /** The GM's configured path for a phase, or "" when they have not set one. */
 function _animOverride(phase) {
-  const key = ANIM_KEYS[phase] ?? ANIM_KEYS.depart;
+  const key = ANIM_KEYS[phase] ?? ANIM_KEYS.corridor;
   try {
     return foundry.utils.getProperty(
       game.settings.get(MODULE, "animationOverrides") ?? {}, key
@@ -373,7 +317,7 @@ function _animOverride(phase) {
 export function getWarpAnimPath(phase) {
   const override = _animOverride(phase);
   if (override) return override;
-  const fallback = ANIM_DEFAULTS[phase] ?? ANIM_DEFAULTS.depart;
+  const fallback = ANIM_DEFAULTS[phase] ?? ANIM_DEFAULTS.corridor;
   return _isPatron() ? fallback.patron : fallback.free;
 }
 
@@ -437,26 +381,8 @@ export async function playWarpFlash(token, phase = "depart", opts = {}) {
 
   playWarpSound(opts.soundKey);
 
-  const path = getWarpAnimPath(phase);
-  if (window.Sequence && path) {
-    try {
-      const seq = new window.Sequence()
-        .effect()
-        .file(path)
-        .atLocation({ x, y })
-        .size(radius * 6)
-        .rotate(heading * (180 / Math.PI))
-        .fadeIn(80)
-        .fadeOut(250);
-      // Sequencer routes to every client itself — no socket broadcast here.
-      await seq.play();
-      return;
-    } catch (err) {
-      console.warn("STA2e Toolkit | Sequencer warp flash failed, using native:", err);
-    }
-  }
-
-  // Native path is client-local, so tell everyone else to draw it too.
+  // Depart/arrive are always native PIXI. Client-local, so tell everyone else
+  // to draw it too.
   playNativeWarpFlash({ x, y, radius, heading, phase });
   try {
     game.socket.emit("module.sta2e-toolkit", {
@@ -520,4 +446,202 @@ export async function playWarpCorridor(from, to, opts = {}) {
       radius: width * 2, phase: "corridor",
     });
   } catch { /* cosmetic */ }
+}
+
+// ── Warp charge glow ─────────────────────────────────────────────────────────
+// The nacelle power-up: a light sweeps fore-to-aft along each warp spline drawn
+// in the Ship VFX Anchors editor, leaves the whole spline lit, and builds to
+// peak brightness until stop() cuts it — timed by the warp runner so the peak
+// lands on the depart flash. The curves are re-mapped from the token every
+// frame, so the glow rides the ship through its pre-warp rotation and run-up.
+
+const _warpChargeInstances = new Map();   // token document id → { stop }
+
+function _resolveChargeToken(tokenOrDoc) {
+  if (!tokenOrDoc) return null;
+  if (tokenOrDoc.object) return tokenOrDoc.object;            // TokenDocument
+  if (tokenOrDoc.document) return tokenOrDoc;                 // Token
+  return canvas?.tokens?.get?.(String(tokenOrDoc)) ?? null;   // id
+}
+
+/**
+ * Client-local. Returns { stop() }; stop pops the glow bright then fades it.
+ *
+ * @param {Token|TokenDocument|string} tokenOrDoc
+ * @param {object} [opts]
+ * @param {number} [opts.sweepMs]    Fore-to-aft sweep time
+ * @param {number} [opts.peakHoldMs] Self-expiry cap after the sweep, so a
+ *                                   remote client can never keep a stuck glow
+ * @param {number} [opts.fadeMs]     Fade-out after stop()
+ */
+export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
+  const inert = { stop() { /* no curves, nothing to do */ } };
+  if (typeof PIXI === "undefined" || !canvas?.app?.ticker) return inert;
+  const token = _resolveChargeToken(tokenOrDoc);
+  if (!token) return inert;
+  const curves = getShipWarpCurves(token);
+  if (!curves.length) return inert;
+  const layer = _effectLayer();
+  if (!layer) return inert;
+
+  const sweepMs = Math.max(120, Number(opts.sweepMs) || 500);
+  const peakHoldMs = Math.max(200, Number(opts.peakHoldMs) || 4000);
+  const fadeMs = Math.max(60, Number(opts.fadeMs) || 180);
+
+  const mode = getShipEngineTrailSettings(token)?.warp ?? null;
+  const color = _parseHexColor(resolveEngineTrailColorHex(token, "warp", mode), WARP_COLORS.primary);
+  const coreColor = _lighten(color, 0.65);
+  const blend = _addBlend();
+  const baseWidth = Math.max(2, Number(mode?.width) || 9);
+  // Ship VFX Anchors → Warp tab → "Glow Size"; 0 turns the filter off.
+  const glowSize = Math.max(0, Number(mode?.glowSize ?? 18));
+
+  // Replace any glow already running on this token (restart, double engage).
+  const tokenId = token.document?.id ?? token.id;
+  try { _warpChargeInstances.get(tokenId)?.stop?.({ immediate: true }); } catch { /**/ }
+
+  // One GlowFilter per strand does the actual "glow" — bare additive strokes
+  // alone read as flat lines. Filters are NOT destroyed by container.destroy,
+  // so cleanup() releases them explicitly (same etiquette as shield-bubble).
+  const GlowFilterClass = glowSize > 0
+    ? (PIXI.filters?.GlowFilter ?? globalThis.PIXI?.filters?.GlowFilter ?? null)
+    : null;
+
+  const strands = curves.map(curve => {
+    const container = new PIXI.Container();
+    container.zIndex = curve.layer === "below" ? -VFX_Z_BASE : VFX_Z_BASE + 5;
+    const g = new PIXI.Graphics();
+    g.blendMode = blend;
+    container.addChild(g);
+    let glowFilter = null;
+    if (GlowFilterClass) {
+      try {
+        glowFilter = new GlowFilterClass({
+          distance: glowSize,
+          outerStrength: 2.6,
+          innerStrength: 0.4,
+          color,
+          quality: 0.3,
+        });
+        container.filters = [glowFilter];
+      } catch { glowFilter = null; }
+    }
+    layer.addChild(container);
+    // The sweep always travels fore → aft; the curve's direction setting (or
+    // the auto image-space fallback) decides which end that is.
+    const reversed = !warpCurveAftIsEnd(curve);
+    return { curve, container, g, glowFilter, reversed };
+  });
+
+  const startedAt = performance.now();
+  let stoppingAt = 0;
+  let finished = false;
+
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    try { canvas.app.ticker.remove(tick); } catch { /**/ }
+    for (const strand of strands) {
+      try {
+        strand.container.filters = [];
+        strand.glowFilter?.destroy?.();
+      } catch { /**/ }
+      try { strand.container.destroy({ children: true }); } catch { /**/ }
+    }
+    if (_warpChargeInstances.get(tokenId) === instance) _warpChargeInstances.delete(tokenId);
+  };
+
+  function tick() {
+    if (finished) return;
+    const now = performance.now();
+    const elapsed = now - startedAt;
+
+    // Sweep head position (0..1 fore→aft), then brightness build to the peak.
+    const headT = Math.min(1, elapsed / sweepMs);
+    const build = Math.min(1, Math.max(0, (elapsed - sweepMs) / Math.max(1, peakHoldMs * 0.55)));
+    let intensity = 0.55 + 0.45 * build;
+    let containerAlpha = 1;
+
+    if (stoppingAt) {
+      const sinceStop = now - stoppingAt;
+      // Quick bright pop, then fade out.
+      intensity = sinceStop < 80 ? 1.5 : 1.2;
+      containerAlpha = Math.max(0, 1 - Math.max(0, sinceStop - 80) / fadeMs);
+      if (sinceStop > 80 + fadeMs) { cleanup(); return; }
+    } else if (elapsed > sweepMs + peakHoldMs) {
+      instance.stop();   // self-expire so nobody keeps a stuck glow
+    }
+
+    for (const strand of strands) {
+      const g = strand.g;
+      g.clear();
+      strand.container.alpha = containerAlpha;
+      // The filter carries the actual glow; ramp it with the charge so the
+      // strand blooms as it builds and pops at the stop flash.
+      if (strand.glowFilter) strand.glowFilter.outerStrength = 1.6 + 1.8 * intensity;
+      const canvasCurve = tokenArrayCurveToCanvasCurve(token, strand.curve);
+      const samples = canvasCurve ? sampleShipArrayCurve(canvasCurve) : [];
+      if (samples.length < 2) continue;
+      const n = samples.length - 1;
+      const litFrom = strand.reversed ? Math.round((1 - headT) * n) : 0;
+      const litTo = strand.reversed ? n : Math.round(headT * n);
+      const lit = samples.slice(litFrom, litTo + 1);
+      if (lit.length >= 2) {
+        _gPolyline(g, lit, baseWidth * 4.2, color, 0.10 * intensity);
+        _gPolyline(g, lit, baseWidth * 2.4, color, 0.22 * intensity);
+        _gPolyline(g, lit, baseWidth * 1.2, color, 0.50 * intensity);
+        _gPolyline(g, lit, Math.max(1.5, baseWidth * 0.45), coreColor, 0.95 * Math.min(1, intensity));
+      }
+    }
+  }
+
+  const instance = {
+    stop({ immediate = false } = {}) {
+      if (finished) return;
+      if (immediate) { cleanup(); return; }
+      if (!stoppingAt) stoppingAt = performance.now();
+    },
+  };
+  _warpChargeInstances.set(tokenId, instance);
+  canvas.app.ticker.add(tick);
+  // Backstop in case the ticker dies mid-effect (scene teardown mid-jump).
+  setTimeout(cleanup, sweepMs + peakHoldMs + fadeMs + 2000);
+  return instance;
+}
+
+/** Socket receiver: stop (with the usual pop-fade) whatever glow a token has. */
+export function stopWarpChargeGlow(tokenId) {
+  try { _warpChargeInstances.get(tokenId)?.stop?.(); } catch { /**/ }
+}
+
+/**
+ * Draw the glow locally and tell every other client to draw it too. Returns a
+ * handle whose stop() also broadcasts the stop, so the pop-fade lands at the
+ * same moment (the depart flash) everywhere.
+ */
+export function broadcastWarpChargeGlow(token, opts = {}) {
+  const local = playWarpChargeGlow(token, opts);
+  const tokenId = token?.document?.id ?? token?.id ?? null;
+  const sceneId = canvas?.scene?.id ?? null;
+  if (tokenId) {
+    try {
+      game.socket.emit("module.sta2e-toolkit", {
+        action: "warpChargeVfx",
+        tokenId, sceneId,
+        sweepMs: opts.sweepMs, peakHoldMs: opts.peakHoldMs, fadeMs: opts.fadeMs,
+      });
+    } catch { /* cosmetic — never block the jump */ }
+  }
+  return {
+    stop() {
+      try { local.stop(); } catch { /**/ }
+      if (!tokenId) return;
+      try {
+        game.socket.emit("module.sta2e-toolkit", {
+          action: "stopWarpChargeVfx",
+          tokenId, sceneId,
+        });
+      } catch { /* cosmetic */ }
+    },
+  };
 }
