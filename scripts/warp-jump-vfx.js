@@ -123,6 +123,10 @@ function _effectLayer() {
 // (arrive) — WARP_FLASH_PEAK_MS below encodes that for the warp runners.
 const WARP_FLASH_ANIM_SRC = "modules/sta2e-toolkit/assets/vfx/Warp-Flash.webm";
 
+// One warning per session if the flash video turns out to be origin-tainted —
+// repeated jumps would otherwise spam the console. See _webmFlash.
+let _taintWarned = false;
+
 // GM-tunable size multiplier (Sounds & Animations → Ship Tasks → "Warp — Flash
 // Size", stored as a percent). World scope, so every client scales alike.
 function _warpFlashScale() {
@@ -141,6 +145,10 @@ function _warpFlashScale() {
  */
 function _webmFlash(layer, x, y, radius, zBase) {
   const video = document.createElement("video");
+  // Must precede the src assignment to take effect. Hosted games (The Forge)
+  // redirect module assets to a CDN on another origin; without this the element
+  // is origin-tainted and the first WebGL upload of it kills the canvas.
+  video.crossOrigin = "anonymous";
   video.muted = true;
   video.playsInline = true;
   video.loop = false;
@@ -160,6 +168,26 @@ function _webmFlash(layer, x, y, radius, zBase) {
 
   video.addEventListener("loadeddata", () => {
     if (done || !layer || layer.destroyed) return;
+
+    // Confirm the frame is readable before PIXI ever sees it. A tainted video
+    // throws here, synchronously and catchably; the equivalent WebGL failure
+    // throws on a later render tick, outside any try/catch, and leaves the
+    // batch renderer corrupt — a black canvas until reload.
+    try {
+      const probe = document.createElement("canvas");
+      probe.width = probe.height = 1;
+      const pctx = probe.getContext("2d", { willReadFrequently: true });
+      pctx.drawImage(video, 0, 0, 1, 1);
+      pctx.getImageData(0, 0, 1, 1);
+    } catch (err) {
+      if (!_taintWarned) {
+        _taintWarned = true;
+        console.warn("STA2e Toolkit | warp flash video is cross-origin and cannot be rendered; skipping the flash:", err);
+      }
+      cleanup();
+      return;
+    }
+
     let sprite;
     try {
       sprite = new PIXI.Sprite(PIXI.Texture.from(video));
