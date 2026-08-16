@@ -322,17 +322,9 @@
     {{#if nativeModeRows.length}}
     <div class="ec-native-section">
       <div class="ec-native-header">Experimental Native Weapon VFX</div>
-      <p class="ec-native-hint">
-        Choose which ship weapon families use the Foundry canvas renderer instead of the current Sequencer/JB2A
-        animation. Each row covers every energy type; shape is tuned per family under Beam VFX, colour per type.
-        If native VFX cannot run, the current animation is used automatically.
-      </p>
-      <p class="ec-native-hint">
-        A weapon's family and energy type are read from its <em>name</em> first (its icon second), so
-        "Antiproton Beam Array" animates as an array whatever icon it carries. Note that the damage rule
-        still reads the icon alone — for Scale +3 on a spinal lance, +2 on a cannon or +1 on a bank, give the
-        item the matching system icon as well.
-      </p>
+      {{#each nativeModeHints}}
+      <p class="ec-native-hint">{{{this}}}</p>
+      {{/each}}
       <table class="ec-table">
         <thead>
           <tr>
@@ -347,8 +339,9 @@
             <td class="ec-label">{{label}}</td>
             <td class="ec-input-cell">
               <select class="ec-native-select" data-weapon-mode-key="{{key}}">
-                <option value="current" {{#if currentSelected}}selected{{/if}}>Current Sequencer/JB2A</option>
-                <option value="experimental" {{#if experimentalSelected}}selected{{/if}}>Experimental Native Foundry</option>
+                {{#each options}}
+                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
               </select>
             </td>
             <td class="ec-slot">{{hint}}</td>

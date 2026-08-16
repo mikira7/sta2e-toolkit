@@ -8,7 +8,12 @@ import {
   TRACTOR_BEAM_RENDERER_SETTING,
   TRACTOR_BEAM_WORLD_SETTING,
 } from "./tractor-beam-vfx.js";
-import { DEFAULT_BEAM_VFX_SETTINGS, NATIVE_WEAPON_VFX_DEFAULT_MODES } from "./native-weapon-vfx.js";
+import {
+  DEFAULT_BEAM_VFX_SETTINGS,
+  GROUND_PHASER_ERA_ROWS,
+  GROUND_PHASER_TYPE_ROWS,
+  NATIVE_WEAPON_VFX_DEFAULT_MODES,
+} from "./native-weapon-vfx.js";
 import { resyncAllHullDecals, refreshAllHullDecals } from "./hull-decals.js";
 import { refreshAllTokenElevationTooltips } from "./token-elevation-display.js";
 import { refreshAllTokenSelectGlow } from "./token-select-glow.js";
@@ -925,6 +930,25 @@ export function registerSettings() {
   game.settings.register("sta2e-toolkit", "sndGroundHypospray",    snd("Ground Sound — Anesthetic Hypospray",   "Sound when the Anesthetic Hypospray is used."));
   game.settings.register("sta2e-toolkit", "sndGroundFirstAid",     snd("Ground Sound — First Aid (Success)",    "Sound played on the target when a First Aid task succeeds."));
 
+  // Ground phasers, per era and per hand-phaser type. Both rungs are optional:
+  // a blank type slot falls back to the era slot, and a blank era slot falls
+  // back to sndGroundPhaserHit/Miss above — so a GM can fill in only the audio
+  // they actually have and the rest keeps working.
+  for (const era of GROUND_PHASER_ERA_ROWS) {
+    for (const result of ["Hit", "Miss"]) {
+      game.settings.register("sta2e-toolkit", `sndGroundPhaser${era.key}${result}`, snd(
+        `Ground Sound - Phaser ${era.label} (${result})`,
+        `Sound for any ${era.label}-era ground phaser ${result.toLowerCase()}. Blank falls back to the base ground phaser sound.`
+      ));
+      for (const type of GROUND_PHASER_TYPE_ROWS) {
+        game.settings.register("sta2e-toolkit", `sndGroundPhaser${type.key}${era.key}${result}`, snd(
+          `Ground Sound - ${type.label} ${era.label} (${result})`,
+          `Sound when a ${era.label}-era ${type.label} ${result.toLowerCase()}s. Blank falls back to the ${era.label} era sound, then the base ground phaser sound.`
+        ));
+      }
+    }
+  }
+
   // Tactical effects
   game.settings.register("sta2e-toolkit", "sndScanForWeakness",    snd("Effect Sound — Scan for Weakness",   "Sound when Scan for Weakness is activated on a target."));
   game.settings.register("sta2e-toolkit", "sndAttackPattern",      snd("Effect Sound — Attack Pattern",      "Sound when Attack Pattern is activated."));
@@ -1412,5 +1436,24 @@ export function registerSettings() {
     config:  false,
     type:    Object,
     default: foundry.utils.deepClone(DEFAULT_BEAM_VFX_SETTINGS),
+  });
+
+  game.settings.register("sta2e-toolkit", "groundPhaserEra", {
+    name:    "Ground Phaser Era",
+    hint:    "Which era's colour and sound hand phasers use. Auto follows the active campaign's "
+      + "era (TOS, ENT or TNG), and falls back to TNG for eras that name no phaser of their own. "
+      + "TMP has no campaign era, so pick it here — or force any era on a single weapon from that "
+      + "item's sheet, which always wins over this setting.",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      auto: "Auto (follow campaign era)",
+      ent:  "ENT",
+      tos:  "TOS",
+      tmp:  "TMP",
+      tng:  "TNG/DS9/VOY",
+    },
+    default: "auto",
   });
 }

@@ -20,12 +20,17 @@ import {
   energyTypeForWeapon,
   fireNativeWeaponVFX,
   getBeamVfxSettings,
+  getWeaponAnimationMode,
   nativeVfxKeyForConfig,
   playNativeTracerBetweenPoints,
   playArrayCurveChargeVFX,
   previewShipWeaponVFX,
   shouldUseNativeWeaponVFX,
 } from "./native-weapon-vfx.js";
+import {
+  broadcastBoltTravel,
+  playBoltTravelLocal,
+} from "./bolt-travel-vfx.js";
 import {
   scheduleShieldImpactVFX,
   shieldStopPoint,
@@ -152,14 +157,17 @@ const BUNDLED_TORPEDO_SPRITES = Object.freeze([
   "Tricobalt-Torpedo.webm",
 ]);
 // Lowercased basenames of "<Type>-Torpedo.webm" files present in the sprite
-// dir. Seeded with the bundled sprites; refreshTorpedoSpriteCache() adds any
+// dir. Seeded with the bundled sprites; refreshToolkitSpriteCache() adds any
 // user-dropped extras at ready. A type without its own file falls back to the
 // photon sprite.
 const TORPEDO_SPRITE_FILES = new Set(BUNDLED_TORPEDO_SPRITES.map(f => f.toLowerCase()));
 // On-canvas size of the moving sprite, as a fraction of one grid square.
 const SHIP_TORPEDO_SPRITE_GRID_FRACTION = 0.66;
 const SHIP_WEAPON_FACING_DURATION_SCALE = 3.5;
-const SHIP_WEAPON_FACING_SETTLE_MS = 900;
+// Beat held after the hull has finished coming about, before the weapon fires.
+// Only a beat: the turn itself is now awaited properly, where this used to be
+// standing in for it. At the old 900ms every shot would pay for the turn twice.
+const SHIP_WEAPON_FACING_SETTLE_MS = 250;
 // Cinematic reposition glide: time per grid square, and a floor. Higher = slower.
 const SHIP_WEAPON_REPOSITION_MS_PER_SQUARE = 900;
 const SHIP_WEAPON_REPOSITION_MIN_MS = 700;
@@ -256,27 +264,96 @@ function torpedoSpritePath(torpedoType, era = "") {
   return SHIP_PHOTON_TORPEDO_SPRITE;
 }
 
-// Scans the sprite dir for "<Type>-Torpedo.webm" files so each torpedo type
-// auto-picks up its own sprite once dropped in. Called at ready; safe to re-run
-// (e.g. after adding new assets and reloading). The bundled sprites are always
-// kept in the cache — a failed or empty browse (normal on The Forge, where
-// module assets live on a CDN) must never wipe them, or every type would fall
-// back to the photon sprite.
-export async function refreshTorpedoSpriteCache() {
+// ── Energy bolt sprites ─────────────────────────────────────────────────────
+// The travelling-bolt animation mode for energy cannons, and the alternative
+// fire mode for a Type-3 phaser, both fly one of these instead of stretching a
+// JB2A strip. Same directory and the same conventions as the torpedoes:
+// "<EnergyType>-Bolt.webm", keyed off the energy type the module already reads
+// out of the weapon's NAME (see ENERGY_VFX_TYPES in native-weapon-vfx.js).
+//
+// A type with no file of its own falls back to the phaser bolt, so every energy
+// weapon animates from the moment the mode is switched on, and each new file
+// dropped into the dir is picked up with no code change.
+const SHIP_PHASER_BOLT_SPRITE = `${SHIP_TORPEDO_SPRITE_DIR}/Phaser-Bolt.webm`;
+// Keep in sync with assets/vfx/*-Bolt.webm. Same reason as the torpedo seed: a
+// failed or empty FilePicker.browse (normal on The Forge) must not wipe the
+// bundled sprites, or every energy type falls back to the phaser bolt.
+const BUNDLED_BOLT_SPRITES = Object.freeze([
+  "Antiproton-Bolt.webm",
+  "Disruptor-Bolt.webm",
+  "Electromagnetic-Bolt.webm",
+  "Electron-Laser-Bolt.webm",
+  "Graviton-Bolt.webm",
+  "Phase-Bolt.webm",
+  "Phased-Palaron-Bolt.webm",
+  "Phaser-Bolt.webm",
+  "Proton-Bolt.webm",
+  "Tetryon-Bolt.webm",
+]);
+const BOLT_SPRITE_FILES = new Set(BUNDLED_BOLT_SPRITES.map(f => f.toLowerCase()));
+
+// Energy types whose bolt file is not simply their capitalised id. Without
+// these three the files would be on disk and never found — the lookup would
+// quietly serve the phaser bolt instead, which is the hardest kind of miss to
+// notice. Add an entry here rather than renaming an existing asset.
+const BOLT_SPRITE_ALIASES = Object.freeze({
+  phasePulse: "Phase-Bolt.webm",
+  freeElectronLaser: "Electron-Laser-Bolt.webm",
+  // Polaron covers the Dominion's phased polaron too, and that is what the
+  // bolt was drawn as.
+  polaron: "Phased-Palaron-Bolt.webm",
+});
+
+// Era variant bolts: "<Era>-<Type>-Bolt.webm", keyed `${era}:${energyType}` —
+// the same shape as TORPEDO_ERA_SPRITE_FILES. Nothing ships one yet; the lookup
+// is wired so adding a file and one line here is all it takes.
+const BOLT_ERA_SPRITE_FILES = Object.freeze({});
+
+// "phaser" -> "Phaser-Bolt.webm". Energy type ids are camelCase, so the ones
+// whose file is not just the capitalised id are aliased above.
+function boltSpriteFileName(energyType) {
+  const t = energyType || "phaser";
+  return BOLT_SPRITE_ALIASES[t] ?? `${t.charAt(0).toUpperCase()}${t.slice(1)}-Bolt.webm`;
+}
+
+/**
+ * Resolves an energy type to its bolt sprite: era variant if one exists, then
+ * the per-type file, then the phaser bolt.
+ */
+function boltSpritePath(energyType, era = "") {
+  const eraFile = BOLT_ERA_SPRITE_FILES[`${era}:${energyType || "phaser"}`];
+  if (eraFile && BOLT_SPRITE_FILES.has(eraFile.toLowerCase())) {
+    return `${SHIP_TORPEDO_SPRITE_DIR}/${eraFile}`;
+  }
+  const file = boltSpriteFileName(energyType);
+  if (BOLT_SPRITE_FILES.has(file.toLowerCase())) return `${SHIP_TORPEDO_SPRITE_DIR}/${file}`;
+  return SHIP_PHASER_BOLT_SPRITE;
+}
+
+// Scans the sprite dir for "<Type>-Torpedo.webm" and "<Type>-Bolt.webm" files so
+// each type auto-picks up its own sprite once dropped in. Called at ready; safe
+// to re-run (e.g. after adding new assets and reloading). The bundled sprites
+// are always kept in the cache — a failed or empty browse (normal on The Forge,
+// where module assets live on a CDN) must never wipe them, or every type would
+// fall back to the photon torpedo and the phaser bolt.
+export async function refreshToolkitSpriteCache() {
   try {
     const FP = foundry.applications?.apps?.FilePicker?.implementation ?? FilePicker;
     const response = await FP.browse("data", SHIP_TORPEDO_SPRITE_DIR);
     TORPEDO_SPRITE_FILES.clear();
+    BOLT_SPRITE_FILES.clear();
     for (const f of BUNDLED_TORPEDO_SPRITES) TORPEDO_SPRITE_FILES.add(f.toLowerCase());
+    for (const f of BUNDLED_BOLT_SPRITES) BOLT_SPRITE_FILES.add(f.toLowerCase());
     for (const f of (response?.files ?? [])) {
       // Hosted services may return full URLs with query strings or encoded
       // characters — normalize down to the plain basename before matching.
       let name = String(f).split("/").pop().split("?")[0];
       try { name = decodeURIComponent(name); } catch { /* keep raw */ }
       if (/-Torpedo\.webm$/i.test(name)) TORPEDO_SPRITE_FILES.add(name.toLowerCase());
+      else if (/-Bolt\.webm$/i.test(name)) BOLT_SPRITE_FILES.add(name.toLowerCase());
     }
   } catch (err) {
-    console.warn("STA2e Toolkit | torpedo sprite scan failed (bundled sprites remain active):", err);
+    console.warn("STA2e Toolkit | sprite scan failed (bundled sprites remain active):", err);
   }
 }
 
@@ -396,6 +473,10 @@ export function energyWeaponFamily(weapon, config = null) {
  * phaser would otherwise inherit that phaser's era and come out TOS blue.
  */
 function phaserWeaponKind(weapon, config) {
+  // Ground phasers resolve their own era in resolveGroundWeaponConfig and must
+  // not fall through to the ship-side swap: they carry a `family`, which the
+  // signal below would otherwise hand straight back.
+  if (config?.family === "ground-phaser" || config?.family === "ground-phaser-bolt") return null;
   const name = String(weapon?.name ?? config?.name ?? "").toLowerCase();
   const img = String(weapon?.img ?? "").split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "").toLowerCase();
   const energyType = energyTypeForWeapon(weapon);
@@ -683,6 +764,206 @@ export const STARSHIP_WEAPON_CONFIGS = {
 };
 
 // ---------------------------------------------------------------------------
+// Ground Phaser — era and type
+// ---------------------------------------------------------------------------
+// Ground phasers get the same era treatment ship phasers do, but they resolve
+// their era themselves rather than going through `withPhaserEraConfig`. That
+// gate (`phaserWeaponKind`) is deliberately strict about naming a ship family
+// and must stay that way; a hand phaser names none.
+//
+// Everything below lives at the CONFIG layer, so both renderers inherit it: the
+// classic Sequencer/JB2A path picks up the era asset through `get effect()`, and
+// the native PIXI path picks up the era colour from its own settings. Turning
+// the native renderer off does not turn eras off.
+
+const GROUND_PHASER_TYPES = Object.freeze(["type1", "type2", "type3"]);
+
+const GROUND_PHASER_TYPE_SOUND_PARTS = Object.freeze({
+  type1: "Type1",
+  type2: "Type2",
+  type3: "Type3",
+});
+
+/**
+ * Which hand phaser an item is, matched against its NAME — the system stores no
+ * field for it, and the compendium icons are shared across all three.
+ *
+ * ORDER MATTERS, 3 → 2 → 1: the alternatives are anchored on both sides so a
+ * "Phaser Type-III" cannot be swallowed by the Type-1 pattern the way it is in
+ * the character creator's older matcher.
+ *
+ * A phaser that names no type at all is a Type-2 — the standard sidearm.
+ */
+export function groundPhaserType(item) {
+  const name = String(item?.name ?? "").toLowerCase();
+  if (!isGroundPhaserName(name)) return null;
+  if (/\btype[-\s]?(?:iii|3)\b/.test(name)
+    || /\bphaser\s+rifle\b/.test(name)
+    || /\bcompression\s+(?:phaser\s+)?rifle\b/.test(name)) return "type3";
+  if (/\btype[-\s]?(?:ii|2)\b/.test(name) || /\bphaser\s+pistol\b/.test(name)) return "type2";
+  if (/\btype[-\s]?(?:i|1)\b/.test(name)) return "type1";
+  return "type2";
+}
+
+function isGroundPhaserName(lowerName) {
+  return lowerName.includes("phaser") || lowerName.includes("phase");
+}
+
+function normalizeGroundPhaserType(type) {
+  const value = String(type ?? "").toLowerCase();
+  return GROUND_PHASER_TYPES.includes(value) ? value : "type2";
+}
+
+/**
+ * Campaign eras and phaser eras are different lists: the campaign has klingon,
+ * romulan and custom, which name no phaser era of their own, and it has no TMP.
+ * TMP is therefore only reachable by forcing it on the item or in the world
+ * setting — which is the point of the force toggle.
+ */
+const CAMPAIGN_ERA_TO_PHASER_ERA = Object.freeze({
+  tos: "tos",
+  ent: "ent",
+  tng: "tng",
+});
+
+function campaignPhaserEra() {
+  try {
+    const era = game.sta2eToolkit?.campaignStore?.getActiveCampaign?.()?.era;
+    return CAMPAIGN_ERA_TO_PHASER_ERA[String(era ?? "").toLowerCase()] ?? "";
+  } catch { return ""; }
+}
+
+/** The era Auto currently resolves to, with no item in hand. */
+export function autoGroundPhaserEra() {
+  return campaignPhaserEra() || "tng";
+}
+
+/**
+ * Era for a ground phaser, first hit wins:
+ *   1. the item's own force-era flag  (Item sheet → Force Era)
+ *   2. the world setting              (Settings → Ground Phaser Era)
+ *   3. the active campaign's era
+ *   4. tng
+ */
+export function resolveGroundPhaserEra(item) {
+  const forced = normalizePhaserEra(item?.getFlag?.("sta2e-toolkit", "phaserEra")
+    ?? foundry.utils.getProperty(item ?? {}, "flags.sta2e-toolkit.phaserEra"));
+  if (forced) return forced;
+
+  let world = "";
+  try { world = String(game.settings.get("sta2e-toolkit", "groundPhaserEra") ?? "auto"); }
+  catch { world = "auto"; }
+  const forcedWorld = normalizePhaserEra(world);
+  if (forcedWorld) return forcedWorld;
+
+  return autoGroundPhaserEra();
+}
+
+export const GROUND_PHASER_FIRE_MODES = Object.freeze(["beam", "bolt", "jb2a"]);
+
+/**
+ * How this weapon fires — the Type-3 alternative fire mode, set per item from
+ * its sheet.
+ *
+ *   "beam"  the stretched energy beam (the default)
+ *   "bolt"  the module's own bolt sprite, flown from shooter to target
+ *   "jb2a"  the same JB2A animation the ship's energy cannons fire
+ *
+ * Gated to type3 in the resolver as well as in the sheet: an item that was set
+ * while named "Phaser Rifle" and later renamed to a Type-2 should go back to
+ * the beam rather than keep a mode its sheet no longer offers.
+ *
+ * The boolean `boltFire` flag predates the third mode and is still honoured, so
+ * weapons already ticked keep firing bolts with no migration.
+ */
+export function groundPhaserFireMode(item, phaserType = groundPhaserType(item)) {
+  if (phaserType !== "type3") return "beam";
+  const mode = String(item?.getFlag?.("sta2e-toolkit", "groundFireMode")
+    ?? foundry.utils.getProperty(item ?? {}, "flags.sta2e-toolkit.groundFireMode")
+    ?? "");
+  if (GROUND_PHASER_FIRE_MODES.includes(mode)) return mode;
+  const legacy = item?.getFlag?.("sta2e-toolkit", "boltFire")
+    ?? foundry.utils.getProperty(item ?? {}, "flags.sta2e-toolkit.boltFire");
+  return legacy === true ? "bolt" : "beam";
+}
+
+// Ground-scale era beam assets, the person-scale twin of PHASER_ERA_EFFECTS.
+// Colours follow the choices the ship map already made — TOS blue, TMP red,
+// ENT/TNG orange — so a world reads consistently across both scales.
+//
+// The TNG free-tier entry is the exact path ground phasers play today, so an
+// unset era, an unrecognised era, or a missing patron library all land back on
+// the current look rather than on nothing.
+const GROUND_PHASER_ERA_EFFECTS = Object.freeze({
+  ent: {
+    free:   `${WA}/LaserShot_01_Regular_Orange_30ft_1600x400.webm`,
+    patron: "modules/jb2a_patreon/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_30ft_1600x400.webm",
+  },
+  tos: {
+    free:   `${WA}/LaserShot_01_Regular_Blue_30ft_1600x400.webm`,
+    patron: "modules/jb2a_patreon/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Blue_30ft_1600x400.webm",
+  },
+  tmp: {
+    free:   `${WA}/LaserShot_01_Regular_Red_30ft_1600x400.webm`,
+    patron: "modules/jb2a_patreon/Library/Generic/Weapon_Attacks/Ranged/Snipe_01_Regular_Red_30ft_1600x400.webm",
+  },
+  tng: {
+    free:   "modules/JB2A_DnD5e/Library/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm",
+    patron: "modules/jb2a_patreon/Library/2nd_Level/Scorching_Ray/ScorchingRay_01_Regular_Orange_30ft_1600x400.webm",
+  },
+});
+
+/**
+ * The classic-renderer beam asset for a ground phaser. A GM's own animation
+ * override still wins, exactly as it does in `groundBeamEffect`.
+ */
+function groundPhaserBeamEffect(era) {
+  return animOverride("groundWeapons", "phaser", "animHit")
+    ?? GROUND_PHASER_ERA_EFFECTS[era]?.[isPatron() ? "patron" : "free"]
+    ?? groundBeamEffect("orange");
+}
+
+// The JB2A bolt: literally the asset an energy cannon fires — see
+// cannonEffect() — picked per era from the same four colours the beam map uses.
+// Like cannonEffect this does not branch on isPatron(); LaserShot carries all
+// four colours at 30ft in the free library, and a patron install resolves the
+// same ones.
+const GROUND_PHASER_BOLT_JB2A_COLORS = Object.freeze({
+  ent: "Orange",
+  tos: "Blue",
+  tmp: "Red",
+  tng: "Orange",
+});
+
+/**
+ * The JB2A bolt asset for a ground phaser.
+ *
+ * Deliberately does NOT consult animOverride("groundWeapons", "phaser",
+ * "animHit"): that slot is labelled "Phaser — Beam (Hit)" in the config UI and
+ * belongs to the beam. Routing it in here would collapse two fire modes a GM
+ * had explicitly chosen between into the same animation.
+ */
+function groundPhaserBoltJb2aEffect(era) {
+  const color = GROUND_PHASER_BOLT_JB2A_COLORS[era] ?? "Orange";
+  return `${WA}/LaserShot_01_Regular_${color}_30ft_1600x400.webm`;
+}
+
+/**
+ * Sound for a ground phaser, narrowest slot first:
+ *   sndGroundPhaser<Type><Era><Hit|Miss>  →  sndGroundPhaser<Era><Hit|Miss>
+ *   →  sndGroundPhaser<Hit|Miss>
+ * Every slot is optional, so a GM can fill in only the audio they actually have.
+ */
+function groundPhaserSound(type, era, isHit) {
+  const typePart = GROUND_PHASER_TYPE_SOUND_PARTS[normalizeGroundPhaserType(type)];
+  const eraPart = PHASER_ERA_SOUND_PARTS[era];
+  const resultPart = isHit ? "Hit" : "Miss";
+  return (typePart && eraPart ? snd(`sndGroundPhaser${typePart}${eraPart}${resultPart}`) : null)
+    ?? (eraPart ? snd(`sndGroundPhaser${eraPart}${resultPart}`) : null)
+    ?? snd(`sndGroundPhaser${resultPart}`);
+}
+
+// ---------------------------------------------------------------------------
 // Ground Weapon Config Resolver
 // ---------------------------------------------------------------------------
 
@@ -741,13 +1022,33 @@ export function resolveGroundWeaponConfig(item) {
 
   // ── Ranged energy weapons ─────────────────────────────────────────────────
   if (range === "ranged") {
-    if (name.includes("phaser") || name.includes("phase")) {
+    if (isGroundPhaserName(name)) {
+      // `type` stays "ground-beam" so the classic Sequencer dispatch is
+      // untouched; `family`/`nativeVfxKey` are what let the native PIXI
+      // renderer claim the shot first when a world opts into it.
+      const phaserType = groundPhaserType(item);
+      // Either bolt mode takes the weapon out of the native PIXI path entirely:
+      // "ground-phaser-bolt" is absent from NATIVE_VFX_KEY_BY_FAMILY, so
+      // nativeVfxKeyForConfig returns null and fireNativeWeaponVFX declines
+      // without needing to know these modes exist. It also keeps the Area cone
+      // off — _playGroundAreaConeAnimation tests for the beam family — so an
+      // Area shot fires a bolt at each target instead.
+      const fireMode = groundPhaserFireMode(item, phaserType);
+      const boltFire = fireMode !== "beam";
+      // Lazy getters, matching withPhaserEraConfig: the era is read at draw
+      // time, so switching campaign era or forcing one on the item applies
+      // without a reload and without rebuilding the config.
       return {
         name: item.name, type: "ground-beam", color: "orange",
-        get effect()    { return groundBeamEffect("orange"); },
+        family: boltFire ? "ground-phaser-bolt" : "ground-phaser",
+        nativeVfxKey: boltFire ? null : "weapon-ground-phaser",
+        groundFireMode: fireMode,
+        groundPhaserType: phaserType,
+        get phaserEra() { return resolveGroundPhaserEra(item); },
+        get effect()    { return groundPhaserBeamEffect(resolveGroundPhaserEra(item)); },
         get impact()    { return animOverride("groundWeapons", "phaser", "animImpact") ?? impactEffect("orange"); },
-        get sound()     { return snd("sndGroundPhaserHit"); },
-        get missSound() { return snd("sndGroundPhaserMiss"); },
+        get sound()     { return groundPhaserSound(phaserType, resolveGroundPhaserEra(item), true); },
+        get missSound() { return groundPhaserSound(phaserType, resolveGroundPhaserEra(item), false); },
       };
     }
     if (name.includes("disruptor")) {
@@ -842,7 +1143,7 @@ function torpedoConfigFromName(item, slug, imgConfig) {
 
 // Only phaser, disruptor and polaron energy weapons have icons in the system's
 // compendium, so every other energy type (antiproton, tetryon, graviton, proton,
-// free electron laser, ionic, phase-pulse, phased polaron) is recognised by the
+// free electron laser, ionic, phase-pulse) is recognised by the
 // item's NAME and routed to the nearest existing registry entry. The entry
 // supplies the family, the shot counts and the JB2A/sound bucket; the native
 // PIXI colour is resolved separately from the weapon name, so this mapping only
@@ -858,7 +1159,6 @@ const ENERGY_TYPE_REGISTRY_BASE = Object.freeze({
   freeElectronLaser: "phaser",
   disruptor: "disruptor",
   polaron: "polaron",
-  phasedPolaron: "polaron",
   antiproton: "polaron",
   tetryon: "polaron",
   graviton: "polaron",
@@ -1438,6 +1738,105 @@ function applyTorpedoTravel(s, config, source, target, { missed = false, finalDa
   return effect;
 }
 
+// ── Energy bolt travel ──────────────────────────────────────────────────────
+
+/** The bolt dials from the Beam VFX settings, with ship/ground variants. */
+function boltTravelSettings(ground = false) {
+  const bolt = getBeamVfxSettings()?.bolt ?? {};
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  const speed = Number(ground ? bolt.groundSpeed : bolt.speed);
+  const fraction = Number(ground ? bolt.groundGridFraction : bolt.gridFraction);
+  const minMs = Number.isFinite(Number(bolt.minTravelMs)) ? Number(bolt.minTravelMs) : 90;
+  const maxMs = Number.isFinite(Number(bolt.maxTravelMs)) ? Number(bolt.maxTravelMs) : 1200;
+  return {
+    gridSize,
+    // Grid squares per second.
+    speed: Number.isFinite(speed) && speed > 0 ? speed : (ground ? 16 : 20),
+    px: Math.max(8, Math.round(gridSize * (Number.isFinite(fraction) ? fraction : 0.66))),
+    minTravelMs: minMs,
+    // A min above the max would otherwise invert the clamp and pin every shot
+    // to the floor.
+    maxTravelMs: Math.max(minMs, maxMs),
+    impactPadMs: Math.max(0, Number(bolt.impactPadMs) || 0),
+    // Falls back to the bundled bolts' orientation, not to 0, so a missing
+    // group behaves like an unconfigured world rather than an untuned one.
+    spriteAngleOffset: Number.isFinite(Number(bolt.spriteAngleOffset))
+      ? Number(bolt.spriteAngleOffset)
+      : 90,
+  };
+}
+
+/**
+ * How long a bolt takes to cross `distancePx`, at the configured speed and
+ * within the configured bounds. Distance-derived rather than fixed, so the bolt
+ * reads at the same rate whether it crosses one square or twenty.
+ */
+function boltTravelMs(distancePx, ground = false, cfg = boltTravelSettings(ground)) {
+  const squares = Math.max(0, Number(distancePx) || 0) / (cfg.gridSize || 100);
+  const ms = (squares / cfg.speed) * 1000;
+  return Math.round(Math.max(cfg.minTravelMs, Math.min(cfg.maxTravelMs, ms)));
+}
+
+/**
+ * Resolves one bolt flight to plain numbers for the socket. A miss is baked
+ * into the target point here — overshooting and drifting past the target, the
+ * way buildTorpedoArcOffsets does — because `.missed()` on a sprite with no
+ * stretchTo randomises the LAUNCH point instead of the impact.
+ */
+function buildBoltTravelPlan(source, target, { missed = false, energyType = "phaser", era = "", ground = false } = {}) {
+  const sp = resolveTravelPoint(source);
+  let tp = resolveTravelPoint(target);
+  if (!sp || !tp) return null;
+
+  const gridSize = canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100;
+  if (missed) {
+    const ang = Math.atan2(tp.y - sp.y, tp.x - sp.x);
+    const over = gridSize * (0.9 + Math.random() * 0.7);
+    const drift = gridSize * (0.5 + Math.random() * 0.7) * (Math.random() < 0.5 ? -1 : 1);
+    tp = {
+      x: tp.x + Math.cos(ang) * over - Math.sin(ang) * drift,
+      y: tp.y + Math.sin(ang) * over + Math.cos(ang) * drift,
+    };
+  }
+
+  const cfg = boltTravelSettings(ground);
+  // Measured after the miss offset, so a shot that sails wide takes the time its
+  // longer path actually deserves.
+  const distance = Math.hypot(tp.x - sp.x, tp.y - sp.y);
+  return {
+    file: boltSpritePath(energyType, era),
+    px: cfg.px,
+    travelMs: boltTravelMs(distance, ground, cfg),
+    // NOT the shot bearing — moveTowards already turns the bolt onto that. This
+    // is a constant correction for art drawn pointing somewhere other than
+    // right, and is normally 0.
+    rotationOffsetDeg: cfg.spriteAngleOffset,
+    launch: sp,
+    target: tp,
+    layer: source?.layer ?? null,
+  };
+}
+
+/**
+ * Queue one bolt flight on a sequence and return how long it will take, so the
+ * caller can wait exactly that. Like applyTorpedoTravel, `thenDo` fires
+ * instantly on the originating client only — without a matching `s.wait(...)`
+ * the sequence resolves before the bolt lands and the next shot starts mid-air.
+ *
+ * Now that duration is derived from distance, the caller cannot know the figure
+ * up front; returning it is what keeps the wait honest.
+ *
+ * @returns {number} flight time in ms, or 0 when the points were unresolvable
+ *                   and nothing was queued.
+ */
+function applyBoltTravel(s, source, target, options = {}) {
+  const plan = buildBoltTravelPlan(source, target, options);
+  if (!plan) return 0;
+  const broadcast = options.broadcast !== false;
+  s.thenDo(() => (broadcast ? broadcastBoltTravel(plan) : playBoltTravelLocal(plan)));
+  return plan.travelMs;
+}
+
 // Resolves a Sequencer travel location (token+offset, or a plain point) to an
 // absolute canvas point so the arc math can work in screen space.
 function resolveTravelPoint(loc) {
@@ -1898,6 +2297,38 @@ async function maneuverShipForFiring(token, selection, primaryTarget = null) {
   return true;
 }
 
+// Ceiling on how far past the requested duration a token animation is waited
+// on. A replaced or stuck animation must never hold the attack queue open.
+const TOKEN_ANIMATION_WAIT_CAP_MS = 2000;
+
+/**
+ * Wait for a token's own movement/rotation animation to finish.
+ *
+ * `document.update()` resolves when the SERVER acknowledges the change, not
+ * when the client-side animation ends — so awaiting the update alone lets the
+ * next step run while the ship is still visibly turning. That is what let a
+ * ship open fire mid-turn: the fixed post-turn settle happened to cover short
+ * turns, but a hard turn or a large hull animates for several times longer.
+ *
+ * Waits at least the duration we asked Foundry for, and longer if the animation
+ * is still running — capped, and falling back to the timed wait alone when the
+ * animation accessor isn't where this Foundry version keeps it.
+ */
+async function awaitTokenAnimation(token, requestedMs = 0) {
+  const wait = Math.max(0, Number(requestedMs) || 0);
+  let animation = null;
+  try {
+    const CA = foundry.canvas?.animation?.CanvasAnimation ?? globalThis.CanvasAnimation;
+    const name = token?.animationName;
+    if (name && typeof CA?.getAnimation === "function") animation = CA.getAnimation(name)?.promise ?? null;
+  } catch { /* no accessor on this version — the timed wait carries it */ }
+
+  await Promise.all([
+    _delay(wait),
+    animation ? Promise.race([animation, _delay(wait + TOKEN_ANIMATION_WAIT_CAP_MS)]) : Promise.resolve(),
+  ]);
+}
+
 async function rotateTokenToEmitterFacing(token, desiredRotation) {
   const doc = token?.document;
   if (!doc?.update) return;
@@ -1913,6 +2344,8 @@ async function rotateTokenToEmitterFacing(token, desiredRotation) {
     { rotation: targetRotation },
     { animate: true, animation: { duration, easing: "easeInOutSine" }, sta2eWeaponFacing: true },
   );
+  // The update above is acknowledged long before the hull has finished turning.
+  await awaitTokenAnimation(token, duration);
 }
 
 // ---------------------------------------------------------------------------
@@ -2399,6 +2832,136 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
       ).missed();
     }
     await s.play();
+  }
+}
+
+/**
+ * Energy cannons in "bolt" animation mode: the same shot structure as
+ * fireCannons — same emitters, same shield step, same impact and hull decal —
+ * but each shot flies the module's own bolt sprite instead of stretching a JB2A
+ * strip between the two points.
+ *
+ * The bolt file follows the weapon's ENERGY TYPE, read from its name, so a
+ * disruptor cannon picks Disruptor-Bolt.webm the moment that file exists and
+ * falls back to the phaser bolt until then.
+ */
+async function fireEnergyCannonBolts(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null) {
+  const shots = isHit ? Math.max(1, Math.floor(Number(repeatCount) || 1)) : 1;
+  const energyType = energyTypeForWeapon(weapon) ?? "phaser";
+  const era = normalizePhaserEra(config?.phaserEra);
+  const travel = boltTravelSettings(false);
+
+  for (const target of targets) {
+    const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
+    let s = seq();
+    if (isHit) {
+      let impactLocation = sequenceLocation(target, null);
+      let impactPoint = null;
+      // One shield step covers the whole burst, so the last shot's emitter is
+      // carried out of the loop alongside its impact.
+      let sourcePoint = null;
+      let hullPoint = null;
+      let capT = null;
+      for (let i = 0; i < shots; i++) {
+        const locations = await shipShotLocations(token, target, {
+          sourceOptions: { randomOffset: true },
+          targetOptions: { randomOffset: true },
+          weapon,
+          shotIndex: i,
+          targetSystem,
+          selectedEmitter,
+          shieldImpact,
+        });
+        impactLocation = locations.impact;
+        impactPoint = locations.target?.location ?? impactPoint;
+        sourcePoint = locations.source?.point ?? sourcePoint;
+        hullPoint = locations.hullPoint ?? hullPoint;
+        capT = locations.capT ?? capT;
+        s = withSound(s, soundPath).wait(50);
+        // thenDo returns instantly, so the wait is what actually spans the
+        // flight. Without it the burst fires every bolt on the same frame and
+        // the impact lands before any of them arrive. The duration comes back
+        // from the queue call because it depends on this shot's own range.
+        const flightMs = applyBoltTravel(s, locations.source, locations.target, { energyType, era });
+        s = s.wait(flightMs + travel.impactPadMs);
+      }
+      addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, shots - 1, shots, sourcePoint, hullPoint, capT);
+      shipImpactEffectFor(s.effect(), shipImpactVisual(config, "impact", hullImpact), impactLocation, target, 1.5);
+      _stampHullDecalAt(s, target, impactPoint, hullImpact);
+    } else {
+      s = withSound(s, soundPath).wait(50);
+      const flightMs = applyBoltTravel(
+        s,
+        shipWeaponMissSourceLocation(token, target, weapon, 0, selectedEmitter),
+        shipWeaponMissTargetLocation(target),
+        { energyType, era, missed: true },
+      );
+      s = s.wait(flightMs);
+    }
+    await s.play();
+  }
+}
+
+/**
+ * A Type-3 phaser set to the JB2A bolt: the same stretched LaserShot an energy
+ * cannon fires, at person scale. Structured like fireCannons rather than like
+ * the sprite bolt above, because nothing in the JB2A ranged library is a point
+ * sprite — they are all strips drawn along the travel axis and meant to be
+ * stretched between the two ends, not flown.
+ *
+ * shipTravelEffect is what applies SHIP_RANGED_TRAVEL_TEMPLATE, trimming
+ * LaserShot's 200px lead-in so the shot starts at the shooter. (fireGroundBeam
+ * skips that and stretches raw; not copied here.)
+ */
+async function fireGroundPhaserBoltJb2a(config, isHit, token, targets) {
+  const era = normalizePhaserEra(config?.phaserEra);
+  const animPath = groundPhaserBoltJb2aEffect(era);
+  const travelMs = getTimingGroundBeamTravel();
+
+  for (const target of targets) {
+    const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
+    let s = withSound(seq(), soundPath).wait(50);
+    let effect = stretchToSequenceLocation(
+      atSequenceLocation(
+        shipTravelEffect(s.effect().file(animPath), { effect: animPath }),
+        sequenceLocation(token, null),
+      ),
+      sequenceLocation(target, null),
+    );
+    if (!isHit) {
+      // Safe here where it is not on the flown sprite: stretchTo anchors both
+      // ends, so missed() moves the impact end rather than the launch point.
+      if (typeof effect.missed === "function") effect = effect.missed();
+      s.play();
+      continue;
+    }
+    s = effect.wait(travelMs);
+    if (config.impact) s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+    s.play();
+  }
+}
+
+/**
+ * A Type-3 phaser / phaser rifle with Bolt Fire enabled on the item. One bolt
+ * per target, then the weapon's normal impact — the beam's own impact asset, so
+ * the two fire modes land the same way.
+ */
+async function fireGroundPhaserBolt(config, isHit, token, targets) {
+  const era = normalizePhaserEra(config?.phaserEra);
+  for (const target of targets) {
+    const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
+    let s = withSound(seq(), soundPath).wait(50);
+    const flightMs = applyBoltTravel(s, sequenceLocation(token, null), sequenceLocation(target, null), {
+      energyType: "phaser",
+      era,
+      missed: !isHit,
+      ground: true,
+    });
+    s = s.wait(flightMs);
+    if (isHit && config.impact) {
+      s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+    }
+    s.play();
   }
 }
 
@@ -2963,7 +3526,12 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
       else await fireBeamSingle(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "cannon":
-      await fireCannons(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      // Three modes. "experimental" never reaches here — fireNativeWeaponVFX
+      // claimed the shot above — so this is Current vs the bolt sprite.
+      if (getWeaponAnimationMode("weapon-energy-cannon") === "bolt")
+        await fireEnergyCannonBolts(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
+      else
+        await fireCannons(config, isHit, token, targets, energyShotCount, weapon, targetSystem, shieldImpact, hullImpact, selectedEmitter);
       break;
     case "torpedo":
       // Count comes from the per-type sliders (base × damage tier, capped).
@@ -2987,7 +3555,11 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
 
     // Ground-scale weapons
     case "ground-beam":
-      await fireGroundBeam(config, isHit, token, targets);
+      // Bolt Fire is a per-item alternative fire mode on Type-3 phasers, so it
+      // wins over whichever ground renderer the world is using.
+      if (config.groundFireMode === "jb2a") await fireGroundPhaserBoltJb2a(config, isHit, token, targets);
+      else if (config.groundFireMode === "bolt") await fireGroundPhaserBolt(config, isHit, token, targets);
+      else await fireGroundBeam(config, isHit, token, targets);
       break;
     case "melee-blade":
     case "melee-dagger":

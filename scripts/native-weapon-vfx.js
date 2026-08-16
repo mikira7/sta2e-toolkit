@@ -41,6 +41,9 @@ export const NATIVE_VFX_KEY_BY_FAMILY = Object.freeze({
   array: "weapon-phaser-array",
   lance: "weapon-energy-lance",
   cannon: "weapon-energy-cannon",
+  // Person-scale, not ship-scale. Shares the bank's draw but has its own
+  // appearance group and adds the area cone the ship families have no use for.
+  "ground-phaser": "weapon-ground-phaser",
 });
 
 export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
@@ -48,7 +51,61 @@ export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
   "weapon-phaser-array": "current",
   "weapon-energy-lance": "current",
   "weapon-energy-cannon": "current",
+  "weapon-ground-phaser": "current",
 });
+
+/**
+ * Which animation modes each weapon key accepts, and how they read in the UI.
+ * The normalizer, the settings form and the save handler all validate against
+ * this one map, so the three cannot drift into disagreeing about what is legal.
+ *
+ * Only cannons offer "bolt": it flies a sprite from emitter to target, which
+ * suits a discrete shot and nothing else here. Note "bolt" is NOT a native PIXI
+ * mode — `shouldUseNativeWeaponVFX` stays false for it, so `fireWeapon` falls
+ * through to its own Sequencer dispatch. See the cannon branch there.
+ */
+const WEAPON_ANIMATION_MODE_LABELS = Object.freeze({
+  current: "Current Sequencer/JB2A",
+  experimental: "Experimental Native Foundry",
+  bolt: "Travelling Bolt Sprite",
+});
+
+const DEFAULT_WEAPON_ANIMATION_MODES = Object.freeze(["current", "experimental"]);
+
+export const WEAPON_ANIMATION_MODE_OPTIONS = Object.freeze({
+  "weapon-phaser-bank": DEFAULT_WEAPON_ANIMATION_MODES,
+  "weapon-phaser-array": DEFAULT_WEAPON_ANIMATION_MODES,
+  "weapon-energy-lance": DEFAULT_WEAPON_ANIMATION_MODES,
+  "weapon-energy-cannon": Object.freeze(["current", "experimental", "bolt"]),
+  "weapon-ground-phaser": DEFAULT_WEAPON_ANIMATION_MODES,
+});
+
+/** The modes a weapon key accepts, for rendering and for validating a save. */
+export function weaponAnimationModeOptions(weaponKey) {
+  const values = WEAPON_ANIMATION_MODE_OPTIONS[weaponKey] ?? DEFAULT_WEAPON_ANIMATION_MODES;
+  return values.map(value => ({ value, label: WEAPON_ANIMATION_MODE_LABELS[value] ?? value }));
+}
+
+/** True when `mode` is one this weapon key is allowed to be set to. */
+export function isWeaponAnimationMode(weaponKey, mode) {
+  return (WEAPON_ANIMATION_MODE_OPTIONS[weaponKey] ?? DEFAULT_WEAPON_ANIMATION_MODES).includes(mode);
+}
+
+// The eras and hand-phaser types ground phasers are configured against. Spelled
+// here because settings.js and effect-config.js both need them and neither may
+// import the other — settings.js already owns effect-config.js.
+export const GROUND_PHASER_ERA_ROWS = Object.freeze([
+  { key: "Ent", era: "ent", label: "ENT" },
+  { key: "Tos", era: "tos", label: "TOS" },
+  { key: "Tmp", era: "tmp", label: "TMP" },
+  { key: "Tng", era: "tng", label: "TNG/DS9/VOY" },
+]);
+
+export const GROUND_PHASER_TYPE_ROWS = Object.freeze([
+  { key: "Type1", type: "type1", label: "Phaser Type-1" },
+  { key: "Type2", type: "type2", label: "Phaser Type-2" },
+  { key: "Type3", type: "type3", label: "Phaser Type-3 / Rifle" },
+]);
 
 const NATIVE_ENERGY_TYPES_HINT = "Covers phaser, phase-pulse, disruptor, polaron, antiproton, "
   + "tetryon, graviton, proton, free electron laser and ionic weapons.";
@@ -61,7 +118,14 @@ export const NATIVE_WEAPON_VFX_MODE_ROWS = Object.freeze([
   { key: "weapon-energy-lance", label: "Spinal Lances",
     hint: `Experimental: heavy strike drawn like the array beam, fired from an emitter with no spine charge-up. ${NATIVE_ENERGY_TYPES_HINT}` },
   { key: "weapon-energy-cannon", label: "Energy Cannons",
-    hint: `Experimental: discrete bolts that travel to the target, one per shot. ${NATIVE_ENERGY_TYPES_HINT}` },
+    hint: "Experimental: discrete bolts that travel to the target, one per shot, drawn on the "
+      + "Foundry canvas. Travelling Bolt Sprite: flies the module's own bolt .webm from the "
+      + "emitter instead, picking the file that matches the weapon's energy type and falling "
+      + `back to the phaser bolt. Needs Sequencer. ${NATIVE_ENERGY_TYPES_HINT}` },
+  { key: "weapon-ground-phaser", label: "Ground Phasers",
+    hint: "Experimental: hand phasers draw the starship beam at person scale, tinted per era, "
+      + "and an Area attack opens one wide cone across every target it caught instead of a "
+      + "separate beam each. Leave on Current to keep the JB2A ground beam." },
 ]);
 
 const SUPPORTED_NATIVE_WEAPONS = new Set(Object.keys(NATIVE_WEAPON_VFX_DEFAULT_MODES));
@@ -87,19 +151,21 @@ export const BEAM_VFX_TRACER_ERA_OPTIONS = Object.freeze(["off", "ent", "tos", "
  *
  * ORDER MATTERS — each pattern is tried in turn and the first hit wins:
  *   "phasePulse" before "phaser"        ("Phase-Pulse Cannon")
- *   "phasedPolaron" before "polaron"    ("Phased Polaron Beam Array")
  *   "antiproton" before "proton"        (\bprotons?\b matches "anti-proton")
  * The \b anchors keep "proton" out of "Photon"/"Photonic", "tetryon" out of
  * "Tetryonic Torpedo" and "graviton" out of "Gravimetric Torpedo".
+ *
+ * The Dominion's "Phased Polaron Beam Array" is a polaron weapon, not a type of
+ * its own — \bpolarons?\b catches it. They shared a registry bucket and all but
+ * shared a colour, and polaron is the one the sta system ships icons for.
  */
 export const ENERGY_VFX_TYPES = Object.freeze([
   { id: "phasePulse",        label: "Phase-Pulse",          pattern: /\bphase[-\s]?pulse\b/,        color: "#ffc14d", core: "#fff6d8" },
-  { id: "phasedPolaron",     label: "Phased Polaron",       pattern: /\bphased[-\s]?polarons?\b/,   color: "#c77dff", core: "#f3e4ff" },
   { id: "antiproton",        label: "Antiproton",           pattern: /\banti[-\s]?protons?\b/,      color: "#b06bff", core: "#eddcff" },
   { id: "freeElectronLaser", label: "Free Electron Laser",  pattern: /\blasers?\b/,                 color: "#b6ff6b", core: "#f0ffd8" },
   { id: "electromagnetic",   label: "Electromagnetic / Ionic", pattern: /\b(electro[-\s]?magnetic|ionic|ion)\b/, color: "#4dd2ff", core: "#dff6ff" },
   { id: "disruptor",         label: "Disruptor",            pattern: /\bdisruptors?\b/,             color: "#66ff99", core: "#ddffe8" },
-  { id: "polaron",           label: "Polaron",              pattern: /\bpolarons?\b/,               color: "#aa66ff", core: "#ecd9ff" },
+  { id: "polaron",           label: "Polaron / Phased Polaron", pattern: /\bpolarons?\b/,           color: "#aa66ff", core: "#ecd9ff" },
   { id: "tetryon",           label: "Tetryon",              pattern: /\btetryons?\b/,               color: "#7fe3ff", core: "#e6faff" },
   { id: "graviton",          label: "Graviton",             pattern: /\bgravitons?\b/,              color: "#8a9bff", core: "#dfe4ff" },
   { id: "proton",            label: "Proton",               pattern: /\bprotons?\b/,                color: "#ffe066", core: "#fffbe0" },
@@ -221,6 +287,107 @@ export const DEFAULT_BEAM_VFX_SETTINGS = Object.freeze({
     burstGap: 95,
     targetGap: 520,
   }),
+  // Hand phasers. The beam fields are named exactly like the bank's because the
+  // single-target shot is drawn by the bank's own `_beamShot` — this group is
+  // just the person-scale sizing for it. The cone fields below have no ship
+  // equivalent: nothing on a starship fires a spread across several targets at
+  // once, so the wedge is ground-only.
+  groundPhaser: Object.freeze({
+    glowWidth: 4,
+    glowAlpha: 0.3,
+    coreWidth: 1.6,
+    coreAlpha: 0.95,
+    // Bigger than the ship groups': a bank fires along a beam hundreds of
+    // pixels long, where a 2px muzzle dot is proportionate. A hand phaser's
+    // whole effect spans a few squares, so the flashes carry it.
+    muzzleFillRadius: 5,
+    muzzleFillAlpha: 0.9,
+    muzzleRingRadius: 8,
+    muzzleRingWidth: 1.5,
+    muzzleRingAlpha: 0.5,
+    impactFillRadius: 8,
+    impactFillAlpha: 0.85,
+    impactRingRadius: 13,
+    impactRingWidth: 2,
+    impactRingAlpha: 0.7,
+    // The muzzle and impact flashes carry their own GlowFilter rather than the
+    // beam's. They are small bright discs where the halo is most of what you
+    // see, so they want a wider, hotter pass than a long thin line does — the
+    // shared beam glow all but vanishes on a disc a few pixels across. Size 0
+    // falls back to the shared beam glow.
+    flashGlowSize: 16,
+    flashGlowStrength: 2.8,
+    flashGlowInnerStrength: 0.6,
+    // Long enough for the shot to read as an event. The JB2A ground beam runs
+    // its ~3.8s FireballBeam before the impact lands, so a native beam that
+    // flashes and vanishes in a third of a second feels like a misfire next to
+    // it — and gives the injury outcome that follows no beat to land on.
+    hitDuration: 1100,
+    missDuration: 800,
+    // How long after the beam appears the impact lands: the flare, the JB2A
+    // impact asset, and the pause before the target's fate resolves. The beam
+    // is a held beam, not a travelling bolt, so this is dwell rather than
+    // flight time — it wants to be short next to the beam's own lifetime.
+    impactDelay: 300,
+    // Multiplied into beam width, flare radii, duration and cone angle. A
+    // Type-1 is a thin short chirp; a Type-3 rifle is a heavy wide bolt.
+    type1Scale: 0.7,
+    type2Scale: 1,
+    type3Scale: 1.45,
+    // Cone half-angles in degrees. The wedge opens to whatever the targets
+    // actually subtend, then gets clamped into this band so a single target
+    // still reads as a spread and a wide spill does not wrap all the way round.
+    coneMinAngle: 14,
+    coneMaxAngle: 52,
+    coneAlpha: 0.34,
+    // Straight rays fanning out from the shooter inside the wedge, each
+    // breathing on its own phase. They are what gives the cone life now that it
+    // is one flat shape — a second brighter wedge inside the first just read as
+    // two cones. Speed is flickers per second; count 0 draws the wedge alone.
+    coneRayCount: 6,
+    coneRayWidth: 2.4,
+    coneRayAlpha: 0.85,
+    coneRaySpeed: 2.2,
+    coneRayFeather: 0.7,
+    // How long the wedge takes to sweep open before it holds and fades.
+    coneOpenDuration: 280,
+    coneHitDuration: 1100,
+    // Reach past the furthest target so the wedge does not stop on their feet.
+    coneRadiusPad: 1.08,
+  }),
+  // Travelling bolt sprite. Not a PIXI effect at all — these dials describe a
+  // Sequencer flight of the module's own .webm, and they live here only so the
+  // Beam VFX tab stays the one place weapon animation is tuned.
+  //
+  // Ship and ground are separate because the shot is: a cannon bolt crosses
+  // zones between capital ships, a rifle bolt crosses a room.
+  bolt: Object.freeze({
+    // Grid squares per second. A speed rather than a duration, so the bolt
+    // moves at the same visible rate whatever the range — a fixed duration
+    // makes a shot across the map travel several times faster than one at an
+    // adjacent target, and can only ever look right at one range.
+    speed: 20,
+    gridFraction: 0.66,
+    groundSpeed: 16,
+    groundGridFraction: 0.4,
+    // Floor and ceiling on the derived duration. The floor keeps a point-blank
+    // shot from resolving in a single frame; the ceiling keeps a map-crossing
+    // one from stalling the attack-animation queue behind it.
+    minTravelMs: 90,
+    maxTravelMs: 1200,
+    // Extra beat held after the bolt lands, before the sequence moves on to the
+    // next shot. Keeps a burst from treading on its own impacts.
+    impactPadMs: 60,
+    // Constant correction for art that is not drawn pointing right. Sequencer
+    // already turns the bolt onto its heading; this only fixes up the sprite's
+    // own resting orientation.
+    //
+    // 90 because the bundled bolts are drawn pointing UP inside their square
+    // frame. Screen +Y is down, so "up" is a native -90deg; adding 90 puts the
+    // nose back on the heading. A bolt drawn pointing down wants -90, one drawn
+    // pointing right wants 0.
+    spriteAngleOffset: 90,
+  }),
   shared: Object.freeze({
     holdPercent: 0.55,
     easing: "inQuad",
@@ -306,11 +473,38 @@ function _groupRanges(group, ranges) {
 
 // path → [min, max] clamp for every numeric beam field. Anything not listed is
 // a string/enum and is validated separately.
+// Hand phasers borrow the bank's beam clamps and add the cone's own dials.
+const GROUND_PHASER_RANGES = Object.freeze({
+  glowWidth: [0, 60], glowAlpha: [0, 1],
+  coreWidth: [0, 60], coreAlpha: [0, 1],
+  muzzleFillRadius: [0, 60], muzzleFillAlpha: [0, 1],
+  muzzleRingRadius: [0, 60], muzzleRingWidth: [0, 60], muzzleRingAlpha: [0, 1],
+  impactFillRadius: [0, 60], impactFillAlpha: [0, 1],
+  impactRingRadius: [0, 60], impactRingWidth: [0, 60], impactRingAlpha: [0, 1],
+  hitDuration: [60, 6000], missDuration: [60, 6000],
+  impactDelay: [0, 4000],
+  flashGlowSize: [0, 60], flashGlowStrength: [0, 8], flashGlowInnerStrength: [0, 4],
+  type1Scale: [0.1, 4], type2Scale: [0.1, 4], type3Scale: [0.1, 4],
+  // 80° half-angle is already a 160° fan; past that a "cone" stops reading.
+  coneMinAngle: [2, 80], coneMaxAngle: [2, 80],
+  coneAlpha: [0, 1],
+  coneRayCount: [0, 24], coneRayWidth: [0, 20], coneRayAlpha: [0, 1],
+  coneRaySpeed: [0, 12], coneRayFeather: [0, 2],
+  coneOpenDuration: [40, 2000], coneHitDuration: [60, 6000],
+  coneRadiusPad: [1, 2],
+});
+
 const BEAM_VFX_RANGES = Object.freeze({
   ..._groupRanges("bank", BOLT_FAMILY_RANGES),
   ..._groupRanges("cannon", CANNON_RANGES),
   ..._groupRanges("array", BEAM_FAMILY_RANGES),
   ..._groupRanges("lance", BEAM_FAMILY_RANGES),
+  ..._groupRanges("groundPhaser", GROUND_PHASER_RANGES),
+
+  "bolt.speed": [1, 100], "bolt.gridFraction": [0.1, 4],
+  "bolt.groundSpeed": [1, 100], "bolt.groundGridFraction": [0.1, 4],
+  "bolt.minTravelMs": [16, 2000], "bolt.maxTravelMs": [60, 6000],
+  "bolt.impactPadMs": [0, 2000], "bolt.spriteAngleOffset": [-180, 180],
 
   "shared.holdPercent": [0.05, 0.95],
   "shared.cleanupDelay": [0, 2000],
@@ -385,10 +579,17 @@ export function getBeamVfxSettings() {
   catch { return normalizeBeamVfxSettings({}); }
 }
 
+/**
+ * Merge a stored modes object over the defaults, keeping only values the key is
+ * allowed to hold. Anything unrecognised falls back to "current" rather than
+ * being preserved, so a typo or a mode retired in a later version cannot leave a
+ * weapon animating as nothing at all.
+ */
 export function normalizeWeaponAnimationModes(modes = {}) {
   const normalized = { ...NATIVE_WEAPON_VFX_DEFAULT_MODES };
   for (const key of Object.keys(normalized)) {
-    normalized[key] = modes?.[key] === "experimental" ? "experimental" : "current";
+    const stored = modes?.[key];
+    normalized[key] = isWeaponAnimationMode(key, stored) ? stored : "current";
   }
   return normalized;
 }
@@ -441,6 +642,15 @@ export async function fireNativeWeaponVFX(config, isHit, sourceToken, targets, o
 
     if (family === "array" || family === "lance") {
       await _fireEnergyBeams(isHit, sourceToken, targetList, opts);
+      return true;
+    }
+
+    // Hand phasers. Imported lazily because ground-phaser-vfx.js imports the
+    // beam draw back out of this module, and a static cycle would leave one
+    // side reading the other's exports before they are initialised.
+    if (family === "ground-phaser") {
+      const mod = await import("./ground-phaser-vfx.js");
+      await mod.fireGroundPhaserVFX(config, isHit, sourceToken, targetList, opts);
       return true;
     }
 
@@ -584,11 +794,7 @@ export function playNativeTracerBetweenPoints(sourcePoint, targetPoint, options 
   if (!globalThis.PIXI || !canvas?.ready || !sourcePoint || !targetPoint) return false;
   const beam = normalizeBeamVfxSettings(options.beamSettings ?? getBeamVfxSettings());
   const color = _parseHexColor(options.color, PHASER_PRIMARY);
-  const r = (color >> 16) & 0xff;
-  const g = (color >> 8) & 0xff;
-  const b = color & 0xff;
-  const brighten = channel => Math.round(channel + ((255 - channel) * 0.72));
-  const derivedCore = (brighten(r) << 16) | (brighten(g) << 8) | brighten(b);
+  const derivedCore = _brightenColor(color);
   _tracerVolley(sourcePoint, targetPoint, {
     hit: options.hit !== false,
     color,
@@ -597,6 +803,39 @@ export function playNativeTracerBetweenPoints(sourcePoint, targetPoint, options 
     beam,
   });
   return true;
+}
+
+/**
+ * Draw the module's native held beam between two absolute canvas points, using
+ * the same `_beamShot` the starship banks fire. Ground phasers go through here
+ * so the hand weapon genuinely *is* the ship beam at person scale rather than a
+ * lookalike that has to be kept in sync by hand.
+ *
+ * `shape` swaps the sizing group — pass the groundPhaser group to get a hand
+ * phaser, omit it to get a bank.
+ */
+export function playNativeBeamBetweenPoints(sourcePoint, targetPoint, options = {}) {
+  if (!globalThis.PIXI || !canvas?.ready || !sourcePoint || !targetPoint) return false;
+  const beam = normalizeBeamVfxSettings(options.beamSettings ?? getBeamVfxSettings());
+  const color = _parseHexColor(options.color, PHASER_PRIMARY);
+  _beamShot(sourcePoint, targetPoint, {
+    hit: options.hit !== false,
+    color,
+    coreColor: _parseHexColor(options.coreColor, _brightenColor(color)),
+    layer: options.layer ?? sourcePoint.layer ?? "above",
+    duration: options.duration,
+    shape: options.shape ?? null,
+    beam,
+  });
+  return true;
+}
+
+/** Lift a colour toward white for a core line that reads hotter than its halo. */
+function _brightenColor(color, amount = 0.72) {
+  const lift = channel => Math.round(channel + ((255 - channel) * amount));
+  return (lift((color >> 16) & 0xff) << 16)
+    | (lift((color >> 8) & 0xff) << 8)
+    | lift(color & 0xff);
 }
 
 function _normalizeTargets(targets) {
@@ -1664,4 +1903,40 @@ function _playSound(soundPath, volume = 1) {
 
 function _delay(ms) {
   return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+// ── Shared primitives ───────────────────────────────────────────────────────
+// The scaffolding every native effect in the module needs: the z-ordered
+// container, the glow pass with its blend-mode workaround, the fade that also
+// destroys the filter, and the broadcasting sound. Exported so a sibling effect
+// file inherits the conventions instead of re-deriving them — the ground phaser
+// cone is the first caller.
+
+/** A container on the VFX layer, z-sorted by scene Y like every other effect. */
+export function nativeVfxContainer(y = 0, sourceLayer = "above") {
+  const layer = _effectLayer();
+  if (!layer) return null;
+  const container = _sceneContainer(y, sourceLayer);
+  layer.addChild(container);
+  return container;
+}
+
+/** One GlowFilter for a whole container. See _applyBeamGlow for the caveats. */
+export function applyNativeVfxGlow(container, color, shared = null) {
+  _applyBeamGlow(container, color, shared);
+}
+
+/** Fade a container out, then destroy it AND its filters. */
+export function fadeNativeVfxContainer(container, duration, cleanupDelay, fade = null) {
+  _fadeContainer(container, duration, cleanupDelay, fade);
+}
+
+/** PIXI v7 numeric / v8 string blend mode for the configured mode name. */
+export function nativeVfxBlendMode(mode) {
+  return _blendMode(mode);
+}
+
+/** Play a sound on every client — AudioHelper does the broadcast itself. */
+export function playNativeVfxSound(soundPath, volume = 1) {
+  _playSound(soundPath, volume);
 }

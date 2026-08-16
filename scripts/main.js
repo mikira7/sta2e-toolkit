@@ -16,7 +16,7 @@ import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
 import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
-import { buildWeaponContext, refreshTorpedoSpriteCache } from "./weapon-configs.js";
+import { buildWeaponContext, refreshToolkitSpriteCache } from "./weapon-configs.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
@@ -47,6 +47,9 @@ import { registerShipCommandHud } from "./ship-command-hud.js";
 import { registerTokenWeaponHud } from "./token-weapon-hud.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
 import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
+import { GROUND_PHASER_VFX_ACTION, playGroundPhaserVfxFromSocket } from "./ground-phaser-vfx.js";
+import { BOLT_TRAVEL_VFX_ACTION, playBoltTravelLocal } from "./bolt-travel-vfx.js";
+import { registerGroundWeaponItemSheetFields } from "./ground-weapon-item-sheet.js";
 import {
   playShieldBubbleLocal,
   registerShieldBubbleVfxHooks,
@@ -306,6 +309,7 @@ Hooks.once("init", () => {
   registerTokenWeaponHud();
   registerHullDecals();
   registerTraitItemSheetFields();
+  registerGroundWeaponItemSheetFields();
   registerInitiativeTrackerUI();
   registerShipTurnMarker();
   registerStarSystemActorSheet();
@@ -662,7 +666,7 @@ Hooks.once("ready", async () => {
 
   // Scan for bundled per-type torpedo sprites ("<Type>-Torpedo.webm") so each
   // torpedo type uses its own animation when present, else the photon sprite.
-  refreshTorpedoSpriteCache();
+  refreshToolkitSpriteCache();
 
   const campaignStore   = new CampaignStore();
   const hud             = new StardateHUD();
@@ -1141,6 +1145,16 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // Ground phaser beams and Area cones are native PIXI, so unlike the JB2A
+    // path they do not route themselves to every client — the firing client
+    // draws locally and broadcasts the geometry here. Visuals only: the sound
+    // was played through AudioHelper, which broadcasts itself, so replaying it
+    // here would double it. See ground-phaser-vfx.js.
+    if (msg.action === GROUND_PHASER_VFX_ACTION) {
+      playGroundPhaserVfxFromSocket(msg);
+      return;
+    }
+
     // Torpedo flight paths are replayed per-client instead of being pushed by
     // Sequencer. Sequencer fast-forwards custom property animations by the
     // wall-clock delta between the firing client and this one, which teleports
@@ -1150,6 +1164,16 @@ Hooks.once("ready", async () => {
     if (msg.action === "torpedoTravelVfx") {
       if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
         playTorpedoTravelLocal(msg.plan);
+      }
+      return;
+    }
+
+    // Energy bolts are replayed per-client for the same reason torpedoes are —
+    // see bolt-travel-vfx.js. The firing client resolved the flight to plain
+    // numbers; each client builds its own sequence from them.
+    if (msg.action === BOLT_TRAVEL_VFX_ACTION) {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+        playBoltTravelLocal(msg.plan);
       }
       return;
     }

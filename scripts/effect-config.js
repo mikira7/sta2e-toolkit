@@ -10,7 +10,11 @@ import {
   DEFAULT_BEAM_VFX_SETTINGS,
   DEFAULT_ENERGY_VFX_TYPE,
   ENERGY_VFX_TYPES,
+  GROUND_PHASER_ERA_ROWS,
+  GROUND_PHASER_TYPE_ROWS,
   NATIVE_WEAPON_VFX_MODE_ROWS,
+  isWeaponAnimationMode,
+  weaponAnimationModeOptions,
   getBeamVfxSettings,
   normalizeBeamVfxSettings,
   normalizeWeaponAnimationModes,
@@ -100,13 +104,65 @@ function buildPhaserEraSoundRows() {
   }));
 }
 
+/**
+ * The ground twin of buildPhaserEraSoundRows: every era, and within each era a
+ * shared slot plus one per hand phaser type. Both rungs are optional — a blank
+ * type slot falls back to the era slot, which falls back to the base ground
+ * phaser sound.
+ */
+function buildGroundPhaserEraSoundRows() {
+  const results = ["Hit", "Miss"];
+  return GROUND_PHASER_ERA_ROWS.flatMap(era => [
+    ...results.map(result => ({
+      label: `Phaser (any type) - ${era.label}`,
+      slot: result,
+      sndKey: `sndGroundPhaser${era.key}${result}`,
+      animKey: null,
+      defaultHint: "Blank uses the base ground phaser sound above.",
+    })),
+    ...GROUND_PHASER_TYPE_ROWS.flatMap(type => results.map(result => ({
+      label: `${type.label} - ${era.label}`,
+      slot: result,
+      sndKey: `sndGroundPhaser${type.key}${era.key}${result}`,
+      animKey: null,
+      defaultHint: `Blank uses the ${era.label} era sound, then the base ground phaser sound.`,
+    }))),
+  ]);
+}
+
+// The ground phaser mode toggle belongs on the Ground Weapons tab, not with the
+// ship families it happens to be registered alongside.
+const GROUND_NATIVE_MODE_KEYS = new Set(["weapon-ground-phaser"]);
+
+const SHIP_NATIVE_MODE_HINTS = Object.freeze([
+  "Choose which ship weapon families use the Foundry canvas renderer instead of the current "
+    + "Sequencer/JB2A animation. Each row covers every energy type; shape is tuned per family under "
+    + "Beam VFX, colour per type. If native VFX cannot run, the current animation is used automatically.",
+  "A weapon's family and energy type are read from its <em>name</em> first (its icon second), so "
+    + "\"Antiproton Beam Array\" animates as an array whatever icon it carries. Note that the damage rule "
+    + "still reads the icon alone — for Scale +3 on a spinal lance, +2 on a cannon or +1 on a bank, give "
+    + "the item the matching system icon as well.",
+]);
+
+const GROUND_NATIVE_MODE_HINTS = Object.freeze([
+  "Draw hand phasers with the Foundry canvas renderer instead of the current Sequencer/JB2A ground "
+    + "beam. Nothing is replaced until you switch this over, and switching back restores today's "
+    + "animation exactly. If native VFX cannot run, the current animation is used automatically.",
+  "Era colour and sound apply either way — they are chosen per weapon, not per renderer, so a TOS "
+    + "phaser sounds and looks TOS on the JB2A path too. What the native renderer adds is the Area "
+    + "cone: one wedge across every target the shot caught, instead of a separate beam at each. "
+    + "Sizing lives under Beam VFX → Ground Phasers; the phaser type is read from the item's "
+    + "<em>name</em> (Type-1 / Type-2 / Type-3 or Rifle), and its era from that item's sheet.",
+]);
+
 function buildTabDefs() {
   return [
     {
       id:    "shipWeapons",
       label: "Ship Weapons",
       customKey: "shipWeapons",
-      nativeModeRows: NATIVE_WEAPON_VFX_MODE_ROWS,
+      nativeModeRows: NATIVE_WEAPON_VFX_MODE_ROWS.filter(row => !GROUND_NATIVE_MODE_KEYS.has(row.key)),
+      nativeModeHints: SHIP_NATIVE_MODE_HINTS,
       rows: [
         // ── Phaser / Phase-Pulse ───────────────────────────────────────────
         { label: "Phaser / Phase-Pulse", slot: "Beam (Hit)",    sndKey: "sndShipPhaserHit",   animKey: "shipWeapons.phaser.animHit",
@@ -199,6 +255,8 @@ function buildTabDefs() {
       id:    "groundWeapons",
       label: "Ground Weapons",
       customKey: "groundWeapons",
+      nativeModeRows: NATIVE_WEAPON_VFX_MODE_ROWS.filter(row => GROUND_NATIVE_MODE_KEYS.has(row.key)),
+      nativeModeHints: GROUND_NATIVE_MODE_HINTS,
       rows: [
         // ── Phaser ─────────────────────────────────────────────────────────
         { label: "Phaser",               slot: "Beam (Hit)",   sndKey: "sndGroundPhaserHit",    animKey: "groundWeapons.phaser.animHit",
@@ -207,6 +265,7 @@ function buildTabDefs() {
           defaultHint: jb2aHint("jb2a.impact.011.blue", _IMP) },
         { label: "Phaser",               slot: "Beam (Miss)",  sndKey: "sndGroundPhaserMiss",   animKey: "groundWeapons.phaser.animMiss",
           defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Orange_90ft_4000x400.webm`, `${_FREE}/3rd_Level/Fireball/FireballBeam_01_Orange_30ft_1600x400.webm`) },
+        ...buildGroundPhaserEraSoundRows(),
         // ── Disruptor ──────────────────────────────────────────────────────
         { label: "Disruptor",            slot: "Beam (Hit)",   sndKey: "sndGroundDisruptorHit",  animKey: "groundWeapons.disruptor.animHit",
           defaultHint: jb2aHint(`${_PAT}/Weapon_Attacks/Ranged/Snipe_01_Regular_Green_90ft_4000x400.webm`, `${_WA}/LaserShot_01_Regular_Green_30ft_1600x400.webm`) },
@@ -436,6 +495,67 @@ const CANNON_FIELDS = Object.freeze([
   { key: "targetGap",        label: "Gap between targets",kind: "range", min: 0,  max: 2000, step: 20, unit: "ms" },
 ]);
 
+// Hand phasers: the bank's beam at person scale, plus the cone dials that only
+// the ground Area attack uses.
+const GROUND_PHASER_FIELDS = Object.freeze([
+  { key: "coreWidth",        label: "Core width",         kind: "range", min: 0,  max: 30,   step: 0.5  },
+  { key: "coreAlpha",        label: "Core opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "glowWidth",        label: "Glow width",         kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "glowAlpha",        label: "Glow opacity",       kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "muzzleFillRadius", label: "Muzzle flare radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "muzzleFillAlpha",  label: "Muzzle flare opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "muzzleRingRadius", label: "Muzzle ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "muzzleRingWidth",  label: "Muzzle ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "muzzleRingAlpha",  label: "Muzzle ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "impactFillRadius", label: "Impact flash radius",kind: "range", min: 0,  max: 40,   step: 1    },
+  { key: "impactFillAlpha",  label: "Impact flash opacity", kind: "range", min: 0, max: 1,   step: 0.02 },
+  { key: "impactRingRadius", label: "Impact ring radius", kind: "range", min: 0,  max: 60,   step: 1    },
+  { key: "impactRingWidth",  label: "Impact ring width",  kind: "range", min: 0,  max: 12,   step: 0.5  },
+  { key: "impactRingAlpha",  label: "Impact ring opacity",kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "flashGlowSize",    label: "Flash glow size",    kind: "range", min: 0,  max: 60,   step: 1,
+    hint: "Dedicated glow around the muzzle and impact flashes, separate from the beam's. They are "
+      + "small bright discs where the halo is most of the effect, so they want a wider pass than the "
+      + "line does. 0 falls back to the shared beam glow." },
+  { key: "flashGlowStrength",label: "Flash glow strength",kind: "range", min: 0,  max: 8,    step: 0.1  },
+  { key: "flashGlowInnerStrength", label: "Flash glow inner", kind: "range", min: 0, max: 4, step: 0.1,
+    hint: "Brightness inside the disc itself, on top of the outer halo." },
+  { key: "hitDuration",      label: "Beam lifetime (hit)",  kind: "range", min: 60, max: 6000, step: 20, unit: "ms",
+    hint: "How long the beam stays up. The JB2A ground beam runs ~3.8s before its impact, so a short "
+      + "lifetime here will feel abrupt next to it — and leaves the injury outcome no beat to land on." },
+  { key: "missDuration",     label: "Beam lifetime (miss)", kind: "range", min: 60, max: 6000, step: 20, unit: "ms" },
+  { key: "impactDelay",      label: "Impact delay",       kind: "range", min: 0,  max: 4000, step: 20, unit: "ms",
+    hint: "How long after the beam appears the impact lands — the flash, the weapon's JB2A impact "
+      + "asset, and the pause before the target's fate resolves. Keep it well under the beam lifetime." },
+  { key: "type1Scale",       label: "Type-1 scale",       kind: "range", min: 0.1, max: 4,   step: 0.05,
+    hint: "Multiplies beam width, flare radii and cone angle. Below 1 for the small palm unit." },
+  { key: "type2Scale",       label: "Type-2 scale",       kind: "range", min: 0.1, max: 4,   step: 0.05,
+    hint: "The standard sidearm — the baseline every other type is sized against." },
+  { key: "type3Scale",       label: "Type-3 / Rifle scale", kind: "range", min: 0.1, max: 4, step: 0.05,
+    hint: "Above 1 for the rifle: a wider beam, bigger flares and a broader cone." },
+  { key: "coneMinAngle",     label: "Cone half-angle (min)", kind: "range", min: 2, max: 80, step: 1, unit: "°",
+    hint: "The cone opens to whatever the targets actually subtend, then gets clamped into this "
+      + "band — so a shot that caught one person still reads as a spread." },
+  { key: "coneMaxAngle",     label: "Cone half-angle (max)", kind: "range", min: 2, max: 80, step: 1, unit: "°",
+    hint: "Keeps a wide spill from wrapping round into a disc. Half-angle, so 52 is a 104° fan." },
+  { key: "coneAlpha",        label: "Cone opacity",       kind: "range", min: 0,  max: 1,    step: 0.02,
+    hint: "The whole wedge — it wants to stay faint, so the rays inside it are what the eye lands on." },
+  { key: "coneRayCount",     label: "Cone rays",          kind: "range", min: 0,  max: 24,   step: 1,
+    hint: "Straight rays fanning out from the shooter inside the cone. 0 draws the wedge alone." },
+  { key: "coneRayWidth",     label: "Cone ray width",     kind: "range", min: 0,  max: 20,   step: 0.2  },
+  { key: "coneRayAlpha",     label: "Cone ray opacity",   kind: "range", min: 0,  max: 1,    step: 0.02 },
+  { key: "coneRaySpeed",     label: "Cone ray flicker",   kind: "range", min: 0,  max: 12,   step: 0.1,
+    hint: "Flickers per second. Each ray runs on its own phase, so the fan shimmers rather than "
+      + "blinking in unison." },
+  { key: "coneRayFeather",   label: "Cone ray softness",  kind: "range", min: 0,  max: 2,    step: 0.05,
+    hint: "Stacks a wide dim pass and a mid pass under each ray so it falls off like light instead "
+      + "of a drawn line. 0 gives hard single-stroke rays." },
+  { key: "coneOpenDuration", label: "Cone sweep time",    kind: "range", min: 40, max: 2000, step: 10, unit: "ms",
+    hint: "How long the wedge takes to open before it holds and fades." },
+  { key: "coneHitDuration",  label: "Cone lifetime",      kind: "range", min: 60, max: 6000, step: 20, unit: "ms" },
+  { key: "coneRadiusPad",    label: "Cone overshoot",     kind: "range", min: 1,  max: 2,    step: 0.02,
+    hint: "How far past the furthest target the wedge reaches, so it does not stop at their feet." },
+]);
+
 // Two swatches per energy type, in the order the types are matched.
 const ENERGY_COLOR_FIELDS = Object.freeze(ENERGY_VFX_TYPES.flatMap(({ id, label }) => [
   { key: `${id}Color`, label: `${label} — primary`, kind: "color" },
@@ -471,6 +591,48 @@ const BEAM_VFX_FIELD_GROUPS = Object.freeze([
       + "reads as a stream of droplets. The bolt's lifetime comes from its travel time, so there is "
       + "no separate hit/miss duration.",
     fields: CANNON_FIELDS,
+  },
+  {
+    group: "groundPhaser",
+    label: "Ground Phasers",
+    hint: "Hand phasers, drawn with the Energy Bank beam at person scale. Colour comes from the "
+      + "Phaser Era Colours below, not from Energy Weapon Colours — a hand phaser and a ship "
+      + "phaser of the same era match. The cone dials apply only to an Area attack, which draws "
+      + "one wedge across every target it caught instead of a beam each.",
+    fields: GROUND_PHASER_FIELDS,
+  },
+  {
+    group: "bolt",
+    label: "Travelling Bolt Sprite",
+    hint: "The module's own bolt .webm, flown from emitter to target. Used by energy cannons set "
+      + "to Travelling Bolt Sprite above, and by a Type-3 phaser whose item Fire Mode is "
+      + "Bolt — toolkit sprite. Not a canvas effect — it needs Sequencer. The file is picked from "
+      + "the weapon's energy type (Phaser-Bolt.webm, Disruptor-Bolt.webm, …), falling back to the "
+      + "phaser bolt. These dials do NOT apply to the Bolt — JB2A fire mode, which stretches a "
+      + "JB2A strip rather than flying a sprite.",
+    fields: [
+      { key: "speed",        label: "Ship bolt speed",    kind: "range", min: 1, max: 100, step: 1, unit: "sq/s",
+        hint: "Grid squares per second. A speed, not a duration — the bolt moves at the same visible "
+          + "rate at every range, and a long shot simply takes longer to arrive. Higher is faster." },
+      { key: "gridFraction", label: "Ship bolt size",     kind: "range", min: 0.1, max: 4, step: 0.05,
+        hint: "On-canvas size as a fraction of one grid square." },
+      { key: "groundSpeed",  label: "Ground bolt speed",  kind: "range", min: 1, max: 100, step: 1, unit: "sq/s",
+        hint: "Type-3 phaser bolts, in grid squares per second." },
+      { key: "groundGridFraction", label: "Ground bolt size",   kind: "range", min: 0.1, max: 4, step: 0.05 },
+      { key: "minTravelMs",  label: "Minimum flight time", kind: "range", min: 16, max: 2000, step: 10, unit: "ms",
+        hint: "Floor on the derived duration, so a shot at an adjacent target still reads as a bolt "
+          + "rather than resolving in a single frame." },
+      { key: "maxTravelMs",  label: "Maximum flight time", kind: "range", min: 60, max: 6000, step: 20, unit: "ms",
+        hint: "Ceiling on the derived duration, so a shot across the whole map does not hold up the "
+          + "rest of the attack animation behind it." },
+      { key: "impactPadMs",  label: "Post-impact pause",  kind: "range", min: 0, max: 2000, step: 10, unit: "ms",
+        hint: "Extra beat held after a bolt lands before the next shot of a burst leaves, so the "
+          + "impacts do not tread on each other." },
+      { key: "spriteAngleOffset", label: "Sprite angle offset", kind: "range", min: -180, max: 180, step: 5, unit: "°",
+        hint: "Corrects the sprite's own resting orientation — the bolt is already turned onto its "
+          + "heading, so this is not the shot angle. 90 for art drawn pointing up (the bundled "
+          + "bolts, and the default), -90 for art pointing down, 0 for art already pointing right." },
+    ],
   },
   {
     group: "shared",
@@ -697,13 +859,22 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
           : null,
         defaultHint: row.defaultHint ?? null,
       })),
+      nativeModeHints: tab.nativeModeHints ?? null,
       nativeModeRows: tab.nativeModeRows
-        ? tab.nativeModeRows.map(row => ({
-          ...row,
-          modeValue: weaponModes[row.key] ?? "current",
-          currentSelected: (weaponModes[row.key] ?? "current") !== "experimental",
-          experimentalSelected: weaponModes[row.key] === "experimental",
-        }))
+        ? tab.nativeModeRows.map(row => {
+          // Options come from the same map the normalizer and the save handler
+          // validate against, so the three cannot disagree about what is legal
+          // for a given weapon — only cannons offer the bolt sprite.
+          const modeValue = weaponModes[row.key] ?? "current";
+          return {
+            ...row,
+            modeValue,
+            options: weaponAnimationModeOptions(row.key).map(option => ({
+              ...option,
+              selected: option.value === modeValue,
+            })),
+          };
+        })
         : null,
       customRows: tab.customKey
         ? (custom[tab.customKey] ?? []).map((c, i) => ({ ...c, index: i }))
@@ -814,7 +985,10 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     for (const select of el.querySelectorAll("[data-weapon-mode-key]")) {
       const key = select.dataset.weaponModeKey;
       if (!key) continue;
-      weaponModes[key] = select.value === "experimental" ? "experimental" : "current";
+      // Validate against the shared map rather than re-testing for one literal:
+      // an inlined check here is what would silently drop a mode the select is
+      // legitimately offering.
+      weaponModes[key] = isWeaponAnimationMode(key, select.value) ? select.value : "current";
     }
     try { await game.settings.set(MODULE, "weaponAnimationModes", normalizeWeaponAnimationModes(weaponModes)); }
     catch(e) { console.warn("STA2e Toolkit | Could not save weaponAnimationModes:", e); }

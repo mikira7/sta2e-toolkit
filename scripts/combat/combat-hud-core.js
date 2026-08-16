@@ -49,6 +49,7 @@ import {
   rollSuccessTotal, allRolledDice, rollPassed, succeedAtCostComplications,
 } from "../npc-roller.js";
 import { addAssistPending, clearAssistPending } from "../assist-pending.js";
+import { playGroundPhaserCone } from "../ground-phaser-vfx.js";
 import {
   STATION_SLOTS,
   getCrewManifest,
@@ -4226,6 +4227,11 @@ export class CombatHUD {
   }
 
   static async _playGroundAttackAnimation(payload) {
+    // An Area attack that drew the native cone already showed the whole shot,
+    // across every target at once. Firing a beam per injury card on top of it
+    // would overlay the cone with the very spray of separate beams it replaced
+    // — and stagger them, because each card resolves at its own pace.
+    if (payload._groundConeVfxPlayed) return;
     const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
     const targetToken = canvas.tokens?.get(payload.tokenId);
     if (!attackerToken || !targetToken) return;
@@ -4234,6 +4240,38 @@ export class CombatHUD {
     if (!config) return;
     try { await fireWeapon(config, true, attackerToken, [targetToken]); }
     catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
+  }
+
+  /**
+   * The one shot the whole Area attack gets, played from the damage card when
+   * the GM applies it — the only moment the true affected set exists, because
+   * Area spill is ticked on the card rather than targeted before the roll.
+   *
+   * Returns true only when a cone actually drew. In classic (JB2A) mode nothing
+   * happens here and the per-target beams stay exactly as they are today.
+   */
+  static _playGroundAreaConeAnimation(payload) {
+    try {
+      const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
+      const primaryToken = canvas.tokens?.get(payload.tokenId);
+      if (!attackerToken || !primaryToken) return false;
+
+      const weapon = CombatHUD._weaponFromPayload(attackerToken, payload, "characterweapon2e");
+      const config = weapon ? getWeaponConfig(weapon) : null;
+      if (config?.family !== "ground-phaser") return false;
+
+      const secondaries = (payload.areaSecondaryTokenIds ?? [])
+        .map(id => canvas.tokens?.get(id))
+        .filter(Boolean);
+
+      return playGroundPhaserCone(attackerToken, [primaryToken, ...secondaries], {
+        config,
+        hit: true,
+      });
+    } catch (e) {
+      console.warn("STA2e Toolkit | Ground area cone animation failed:", e);
+      return false;
+    }
   }
 
   static async _resolveComplicationDamagePenalty({ complications = 0, attackerIsNpc = false, attackerName = "Attacker" } = {}) {
@@ -10992,7 +11030,7 @@ export class CombatHUD {
         aidBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           await removeCondition(token, "dying");
-          CombatHUD._removeDyingSplashFX(token);
+          await CombatHUD._removeDyingSplashFX(token);
           this._refresh();
         });
         btnRow.appendChild(aidBtn);
@@ -11005,7 +11043,7 @@ export class CombatHUD {
         dieBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           await removeCondition(token, "dying");
-          CombatHUD._removeDyingSplashFX(token);
+          await CombatHUD._removeDyingSplashFX(token);
           await addCondition(token, "dead");
           CombatHUD._applyDeathSplashFX(token);
           this._refresh();
@@ -11022,7 +11060,7 @@ export class CombatHUD {
         clearBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           await removeCondition(token, "dead");
-          CombatHUD._removeDeathSplashFX(token);
+          await CombatHUD._removeDeathSplashFX(token);
           this._refresh();
         });
         btnRow.appendChild(clearBtn);
@@ -16108,6 +16146,31 @@ export class CombatHUD {
     const stressAvail   = stressMode === "countup" ? (stressMax - currentStress) : currentStress;
     const avoidVerb     = stressMode === "countup" ? "Absorb" : "Spend";
 
+    const autoVaporizeMinorNpc = (() => {
+      try { return game.settings.get("sta2e-toolkit", "autoVaporizeMinorNpc"); }
+      catch { return true; }
+    })();
+    // A minor NPC that is about to be vaporized should never paint a blood pool
+    // first. Beyond looking wrong for the length of the beam, adding a filter
+    // only to delete it again is what put a TokenMagic delete in flight against
+    // the vaporize's own filter write.
+    const willVaporizeMinorNpc = !useStun && isMinorNpc && canVaporize && autoVaporizeMinorNpc;
+
+    // The shot has to be seen before the target's fate resolves. The vaporize
+    // path deletes the token, and _playGroundAttackAnimation needs it on the
+    // canvas to have something to draw at — so left until after, the attack
+    // animation for a vaporized minor NPC never played at all. Once-only, so
+    // the paths that reach the end normally still get exactly one shot, and
+    // never allowed to throw: this now runs before the outcome resolves, so a
+    // failed animation must not take the injury with it.
+    let attackAnimationPlayed = false;
+    const playAttackAnimation = async () => {
+      if (attackAnimationPlayed) return;
+      attackAnimationPlayed = true;
+      try { await CombatHUD._playGroundAttackAnimation(payload); }
+      catch (e) { console.warn("STA2e Toolkit | Ground attack animation failed:", e); }
+    };
+
     const doActorChanges = async ({ stressUpdate, createInjury, injName, qty }) => {
       if (stressUpdate !== undefined) await actor.update({ "system.stress.value": stressUpdate });
       if (createInjury) await actor.createEmbeddedDocuments("Item", [{
@@ -16250,15 +16313,15 @@ export class CombatHUD {
       if (targetToken && game.user.isGM) {
         if (useStun) {
           await removeCondition(targetToken, "dying");
-          CombatHUD._removeDyingSplashFX(targetToken);
+          await CombatHUD._removeDyingSplashFX(targetToken);
           await removeCondition(targetToken, "dead");
           await addCondition(targetToken, "stun");
         } else if (isMinorNpc) {
           await removeCondition(targetToken, "stun");
           await removeCondition(targetToken, "dying");
-          CombatHUD._removeDyingSplashFX(targetToken);
+          await CombatHUD._removeDyingSplashFX(targetToken);
           await addCondition(targetToken, "dead");
-          CombatHUD._applyDeathSplashFX(targetToken);
+          if (!willVaporizeMinorNpc) CombatHUD._applyDeathSplashFX(targetToken);
         } else {
           await removeCondition(targetToken, "stun");
           await addCondition(targetToken, "dying");
@@ -16266,18 +16329,17 @@ export class CombatHUD {
         }
       }
 
+      // Land the shot first: the outcome dialogs below block on GM input, and
+      // the vaporize branch removes the token entirely.
+      await playAttackAnimation();
+
       // Vaporize / death outcome dialogs (GM only, deadly only)
       if (!useStun && game.user.isGM) {
         const token = canvas.tokens.get(tokenId);
 
         if (isMinorNpc && token) {
-          const autoVaporize = (() => {
-            try { return game.settings.get("sta2e-toolkit", "autoVaporizeMinorNpc"); }
-            catch { return true; }
-          })();
-
-          if (autoVaporize) {
-            CombatHUD._removeDeathSplashFX(token);
+          if (autoVaporizeMinorNpc) {
+            await CombatHUD._removeDeathSplashFX(token);
             if (canVaporize) await CombatHUD._vaporizeToken(token, weaponColor);
           } else {
             const minorButtons = [
@@ -16297,11 +16359,11 @@ export class CombatHUD {
             });
 
             if (minorChoice === "vaporized" && canVaporize) {
-              CombatHUD._removeDeathSplashFX(token);
+              await CombatHUD._removeDeathSplashFX(token);
               await CombatHUD._vaporizeToken(token, weaponColor);
             }
           }
-          await CombatHUD._playGroundAttackAnimation(payload);
+          await playAttackAnimation();
           await CombatHUD._markInjuryCardResolved(messageId, actor.name);
           return;
         }
@@ -16326,13 +16388,13 @@ export class CombatHUD {
 
           if (deathChoice === "vaporized" && canVaporize) {
             await removeCondition(token, "dying");
-            CombatHUD._removeDyingSplashFX(token);
+            await CombatHUD._removeDyingSplashFX(token);
             await removeCondition(token, "dead");
-            CombatHUD._removeDeathSplashFX(token);
+            await CombatHUD._removeDeathSplashFX(token);
             await CombatHUD._vaporizeToken(token, weaponColor);
           } else if (deathChoice === "dead") {
             await removeCondition(token, "dying");
-            CombatHUD._removeDyingSplashFX(token);
+            await CombatHUD._removeDyingSplashFX(token);
             await addCondition(token, "dead");
             CombatHUD._applyDeathSplashFX(token);
           }
@@ -16342,7 +16404,7 @@ export class CombatHUD {
     }
 
     // Mark decision card resolved
-    await CombatHUD._playGroundAttackAnimation(payload);
+    await playAttackAnimation();
     await CombatHUD._markInjuryCardResolved(messageId, actor.name);
   }
 
@@ -16439,13 +16501,20 @@ export class CombatHUD {
     }
   }
 
+  /**
+   * Returns TokenMagic's own promise. Deleting a filter is asynchronous — it
+   * rewrites the token's filter flags — so anything that adds filters straight
+   * afterwards (the vaporize fire, say) has to await this or the in-flight
+   * delete lands last and wipes what was just added.
+   */
   static _removeDyingSplashFX(token) {
-    if (!window.TokenMagic) return;
+    if (!window.TokenMagic) return Promise.resolve();
     try {
       if (TokenMagic.hasFilterId(token, "sta2e-dying-splash")) {
-        TokenMagic.deleteFilters(token, "sta2e-dying-splash");
+        return Promise.resolve(TokenMagic.deleteFilters(token, "sta2e-dying-splash"));
       }
     } catch {}
+    return Promise.resolve();
   }
 
   // ── Death splash TMFX — blood pool for non-vaporized deaths ─────────────────
@@ -16475,13 +16544,16 @@ export class CombatHUD {
     }
   }
 
+  /** See _removeDyingSplashFX — the returned promise must be awaited before
+   *  any further filter is added to the same token. */
   static _removeDeathSplashFX(token) {
-    if (!window.TokenMagic) return;
+    if (!window.TokenMagic) return Promise.resolve();
     try {
       if (TokenMagic.hasFilterId(token, "sta2e-death-splash")) {
-        TokenMagic.deleteFilters(token, "sta2e-death-splash");
+        return Promise.resolve(TokenMagic.deleteFilters(token, "sta2e-death-splash"));
       }
     } catch {}
+    return Promise.resolve();
   }
 
   // ── Vaporize effect — Devouring Fire TMFX + fade out + token delete ──────────
@@ -19344,6 +19416,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   const spendResult = JSON.parse(decodeURIComponent(applyBtn.dataset.spendResult));
                   payload.areaSecondaryPrepaid = Math.max(0, Number(spendResult.areaSecondaryCost ?? 0) || 0);
                 } catch { /* leave unpaid — _applyGroundAreaSecondaryTargets will bill it */ }
+              }
+              // Fire the Area cone before any injury card is raised, so the
+              // shot is seen once, now, rather than unravelling into a beam per
+              // card as each target's decision comes back. The flag rides along
+              // into every secondary — they are built by spreading this payload
+              // — and survives the JSON round-trip through the injury socket.
+              if (payload.area && CombatHUD._playGroundAreaConeAnimation(payload)) {
+                payload._groundConeVfxPlayed = true;
               }
               await CombatHUD.applyGroundInjury(payload);
               await CombatHUD._applyGroundAreaSecondaryTargets(payload);
