@@ -16,7 +16,7 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
-import { intenseBonusMomentum } from "./momentum-spend.js";
+import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
 import { adjustPool, readPool } from "./pool-service.js";
 import {
@@ -35,6 +35,10 @@ import {
   hasChiefTacticalOfficer,
   hasPointDefenseSystem,
 } from "./combat/combat-definitions.js";
+import {
+  defensiveTrainingPenalty,
+  hasGroundTalent,
+} from "./combat/ground-talents.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
 import { clearAssistPending } from "./assist-pending.js";
 import {
@@ -692,6 +696,38 @@ export function chiefMedicalOfficerBonusMomentum(source = {}, passed = false) {
   if (!passed || !source?.hasChiefMedicalOfficer || source?.isAssistRoll) return 0;
   if ((source.officerDiscKey ?? source.discKey) !== "medicine") return 0;
   return hasActualAssistanceDice(source) ? 1 : 0;
+}
+
+/**
+ * Pack Tactics: "Whenever you Assist another character during combat, the
+ * character you assisted gains 1 bonus Momentum if they succeed."
+ *
+ * Credited to the assisted character's roll, not the assistant's — so this
+ * reads the assisting officers off the roll being resolved. One bonus per
+ * qualifying assistant, matching the talent's per-assist wording.
+ *
+ * Requires the assist to have actually contributed dice: an assist swallowed by
+ * a failed main pool never counted as help (see hasActualAssistanceDice).
+ */
+export function packTacticsBonusMomentum(source = {}, passed = false) {
+  if (!passed || source?.isAssistRoll) return 0;
+  if (!hasActualAssistanceDice(source)) return 0;
+
+  let bonus = 0;
+  for (const ao of (source.assistOfficers ?? [])) {
+    if (!ao?.actorId) continue;
+    const aoActor = game.actors.get(ao.actorId);
+    if (hasGroundTalent(aoActor, "packTactics")) bonus += 1;
+  }
+  return bonus;
+}
+
+/** Names of the assistants supplying Pack Tactics, for the card's reasons line. */
+export function packTacticsSources(source = {}) {
+  return (source.assistOfficers ?? [])
+    .filter(ao => ao?.actorId && hasGroundTalent(game.actors.get(ao.actorId), "packTactics"))
+    .map(ao => ao.name)
+    .filter(Boolean);
 }
 
 export function isCommunicationsOfficerShipAssistActive(rollState) {
@@ -3126,7 +3162,8 @@ function buildChatCard(actorName, state) {
     : 0;
   const flightBonus = flightControllerBonusMomentum(state, passed);
   const chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(state, passed);
-  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus;
+  const packTacticsBonus = packTacticsBonusMomentum(state, passed);
+  const momentum = Math.max(0, total - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus + packTacticsBonus;
   const generatedPoolLabel = resourceProfile.generatedPool === "threat"
     ? "Threat"
     : resourceProfile.momentumLabel;
@@ -3136,6 +3173,8 @@ function buildChatCard(actorName, state) {
   const planOfActionPotential = planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : null);
   const flightControllerPotential = flightControllerBonusMomentum(state, true);
   const chiefMedicalPotential = chiefMedicalOfficerBonusMomentum(state, true);
+  const packTacticsPotential = packTacticsBonusMomentum(state, true);
+  const packTacticsNames = packTacticsSources(state);
 
   const diceRow = (dice, target) => `
     <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px;">
@@ -3222,6 +3261,10 @@ function buildChatCard(actorName, state) {
         planOfActionPotential > 0 ? `Plan of Action (+${planOfActionPotential} bonus Momentum on success)` : null,
         flightControllerPotential > 0 ? `Flight Controller (+${flightControllerPotential} bonus Momentum on success)` : null,
         chiefMedicalPotential > 0 ? `Chief Medical Officer (+${chiefMedicalPotential} bonus Momentum on success)` : null,
+        packTacticsPotential > 0
+          ? `Pack Tactics${packTacticsNames.length ? ` (${packTacticsNames.join(", ")})` : ""} `
+            + `(+${packTacticsPotential} bonus Momentum on success)`
+          : null,
         state.hasChiefOfStaff ? (state.chiefOfStaffSource ?? "Chief of Staff") : null,
         state.shipTalentRerollUsed ? (state.shipTalentRerollSource ?? "Ship Talent Reroll") : null,
         state.hasPiercingSalvo ? "Piercing Salvo (offered on a hit — 2 Momentum for Piercing)" : null,
@@ -3421,15 +3464,18 @@ export function buildPlayerRollCardHtml(rollData) {
     : 0;
   const flightBonus = flightControllerBonusMomentum(rollData, passed);
   const chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(rollData, passed);
+  const packTacticsBonus = packTacticsBonusMomentum(rollData, passed);
   const displayMomentum = confirmed
-    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus)
-    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus;
+    ? (confirmedMomentum ?? Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus + packTacticsBonus)
+    : Math.max(0, totalSuccesses - effectiveDifficulty) + traitPoolBonus + flightBonus + chiefMedicalBonus + packTacticsBonus;
   const passColor = passed ? LC.green : LC.red;
   const finalResultLabel = succeedAtCost ? "Success at Cost" : passed ? "Success" : "Failed";
   const callOutTargetsPotential = callOutTargetsBonusMomentum(rollData, true);
   const planOfActionPotential = planOfActionBonusMomentum(rollData.appliedTraitEffects ?? [], game.actors.get(rollData.officerActorId ?? rollData.actorId));
   const flightControllerPotential = flightControllerBonusMomentum(rollData, true);
   const chiefMedicalPotential = chiefMedicalOfficerBonusMomentum(rollData, true);
+  const packTacticsPotential = packTacticsBonusMomentum(rollData, true);
+  const packTacticsNames = packTacticsSources(rollData);
   const generatedPool = resourceProfile.generatedPool;
   const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
@@ -3677,6 +3723,8 @@ export function buildPlayerRollCardHtml(rollData) {
           ? { tone: "bonus", text: `Flight Controller: +${flightControllerPotential} bonus Momentum on success` } : null,
         chiefMedicalPotential > 0
           ? { tone: "bonus", text: `Chief Medical Officer: +${chiefMedicalPotential} bonus Momentum on success` } : null,
+        packTacticsPotential > 0
+          ? { tone: "bonus", text: `Pack Tactics${packTacticsNames.length ? ` (${packTacticsNames.join(", ")})` : ""}: +${packTacticsPotential} bonus Momentum on success` } : null,
       ].filter(Boolean),
 
       // Raw trait data rather than traitSummaryHtml(), which bakes in the
@@ -3865,6 +3913,12 @@ export function buildPlayerRollCardHtml(rollData) {
   <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
     font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
     Chief Medical Officer: +${chiefMedicalPotential} bonus Momentum on success
+  </div>` : ""}
+
+  ${packTacticsPotential > 0 ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    Pack Tactics${packTacticsNames.length ? ` (${packTacticsNames.join(", ")})` : ""}: +${packTacticsPotential} bonus Momentum on success
   </div>` : ""}
 
   ${!isAssistRoll ? `<div style="display:grid;grid-template-columns:repeat(${totalComplications > 0 ? 5 : 4},1fr);gap:4px;
@@ -4931,11 +4985,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       state.traitDifficultyDirections ??= {};
     }
 
-    // Actor document to test for the Andorian Intense species ability.
-    // state.officer is a plain stats object ({ id, name, attributes, ... }) with
-    // no .items, so it must be resolved to the real Actor first. Falling back to
-    // `actor` is safe: in officer mode that is the ship, which never has Intense.
-    const _intenseSubjectActor = () =>
+    // Actor document to test for the extra-d20 species abilities (Andorian
+    // Intense / Trill Patient). state.officer is a plain stats object
+    // ({ id, name, attributes, ... }) with no .items, so it must be resolved to
+    // the real Actor first. Falling back to `actor` is safe: in officer mode
+    // that is the ship, which never carries a species ability.
+    const _speciesSubjectActor = () =>
       (state.officer?.id ? game.actors.get(state.officer.id) : null) ?? actor ?? null;
 
     dialog = new foundry.applications.api.DialogV2({
@@ -4981,28 +5036,29 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // and downstream damage cards can link via state.trackerMessageId.
               const _hitSuccesses = rollSuccessTotal(state);
               const _hitMomentum = Math.max(0, _hitSuccesses - effectiveDifficulty);
-              const _hitIntenseBonus = intenseBonusMomentum({
+              const _hitSpeciesBonus = speciesExtraDieBonusMomentum({
                 slots: state.paymentSlots,
                 hasFreeExtraDie: state.hasFreeExtraDie,
                 passed: isHit,
-                actor: _intenseSubjectActor(),
+                actor: _speciesSubjectActor(),
               });
               const _hitShowOffBonus = showOffBonusMomentum(state, isHit);
               const _hitCallOutTargetsBonus = callOutTargetsBonusMomentum(state, isHit);
               const _hitPlanOfActionBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _hitFlightControllerBonus = flightControllerBonusMomentum(state, isHit);
               const _hitChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(state, isHit);
+              const _hitPackTacticsBonus = packTacticsBonusMomentum(state, isHit);
               const _hitPool = _rollResourceProfile(state, actor).generatedPool;
               const _hitTraitBonus = isHit
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
               const _hitWQ = weapon?.system?.qualities ?? {};
               const _hitVersatile = Number(_hitWQ.versatilex ?? _hitWQ.versatile ?? 0) || 0;
-              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitIntenseBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitFlightControllerBonus > 0 || _hitChiefMedicalBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
+              if (isHit && !state.noPoolButton && (_hitMomentum > 0 || _hitSpeciesBonus > 0 || _hitShowOffBonus > 0 || _hitCallOutTargetsBonus > 0 || _hitPlanOfActionBonus > 0 || _hitFlightControllerBonus > 0 || _hitChiefMedicalBonus > 0 || _hitPackTacticsBonus > 0 || _hitTraitBonus > 0 || _hitVersatile > 0)) {
                 try {
                   const _hitTrackerRes = await createTracker(actor, {
                     totalGenerated: _hitMomentum,
-                    bonus: _hitIntenseBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitFlightControllerBonus + _hitChiefMedicalBonus + _hitTraitBonus,
+                    bonus: _hitSpeciesBonus + _hitShowOffBonus + _hitCallOutTargetsBonus + _hitPlanOfActionBonus + _hitFlightControllerBonus + _hitChiefMedicalBonus + _hitPackTacticsBonus + _hitTraitBonus,
                     versatile: _hitVersatile,
                     weaponName: weapon?.name ?? null,
                     pool:  _hitPool,
@@ -5072,21 +5128,22 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               // (computed earlier in this callback). The full overflow has already
               // been split into banked (to pool) + float (to tracker) above.
               const _floatingMomentum = state.trackerFloat ?? 0;
-              // Andorian Intense talent: on a successful task, +1 bonus momentum per
-              // extra d20 PURCHASED (extra dice cost a cumulative 1/3/6 coins), so long
-              // as at least one coin was Threat ("threat"/"poolThreat"/"personalThreat").
-              // Momentum may fund the rest of the cost. Bonus is not bankable.
-              const _intenseTalentBonus = intenseBonusMomentum({
+              // Extra-d20 species abilities (extra dice cost a cumulative 1/3/6 coins).
+              // Andorian Intense: +1 per extra d20 PURCHASED so long as at least one
+              // coin was Threat. Trill Patient: +1 per extra d20 whose own cost segment
+              // contained a Momentum coin. Capped at the dice bought. Not bankable.
+              const _speciesTalentBonus = speciesExtraDieBonusMomentum({
                 slots: state.paymentSlots,
                 hasFreeExtraDie: state.hasFreeExtraDie,
                 passed: isHit,
-                actor: _intenseSubjectActor(),
+                actor: _speciesSubjectActor(),
               });
               const _showOffTalentBonus = showOffBonusMomentum(state, isHit);
               const _callOutTargetsTalentBonus = callOutTargetsBonusMomentum(state, isHit);
               const _planOfActionTalentBonus = isHit ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _flightControllerTalentBonus = flightControllerBonusMomentum(state, isHit);
               const _chiefMedicalTalentBonus = chiefMedicalOfficerBonusMomentum(state, isHit);
+              const _packTacticsTalentBonus = packTacticsBonusMomentum(state, isHit);
               const _traitTalentBonus = isHit
                 ? Math.max(0, Number(_hitPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
@@ -5106,7 +5163,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 attackerSuccesses: state.opposedDefenseType !== null ? attackerTotalSuccesses : null,
                 opposedDefenderBonus: state.opposedDefenderBonus ?? 0,
                 floatingMomentum: _floatingMomentum,
-                intenseTalentBonus: _intenseTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _flightControllerTalentBonus + _chiefMedicalTalentBonus + _traitTalentBonus,
+                intenseTalentBonus: _speciesTalentBonus + _showOffTalentBonus + _callOutTargetsTalentBonus + _planOfActionTalentBonus + _flightControllerTalentBonus + _chiefMedicalTalentBonus + _packTacticsTalentBonus + _traitTalentBonus,
                 trackerMessageId: state.trackerMessageId ?? null,
                 momentumPool: _hitPool,
                 complications: attackComplications,
@@ -5137,26 +5194,27 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prPassed = _prSuccesses >= _prDifficulty;
               const _prMomentum = Math.max(0, _prSuccesses - _prDifficulty);
               const _prComplications = _prAllDice.filter(d => d.complication).length + autoComplications(state);
-              const _prIntenseBonus = intenseBonusMomentum({
+              const _prSpeciesBonus = speciesExtraDieBonusMomentum({
                 slots: state.paymentSlots,
                 hasFreeExtraDie: state.hasFreeExtraDie,
                 passed: _prPassed,
-                actor: _intenseSubjectActor(),
+                actor: _speciesSubjectActor(),
               });
               const _prShowOffBonus = showOffBonusMomentum(state, _prPassed);
               const _prCallOutTargetsBonus = callOutTargetsBonusMomentum(state, _prPassed);
               const _prPlanOfActionBonus = _prPassed ? planOfActionBonusMomentum(state.appliedTraitEffects ?? [], state.officer ? game.actors.get(state.officer.id) : actor) : 0;
               const _prFlightControllerBonus = flightControllerBonusMomentum(state, _prPassed);
               const _prChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(state, _prPassed);
+              const _prPackTacticsBonus = packTacticsBonusMomentum(state, _prPassed);
               const _prPool = _rollResourceProfile(state, actor).generatedPool;
               const _prTraitBonus = _prPassed
                 ? Math.max(0, Number(_prPool === "threat" ? state.traitBonusThreat : state.traitBonusMomentum) || 0)
                 : 0;
-              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prIntenseBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prFlightControllerBonus > 0 || _prChiefMedicalBonus > 0 || _prTraitBonus > 0)) {
+              if (_prPassed && !state.noPoolButton && !state.rallyContext && (_prMomentum > 0 || _prSpeciesBonus > 0 || _prShowOffBonus > 0 || _prCallOutTargetsBonus > 0 || _prPlanOfActionBonus > 0 || _prFlightControllerBonus > 0 || _prChiefMedicalBonus > 0 || _prPackTacticsBonus > 0 || _prTraitBonus > 0)) {
                 try {
                   const _prTrackerRes = await createTracker(actor, {
                     totalGenerated: _prMomentum,
-                    bonus: _prIntenseBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prFlightControllerBonus + _prChiefMedicalBonus + _prTraitBonus,
+                    bonus: _prSpeciesBonus + _prShowOffBonus + _prCallOutTargetsBonus + _prPlanOfActionBonus + _prFlightControllerBonus + _prChiefMedicalBonus + _prPackTacticsBonus + _prTraitBonus,
                     pool:  _prPool,
                     speakerToken: token,
                   });
@@ -5532,6 +5590,10 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
     }
     const chiefSecurityPenaltyData = await game.sta2eToolkit?.CombatHUD?.consumeChiefSecurityAttackPenalty?.(attackerToken);
     const chiefSecurityPenalty = chiefSecurityPenaltyData ? 1 : 0;
+    // This is a ranged attack, so Defensive Training (Ranged) on the defender
+    // applies, as does any Close Protection spent on them.
+    const defTrainPenalty = await defensiveTrainingPenalty([targetToken], false);
+    const closeProtectionData = await game.sta2eToolkit?.CombatHUD?.consumeCloseProtection?.(targetToken);
 
     weaponContext.useStun = useStun;
     weaponContext.deadlyCostsThreat = !useStun && hasDeadly && !attackerIsNpc;
@@ -5548,6 +5610,9 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
       weaponContext,
       guardPenalty: targetToken.document?.getFlag(MODULE, "guardActive") ? 1 : 0,
       chiefSecurityPenalty,
+      defensiveTrainingPenalty: defTrainPenalty,
+      closeProtectionPenalty: closeProtectionData ? 1 : 0,
+      closeProtectionSource: closeProtectionData?.protectorName ?? null,
       pronePenalty,
       targetIsProne,
       targetIsProneInCover,

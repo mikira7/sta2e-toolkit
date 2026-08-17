@@ -55,6 +55,10 @@ import {
   registerShieldBubbleVfxHooks,
   testShieldBubble,
 } from "./shield-bubble-vfx.js";
+import {
+  registerShieldIdleVfxHooks,
+  testShieldIdle,
+} from "./shield-idle-vfx.js";
 import { playTorpedoTravelLocal } from "./torpedo-travel-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { registerTokenSelectGlow } from "./token-select-glow.js";
@@ -301,6 +305,7 @@ Hooks.once("init", () => {
   registerSettings();
   registerTractorBeamVfxHooks();
   registerShieldBubbleVfxHooks();
+  registerShieldIdleVfxHooks();
   registerTransporterSettings();
   registerMomentumSpend();
   registerMomentumTracker();
@@ -710,6 +715,10 @@ Hooks.once("ready", async () => {
     // Ship combat uses overridePenalty (+1 for Override actions). Neither applies to the other.
     const guardPenalty = pending.guardPenalty ?? 0;
     const chiefSecurityPenalty = pending.chiefSecurityPenalty ?? 0;
+    // Defender's Defensive Training, and a Close Protection spent on them.
+    // Both were resolved and consumed when the attack was declared.
+    const defensiveTrainingPenalty = pending.defensiveTrainingPenalty ?? 0;
+    const closeProtectionPenalty = pending.closeProtectionPenalty ?? 0;
     const pronePenalty = pending.pronePenalty ?? 0;
     const cumbersomePenalty = pending.rollerOpts?.cumbersomePenalty ?? pending.cumbersomePenalty ?? 0;
     const pointDefensePenalty = pending.pointDefensePenalty ?? pending.rollerOpts?.pointDefensePenalty ?? 0;
@@ -731,22 +740,28 @@ Hooks.once("ready", async () => {
       || getExtraActionDifficulty(_atkActor);
     const rawDifficulty = pending.overridePenalty
       ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty + extraActionPenalty
-      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty + extraActionPenalty;
+      : clampedSuccesses + guardPenalty + chiefSecurityPenalty + defensiveTrainingPenalty
+        + closeProtectionPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty
+        + extraActionPenalty;
     const difficulty = Math.max(0, rawDifficulty - attackPatternPenalty);
 
     // Build the taskContext string now that defender's actual successes are known
     let taskContext;
+    const defTrain = defensiveTrainingPenalty ? " +1 Defensive Training" : "";
+    const closeProt = closeProtectionPenalty
+      ? ` +1 Close Protection${pending.closeProtectionSource ? ` (${pending.closeProtectionSource})` : ""}`
+      : "";
     if (defType === "melee") {
       const prone  = pending.targetIsProne ? " · Prone +2 Momentum" : "";
       const guard  = guardPenalty ? " +1 Guard" : "";
       const chiefSecurity = chiefSecurityPenalty ? " +1 Chief of Security" : "";
-      taskContext = `Melee — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${chiefSecurity}${prone})`;
+      taskContext = `Melee — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${chiefSecurity}${defTrain}${closeProt}${prone})`;
     } else if (defType === "cover") {
       const guard  = guardPenalty ? " +1 Guard" : "";
       const chiefSecurity = chiefSecurityPenalty ? " +1 Chief of Security" : "";
       const prone  = pronePenalty ? ` +${pronePenalty} Prone Difficulty` : "";
       const proInC = pending.targetIsProneInCover ? " · +1 Protection" : "";
-      taskContext = `Ranged vs Cover — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${chiefSecurity}${prone}${proInC})`;
+      taskContext = `Ranged vs Cover — Opposed Task (defender: ${clampedSuccesses} success${clampedSuccesses !== 1 ? "es" : ""}${guard}${chiefSecurity}${defTrain}${closeProt}${prone}${proInC})`;
     } else {
       // Ship combat — use whatever context was stored in rollerOpts
       taskContext = pending.rollerOpts?.taskContext ?? null;
@@ -800,6 +815,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.testTractorBeamVFX = options => NativeTractorBeamVFX.testSelectedToTargeted(options);
   game.sta2eToolkit.stopTractorBeamVFX = () => NativeTractorBeamVFX.stopActive();
   game.sta2eToolkit.testShieldBubbleVFX = options => testShieldBubble(options);
+  game.sta2eToolkit.testShieldIdleVFX = level => testShieldIdle(level);
   game.sta2eToolkit.openShipVfxAnchorEditor = openShipVfxAnchorEditor;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   game.sta2eToolkit.createStarSystemActor = createStarSystemActor;
@@ -1371,6 +1387,28 @@ Hooks.once("ready", async () => {
         game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
       } catch (e) {
         console.error("STA2e Toolkit | clearChiefSecurityAttackPenalty via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "setCloseProtection" && _isResponsibleGM()) {
+      try {
+        const token = msg.targetTokenId ? canvas.tokens?.get(msg.targetTokenId) : null;
+        if (!token) return;
+        await CombatHUD.setCloseProtection(token, msg.source ?? {}, { broadcast: false });
+        game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      } catch (e) {
+        console.error("STA2e Toolkit | setCloseProtection via socket failed:", e);
+      }
+    }
+
+    else if (msg.action === "clearCloseProtection" && _isResponsibleGM()) {
+      try {
+        const token = msg.targetTokenId ? canvas.tokens?.get(msg.targetTokenId) : null;
+        if (!token) return;
+        await CombatHUD.clearCloseProtection(token, { broadcast: false });
+        game.socket.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      } catch (e) {
+        console.error("STA2e Toolkit | clearCloseProtection via socket failed:", e);
       }
     }
 
@@ -2308,16 +2346,20 @@ Hooks.on("updateCombat", async (combat, changes) => {
     }
   }
 
-  // ── Clear guardActive flags whose expiry token just became the active combatant ──
+  // ── Clear expiring defensive flags when their expiry token's turn comes up ──
+  // guardActive lasts until the guarded token's next turn; closeProtection until
+  // the protector's. Both store the token id to watch in `expiresForTokenId`.
   if (game.user.isGM && ("turn" in changes || "round" in changes)) {
     const currentTokenId = combat.combatant?.tokenId ?? null;
     if (!currentTokenId) return;
     for (const placeable of (canvas.tokens?.placeables ?? [])) {
       const td = placeable.document;
-      const guard = td?.getFlag("sta2e-toolkit", "guardActive");
-      if (guard?.expiresForTokenId === currentTokenId) {
-        try { await td.unsetFlag("sta2e-toolkit", "guardActive"); } catch(e) {
-          console.warn("STA2e Toolkit | Could not clear guardActive flag:", e);
+      for (const key of ["guardActive", "closeProtection"]) {
+        const flagged = td?.getFlag("sta2e-toolkit", key);
+        if (flagged?.expiresForTokenId === currentTokenId) {
+          try { await td.unsetFlag("sta2e-toolkit", key); } catch(e) {
+            console.warn(`STA2e Toolkit | Could not clear ${key} flag:`, e);
+          }
         }
       }
     }

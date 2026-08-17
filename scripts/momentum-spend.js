@@ -3,7 +3,8 @@
  *
  * Multi-bucket momentum/threat spending panel for combat chat cards.
  * Tracks floating momentum (overflow from the triggering roll), bonus
- * momentum (manual input + auto from Andorian Intense talent), Versatile
+ * momentum (manual input + auto from the Intense / Patient species
+ * abilities and other talents), Versatile
  * X bonus momentum (ship weapons), and the shared pool — and auto-deducts
  * in that order when the user spends on Extra Damage, Devastating Attack,
  * Secondary Target, or Persistent Rounds.
@@ -44,7 +45,28 @@ export async function writePool(key, v, options = {}) {
   return _setPool(key, v, { source: "toolkit", ...options });
 }
 
-// ─── Intense (Andorian) species ability detection ────────────────────────────
+// ─── Species ability detection (Intense / Patient) ───────────────────────────
+
+/**
+ * Item-name normaliser shared by every species-ability check here.
+ * Mirrors `normalizeTalentName` in npc-roller.js — kept local rather than
+ * imported because npc-roller.js already imports this module.
+ */
+function normalizeTalentName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function actorHasNamedAbility(actor, names) {
+  if (!actor?.items) return false;
+  for (const item of actor.items) {
+    if (names.includes(normalizeTalentName(item.name))) return true;
+  }
+  return false;
+}
 
 const INTENSE_TALENT_NAMES = [
   "intense",
@@ -53,16 +75,23 @@ const INTENSE_TALENT_NAMES = [
   "intense (species ability)",
 ];
 
+const PATIENT_TALENT_NAMES = [
+  "patient",
+  "patient (trill)",
+  "patient (trill species ability)",
+  "patient (species ability)",
+];
+
 export function actorHasIntenseTalent(actor) {
-  if (!actor?.items) return false;
-  for (const item of actor.items) {
-    const n = (item.name ?? "").trim().toLowerCase();
-    if (INTENSE_TALENT_NAMES.includes(n)) return true;
-  }
-  return false;
+  return actorHasNamedAbility(actor, INTENSE_TALENT_NAMES);
+}
+
+export function actorHasPatientTalent(actor) {
+  return actorHasNamedAbility(actor, PATIENT_TALENT_NAMES);
 }
 
 const THREAT_SLOT_TYPES = new Set(["threat", "poolThreat", "personalThreat"]);
+const MOMENTUM_SLOT_TYPES = new Set(["momentum"]);
 
 /**
  * Extra d20s actually PAID for by the coins sitting in `slots`.
@@ -71,8 +100,9 @@ const THREAT_SLOT_TYPES = new Set(["threat", "poolThreat", "personalThreat"]);
  * die (0 / 2 / 5 when the first extra die is free). The free die is NOT counted
  * here — no resource bought it.
  *
- * Keep in lockstep with `_calcDiceFromSlots` (npc-roller.js) and its reverse
- * map in the quick-fill slider; a threshold change must update all three.
+ * The thresholds live in `extraDieThresholds` below; keep that in lockstep with
+ * `_calcDiceFromSlots` (npc-roller.js) and its reverse map in the quick-fill
+ * slider.
  *
  * @param {Array<string|null>} slots - Payment slot array; nulls are empty slots.
  * @param {boolean} hasFreeExtraDie
@@ -80,8 +110,47 @@ const THREAT_SLOT_TYPES = new Set(["threat", "poolThreat", "personalThreat"]);
  */
 export function paidExtraDiceFromSlots(slots = [], hasFreeExtraDie = false) {
   const filled = (Array.isArray(slots) ? slots : []).filter(s => s != null).length;
-  const thresholds = hasFreeExtraDie ? [2, 5] : [1, 3, 6];
-  return thresholds.reduce((n, t) => n + (filled >= t ? 1 : 0), 0);
+  return extraDieThresholds(hasFreeExtraDie).reduce((n, t) => n + (filled >= t ? 1 : 0), 0);
+}
+
+/**
+ * Cumulative coin cost of the 1st / 2nd / 3rd PAID extra d20.
+ *
+ * Sole owner of the table inside this module — `paidExtraDiceFromSlots` and
+ * `momentumFundedExtraDice` both read it here. Keep in lockstep with
+ * `_calcDiceFromSlots` and the quick-fill `coinsFor` map (npc-roller.js).
+ */
+function extraDieThresholds(hasFreeExtraDie = false) {
+  return hasFreeExtraDie ? [2, 5] : [1, 3, 6];
+}
+
+/**
+ * Extra d20s whose own cost segment contains at least one Momentum coin.
+ *
+ * Because the cost is cumulative, each purchased die owns a contiguous run of
+ * payment slots — die 1 costs slot 0, die 2 costs slots 1-2, die 3 costs slots
+ * 3-5 (or 0-1 / 2-4 when the first extra die is free). A die counts only when
+ * a Momentum coin sits in ITS run, so a mixed payment prorates:
+ *
+ *   [M][M M][T T T]  → 2   (3 Momentum + 3 Threat buys 3 dice, 2 of them Momentum-funded)
+ *   [M][M M][M T T]  → 3   (4 Momentum + 2 Threat buys 3 dice, all 3 Momentum-funded)
+ *
+ * Slots are compacted first so sparse placement can't shift the segments.
+ *
+ * @param {Array<string|null>} slots
+ * @param {boolean} hasFreeExtraDie
+ * @returns {number} 0-3
+ */
+export function momentumFundedExtraDice(slots = [], hasFreeExtraDie = false) {
+  const coins = (Array.isArray(slots) ? slots : []).filter(s => s != null);
+  let count = 0;
+  let start = 0;
+  for (const threshold of extraDieThresholds(hasFreeExtraDie)) {
+    if (coins.length < threshold) break;
+    if (coins.slice(start, threshold).some(s => MOMENTUM_SLOT_TYPES.has(s))) count++;
+    start = threshold;
+  }
+  return count;
 }
 
 /**
@@ -103,6 +172,42 @@ export function intenseBonusMomentum({ slots = [], hasFreeExtraDie = false, pass
   const list = Array.isArray(slots) ? slots : [];
   if (!list.some(s => THREAT_SLOT_TYPES.has(s))) return 0;
   return paidExtraDiceFromSlots(list, hasFreeExtraDie);
+}
+
+/**
+ * Trill Patient species ability: on a successful task, bonus Momentum equals
+ * the number of extra d20s that Momentum actually paid for. Unlike Intense
+ * this PRORATES — a Threat-funded die in the same purchase does not count.
+ * The bonus may not be saved to the pool.
+ *
+ * @param {object}  ctx
+ * @param {Array}   ctx.slots - state.paymentSlots / payload.paymentSlots.
+ * @param {boolean} ctx.hasFreeExtraDie
+ * @param {boolean} ctx.passed - Task succeeded.
+ * @param {Actor|null} ctx.actor - The Actor document to test for the ability.
+ * @returns {number} 0-3
+ */
+export function patientBonusMomentum({ slots = [], hasFreeExtraDie = false, passed = false, actor = null } = {}) {
+  if (!passed || !actor || !actorHasPatientTalent(actor)) return 0;
+  return momentumFundedExtraDice(slots, hasFreeExtraDie);
+}
+
+/**
+ * Total non-bankable bonus Momentum from extra-d20 species abilities.
+ *
+ * This is the entry point every roll path should call — never Intense or
+ * Patient alone. A mixed-heritage actor carrying both abilities can pay with
+ * both currencies and satisfy each trigger, so the sum is capped at the number
+ * of extra d20s actually purchased: the bonus can never exceed the dice bought.
+ *
+ * @param {object}  ctx - Same shape as intenseBonusMomentum / patientBonusMomentum.
+ * @returns {number} 0-3
+ */
+export function speciesExtraDieBonusMomentum({ slots = [], hasFreeExtraDie = false, passed = false, actor = null } = {}) {
+  const ctx = { slots, hasFreeExtraDie, passed, actor };
+  const total = intenseBonusMomentum(ctx) + patientBonusMomentum(ctx);
+  if (total <= 0) return 0;
+  return Math.min(paidExtraDiceFromSlots(slots, hasFreeExtraDie), total);
 }
 
 // ─── Spend-context construction ──────────────────────────────────────────────
@@ -320,7 +425,7 @@ function buildSpendPanelHtml(spendCtx, targetTokenId, { isSecondaryAreaTarget = 
       <span class="sta2e-spend-chip" data-bucket="pool" data-source="threat" style="${chipStyle(false)}" title="Threat pool">THR <strong class="sta2e-spend-pool-thr">${readPool("threat")}</strong></span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;align-items:center;">
-      <span class="sta2e-spend-chip" data-bucket="bonus" style="${chipStyle(intenseBonus > 0)}" title="Bonus momentum (e.g. talents, advantages, Andorian Intense). Cannot be saved to pool. Edits sync to the Overflow Tracker.">BONUS <input class="sta2e-spend-bonus-input" type="number" min="0" value="${intenseBonus}" style="${inputStyle}width:36px;margin-left:3px;"/></span>
+      <span class="sta2e-spend-chip" data-bucket="bonus" style="${chipStyle(intenseBonus > 0)}" title="Bonus momentum (e.g. talents, advantages, species abilities such as Andorian Intense or Trill Patient). Cannot be saved to pool. Edits sync to the Overflow Tracker.">BONUS <input class="sta2e-spend-bonus-input" type="number" min="0" value="${intenseBonus}" style="${inputStyle}width:36px;margin-left:3px;"/></span>
       ${versatile > 0 ? `<span class="sta2e-spend-chip" data-bucket="versatile" style="${chipStyle(true)}" title="Versatile X bonus momentum — only Extra Damage or Devastating Attack.">VERSATILE <strong class="sta2e-spend-chip-val">${versatile}</strong></span>` : ""}
       ${hasChiefTactical ? `<span class="sta2e-spend-chip" data-bucket="cto" style="${chipStyle(true)}" title="Chief Tactical Officer — bonus damage costs 1 less Momentum. Does not stack with Intense or Depleting, and never drops below 1.">CTO −1</span>` : ""}
     </div>

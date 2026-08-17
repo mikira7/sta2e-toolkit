@@ -985,6 +985,15 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register("sta2e-toolkit", "groundTalentAutomation", {
+    name:    "STA2E.Settings.GroundTalentAutomation.Name",
+    hint:    "STA2E.Settings.GroundTalentAutomation.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
   game.settings.register("sta2e-toolkit", "deleteTokenOnDestruction", {
     name:    "STA2E.Settings.DeleteTokenOnDestruction.Name",
     hint:    "STA2E.Settings.DeleteTokenOnDestruction.Hint",
@@ -1047,6 +1056,18 @@ export function registerSettings() {
   game.settings.register("sta2e-toolkit", "shieldBubbleVFX", {
     name:    "STA2E.Settings.ShieldBubbleVFX.Name",
     hint:    "STA2E.Settings.ShieldBubbleVFX.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+
+  // The standing envelope raised from the ship's Token HUD, not a weapon
+  // reaction — separate from shieldBubbleVFX so a GM who wants impacts without
+  // a permanent haze on the canvas can have exactly that.
+  game.settings.register("sta2e-toolkit", "shieldIdleVFX", {
+    name:    "STA2E.Settings.ShieldIdleVFX.Name",
+    hint:    "STA2E.Settings.ShieldIdleVFX.Hint",
     scope:   "world",
     config:  true,
     type:    Boolean,

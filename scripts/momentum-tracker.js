@@ -86,7 +86,7 @@ function buildTrackerCardHtml({ float, bonus, versatile = 0, pool, ownerActorNam
         <div style="font-size:9px;color:${textDim};line-height:1.5;font-family:${font};">
           ${float > 0 ? `<strong style="color:${headerColor};">Float</strong> didn't fit in the pool (cap reached) — spend on this action or it's lost.` : ""}
           ${bankedToPool > 0 ? `<br>+${bankedToPool} already banked to pool.` : ""}
-          ${bonus > 0 ? `<br><span style="color:${tertiary};">Bonus</span> is non-bankable (e.g. Intense species ability) — spend or it expires.` : ""}
+          ${bonus > 0 ? `<br><span style="color:${tertiary};">Bonus</span> is non-bankable (e.g. the Intense or Patient species ability) — spend or it expires.` : ""}
           ${versatile > 0 ? `<br><span style="color:${LC.primary ?? "#ff9900"};">Versatile</span>${weaponName ? ` (${weaponName})` : ""} — spend on Extra Damage, Devastating, or Trait Creation only.` : ""}
         </div>
         ${createTraitBtnHtml}

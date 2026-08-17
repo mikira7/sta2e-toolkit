@@ -33,6 +33,14 @@ import {
 } from "./combat/combat-hud-core.js";
 import { hasCloakingDevice } from "./combat/combat-definitions.js";
 import {
+  SHIELD_IDLE_LEVELS,
+  cycleShieldLevel,
+  getShieldIdleState,
+  lowerShields,
+  nextShieldLevel,
+  raiseShields,
+} from "./shield-idle-vfx.js";
+import {
   buildHudControl,
   buildHudFlyout,
   resolveHudToken,
@@ -354,6 +362,40 @@ function _buildPalette(app, token, control) {
       danger:  cloaked,
     }, async (event) => {
       await _onCloakToggle(token, { announce: event.shiftKey });
+      rebuild();
+    }));
+  }
+
+  // Standing shield envelope. These are pure flag writes with no chat card and
+  // no dialog, so unlike the entries above they deliberately leave the palette
+  // open — the GM is usually here to try a level, look at it, and try the next.
+  const shields = getShieldIdleState(token);
+  if (!shields) {
+    palette.appendChild(_buildItem({
+      icon:    "fas fa-shield-halved",
+      label:   "Shields: Raise",
+      tooltip: "Raise shields — a standing envelope with nebula interference",
+    }, async () => {
+      await raiseShields(token);
+      rebuild();
+    }));
+  } else {
+    const next = nextShieldLevel(shields.level);
+    palette.appendChild(_buildItem({
+      icon:    "fas fa-shield-halved",
+      label:   `Shields: ${SHIELD_IDLE_LEVELS[shields.level].label}`,
+      tooltip: `Interference level — click for ${SHIELD_IDLE_LEVELS[next].label}`,
+    }, async () => {
+      await cycleShieldLevel(token);
+      rebuild();
+    }));
+    palette.appendChild(_buildItem({
+      icon:    "fas fa-shield-slash",
+      label:   "Shields: Lower",
+      tooltip: "Drop the standing shield envelope",
+      danger:  true,
+    }, async () => {
+      await lowerShields(token);
       rebuild();
     }));
   }

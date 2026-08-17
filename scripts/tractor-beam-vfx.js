@@ -854,6 +854,25 @@ export function refreshPersistentTractorBeamVfx() {
   }
 }
 
+/**
+ * Did this token update touch the tractor flag?
+ *
+ * Both spellings have to be tested. `setFlag` — engaging the beam — puts the
+ * plain key in the diff, but `releaseTractorBeam` clears it with `unsetFlag`,
+ * which Foundry expresses as the `-=key` deletion form instead. Testing only
+ * the plain key meant release never reached the clients that were not the one
+ * releasing: `CombatHUD.releaseTractorBeam` stops the beam directly for the GM
+ * who clicked, and everyone else depends entirely on this hook, so the beam
+ * stayed drawn on every player's screen until the next canvas load.
+ *
+ * Same test as the scene flag watcher in token-elevation-display.js.
+ */
+function _tractorFlagChanged(changes) {
+  const get = foundry.utils.getProperty;
+  return get(changes, `flags.${MODULE}.tractorBeam`) !== undefined
+      || get(changes, `flags.${MODULE}.-=tractorBeam`) !== undefined;
+}
+
 let _tractorVfxHooksRegistered = false;
 
 export function registerTractorBeamVfxHooks() {
@@ -863,7 +882,7 @@ export function registerTractorBeamVfxHooks() {
   Hooks.on("canvasReady", () => refreshPersistentTractorBeamVfx());
   Hooks.on("canvasTearDown", () => NativeTractorBeamVFX.stopAllPersistent());
   Hooks.on("updateToken", (_tokenDoc, changes) => {
-    if (changes.flags?.[MODULE]?.tractorBeam !== undefined) {
+    if (_tractorFlagChanged(changes)) {
       refreshPersistentTractorBeamVfx();
     }
   });

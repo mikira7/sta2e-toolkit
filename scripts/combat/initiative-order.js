@@ -38,6 +38,7 @@
 import { adjustPool, readPool } from "../pool-service.js";
 import { getLcTokens } from "../lcars-theme.js";
 import { getCrewManifest, STATION_SLOTS } from "../crew-manifest.js";
+import { hasGroundTalent } from "./ground-talents.js";
 
 /**
  * CombatHUD's side-detection statics, resolved lazily off the public API.
@@ -79,15 +80,67 @@ function _setting(key, fallback) {
   } catch { return fallback; }
 }
 
-/** Cost of each spend, in Momentum or Threat. GM-configurable. */
-export function spendCost(kind) {
-  switch (kind) {
-    case "keep":       return Number(_setting("keepInitiativeCost", 2))  || 2;
-    case "seize":      return Number(_setting("seizeInitiativeCost", 2)) || 2;
-    case "extraMinor": return Number(_setting("extraMinorCost", 1))      || 1;
-    case "extraMajor": return Number(_setting("extraMajorCost", 2))      || 2;
-    default:           return 0;
+/**
+ * Cost of each spend, in Momentum or Threat. GM-configurable, and reduced by
+ * two Security talents when a combatant is supplied:
+ *
+ *  - Fire at Will  — an extra Major Action costs 1 rather than 2, provided the
+ *    Major already taken this turn was an Attack.
+ *  - Quick to Action — in round 1, the whole side keeps the Initiative for free.
+ *
+ * @param {string}        kind
+ * @param {Combatant|null} combatant  omit for the raw configured cost
+ */
+export function spendCost(kind, combatant = null) {
+  const base = (() => {
+    switch (kind) {
+      case "keep":       return Number(_setting("keepInitiativeCost", 2))  || 2;
+      case "seize":      return Number(_setting("seizeInitiativeCost", 2)) || 2;
+      case "extraMinor": return Number(_setting("extraMinorCost", 1))      || 1;
+      case "extraMajor": return Number(_setting("extraMajorCost", 2))      || 2;
+      default:           return 0;
+    }
+  })();
+  if (!combatant) return base;
+  return Math.max(0, base - spendDiscount(kind, combatant));
+}
+
+/**
+ * How much a talent knocks off `kind` for this combatant, and why.
+ * Split out from spendCost so the UI and the spend card can name the source.
+ *
+ * @returns {{ amount: number, label: string|null }}
+ */
+export function spendDiscountInfo(kind, combatant = null) {
+  if (!combatant) return { amount: 0, label: null };
+  const combat = _combatOf(combatant);
+
+  if (kind === "extraMajor") {
+    if (!hasGroundTalent(combatant.actor, "fireAtWill")) return { amount: 0, label: null };
+    // "If you make an Attack, you may use the Swift Action Momentum spend for 1
+    // Momentum rather than 2" — so the Major already taken has to be an attack.
+    if (!getTurnActions(combatant, combat).majorWasAttack) return { amount: 0, label: null };
+    return { amount: 1, label: "Fire at Will" };
   }
+
+  if (kind === "keep") {
+    if ((combat?.round ?? 0) !== 1) return { amount: 0, label: null };
+    // "you and your allies may ignore the normal cost" — anyone on the side
+    // having the talent frees the spend for that side.
+    const side = sideOf(combatant);
+    const holder = (combat?.combatants ?? []).find?.(c =>
+      sideOf(c) === side && hasGroundTalent(c.actor, "quickToAction"));
+    if (!holder) return { amount: 0, label: null };
+    // The talent waives the cost outright rather than reducing it, so discount
+    // by more than any configured cost; spendCost clamps the result at 0.
+    return { amount: Number.MAX_SAFE_INTEGER, label: `Quick to Action (${holder.name})` };
+  }
+
+  return { amount: 0, label: null };
+}
+
+function spendDiscount(kind, combatant) {
+  return spendDiscountInfo(kind, combatant).amount;
 }
 
 export const SPEND_LABEL = {
@@ -663,6 +716,9 @@ function _defaultActions(combat) {
     majorUsed:      0,
     majorMax:       1,
     extraMajorDiff: 0,
+    // Fire at Will discounts an extra Major only after an Attack. Riding the
+    // existing turn-action flag means it resets on round rollover for free.
+    majorWasAttack: false,
   };
 }
 
@@ -690,6 +746,25 @@ async function _writeActions(combatant, data) {
 export async function resetTurnActions(combat, combatant) {
   if (!combatant) return;
   await _writeActions(combatant, _defaultActions(combat));
+}
+
+/**
+ * Record that the Major Action this combatant just spent was an Attack.
+ *
+ * Called from the combat HUD's `_markWeaponMajor`, the single choke point every
+ * attack path funnels through. Only Fire at Will reads it.
+ *
+ * @param {Actor|null} actor  the attacking character (or the ship's officer)
+ */
+export async function markMajorWasAttack(actor) {
+  if (!actor || !initiativeEnabled()) return;
+  const combat = game.combat;
+  if (!combat) return;
+  const combatant = resolveTurnCombatant(actor);
+  if (!combatant) return;
+  const actions = getTurnActions(combatant, combat);
+  if (actions.majorWasAttack) return;
+  await _writeActions(combatant, { ...actions, majorWasAttack: true });
 }
 
 /**
@@ -916,7 +991,7 @@ const THREAT_ALTERNATIVE_KINDS = new Set(["keep"]);
  * @returns {{side: string, options: Array<"momentum"|"threat">, preferred: string, cost: number}}
  */
 export function paymentOptionsFor(kind, combatant = null) {
-  const cost = spendCost(kind);
+  const cost = spendCost(kind, combatant);
   const side = spendSide(kind, combatant);
 
   if (side === SIDE_NPC) return { side, options: ["threat"], preferred: "threat", cost };
@@ -950,9 +1025,9 @@ export function paymentOptionsFor(kind, combatant = null) {
  *
  * @returns {Promise<boolean>} whether the pool actually moved
  */
-async function _payFor(kind, payment, side) {
-  const cost = spendCost(kind);
-  if (cost <= 0) return true;
+async function _payFor(kind, payment, side, combatant = null) {
+  const cost = spendCost(kind, combatant);
+  if (cost <= 0) return true;   // a talent may have zeroed it — nothing to move
 
   // The players' alternative to spending Momentum: give the GM Threat.
   if (payment === "threat" && side === SIDE_CREW) {
@@ -997,7 +1072,7 @@ export async function applyTurnOrderSpend({
   const { side, options, preferred } = paymentOptionsFor(kind, combatant);
   const currency = options.includes(payment) ? payment : preferred;
 
-  const paid = await _payFor(kind, currency, side);
+  const paid = await _payFor(kind, currency, side, combatant);
   if (!paid) return false;
 
   if (kind === "keep" || kind === "seize") {
@@ -1028,15 +1103,18 @@ export async function applyTurnOrderSpend({
  */
 async function _postSpendCard({ kind, combatant, payment, side, userName }) {
   const LC   = getLcTokens();
-  const cost = spendCost(kind);
+  const cost = spendCost(kind, combatant);
+  const discount = spendDiscountInfo(kind, combatant);
 
   // Crew paying in Threat are handing it over, not spending it.
   const gave    = payment === "threat" && side === SIDE_CREW;
   const accent  = (payment === "threat") ? LC.primary : LC.secondary;
   const icon    = (payment === "threat") ? "⚡" : "💫";
-  const currency = gave
-    ? `+${cost} Threat`
-    : `−${cost} ${payment === "threat" ? "Threat" : "Momentum"}`;
+  const currency = cost <= 0
+    ? "Free"
+    : gave
+      ? `+${cost} Threat`
+      : `−${cost} ${payment === "threat" ? "Threat" : "Momentum"}`;
 
   const who  = combatant?.name ?? "the GM";
   const by   = userName ? ` · ${userName}` : "";
@@ -1045,8 +1123,17 @@ async function _postSpendCard({ kind, combatant, payment, side, userName }) {
     keep:       `The next turn passes to an ally. Once that ally has acted, the turn must go to an enemy.`,
     seize:      `An NPC acts instead of the crew. The turn returns to the crew afterwards.`,
     extraMinor: `${who} gains an additional Minor Action this turn.`,
-    extraMajor: `${who} gains an additional Major Action this turn, at <strong>+1 Difficulty</strong>.`,
+    extraMajor: `${who} gains an additional Major Action this turn, at <strong>+1 Difficulty</strong>.`
+      + (discount.label === "Fire at Will"
+        ? ` <em>Fire at Will — the second Major Action must also be an Attack.</em>`
+        : ""),
   }[kind] ?? "";
+
+  const talentNote = discount.label
+    ? `<div style="margin-top:6px;font-size:10px;color:${LC.secondary};">
+         ✦ ${discount.label}
+       </div>`
+    : "";
 
   const content = `
     <div style="font-family:${LC.font};background:${LC.bg};border-left:4px solid ${accent};
@@ -1067,7 +1154,8 @@ async function _postSpendCard({ kind, combatant, payment, side, userName }) {
       <div style="margin-top:8px;font-size:11px;line-height:1.4;color:${LC.text};">
         ${detail}
       </div>
-      ${gave ? `<div style="margin-top:6px;font-size:10px;color:${LC.textDim};font-style:italic;">
+      ${talentNote}
+      ${(gave && cost > 0) ? `<div style="margin-top:6px;font-size:10px;color:${LC.textDim};font-style:italic;">
         Paid by adding Threat to the pool instead of spending Momentum.
       </div>` : ""}
     </div>`;

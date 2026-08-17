@@ -21,7 +21,7 @@ import { getLcCssVars } from "../lcars-theme.js";
 import {
   SIDE_CREW, SIDE_NPC, SIDE_LABEL, SPEND_LABEL,
   initiativeEnabled, sideOf, isEligible, getTurnOrder,
-  getTurnActions, paymentOptionsFor, spendCost,
+  getTurnActions, paymentOptionsFor, spendCost, spendDiscountInfo,
   requestTurnOrderSpend, requestSetActionUsed, setCombatSide,
   projectedOrder, nextProjectedCombatant, advanceToNextInOrder,
   isStandingBy, setActivations, getActingCombatant,
@@ -165,6 +165,8 @@ function _pips(combatant, editable) {
  */
 async function _promptPayment(kind, target) {
   const { options, preferred, cost } = paymentOptionsFor(kind, target);
+  // A talent may have zeroed the cost (Quick to Action) — nothing to choose.
+  if (cost <= 0) return preferred ?? options[0] ?? "momentum";
   if (options.length <= 1) return options[0] ?? null;
 
   const buttons = [
@@ -209,7 +211,12 @@ async function _buy(kind, target) {
  */
 function _costLabel(kind, target) {
   const { options } = paymentOptionsFor(kind, target);
-  const cost = spendCost(kind);
+  // Talent-aware: Fire at Will and Quick to Action discount this for the target.
+  const cost = spendCost(kind, target);
+  if (cost <= 0) {
+    const { label } = spendDiscountInfo(kind, target);
+    return label ? `Free — ${label}` : "Free";
+  }
   if (options.length === 1) return `${cost} ${options[0] === "threat" ? "Threat" : "Momentum"}`;
   return `${cost} Momentum or ${cost} Threat`;
 }

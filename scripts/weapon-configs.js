@@ -1081,7 +1081,7 @@ export function resolveGroundWeaponConfig(item) {
 
   // ── Melee weapons ─────────────────────────────────────────────────────────
   if (range === "melee") {
-    const subtype = name.includes("unarmed") || name.includes("punch") || name.includes("fist")
+    const subtype = isUnarmedWeapon(item)
       ? "unarmed"
       : name.includes("ushaan")
         ? "ushaan"
@@ -1270,6 +1270,24 @@ export function getGroundWeaponSeverity(weapon) {
   if (Number.isFinite(declared) && declared > 0) return declared;
   const dmg = Number(sys.damage);
   return Number.isFinite(dmg) && dmg > 0 ? dmg : 0;
+}
+
+/**
+ * Is this a bare-handed melee weapon (STA 2e "Unarmed Strike")?
+ *
+ * The system has no flag for it — an unarmed strike is just a melee
+ * characterweapon2e whose name says so. Shared with the melee VFX subtype picker
+ * above so the talents that key off Unarmed Strike (Applied Force, Martial
+ * Artist, Mean Right Hook) agree with what the animation layer calls unarmed.
+ *
+ * @param {Item} weapon - A characterweapon2e item
+ * @returns {boolean}
+ */
+export function isUnarmedWeapon(weapon) {
+  if (!weapon) return false;
+  if ((weapon.system?.range ?? "") !== "melee") return false;
+  const name = (weapon.name ?? "").toLowerCase();
+  return name.includes("unarmed") || name.includes("punch") || name.includes("fist");
 }
 
 // ---------------------------------------------------------------------------

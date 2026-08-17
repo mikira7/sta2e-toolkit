@@ -46,6 +46,7 @@ import {
   communicationsOfficerShipDie, isCommunicationsOfficerShipAssistActive,
   taskDifficulty, showOffBonusMomentum, callOutTargetsBonusMomentum,
   callOutTargetsSourceForActor, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum,
+  packTacticsBonusMomentum,
   rollSuccessTotal, allRolledDice, rollPassed, succeedAtCostComplications,
 } from "../npc-roller.js";
 import { addAssistPending, clearAssistPending } from "../assist-pending.js";
@@ -87,7 +88,7 @@ import {
 } from "../token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonesForToken } from "../zone-data.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "../weapon-range.js";
-import { makeSpendContext, intenseBonusMomentum, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
+import { makeSpendContext, speciesExtraDieBonusMomentum, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
 import { createTracker, getActiveTracker } from "../momentum-tracker.js";
 import { clearHullDecals, hasHullDecals } from "../hull-decals.js";
 import { postTaskRequestCard } from "../task-maker.js";
@@ -125,7 +126,19 @@ import {
   useAction as _useTurnAction,
   resolveTurnCombatant as _findTurnCombatant,
   initiativeEnabled as _turnOrderEnabled,
+  markMajorWasAttack as _markMajorWasAttack,
 } from "./initiative-order.js";
+import {
+  alliesWithinClose,
+  defensiveTrainingPenalty,
+  getDownProtectionBonus,
+  grantsUnarmedDeadly,
+  grantsUnarmedIntense,
+  groundTalentSeverityBonus,
+  groundTalentsFor,
+  hasGroundTalent,
+  meleeAttackAttribute,
+} from "./ground-talents.js";
 const MODULE      = "sta2e-toolkit";
 const HUD_ID      = "sta2e-combat-hud";
 const POS_KEY     = `${MODULE}-combat-hud-pos`;
@@ -1484,6 +1497,7 @@ export class CombatHUD {
     this._pendingWeapon       = null;
     this._pendingSalvoMode    = null;
     this._pendingChargeQuality = null;  // ground Charge choice: "area"|"intense"|"piercing"|null
+    this._pendingAimUsed      = false;  // did Aim precede the attack being resolved (Steady Hands)
     this._pendingStunMode     = true;   // for dual Stun/Deadly weapons — true = using stun (default)
     this._opposedDifficulty   = null;   // set when attacker weapon is fired against a defending ship
     this._opposedDefenseType  = null;   // "evasive-action" | "defensive-fire" | null
@@ -1510,6 +1524,7 @@ export class CombatHUD {
     this._pendingWeapon       = null;
     this._pendingSalvoMode    = null;
     this._pendingChargeQuality = null;
+    this._pendingAimUsed      = false;
     this._pendingStunMode     = true;   // default to Stun — Deadly costs Threat
     this._opposedDifficulty   = null;
     this._opposedDefenseType  = null;
@@ -2285,8 +2300,17 @@ export class CombatHUD {
         // what `_weaponDamageBreakdown` reads, so label it accordingly.
         const isGround  = weapon.type === "characterweapon2e";
         const statLabel = isGround ? "Severity" : "Damage";
+        // Talent bonuses (Applied Force on Unarmed, Steady Hands while aimed)
+        // show in the tooltip so the button agrees with the damage card.
+        const groundTalentSev = isGround
+          ? groundTalentSeverityBonus(actor, weapon, {
+            isMelee: weapon.system?.range === "melee",
+            aimUsed: this._groundAimRerolls > 0,
+          })
+          : { total: 0, reasons: [] };
         const dmgLabel  = isGround
-          ? getGroundWeaponSeverity(weapon)
+          ? `${getGroundWeaponSeverity(weapon) + groundTalentSev.total}`
+            + (groundTalentSev.total ? ` (${groundTalentSev.reasons.join(", ")})` : "")
           : (breakdown ? `${total} (${breakdown})` : total);
         const range     = weapon.system?.range ?? "?";
         const qualities = this._weaponQualityString(weapon);
@@ -2316,13 +2340,28 @@ export class CombatHUD {
             const isMelee      = weapon.system?.range === "melee";
             const isCumbersome = weapon.system?.qualities?.cumbersome ?? false;
             const hasStun   = weapon.system?.qualities?.stun   ?? false;
-            const hasDeadly = weapon.system?.qualities?.deadly ?? false;
+            // Martial Artist lets an Unarmed Strike inflict Deadly Injuries as
+            // well as Stun, which is exactly what makes the weapon "dual" and
+            // brings up the Stun/Deadly dialog every branch below keys off.
+            const hasDeadly = (weapon.system?.qualities?.deadly ?? false)
+              || grantsUnarmedDeadly(actor, weapon);
             const isDual    = hasStun && hasDeadly;
+            // Steady Hands needs to know whether Aim preceded this attack, but
+            // every branch below clears the aim toggle as it fires. Snapshot it
+            // here, once, ahead of all of them.
+            const aimUsedAtDeclaration = this._groundAimRerolls > 0;
+            this._pendingAimUsed = aimUsedAtDeclaration;
+            const talentSeverity = groundTalentSeverityBonus(actor, weapon, {
+              isMelee, aimUsed: aimUsedAtDeclaration,
+            });
             const weaponCtx = {
               name:      weapon.name,
               weaponId:  weapon.id ?? null,
               damage:    total,
-              severity:  getGroundWeaponSeverity(weapon),
+              severity:  getGroundWeaponSeverity(weapon) + talentSeverity.total,
+              talentSeverityBonus:  talentSeverity.total,
+              talentSeverityReasons: talentSeverity.reasons,
+              aimUsed:   aimUsedAtDeclaration,
               qualities: this._weaponQualityString(weapon),
             };
 
@@ -2402,6 +2441,17 @@ export class CombatHUD {
             const chiefSecurityPenalty = chiefSecurityAttackPenaltyData ? 1 : 0;
             const chiefSecurityPenaltyLabel = chiefSecurityPenalty
               ? ` +1 ${chiefSecurityAttackPenaltyData.sourceName ?? "Chief of Security"}`
+              : "";
+            // Defensive Training — passive on the defender, matched against the
+            // type of attack being made. Capped at +1 across all targets.
+            const defTrainPenalty = await defensiveTrainingPenalty(targets, isMelee);
+            const defTrainPenaltyLabel = defTrainPenalty ? " +1 Defensive Training" : "";
+            // Close Protection — single-use, spent on this target by an ally.
+            const closeProtectionData = await CombatHUD.consumeCloseProtection(targets[0] ?? null);
+            const closeProtectionPenalty = closeProtectionData ? 1 : 0;
+            const closeProtectionSource = closeProtectionData?.protectorName ?? null;
+            const closeProtectionLabel = closeProtectionPenalty
+              ? ` +1 Close Protection (${closeProtectionSource ?? "ally"})`
               : "";
 
             if (isMelee) {
@@ -2495,12 +2545,18 @@ export class CombatHUD {
                 aimRerolls,
                 guardPenalty,
                 chiefSecurityPenalty,
+                defensiveTrainingPenalty: defTrainPenalty,
+                closeProtectionPenalty,
+                closeProtectionSource,
                 pronePenalty: 0,
                 targetIsProne,
                 targetIsProneInCover: false,
-                defenderSuggestedAttr: "daring",
+                // Applied Force lets a Melee Attack use Fitness in place of
+                // Daring. Both sides are making melee attack rolls, so each is
+                // suggested their own attribute.
+                defenderSuggestedAttr: meleeAttackAttribute(meleeTarget.actor),
                 defenderSuggestedDisc: "security",
-                attackerSuggestedAttr: "daring",
+                attackerSuggestedAttr: meleeAttackAttribute(actor),
                 attackerSuggestedDisc: "security",
               });
               this._refresh();
@@ -2621,6 +2677,9 @@ export class CombatHUD {
                 aimRerolls: _aimRerolls,
                 guardPenalty,
                 chiefSecurityPenalty,
+                defensiveTrainingPenalty: defTrainPenalty,
+                closeProtectionPenalty,
+                closeProtectionSource,
                 pronePenalty,
                 targetIsProne,
                 targetIsProneInCover,
@@ -2746,7 +2805,9 @@ export class CombatHUD {
                     margin-bottom:4px;font-family:${LC.font};">${meleeTarget?.name ?? "Defender"}</div>
                   <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.5;">
                     <strong>${actor.name}</strong> is making a melee attack — roll your defense.<br>
-                    <span style="color:${LC.textDim};">Daring + Security · your successes set the attacker's Difficulty.</span>
+                    <span style="color:${LC.textDim};">${
+                      meleeAttackAttribute(meleeTarget?.actor) === "fitness" ? "Fitness" : "Daring"
+                    } + Security · your successes set the attacker's Difficulty.</span>
                   </div>
                   <div style="margin:6px -10px -8px;padding:4px 8px 6px;border-top:1px solid ${LC.borderDim};">
                     <button class="sta2e-melee-defense-roll"
@@ -2777,6 +2838,9 @@ export class CombatHUD {
                 defenseType:     "melee",
                 guardPenalty,
                 chiefSecurityPenalty,
+                defensiveTrainingPenalty: defTrainPenalty,
+                closeProtectionPenalty,
+                closeProtectionSource,
                 pronePenalty:    0,      // melee prone = +2 Momentum bonus, not a difficulty penalty
                 targetIsProne,
                 targetIsProneInCover: false,
@@ -2786,7 +2850,7 @@ export class CombatHUD {
                   stationId:     "tactical",
                   officer:       readOfficerStats(actor),
                   weaponContext: weaponCtx,
-                  defaultAttr:   "daring",
+                  defaultAttr:   meleeAttackAttribute(actor),   // Applied Force → Fitness
                   defaultDisc:   "security",
                   taskLabel:     `Attack — ${weapon.name}`,
                   aimRerolls:    _aimRerolls,
@@ -2833,6 +2897,9 @@ export class CombatHUD {
                 aimRerolls: _aimRerolls,
                 guardPenalty,
                 chiefSecurityPenalty,
+                defensiveTrainingPenalty: defTrainPenalty,
+                closeProtectionPenalty,
+                closeProtectionSource,
                 pronePenalty,
                 targetIsProne,
                 targetIsProneInCover,
@@ -2853,17 +2920,19 @@ export class CombatHUD {
             this[`_groundToggle_ground-aim`] = false;
             this._groundAimRerolls = 0;
 
+            const rangedDifficulty = 2 + guardPenalty + pronePenalty + chiefSecurityPenalty
+              + defTrainPenalty + closeProtectionPenalty;
             openPlayerRoller(actor, this._token, {
               officer:           readOfficerStats(actor),
               stationId:         "tactical",
               weaponContext:     weaponCtx,
               groundMode:        true,
               groundIsNpc:       CombatHUD.isGroundNpcActor(actor),
-              difficulty:        2 + guardPenalty + pronePenalty + chiefSecurityPenalty,
+              difficulty:        rangedDifficulty,
               defaultAttr:       "control",
               defaultDisc:       "security",
               taskLabel:         `Attack — ${weapon.name}`,
-              taskContext:       `Control + Security · Difficulty ${2 + guardPenalty + pronePenalty + chiefSecurityPenalty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}${chiefSecurityPenaltyLabel}`,
+              taskContext:       `Control + Security · Difficulty ${rangedDifficulty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}${chiefSecurityPenaltyLabel}${defTrainPenaltyLabel}${closeProtectionLabel}`,
               aimRerolls,
             });
             return; // skip ship weapon logic below
@@ -3788,7 +3857,18 @@ export class CombatHUD {
    * stacks with armor). Matched by name containing "brak'lul" or "braklul".
    * Returns 0 if no armor or ability is found.
    */
-  static _getTargetProtection(actor) {
+  /**
+   * A target's total Protection rating.
+   *
+   * `token` is optional but should be passed wherever it is known: Cover is a
+   * token flag, and the Get Down! talent grants +1 Protection in Cover to the
+   * token itself and to every ally within Close range. Without a token the
+   * armour total is still correct, only the Cover-conditional bonus is skipped.
+   *
+   * @param {Actor|null}  actor
+   * @param {Token|null}  token
+   */
+  static _getTargetProtection(actor, token = null) {
     if (!actor) return 0;
     let total = 0;
     let hasBraklul = false;
@@ -3811,6 +3891,10 @@ export class CombatHUD {
 
     if (hasBraklul) total += 1;
 
+    // Get Down! — +1 Protection while in Cover, from the target's own talent or
+    // an ally's. Stacks with armour and with the prone-in-cover bonus.
+    if (token) total += getDownProtectionBonus(token);
+
     return total;
   }
 
@@ -3827,16 +3911,22 @@ export class CombatHUD {
    * cannot be granted twice, so `||` is the right combinator. Ground Piercing
    * (`piercingx`, a checkbox) ignores the target's Protection rating outright.
    *
+   * Mean Right Hook grants Intense to an Unarmed Strike, and folds in here for
+   * the same reason Charge does — one shape, every ground damage path.
+   *
    * @param {Item}        weapon
    * @param {string|null} chargeQuality  "area" | "intense" | "piercing" | null
+   * @param {Actor|null}  attackerActor  needed for talent-granted qualities
    */
-  static _groundChargeEffects(weapon, chargeQuality = null) {
+  static _groundChargeEffects(weapon, chargeQuality = null, attackerActor = null) {
     const q = weapon?.system?.qualities ?? {};
+    const talentIntense = grantsUnarmedIntense(attackerActor, weapon);
     return {
       chargeQuality:   chargeQuality ?? null,
       severityPenalty: chargeQuality === "area" ? 1 : 0,
       area:            !!q.area    || chargeQuality === "area",
-      intense:         !!q.intense || chargeQuality === "intense",
+      intense:         !!q.intense || chargeQuality === "intense" || talentIntense,
+      talentIntense,
       piercing:        q.piercingx === true || chargeQuality === "piercing",
     };
   }
@@ -4398,6 +4488,8 @@ export class CombatHUD {
     // Ship weapons are fired from Tactical, so charge that officer rather than
     // the standing-by ship. Ground attacks charge the character directly.
     await _markTurnAction(actor, "major", isShip ? "tactical" : null);
+    // Fire at Will's discount is conditional on the Major having been an Attack.
+    if (!isShip) await _markMajorWasAttack(actor);
   }
 
   async _resolveWeapon(isHit) {
@@ -4420,12 +4512,19 @@ export class CombatHUD {
     // ── Ground combat path ─────────────────────────────────────────────────
     if (isGroundWeapon) {
       const hasStun    = weapon.system?.qualities?.stun   ?? false;
-      const hasDeadly  = weapon.system?.qualities?.deadly ?? false;
+      const hasDeadly  = (weapon.system?.qualities?.deadly ?? false)
+        || grantsUnarmedDeadly(actor, weapon);
       const isDual     = hasStun && hasDeadly;
       const useStun    = hasStun && (!hasDeadly || this._pendingStunMode);
-      const severity   = getGroundWeaponSeverity(weapon);
+      // Applied Force / Steady Hands. `_pendingAimUsed` was snapshotted when the
+      // attack was declared, because firing clears the aim toggle.
+      const isMeleeWeapon  = weapon.system?.range === "melee";
+      const talentSeverity = groundTalentSeverityBonus(actor, weapon, {
+        isMelee: isMeleeWeapon, aimUsed: !!this._pendingAimUsed,
+      });
+      const severity   = getGroundWeaponSeverity(weapon) + talentSeverity.total;
       // Charge quality declared before the roll (Prepare → Area / Intense / Piercing)
-      const chg        = CombatHUD._groundChargeEffects(weapon, this._pendingChargeQuality);
+      const chg        = CombatHUD._groundChargeEffects(weapon, this._pendingChargeQuality, actor);
       const complicationInfo = isHit
         ? await CombatHUD._resolveComplicationDamagePenalty({
             complications: 0,
@@ -4443,7 +4542,7 @@ export class CombatHUD {
         const tActor     = t.actor;
         // Ground Piercing ignores the target's Protection rating outright; keep
         // the base figure so the card can report what was bypassed.
-        const baseProtection = CombatHUD._getTargetProtection(tActor);
+        const baseProtection = CombatHUD._getTargetProtection(tActor, t);
         const protection = chg.piercing ? 0 : baseProtection;
         const hasBraklul = CombatHUD._hasBraklul(tActor);
         const rawPotency = effectiveSeverity - protection;
@@ -4468,6 +4567,9 @@ export class CombatHUD {
           isDual,
           severity:      effectiveSeverity,
           baseSeverity:  severity,
+          talentSeverityBonus:   talentSeverity.total,
+          talentSeverityReasons: talentSeverity.reasons,
+          talentIntense: chg.talentIntense,
           complicationDamagePenalty: complicationInfo.penalty,
           complications: complicationInfo.total,
           complicationsBoughtOff: complicationInfo.boughtOff,
@@ -4522,6 +4624,7 @@ export class CombatHUD {
 
       this._pendingWeapon        = null;
       this._pendingChargeQuality = null;
+      this._pendingAimUsed       = false;
       this._pendingStunMode      = true;
       this._refresh();
       return;
@@ -5684,6 +5787,78 @@ export class CombatHUD {
         coverBanner.appendChild(coverText);
         coverBanner.appendChild(clearCoverBtn);
         container.appendChild(coverBanner);
+      }
+    }
+
+    // ── Close Protection banner ──────────────────────────────────────────────
+    {
+      const tokenDoc = this._token?.document;
+      const cp = tokenDoc?.getFlag(MODULE, "closeProtection");
+      if (cp) {
+        const cpBanner = document.createElement("div");
+        cpBanner.style.cssText = `
+          display:flex;align-items:center;gap:5px;padding:4px 8px;
+          background:rgba(0,200,100,0.08);border-left:2px solid ${LC.green};
+          border-radius:2px;margin-bottom:3px;
+        `;
+        const cpText = document.createElement("div");
+        cpText.style.cssText = `flex:1;font-size:9px;font-weight:700;
+          color:${LC.green};font-family:${LC.font};letter-spacing:0.04em;`;
+        cpText.textContent = `CLOSE PROTECTION — ${cp.protectorName ?? "an ally"} `
+          + `· next Attack against you is +1 Difficulty`;
+
+        const clearCpBtn = document.createElement("button");
+        clearCpBtn.title = "Remove close protection";
+        clearCpBtn.style.cssText = `
+          background:none;border:1px solid ${LC.borderDim};border-radius:2px;
+          color:${LC.textDim};font-size:10px;line-height:1;cursor:pointer;
+          padding:1px 4px;flex-shrink:0;font-family:${LC.font};
+        `;
+        clearCpBtn.textContent = "✕";
+        clearCpBtn.addEventListener("click", async () => {
+          await CombatHUD.clearCloseProtection(tokenDoc);
+          this._refresh();
+        });
+
+        cpBanner.appendChild(cpText);
+        cpBanner.appendChild(clearCpBtn);
+        container.appendChild(cpBanner);
+      }
+    }
+
+    // ── Talents in play ──────────────────────────────────────────────────────
+    // Ground talents are applied silently at various points in the attack
+    // pipeline; this row is the only place the table can see which ones are
+    // live on this character.
+    {
+      const talents = groundTalentsFor(this._token?.actor);
+      if (talents.length) {
+        const chips = document.createElement("div");
+        chips.style.cssText = `
+          display:flex;flex-wrap:wrap;gap:3px;padding:4px 8px;
+          background:rgba(153,102,255,0.06);border-left:2px solid ${LC.secondary};
+          border-radius:2px;margin-bottom:3px;
+        `;
+        const label = document.createElement("div");
+        label.style.cssText = `width:100%;font-size:8px;font-weight:700;
+          color:${LC.secondary};font-family:${LC.font};letter-spacing:0.1em;
+          text-transform:uppercase;margin-bottom:1px;`;
+        label.textContent = "✦ Talents in Play";
+        chips.appendChild(label);
+
+        for (const t of talents) {
+          const chip = document.createElement("span");
+          chip.style.cssText = `font-size:9px;color:${LC.text};font-family:${LC.font};
+            padding:1px 5px;border:1px solid ${LC.borderDim};border-radius:8px;
+            white-space:nowrap;`;
+          chip.textContent = t.detail ? `${t.label} (${t.detail})` : t.label;
+          chip.title = t.detail === "unset"
+            ? `${t.effect}\n\nNo Melee/Ranged choice recorded — rename the talent to `
+              + `"Defensive Training (Melee)" or "(Ranged)", or pick one when prompted.`
+            : t.effect;
+          chips.appendChild(chip);
+        }
+        container.appendChild(chips);
       }
     }
 
@@ -11890,6 +12065,66 @@ export class CombatHUD {
     return penalty;
   }
 
+  // ── Close Protection (Security talent) ─────────────────────────────────────
+  // "When you make a successful Attack, you may spend 1 Momentum to protect a
+  // single ally within Close range. The next Attack against that ally before the
+  // start of your next turn increases in Difficulty by 1."
+  //
+  // Shaped like guardActive (a defensive flag on the protected token, expiring
+  // when a named token's turn comes round) but single-use like the Chief of
+  // Security penalty — the *next* attack consumes it.
+
+  static async setCloseProtection(allyToken, source = {}, { broadcast = true } = {}) {
+    const tokenDoc = allyToken?.document ?? allyToken;
+    if (!tokenDoc?.id) return false;
+    const payload = {
+      protectorName:    source.protectorName ?? "Close Protection",
+      protectorActorId: source.protectorActorId ?? null,
+      protectorTokenId: source.protectorTokenId ?? null,
+      // Expires when the protector's next turn begins, not the ally's.
+      expiresForTokenId: source.expiresForTokenId ?? source.protectorTokenId ?? null,
+      appliedAtMs: Date.now(),
+    };
+    if (game.user.isGM) {
+      await tokenDoc.setFlag(MODULE, "closeProtection", payload);
+      if (broadcast) game.socket?.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      return true;
+    }
+    game.socket?.emit("module.sta2e-toolkit", {
+      action: "setCloseProtection",
+      targetTokenId: tokenDoc.id,
+      source: payload,
+      requesterUserId: game.userId,
+    });
+    return true;
+  }
+
+  static async clearCloseProtection(tokenOrId, { broadcast = true } = {}) {
+    const token = typeof tokenOrId === "string" ? canvas.tokens?.get(tokenOrId) : tokenOrId;
+    const tokenDoc = token?.document ?? token;
+    if (!tokenDoc?.id) return false;
+    if (game.user.isGM) {
+      await tokenDoc.unsetFlag(MODULE, "closeProtection").catch(() => {});
+      if (broadcast) game.socket?.emit("module.sta2e-toolkit", { action: "renderHUD" });
+      return true;
+    }
+    game.socket?.emit("module.sta2e-toolkit", {
+      action: "clearCloseProtection",
+      targetTokenId: tokenDoc.id,
+      requesterUserId: game.userId,
+    });
+    return true;
+  }
+
+  /** Read and clear the protection on a target — it only affects one attack. */
+  static async consumeCloseProtection(targetToken) {
+    const tokenDoc = targetToken?.document ?? targetToken;
+    const data = tokenDoc?.getFlag?.(MODULE, "closeProtection") ?? null;
+    if (!data) return null;
+    await CombatHUD.clearCloseProtection(tokenDoc);
+    return data;
+  }
+
   static regenShieldSpendPool(actor) {
     const hostileNpcShip = CombatHUD.isNpcShip(actor) && !CombatHUD.isAlliedNpcActor(actor);
     if (hostileNpcShip) return "threat";
@@ -15158,7 +15393,7 @@ export class CombatHUD {
       const tActor = tToken?.actor;
       if (!tActor) continue;
 
-      const protection = payload.piercingApplied ? 0 : CombatHUD._getTargetProtection(tActor);
+      const protection = payload.piercingApplied ? 0 : CombatHUD._getTargetProtection(tActor, tToken);
       const potency    = Math.max(1, severity - protection);
       const profile    = CombatHUD.getGroundCombatProfile(tActor, tToken.document ?? null);
       const injuryName = CombatHUD._groundInjuryName(
@@ -15652,6 +15887,42 @@ export class CombatHUD {
     const injColor     = useStun ? LC.secondary : LC.red;
     const header       = `GROUND ATTACK — ${injTypeLabel} HIT`;
 
+    // Talents that silently changed this attack. Severity bonuses are already
+    // folded into the numbers above, so name them or nobody at the table can
+    // tell where the extra point came from.
+    const talentReasons = [
+      ...(targetData[0]?.talentSeverityReasons ?? []),
+      ...(targetData[0]?.talentIntense ? ["Mean Right Hook — Intense"] : []),
+    ];
+    const talentNote = talentReasons.length
+      ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};
+           margin-bottom:6px;letter-spacing:0.04em;">
+           ✦ ${talentReasons.join(" · ")}
+         </div>`
+      : "";
+
+    // Close Protection — offered once per successful attack, not per target: the
+    // ally being shielded has nothing to do with who was hit.
+    const cpAttackerTokenId = targetData[0]?.attackerTokenId ?? null;
+    const cpAttackerActor   = cpAttackerTokenId
+      ? canvas.tokens?.get(cpAttackerTokenId)?.actor
+      : (targetData[0]?.attackerActorId ? game.actors.get(targetData[0].attackerActorId) : null);
+    const closeProtectionHtml = hasGroundTalent(cpAttackerActor, "closeProtection")
+      ? `<button type="button" class="sta2e-close-protection"
+           data-payload="${encodeURIComponent(JSON.stringify({
+    attackerTokenId: cpAttackerTokenId,
+    attackerActorId: targetData[0]?.attackerActorId ?? null,
+    momentumPool:    targetData[0]?.momentumPool ?? null,
+  }))}"
+           style="width:100%;padding:4px;margin:0 0 6px;
+             background:rgba(0,200,100,0.10);border:1px solid ${LC.green};
+             border-radius:2px;color:${LC.green};font-size:9px;font-weight:700;
+             letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
+             font-family:${LC.font};">
+           🛡 Close Protection — spend 1 Momentum to shield a Close ally
+         </button>`
+      : "";
+
     // Deadly declaration: GM automatically gains 1 Threat (also show pool button as fallback)
     const threatNote = deadlyCostsThreat
       ? `<div style="display:flex;align-items:center;gap:8px;font-size:10px;color:${LC.yellow};
@@ -15944,6 +16215,8 @@ export class CombatHUD {
         </div>
         ${qualityTags ? `<div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">${qualityTags}</div>` : ""}
       </div>
+      ${talentNote}
+      ${closeProtectionHtml}
       ${threatNote}
       ${targetsHtml}
     `);
@@ -20565,14 +20838,15 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         // Succeed at Cost forces the pass; everything downstream keys off this.
         const passed   = rollPassed(payload);
 
-        // Actor document to test for the Andorian Intense species ability. Prefer
-        // the acting officer: on the HUD-roller ship path `actorId` IS the ship
-        // actor, which never carries the talent.
-        const _intenseActor = game.actors.get(payload.officerActorId ?? actorId) ?? null;
-        // Andorian Intense: on a successful task, +1 bonus momentum per extra d20
-        // PURCHASED (extra dice cost a cumulative 1/3/6 coins), so long as at least
-        // one coin was Threat. Momentum may fund the rest. Not bankable.
-        const _intenseBonusFor = (subject) => intenseBonusMomentum({
+        // Actor document to test for the extra-d20 species abilities (Andorian
+        // Intense / Trill Patient). Prefer the acting officer: on the HUD-roller
+        // ship path `actorId` IS the ship actor, which never carries one.
+        const _speciesActor = game.actors.get(payload.officerActorId ?? actorId) ?? null;
+        // On a successful task, extra dice cost a cumulative 1/3/6 coins.
+        // Andorian Intense: +1 per extra d20 PURCHASED so long as at least one coin
+        // was Threat. Trill Patient: +1 per extra d20 whose own cost segment held a
+        // Momentum coin. Capped at the dice bought. Not bankable.
+        const _speciesBonusFor = (subject) => speciesExtraDieBonusMomentum({
           slots: payload.paymentSlots,
           hasFreeExtraDie: payload.hasFreeExtraDie,
           passed,
@@ -20588,8 +20862,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         //   same resolution logic on their end.
         if (!skipCompletionEffects && noPoolButton && taskLabel?.includes("Defense")) {
           const _successes = Math.max(0, totalSuccesses);
-          const _defenseRollingActor = _intenseActor;
-          const _defenseIntenseBonus = _intenseBonusFor(_defenseRollingActor);
+          const _defenseRollingActor = _speciesActor;
+          const _defenseSpeciesBonus = _speciesBonusFor(_defenseRollingActor);
           const _defenseIsNpcRoll = groundMode
             ? groundIsNpc
             : (playerMode ? false : CombatHUD.isNpcShip(game.actors.get(actorId)));
@@ -20597,12 +20871,13 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           const _defenseTraitBonus = passed
             ? Math.max(0, Number(_defensePool === "threat" ? payload.traitBonusThreat : payload.traitBonusMomentum) || 0)
             : 0;
-          const _defenderBonusMomentum = _defenseIntenseBonus
+          const _defenderBonusMomentum = _defenseSpeciesBonus
             + showOffBonusMomentum(payload, passed)
             + callOutTargetsBonusMomentum(payload, passed)
             + planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], _defenseRollingActor ?? game.actors.get(actorId))
             + flightControllerBonusMomentum(payload, passed)
             + chiefMedicalOfficerBonusMomentum(payload, passed)
+            + packTacticsBonusMomentum(payload, passed)
             + _defenseTraitBonus;
           const _defenderRollResult = {
             successes: _successes,
@@ -20633,8 +20908,9 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           : 0;
         const _flightControllerBonus = flightControllerBonusMomentum(payload, passed);
         const _chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
+        const _packTacticsBonus = packTacticsBonusMomentum(payload, passed);
         const _trackerGeneratedMomentum = Math.max(0, totalSuccesses - effectiveDifficulty) + _traitPoolBonus;
-        const momentum = _trackerGeneratedMomentum + _flightControllerBonus + _chiefMedicalBonus;
+        const momentum = _trackerGeneratedMomentum + _flightControllerBonus + _chiefMedicalBonus + _packTacticsBonus;
         const poolLabel  = generatedPool === "threat"
           ? "Threat"
           : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
@@ -20651,7 +20927,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         const _trackerPool = generatedPool;
         const _trackerOwner = (groundMode ? (tokenObj?.actor ?? game.actors.get(actorId)) : shipActor) ?? null;
         const _trackerCharActor = game.actors.get(actorId) ?? null;
-        const _trackerIntenseBonus = _intenseBonusFor(_intenseActor);
+        const _trackerSpeciesBonus = _speciesBonusFor(_speciesActor);
         const _trackerShowOffBonus = showOffBonusMomentum(payload, passed);
         const _trackerCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
         const _trackerPlanOfActionBonus = passed
@@ -20659,6 +20935,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           : 0;
         const _trackerFlightControllerBonus = flightControllerBonusMomentum(payload, passed);
         const _trackerChiefMedicalBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
+        const _trackerPackTacticsBonus = packTacticsBonusMomentum(payload, passed);
         // Versatile X is per-weapon — only present on ship weapon attacks.
         // The damage-card spend panel + Devastating Attack button both pull
         // from the tracker, so we seed it here when the weapon has the quality.
@@ -20679,11 +20956,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         let _trackerMessageId = null;
         let _trackerFloat = 0;     // Unbanked overflow available for this action's spends.
         let _trackerBanked = 0;    // What auto-banked to the pool (for display).
-        if (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerChiefMedicalBonus > 0 || _trackerVersatile > 0)) {
+        if (passed && !noPoolButton && (momentum > 0 || _trackerSpeciesBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerChiefMedicalBonus > 0 || _trackerPackTacticsBonus > 0 || _trackerVersatile > 0)) {
           try {
             const trackerRes = await createTracker(_trackerOwner, {
               totalGenerated: _trackerGeneratedMomentum,
-              bonus:          _trackerIntenseBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus + _trackerFlightControllerBonus + _trackerChiefMedicalBonus,
+              bonus:          _trackerSpeciesBonus + _trackerShowOffBonus + _trackerCallOutTargetsBonus + _trackerPlanOfActionBonus + _trackerFlightControllerBonus + _trackerChiefMedicalBonus + _trackerPackTacticsBonus,
               versatile:      _trackerVersatile,
               weaponName:     _trackerWeaponName,
               pool:           _trackerPool,
@@ -20752,7 +21029,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           confirmedMomentum: momentum,
           confirmedPassed: passed,
           completionEffectsRun: true,
-          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerIntenseBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerChiefMedicalBonus > 0 || _trackerVersatile > 0)),
+          autoBanked: !!_trackerMessageId || (passed && !noPoolButton && (momentum > 0 || _trackerSpeciesBonus > 0 || _trackerShowOffBonus > 0 || _trackerCallOutTargetsBonus > 0 || _trackerPlanOfActionBonus > 0 || _trackerFlightControllerBonus > 0 || _trackerChiefMedicalBonus > 0 || _trackerPackTacticsBonus > 0 || _trackerVersatile > 0)),
           trackerMessageId: _trackerMessageId,
           trackerBanked: _trackerBanked,
           trackerFloat:  _trackerFloat,
@@ -20843,10 +21120,24 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             } else {
               const config    = getWeaponConfig(weapon);
               const hasStun   = weapon.system?.qualities?.stun   ?? false;
-              const hasDeadly = weapon.system?.qualities?.deadly ?? false;
-              const severity  = getGroundWeaponSeverity(weapon);
+              const hasDeadly = (weapon.system?.qualities?.deadly ?? false)
+                || grantsUnarmedDeadly(charActor, weapon);
+              // Applied Force / Steady Hands. The bonus and the Aim snapshot that
+              // Steady Hands depends on were both computed when the attack was
+              // declared and ride along in weaponContext; recompute as a fallback
+              // for a context built before this field existed.
+              const _talentSev = Number.isFinite(Number(weaponContext.talentSeverityBonus))
+                ? { total: Number(weaponContext.talentSeverityBonus),
+                    reasons: weaponContext.talentSeverityReasons ?? [] }
+                : groundTalentSeverityBonus(charActor, weapon, {
+                    isMelee: weapon.system?.range === "melee",
+                    aimUsed: !!weaponContext.aimUsed,
+                  });
+              const talentSeverityBonus   = _talentSev.total;
+              const talentSeverityReasons = _talentSev.reasons;
+              const severity  = getGroundWeaponSeverity(weapon) + talentSeverityBonus;
               // Charge quality declared before the roll (Prepare → Area / Intense / Piercing)
-              const chg = CombatHUD._groundChargeEffects(weapon, weaponContext.chargeQuality ?? null);
+              const chg = CombatHUD._groundChargeEffects(weapon, weaponContext.chargeQuality ?? null, charActor);
               const complicationInfo = passed
                 ? await CombatHUD._resolveComplicationDamagePenalty({
                     complications: totalComplications,
@@ -20870,7 +21161,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   && !!(t.document?.getFlag(MODULE, "coverActive"));
                 // Ground Piercing ignores the target's Protection rating outright;
                 // keep the base figure so the card can report what was bypassed.
-                const fullProtection = CombatHUD._getTargetProtection(tActor) + (isProneCovered ? 1 : 0);
+                const fullProtection = CombatHUD._getTargetProtection(tActor, t) + (isProneCovered ? 1 : 0);
                 const protection     = chg.piercing ? 0 : fullProtection;
                 const hasBraklul = CombatHUD._hasBraklul(tActor);
                 const rawPotency = effectiveSeverity - protection;
@@ -20894,6 +21185,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                   isProneCovered,
                   useStun, isDual, severity: effectiveSeverity,
                   baseSeverity: severity,
+                  talentSeverityBonus, talentSeverityReasons,
+                  talentIntense: chg.talentIntense,
                   complicationDamagePenalty: complicationInfo.penalty,
                   complications: complicationInfo.total,
                   complicationsBoughtOff: complicationInfo.boughtOff,
@@ -20926,10 +21219,11 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               // surfaces floating momentum / quality-aware spends.
               // Float = unbankable overflow returned by createTracker.
               const _floatingMomentum = _trackerFloat;
-              const _intenseBonus = _intenseBonusFor(charActor);
+              const _speciesBonus = _speciesBonusFor(charActor);
               const _callOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
               const _planOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], charActor) : 0;
               const _chiefMedicalSpendBonus = chiefMedicalOfficerBonusMomentum(payload, passed);
+              const _packTacticsSpendBonus = packTacticsBonusMomentum(payload, passed);
               const _spendCtx = passed ? makeSpendContext({
                 floatingMomentum: _floatingMomentum,
                 // `chg` already folds the weapon's own qualities together with
@@ -20945,7 +21239,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 attackerIsNpc: groundIsNpc,
                 attackerActorId: charActor?.id ?? null,
                 attackerTokenId: tokenId ?? null,
-                intenseTalentBonus: _intenseBonus + _trackerShowOffBonus + _callOutTargetsBonus + _planOfActionBonus + _chiefMedicalSpendBonus,
+                intenseTalentBonus: _speciesBonus + _trackerShowOffBonus + _callOutTargetsBonus + _planOfActionBonus + _chiefMedicalSpendBonus + _packTacticsSpendBonus,
                 trackerMessageId: _trackerMessageId,
                 momentumPool: CombatHUD.alliedSpendPool(charActor),
               }) : null;
@@ -20994,7 +21288,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             const _shipFloating = _trackerFloat;
             // Andorian Intense — check the character actor (PC making the roll),
             // never the ship actor.
-            const _shipIntenseBonus = _intenseBonusFor(_intenseActor);
+            const _shipSpeciesBonus = _speciesBonusFor(_speciesActor);
             const _shipShowOffBonus = showOffBonusMomentum(payload, passed);
             const _shipCallOutTargetsBonus = callOutTargetsBonusMomentum(payload, passed);
             const _shipPlanOfActionBonus = passed ? planOfActionBonusMomentum(payload.appliedTraitEffects ?? [], game.actors.get(actorId) ?? shipActor) : 0;
@@ -21016,7 +21310,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               attackerSuccesses:    opposedDefenseType !== null ? totalSuccesses : null,
               opposedDefenderBonus: payload.opposedDefenderBonus ?? 0,
               floatingMomentum:     _shipFloating,
-              intenseTalentBonus:   _shipIntenseBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus + _shipChiefMedicalBonus,
+              intenseTalentBonus:   _shipSpeciesBonus + _shipShowOffBonus + _shipCallOutTargetsBonus + _shipPlanOfActionBonus + _shipChiefMedicalBonus,
               trackerMessageId:     _trackerMessageId,
               momentumPool:         generatedPool,
               complications:         totalComplications,
@@ -21332,16 +21626,19 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         ui.notifications.warn("STA2e Toolkit | Melee defender token not found on scene.");
         return;
       }
+      // Defending in melee is itself a melee attack roll, so Applied Force applies.
+      const defenseAttr = meleeAttackAttribute(token.actor);
       openPlayerRoller(token.actor, token, {
         officer:      readOfficerStats(token.actor),
         groundMode:   true,
         groundIsNpc:  CombatHUD.isGroundNpcActor(token.actor),
         difficulty:   0,
-        defaultAttr:  "daring",
+        defaultAttr:  defenseAttr,
         defaultDisc:  "security",
         noPoolButton: true,
         taskLabel:    "Melee Defense",
-        taskContext:  `Daring + Security · successes set the attacker's Difficulty`,
+        taskContext:  `${defenseAttr === "fitness" ? "Fitness" : "Daring"} + Security `
+          + `· successes set the attacker's Difficulty`,
       });
     });
   });
@@ -21542,6 +21839,90 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     });
   });
 
+  // ── Close Protection — successful attack shields a Close-range ally ──────
+  html.querySelectorAll(".sta2e-close-protection").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      try {
+        const payload = JSON.parse(decodeURIComponent(btn.dataset.payload ?? "{}"));
+        const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
+        const attackerActor = attackerToken?.actor
+          ?? (payload.attackerActorId ? game.actors?.get(payload.attackerActorId) : null);
+        if (!attackerToken || !attackerActor) {
+          ui.notifications.warn("STA2e Toolkit | Close Protection: attacker token not found on scene.");
+          return;
+        }
+
+        const allies = alliesWithinClose(attackerToken);
+        if (!allies.length) {
+          ui.notifications.warn("STA2e Toolkit | Close Protection: no allies within Close range.");
+          return;
+        }
+
+        // One ally, no dialog. Several, pick one.
+        let ally = allies[0];
+        if (allies.length > 1) {
+          const choice = await foundry.applications.api.DialogV2.wait({
+            window: { title: `Close Protection — ${attackerActor.name}` },
+            content: `
+              <div style="font-family:${LC.font};padding:4px 0;font-size:11px;color:${LC.text};">
+                <div style="margin-bottom:8px;line-height:1.5;">
+                  Protect one ally within Close range. The next Attack against them
+                  before the start of <strong>${attackerActor.name}</strong>'s next turn
+                  is <strong>+1 Difficulty</strong>.
+                </div>
+                <select name="allyId" style="width:100%;padding:3px;background:${LC.bg};
+                  border:1px solid ${LC.border};border-radius:2px;color:${LC.text};
+                  font-family:${LC.font};font-size:11px;">
+                  ${allies.map(a => `<option value="${a.id}">${a.name}</option>`).join("")}
+                </select>
+              </div>`,
+            buttons: [
+              { action: "ok", label: "Protect (1 Momentum)", icon: "fas fa-shield-halved",
+                default: true, callback: (_e, button) => button.form.elements.allyId.value },
+              { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+            ],
+          });
+          if (!choice || choice === "cancel") return;
+          ally = allies.find(a => a.id === choice) ?? null;
+          if (!ally) return;
+        }
+
+        const paid = await CombatHUD._spendDamageMomentumCost({
+          attackerActorId: attackerActor.id,
+          attackerTokenId: attackerToken.id,
+          attackerIsNpc:   CombatHUD.isGroundNpcActor(attackerActor),
+          trackerMessageId: null,
+          momentumPool: payload.momentumPool ?? CombatHUD.chiefSecurityMomentumPool(attackerActor),
+        }, 1, "Close Protection");
+        if (!paid) return;
+
+        await CombatHUD.setCloseProtection(ally, {
+          protectorName:    attackerActor.name,
+          protectorActorId: attackerActor.id,
+          protectorTokenId: attackerToken.id,
+          expiresForTokenId: attackerToken.id,
+        });
+
+        btn.disabled      = true;
+        btn.style.opacity = "0.5";
+        btn.textContent   = `🛡 Close Protection — ${ally.name}`;
+        await ChatMessage.create({
+          content: lcarsCard("🛡 CLOSE PROTECTION", LC.green, `
+            <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.6;">
+              <strong style="color:${LC.tertiary};">${attackerActor.name}</strong> shields
+              <strong style="color:${LC.green};">${ally.name}</strong>.<br>
+              The next Attack against them is <strong>+1 Difficulty</strong>,
+              until the start of ${attackerActor.name}'s next turn.
+            </div>`),
+          speaker: ChatMessage.getSpeaker({ token: attackerToken }),
+        });
+      } catch (err) {
+        console.error("STA2e Toolkit | Close Protection spend error:", err);
+        ui.notifications.error("Failed to apply Close Protection — see console.");
+      }
+    });
+  });
+
   // ── Ground combat counterattack — visible to all users ───────────────────
   html.querySelectorAll(".sta2e-ground-counterattack").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -21713,10 +22094,15 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return;
         }
         const config    = getWeaponConfig(chosenWeapon);
-        const severity  = getGroundWeaponSeverity(chosenWeapon);
+        // A counterattack is a Melee Attack, so Applied Force's Unarmed bonus
+        // applies. Aim cannot precede a counterattack, so Steady Hands cannot.
+        const _counterSev = groundTalentSeverityBonus(defenderActor, chosenWeapon, {
+          isMelee: true, aimUsed: false,
+        });
+        const severity  = getGroundWeaponSeverity(chosenWeapon) + _counterSev.total;
 
         const profile    = CombatHUD.getGroundCombatProfile(attackerActor, attackerToken?.document);
-        const protection = CombatHUD._getTargetProtection(attackerActor);
+        const protection = CombatHUD._getTargetProtection(attackerActor, attackerToken);
         const rawPotency = severity - protection;
         const potency    = severity > 0 ? Math.max(1, rawPotency) : 0;
         const hasBraklul = CombatHUD._hasBraklul(attackerActor);
@@ -21734,6 +22120,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           maxStress:     attackerActor.system?.stress?.max   ?? 0,
           isProneCovered: false,
           useStun, isDual: hasStun && hasDeadly, severity, protection, hasBraklul, potency,
+          talentSeverityBonus: _counterSev.total,
+          talentSeverityReasons: _counterSev.reasons,
           weaponId:     chosenWeapon.id,
           weaponName:  chosenWeapon.name,
           weaponImg:   chosenWeapon.img,

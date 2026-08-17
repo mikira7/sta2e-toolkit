@@ -71,7 +71,7 @@ const RIM_SEGMENTS = 64;
  * turned it into a fat band on capital ships. The shatter fragments key off it
  * so a broken shard still reads heavier than the intact rim.
  */
-const RIM_WIDTH = 2;
+export const RIM_WIDTH = 2;
 
 /**
  * Cap radius as a fraction of the envelope's long reach. Large enough that the
@@ -154,11 +154,15 @@ function _hexToNum(hex, fallback = 0x9fd8ff) {
 /**
  * The envelope's radii and its offset from the token centre, in token-local px.
  *
+ * Exported because the idle shield envelope (shield-idle-vfx.js) has to agree
+ * with the impact bubble to the pixel — two effects on the same hull deriving
+ * their own radii would visibly disagree the moment both are on screen.
+ *
  * @param {number} standoff  How far outside the artwork the envelope sits,
  *   resolved by the caller (per-ship override, else the world setting) and sent
  *   over the socket so every client draws the same size bubble.
  */
-function _bubbleGeometry(token, standoff = 1.35) {
+export function getShieldEnvelopeGeometry(token, standoff = 1.35) {
   const art = getTokenArtMetrics(token);
   const factor = _clamp(_number(standoff, 1.35), 1, 2);
   return {
@@ -177,7 +181,7 @@ function _bubbleGeometry(token, standoff = 1.35) {
  * is measured on the unrotated artwork and core turns the sprite with
  * `mesh.angle`, which a token locking rotation opts out of.
  */
-function _seatContainer(container, token, geo) {
+export function seatShieldEnvelope(container, token, geo) {
   const frame = _envelopeFrame(token, geo);
 
   container.x = frame.x;
@@ -189,7 +193,7 @@ function _seatContainer(container, token, geo) {
 
 /**
  * Where the envelope sits on the canvas and how it is turned — the same numbers
- * `_seatContainer` puts on the container, but available without one, so the
+ * `seatShieldEnvelope` puts on the container, but available without one, so the
  * geometry can be queried before any effect is built.
  */
 function _envelopeFrame(token, geo) {
@@ -294,7 +298,7 @@ export function getShieldCapPoint(targetToken, sourcePoint, hullPoint, capT) {
   if (!targetToken || targetToken.destroyed || !from || !to) return null;
 
   try {
-    const geo = _bubbleGeometry(targetToken, resolveShieldStandoffFactor(targetToken));
+    const geo = getShieldEnvelopeGeometry(targetToken, resolveShieldStandoffFactor(targetToken));
     const frame = _envelopeFrame(targetToken, geo);
     const hullLocal = _toLocal(frame, to);
     const crossing = _crossingLocal(geo, _toLocal(frame, from), hullLocal);
@@ -329,7 +333,7 @@ function _crestAngle(container, geo, trig, sourcePoint, impactPoint) {
  * cap sprite gets that falloff from a gradient instead, which is both cheaper
  * and smoother.
  */
-function _drawRim(g, geo, color, width) {
+export function drawShieldRim(g, geo, color, width) {
   g.clear();
 
   const step = (Math.PI * 2) / RIM_SEGMENTS;
@@ -345,8 +349,9 @@ function _drawRim(g, geo, color, width) {
   }
 }
 
-/** A filled ellipse, used only as the cap's mask. */
-function _drawEnvelopeFill(g, geo) {
+/** A filled ellipse, used only as a mask — for the cap here, for the grain in
+ * shield-idle-vfx.js. */
+export function drawShieldEnvelopeFill(g, geo) {
   g.clear();
   if (typeof g.drawEllipse === "function") {
     g.beginFill(0xffffff, 1);
@@ -537,14 +542,14 @@ export function playShieldBubbleLocal({ tokenId, x, y, sx, sy, color, intensity 
 function _renderBubble(layer, token, impactPoint, sourcePoint, opts) {
   const hex   = /^#[0-9a-f]{6}$/i.test(opts.color) ? opts.color.toLowerCase() : "#9fd8ff";
   const color = _hexToNum(hex);
-  const geo   = _bubbleGeometry(token, opts.standoff);
+  const geo   = getShieldEnvelopeGeometry(token, opts.standoff);
   const life  = opts.broke ? BROKE_LIFE_MS : NORMAL_LIFE_MS;
 
   const container = new PIXI.Container();
   const tokenZ = typeof token.zIndex === "number" ? token.zIndex : 0;
   container.zIndex = Math.max(VFX_Z_BASE, tokenZ + 10_000);
 
-  const frame = _seatContainer(container, token, geo);
+  const frame = seatShieldEnvelope(container, token, geo);
   const theta = _crestAngle(container, geo, frame, sourcePoint, impactPoint);
 
   // Where the shot met the envelope, and where on the hull it was aimed — the
@@ -561,7 +566,7 @@ function _renderBubble(layer, token, impactPoint, sourcePoint, opts) {
   // The boundary. Drawn once; only its alpha moves after this.
   const rim = new PIXI.Graphics();
   rim.blendMode = _addBlend();
-  _drawRim(rim, geo, color, RIM_WIDTH);
+  drawShieldRim(rim, geo, color, RIM_WIDTH);
   container.addChild(rim);
 
   // The lit patch, clipped to the envelope so it reads as light ON the bubble
@@ -572,7 +577,7 @@ function _renderBubble(layer, token, impactPoint, sourcePoint, opts) {
   cap.addChild(capGlow);
 
   const capMask = new PIXI.Graphics();
-  _drawEnvelopeFill(capMask, geo);
+  drawShieldEnvelopeFill(capMask, geo);
   container.addChild(capMask);
   // An unmasked cap spills a little past the envelope, which is a far better
   // failure than no shield at all — so this never throws the effect away.
@@ -655,7 +660,7 @@ function _renderBubble(layer, token, impactPoint, sourcePoint, opts) {
   function paint() {
     // Re-seat first: a ship still gliding from an earlier move must not leave
     // its bubble behind, and everything below is drawn in the container's frame.
-    _seatContainer(container, token, geo);
+    seatShieldEnvelope(container, token, geo);
 
     const p = elapsed / life;
 
@@ -831,7 +836,7 @@ export function testShieldBubble({ shieldBroke = false, color = null, finalDamag
   // Fire from the controlled token when there is one, so the crest can be
   // checked against a real bearing; otherwise pick a random side.
   const source = canvas?.tokens?.controlled?.find(t => t !== target) ?? null;
-  const geo = _bubbleGeometry(target, resolveShieldStandoffFactor(target));
+  const geo = getShieldEnvelopeGeometry(target, resolveShieldStandoffFactor(target));
   const bearing = Math.random() * Math.PI * 2;
   const sourcePoint = source?.center ?? {
     x: target.center.x + Math.cos(bearing) * geo.rx * 3,

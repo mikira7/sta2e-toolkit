@@ -25,11 +25,12 @@
  */
 
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
-import { allRolledDice, callOutTargetsBonusMomentum, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
+import { allRolledDice, callOutTargetsBonusMomentum, openNpcRoller, openPlayerRoller, packTacticsBonusMomentum } from "./npc-roller.js";
 import { getStationOfficers, readOfficerStats } from "./crew-manifest.js";
 import { labelFromKey as _labelFromKey, orderedShipsForActor, serializeShipsForRoller } from "./ship-pool.js";
 import { CombatHUD } from "./combat-hud.js";
 import { createTracker } from "./momentum-tracker.js";
+import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { planOfActionBonusMomentum } from "./trait-service.js";
 import { getExtraActionDifficulty } from "./combat/initiative-order.js";
 // The setup UI now lives in the Task Maker's "Opposed Task" tab.  opposed-panel.js
@@ -109,7 +110,17 @@ function _opposedSideBonusMomentum(sideData = {}, passed = false) {
     sideData.appliedTraitEffects ?? rollData.appliedTraitEffects ?? [],
     rollingActor
   );
-  return Math.max(0, callOutTargetsBonus + planOfActionBonus);
+  // Andorian Intense / Trill Patient. The roll card payload carries the payment
+  // slots, so an opposed roll can award these the same as any other task.
+  const speciesBonus = speciesExtraDieBonusMomentum({
+    slots: rollData.paymentSlots,
+    hasFreeExtraDie: rollData.hasFreeExtraDie,
+    passed: true,
+    actor: rollingActor,
+  });
+  // Pack Tactics — an assistant's talent paying out on the assisted roll.
+  const packTacticsBonus = packTacticsBonusMomentum(rollData, true);
+  return Math.max(0, callOutTargetsBonus + planOfActionBonus + speciesBonus + packTacticsBonus);
 }
 
 function _calculateOpposedDifficulty(taskData = {}) {
@@ -117,6 +128,9 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const base = Number(taskData.defender?.successes ?? 0);
   const guardPenalty = Number(options.guardPenalty ?? 0);
   const chiefSecurityPenalty = Number(options.chiefSecurityPenalty ?? 0);
+  // Defender's Defensive Training talent, and a Close Protection spent on them.
+  const defensiveTrainingPenalty = Number(options.defensiveTrainingPenalty ?? 0);
+  const closeProtectionPenalty = Number(options.closeProtectionPenalty ?? 0);
   const pronePenalty = Number(options.pronePenalty ?? 0);
   const overridePenalty = Number(options.overridePenalty ?? 0);
   const cumbersomePenalty = Number(options.cumbersomePenalty ?? 0);
@@ -129,8 +143,8 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const attackerTraitDelta = taskData.attacker?.rolled
     ? _opposedRollTraitDelta(taskData.attacker)
     : 0;
-  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty + extraActionPenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
-  return { base, guardPenalty, chiefSecurityPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, attackPatternPenalty, extraActionPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
+  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + defensiveTrainingPenalty + closeProtectionPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty + extraActionPenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
+  return { base, guardPenalty, chiefSecurityPenalty, defensiveTrainingPenalty, closeProtectionPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, attackPatternPenalty, extraActionPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -302,6 +316,9 @@ export async function startGroundCombatOpposedTask(opts = {}) {
       defenseType,
       guardPenalty,
       chiefSecurityPenalty,
+      defensiveTrainingPenalty: Number(opts.defensiveTrainingPenalty ?? 0),
+      closeProtectionPenalty: Number(opts.closeProtectionPenalty ?? 0),
+      closeProtectionSource: opts.closeProtectionSource ?? null,
       pronePenalty,
       // Derived from the attacker rather than passed in by each caller, so every
       // ground attack path picks up a bought extra Major Action's +1 automatically.
@@ -668,6 +685,12 @@ function _renderCardHtml(d) {
       breakdownParts.push(`${d.attacker.successes} succ vs Diff ${target}`);
       if (guardPenalty) breakdownParts.push(`Guard +${guardPenalty}`);
       if (chiefSecurityPenalty) breakdownParts.push(`Chief of Security +${chiefSecurityPenalty}`);
+      if (difficultyInfo.defensiveTrainingPenalty) breakdownParts.push(`Defensive Training +${difficultyInfo.defensiveTrainingPenalty}`);
+      if (difficultyInfo.closeProtectionPenalty) {
+        const cpSource = d.options?.closeProtectionSource;
+        breakdownParts.push(`Close Protection +${difficultyInfo.closeProtectionPenalty}`
+          + (cpSource ? ` (${_esc(cpSource)})` : ""));
+      }
       if (pronePenalty) breakdownParts.push(`Prone +${pronePenalty}`);
       if (difficultyInfo.overridePenalty) breakdownParts.push(`Override +${difficultyInfo.overridePenalty}`);
       if (difficultyInfo.cumbersomePenalty) breakdownParts.push(`Cumbersome +${difficultyInfo.cumbersomePenalty}`);
@@ -764,7 +787,7 @@ function _renderCardHtml(d) {
 
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
     ? `<div style="padding:4px 12px 6px;color:${textDim};font-size:10px;line-height:1.4;font-style:italic;">
-        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${chiefSecurityPenalty ? ` + ${chiefSecurityPenalty} Chief of Security` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.pointDefensePenalty ? ` + ${difficultyInfo.pointDefensePenalty} Point Defense` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
+        Defender rolls first. Attacker difficulty is defender successes${guardPenalty ? ` + ${guardPenalty} Guard` : ""}${chiefSecurityPenalty ? ` + ${chiefSecurityPenalty} Chief of Security` : ""}${difficultyInfo.defensiveTrainingPenalty ? ` + ${difficultyInfo.defensiveTrainingPenalty} Defensive Training` : ""}${difficultyInfo.closeProtectionPenalty ? ` + ${difficultyInfo.closeProtectionPenalty} Close Protection` : ""}${pronePenalty ? ` + ${pronePenalty} Prone` : ""}${difficultyInfo.overridePenalty ? ` + ${difficultyInfo.overridePenalty} Override` : ""}${difficultyInfo.pointDefensePenalty ? ` + ${difficultyInfo.pointDefensePenalty} Point Defense` : ""}${difficultyInfo.attackPatternPenalty ? ` - ${difficultyInfo.attackPatternPenalty} Attack Pattern` : ""}${traitLabel ? ` ${difficultyInfo.traitDelta > 0 ? "+" : "-"} ${traitLabel}` : ""}${difficultyInfo.defenderTraitDelta ? ` ${difficultyInfo.defenderTraitDelta > 0 ? "+" : "-"} Defender Traits ${Math.abs(difficultyInfo.defenderTraitDelta)}` : ""}.
       </div>`
     : "";
 
