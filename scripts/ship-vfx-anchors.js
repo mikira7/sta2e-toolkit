@@ -5,6 +5,7 @@
  */
 
 import { hasPointDefenseSystem } from "./combat/combat-definitions.js";
+import { normalizeWarpEffectStyleId, getWarpEffectStyleOptions } from "./warp-effect-styles.js";
 
 const MODULE = "sta2e-toolkit";
 const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
@@ -12,7 +13,7 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 13;
+const SHIP_VFX_ANCHORS_VERSION = 14;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -464,6 +465,14 @@ export function normalizeShipShieldImpactSettings(settings = {}) {
   };
 }
 
+// Which flash this ship warps with. The style registry owns the option list and
+// the trait gating; this only stores the selection.
+export const DEFAULT_SHIP_WARP_EFFECT_SETTINGS = Object.freeze({ style: "standard" });
+
+export function normalizeShipWarpEffectSettings(settings = {}) {
+  return { style: normalizeWarpEffectStyleId(settings?.style) };
+}
+
 /** 0 (unset) or a factor inside the range the world setting also enforces. */
 function _normalizeShieldStandoff(value) {
   const numeric = Number(value);
@@ -815,6 +824,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
       tractorBeam: normalizeShipTractorBeamSettings(data?.settings?.tractorBeam),
       pointDefense: normalizePointDefenseSettings(data?.settings?.pointDefense),
+      warpEffect: normalizeShipWarpEffectSettings(data?.settings?.warpEffect),
     },
   };
 }
@@ -927,6 +937,10 @@ export function getShipPointDefenseSettings(actorOrToken) {
 
 export function getShipTractorBeamSettings(actorOrToken) {
   return normalizeShipTractorBeamSettings(getShipVfxAnchors(actorOrToken)?.settings?.tractorBeam);
+}
+
+export function getShipWarpEffectSettings(actorOrToken) {
+  return normalizeShipWarpEffectSettings(getShipVfxAnchors(actorOrToken)?.settings?.warpEffect);
 }
 
 // Map a placed engine emitter (normalized image anchor) to a live canvas point,
@@ -2333,6 +2347,32 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     });
   }
 
+  _activeWarpEffectSettings() {
+    return normalizeShipWarpEffectSettings(this._anchors.settings?.warpEffect);
+  }
+
+  _setWarpEffectSettings(settings) {
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      settings: {
+        ...(this._anchors.settings ?? {}),
+        warpEffect: normalizeShipWarpEffectSettings(settings),
+      },
+    });
+  }
+
+  // Like shield colour, the warp effect belongs to the ship rather than to any
+  // one emitter tab, so it is read on its own and bails on element absence
+  // (the row is hidden entirely for ships with no gated style available).
+  _readWarpEffectSettingsFromForm() {
+    if (!this.element) return;
+    const current = this._activeWarpEffectSettings();
+    this._setWarpEffectSettings({
+      style: this.element.querySelector('[data-warp-effect-setting="style"]')?.value ?? current.style,
+    });
+  }
+
   _chargeRows(settings) {
     if (!settings) return [];
     const c = settings.charge;
@@ -3260,6 +3300,13 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       shieldPickerColor: this._activeShieldImpactSettings().customColor
         || resolveShieldImpactColorHex(this.actor, this._activeShieldImpactSettings()),
       resolvedShieldStandoff: resolveShieldStandoffFactor(this.actor, this._activeShieldImpactSettings()),
+      // A single option means nothing gated is available to this ship, so the
+      // whole row is suppressed — that check IS the Timeship trait gate.
+      showWarpEffectSelect: getWarpEffectStyleOptions(this.actor).length > 1,
+      warpEffectStyleOptions: getWarpEffectStyleOptions(this.actor).map(option => ({
+        ...option,
+        selected: option.value === this._activeWarpEffectSettings().style,
+      })),
       showPhaserEraSelector: _isEraPhaserWeapon(activeWeapon),
       phaserEraOptions: PHASER_ERA_OPTIONS.map(option => ({
         ...option,
@@ -3519,6 +3566,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     };
 
     el.querySelectorAll("[data-hex-color-picker]").forEach(syncHexPicker);
+
+    // Ship-level, so it drives no weapon preview — just record the choice.
+    el.querySelectorAll("[data-warp-effect-setting]").forEach(input => {
+      input.addEventListener("change", () => this._readWarpEffectSettingsFromForm());
+    });
 
     el.querySelectorAll("[data-vfx-setting], [data-charge-setting], [data-shield-impact-setting]").forEach(input => {
       input.addEventListener("input", () => {
@@ -4068,6 +4120,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
     this._readPointDefenseSettingsFromForm();
+    this._readWarpEffectSettingsFromForm();
     this._anchors = await _saveShipVfxAnchors(this.actor, {
       ...this._anchors,
       textureSrc: this.textureSrc,
@@ -4115,6 +4168,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
     this._readPointDefenseSettingsFromForm();
+    this._readWarpEffectSettingsFromForm();
     const payload = {
       module: MODULE,
       type: SHIP_VFX_ANCHORS_FLAG,

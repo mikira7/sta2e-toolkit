@@ -1123,6 +1123,9 @@ Hooks.once("ready", async () => {
       playNativeWarpFlash({
         x: msg.x, y: msg.y, x2: msg.x2, y2: msg.y2,
         radius: msg.radius, heading: msg.heading, phase: msg.phase,
+        // Absent from an older client's payload; playNativeWarpFlash's own
+        // default then resolves it to the standard flash.
+        styleId: msg.styleId,
       });
       return;
     }

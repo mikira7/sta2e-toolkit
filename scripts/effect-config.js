@@ -353,6 +353,11 @@ function buildTabDefs() {
         { label: "Warp — Flash Size",      slot: "", sndKey: null,                 animKey: null,
           delayKey: "warpFlashScale", unit: "%", step: 5,
           defaultHint: "Default: 100% — scales the Warp-Flash animation at both ends of the jump." },
+        { label: "Warp — Temporal Rift Peak", slot: "ms", sndKey: null, animKey: null,
+          delayKey: "warpRiftPeakMs", step: 100,
+          defaultHint: "Default: 2500 ms — the moment the rift is widest, when the ship vanishes or materialises. Only used by ships whose Warp Effect (Ship VFX config) is set to Temporal Rift, on scene arrival and warp-out. Keep it shorter than the clip." },
+        { label: "Warp — Temporal Rift Sound", slot: "", sndKey: "sndTemporalRift", animKey: null,
+          defaultHint: "Played at both ends of a rift transit. Blank falls back to the Warp Depart / Warp Arrive sounds above." },
         { label: "Warp — Corridor",        slot: "", sndKey: null,                 animKey: "shipTasks.warpCorridor.anim",
           defaultHint: jb2aHint(
             "jb2a.energy_strands.range.standard.blue.04.90ft",

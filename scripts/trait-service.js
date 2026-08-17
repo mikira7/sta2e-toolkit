@@ -116,6 +116,33 @@ export function actorHasTalent(actor, talentName) {
   return Array.from(actor.items).some(item => normalizeTalentName(item?.name) === wanted);
 }
 
+/**
+ * Every trait name on an actor, normalized. The STA system stores ship traits
+ * in two places at once — embedded items of type "trait" and a free-text
+ * system.traits field — so both are unioned here.
+ */
+export function actorTraitNames(actor) {
+  const names = new Set();
+  if (!actor) return names;
+  for (const item of actor.items ?? []) {
+    if (item?.type !== "trait" || !item?.name) continue;
+    names.add(normalizeTalentName(item.name));
+  }
+  const text = actor.system?.traits;
+  if (typeof text === "string") {
+    for (const part of text.split(/[,\n]/)) {
+      const trimmed = normalizeTalentName(part);
+      if (trimmed) names.add(trimmed);
+    }
+  }
+  return names;
+}
+
+export function actorHasTrait(actor, traitName) {
+  if (!actor || !traitName) return false;
+  return actorTraitNames(actor).has(normalizeTalentName(traitName));
+}
+
 export function actorHasPlanOfActionTalent(actor) {
   return actorHasTalent(actor, "Plan of Action");
 }

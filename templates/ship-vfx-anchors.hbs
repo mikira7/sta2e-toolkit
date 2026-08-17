@@ -1098,6 +1098,30 @@
   </div>
   {{/if}}
 
+  {{!-- Only rendered for ships that have a gated style available (the Timeship
+        trait); everyone else has nothing to choose between. Ship-level, so it
+        sits outside the tab blocks like the shield settings below. --}}
+  {{#if showWarpEffectSelect}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading">
+      <span>Warp Effect</span>
+    </div>
+    <div class="sta2e-anchor-value">
+      Which flash plays when this ship warps into a scene or warps off the map. A Temporal Rift replaces the warp corridor entirely and runs considerably longer.
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-warp-effect-style">Style</label>
+        <select id="sta2e-warp-effect-style" data-warp-effect-setting="style">
+          {{#each warpEffectStyleOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+    </div>
+  </div>
+  {{/if}}
+
   {{!-- Shield colour belongs to the ship rather than to any one emitter, so it
         sits outside the tab blocks and stays reachable from wherever you are. --}}
   <div class="sta2e-vfx-settings">

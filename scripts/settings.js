@@ -1358,6 +1358,25 @@ export function registerSettings() {
     scope: "world", config: false, type: Number, default: 100,
   });
 
+  // Timeships can warp through a Temporal Rift instead of the standard flash.
+  // The rift is a much longer clip, so the moment the ship actually vanishes or
+  // materialises has to be tunable independently of the flash's fixed 750ms —
+  // the asset can be re-authored without touching code.
+  game.settings.register("sta2e-toolkit", "warpRiftPeakMs", {
+    name: "Temporal Rift Peak (ms)",
+    hint: "When the rift aperture is widest — the moment a timeship vanishes or materialises. Keep this shorter than the Temporal-Rift clip itself.",
+    scope: "world", config: false, type: Number, default: 2500,
+  });
+
+  // One key for both ends: a rift is a single continuous portal event rather
+  // than the boom-then-drop-out pair a warp jump is. Blank falls back to the
+  // normal warp sounds, so an unconfigured rift is never silent.
+  game.settings.register("sta2e-toolkit", "sndTemporalRift", {
+    name: "Temporal Rift Sound",
+    hint: "Audio file played at both ends of a timeship's rift transit. Blank uses the Warp Depart / Warp Arrive sounds.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
   // Ship spawner dialog state. Per-client so two GMs do not fight over the
   // formation they each prefer; config:false because the dialog is the UI.
   game.settings.register("sta2e-toolkit", "shipSpawnerPrefs", {

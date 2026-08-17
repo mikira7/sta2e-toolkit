@@ -35,6 +35,11 @@ import {
   tokenArrayCurveToCanvasCurve,
   warpCurveAftIsEnd,
 } from "./ship-vfx-anchors.js";
+import {
+  getWarpEffectStyle,
+  normalizeWarpEffectStyleId,
+  resolveWarpSoundKey,
+} from "./warp-effect-styles.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -42,6 +47,10 @@ const MODULE = "sta2e-toolkit";
 // movement code and the animation can never drift apart. The flash is the
 // Warp-Flash.webm clip: ~1s long with its biggest frame ~3/4 in — the runners
 // vanish/reveal the ship at WARP_FLASH_PEAK_MS, not at the clip start.
+//
+// These are the *standard* style's numbers, still used directly by the in-scene
+// warp jump. Anything that can play a non-standard style must read its timing
+// from getWarpFlashTiming(styleId) in warp-effect-styles.js instead.
 export const WARP_DEPART_MS = 1000;
 export const WARP_ARRIVE_MS = 1000;
 export const WARP_FLASH_PEAK_MS = 750;
@@ -118,14 +127,14 @@ function _effectLayer() {
 
 // ── Native flash pieces ──────────────────────────────────────────────────────
 
-// The hand-made flash animation. ~1s long; the biggest frame of the flash sits
-// about 3/4 in, which is the moment the ship should vanish (depart) or appear
-// (arrive) — WARP_FLASH_PEAK_MS below encodes that for the warp runners.
-const WARP_FLASH_ANIM_SRC = "modules/sta2e-toolkit/assets/vfx/Warp-Flash.webm";
+// The clip, its size multiplier and the moment of its decisive frame all live
+// on the style now — see warp-effect-styles.js. The standard style is the
+// hand-made Warp-Flash.webm; timeships can swap in the Temporal Rift.
 
-// One warning per session if the flash video turns out to be origin-tainted —
-// repeated jumps would otherwise spam the console. See _webmFlash.
-let _taintWarned = false;
+// One warning per style per session if a flash video turns out to be
+// origin-tainted — repeated jumps would otherwise spam the console. Keyed by
+// style so a failure on one clip never silences the other. See _webmFlash.
+const _taintWarned = new Set();
 
 // GM-tunable size multiplier (Sounds & Animations → Ship Tasks → "Warp — Flash
 // Size", stored as a percent). World scope, so every client scales alike.
@@ -138,12 +147,12 @@ function _warpFlashScale() {
 }
 
 /**
- * Play the Warp-Flash webm as a PIXI video sprite at a canvas point. The same
- * clip serves depart and arrive; the runners time the token fade against
- * WARP_FLASH_PEAK_MS instead of the clip playing differently per phase.
+ * Play a style's webm as a PIXI video sprite at a canvas point. The same clip
+ * serves depart and arrive; the runners time the token fade against the style's
+ * peak instead of the clip playing differently per phase.
  * Additive blend keeps any black background reading as pure light.
  */
-function _webmFlash(layer, x, y, radius, zBase) {
+function _webmFlash(layer, x, y, radius, zBase, style) {
   const video = document.createElement("video");
   // Must precede the src assignment to take effect. Hosted games (The Forge)
   // redirect module assets to a CDN on another origin; without this the element
@@ -153,13 +162,18 @@ function _webmFlash(layer, x, y, radius, zBase) {
   video.playsInline = true;
   video.loop = false;
   video.preload = "auto";
-  video.src = WARP_FLASH_ANIM_SRC;
+  video.src = style.src;
 
   let container = null;
   let done = false;
+  // Armed before load() so a decode that never fires "loadeddata" is still
+  // reaped. Deliberately generous: styles differ in length by 5x, so this is
+  // only a ceiling — it gets re-armed from the real duration once known.
+  let backstop = setTimeout(() => cleanup(), 15000);
   const cleanup = () => {
     if (done) return;
     done = true;
+    clearTimeout(backstop);
     try { container?.destroy({ children: true }); } catch { /**/ }
     container = null;
     // Release the media element so the browser drops the decoder right away.
@@ -180,9 +194,9 @@ function _webmFlash(layer, x, y, radius, zBase) {
       pctx.drawImage(video, 0, 0, 1, 1);
       pctx.getImageData(0, 0, 1, 1);
     } catch (err) {
-      if (!_taintWarned) {
-        _taintWarned = true;
-        console.warn("STA2e Toolkit | warp flash video is cross-origin and cannot be rendered; skipping the flash:", err);
+      if (!_taintWarned.has(style.id)) {
+        _taintWarned.add(style.id);
+        console.warn(`STA2e Toolkit | warp flash video (${style.id}) is cross-origin and cannot be rendered; skipping the flash:`, err);
       }
       cleanup();
       return;
@@ -200,7 +214,7 @@ function _webmFlash(layer, x, y, radius, zBase) {
     sprite.blendMode = _addBlend();
     const vw = video.videoWidth || 1;
     const vh = video.videoHeight || 1;
-    const scale = (radius * 6 * _warpFlashScale()) / Math.max(vw, vh);
+    const scale = (radius * style.scaleMul * _warpFlashScale()) / Math.max(vw, vh);
     sprite.width  = vw * scale;
     sprite.height = vh * scale;
 
@@ -211,12 +225,21 @@ function _webmFlash(layer, x, y, radius, zBase) {
     container.addChild(sprite);
     layer.addChild(container);
     video.play().catch(() => { /* autoplay policy — muted, should not happen */ });
+
+    // Re-arm the backstop against the clip's real length, now that it is known.
+    // Number.isFinite is load-bearing, not defensive padding: some webm muxes
+    // report Infinity until "durationchange", and setTimeout(fn, Infinity)
+    // coerces to 1ms — the sprite would vanish the instant it appeared.
+    const durMs = (Number.isFinite(video.duration) && video.duration > 0)
+      ? video.duration * 1000
+      : 0;
+    clearTimeout(backstop);
+    // The slack covers decode jitter, so the backstop never beats a real "ended".
+    backstop = setTimeout(() => cleanup(), (durMs || 5000) + 1000);
   }, { once: true });
 
   video.addEventListener("ended", cleanup, { once: true });
   video.addEventListener("error", cleanup, { once: true });
-  // Backstop for a stalled decode or a lost "ended" event.
-  setTimeout(cleanup, 4000);
   video.load();
 }
 
@@ -280,8 +303,11 @@ function _warpCorridor(layer, from, to, width, zBase) {
  * @param {number}  opts.radius   Token radius in pixels (drives every dimension)
  * @param {number}  opts.heading  Direction of travel, radians
  * @param {"depart"|"arrive"|"corridor"} opts.phase
+ * @param {string}  [opts.styleId] Warp effect style; defaults to the standard
+ *                                 flash, which is also what an older client's
+ *                                 socket payload resolves to.
  */
-export function playNativeWarpFlash({ x, y, x2, y2, radius = 50, heading = 0, phase = "depart" } = {}) {
+export function playNativeWarpFlash({ x, y, x2, y2, radius = 50, heading = 0, phase = "depart", styleId = "standard" } = {}) {
   if (typeof PIXI === "undefined") return;
   const layer = _effectLayer();
   if (!layer) return;
@@ -294,7 +320,7 @@ export function playNativeWarpFlash({ x, y, x2, y2, radius = 50, heading = 0, ph
       _warpCorridor(layer, { x, y }, { x: x2, y: y2 }, radius * 0.5, zBase);
       return;
     }
-    _webmFlash(layer, x, y, radius, zBase);
+    _webmFlash(layer, x, y, radius, zBase, getWarpEffectStyle(styleId));
   } catch (err) {
     console.warn("STA2e Toolkit | warp flash render failed:", err);
   }
@@ -397,6 +423,11 @@ export function playWarpSound(settingKey, volume = 0.8) {
  * @param {number} [opts.x]        Override centre x (defaults to token centre)
  * @param {number} [opts.y]        Override centre y
  * @param {string} [opts.soundKey] Settings key of the sound to play
+ * @param {string} [opts.styleId]  Warp effect style id. Deliberately NOT
+ *   resolved from the token here: a caller that has not opted in must keep the
+ *   standard clip, because it is also timing its token fades against the
+ *   standard WARP_FLASH_PEAK_MS. Only callers that read getWarpFlashTiming()
+ *   for the same style may pass this.
  */
 export async function playWarpFlash(token, phase = "depart", opts = {}) {
   const gridSize = canvas?.grid?.size ?? 100;
@@ -406,16 +437,21 @@ export async function playWarpFlash(token, phase = "depart", opts = {}) {
   const y = opts.y ?? token?.center?.y ?? ((token?.y ?? 0) + tokH / 2);
   const radius = Math.max(20, Math.max(tokW, tokH) / 2);
   const heading = Number.isFinite(opts.heading) ? opts.heading : 0;
+  const styleId = normalizeWarpEffectStyleId(opts.styleId);
+  const style = getWarpEffectStyle(styleId);
 
-  playWarpSound(opts.soundKey);
+  // A style-specific sound only wins once the GM points it at a file; otherwise
+  // the caller's normal warp sound plays.
+  playWarpSound(resolveWarpSoundKey(style, phase, opts.soundKey));
 
   // Depart/arrive are always native PIXI. Client-local, so tell everyone else
-  // to draw it too.
-  playNativeWarpFlash({ x, y, radius, heading, phase });
+  // to draw it too. The style travels as an id rather than a path, so each
+  // client resolves its own settings (and an unknown id degrades to standard).
+  playNativeWarpFlash({ x, y, radius, heading, phase, styleId });
   try {
     game.socket.emit("module.sta2e-toolkit", {
       action: "warpFlashVfx",
-      x, y, radius, heading, phase,
+      x, y, radius, heading, phase, styleId,
     });
   } catch { /* cosmetic — never block the jump */ }
 }

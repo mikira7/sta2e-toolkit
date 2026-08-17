@@ -18,6 +18,7 @@ import { getLcCssVars, getLcTokens } from "./lcars-theme.js";
 import { SPAWN_PATTERNS, GEOMETRIC_PATTERNS, calcSpawnOffsets, scatterMaxRadius } from "./spawn-patterns.js";
 import { buildSpawnTokenData, protoHalfSize } from "./token-spawn-utils.js";
 import { runShipWarpArrival } from "./combat/ship-card-movement.js";
+import { getShipWarpEffectStyle } from "./warp-effect-styles.js";
 
 const MODULE   = "sta2e-toolkit";
 const DIALOG_ID = "sta2e-ship-spawner";
@@ -431,7 +432,9 @@ async function spawnFleet(slots, centres, heading, { snap, delay }) {
       // yield the transporter's beam-in needs.
       await new Promise(r => setTimeout(r, 50));
       const tok = canvas.tokens.get(created.id);
-      if (tok) await runShipWarpArrival(tok, heading);
+      // Style resolved from the source actor rather than the token: the token
+      // was created moments ago and its synthetic actor may not resolve yet.
+      if (tok) await runShipWarpArrival(tok, heading, { style: getShipWarpEffectStyle(slot.actor) });
       spawned++;
     } catch (err) {
       console.error(`STA2e Toolkit | ship spawner: failed to spawn ${slot.displayName}:`, err);

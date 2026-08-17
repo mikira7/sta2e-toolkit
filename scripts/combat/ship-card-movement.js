@@ -14,6 +14,7 @@ import {
   WARP_ARRIVE_MS,
   WARP_FLASH_PEAK_MS,
 } from "../warp-jump-vfx.js";
+import { getShipWarpEffectStyle, getWarpFlashTiming } from "../warp-effect-styles.js";
 
 export async function promptShipCardDestination({ overlayId, title, color, tokenId = null, actorId = null, maxZones = null }) {
   return await new Promise(resolve => {
@@ -283,9 +284,18 @@ const WARP_FADE_IN_MS  = 160;
 
 /**
  * Unit heading plus clamped run-in / run-out distances for a warp jump.
+ *
+ * The square counts default to the standard warp's, and a style that wants the
+ * ship to travel further through its effect passes its own. The trip-fraction
+ * cap still applies either way, so a longer transit cannot overshoot a short
+ * hop or carry the effect off the map.
+ *
  * @returns {{ux:number, uy:number, dist:number, heading:number, runIn:number, runOut:number}}
  */
-function _warpVector(from, to) {
+function _warpVector(from, to, {
+  inSquares  = WARP_RUN_IN_SQUARES,
+  outSquares = WARP_RUN_OUT_SQUARES,
+} = {}) {
   const gridSize = canvas?.grid?.size ?? 100;
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -300,8 +310,8 @@ function _warpVector(from, to) {
     uy: dy / dist,
     dist,
     heading,
-    runIn:  Math.min(WARP_RUN_IN_SQUARES  * gridSize, cap),
-    runOut: Math.min(WARP_RUN_OUT_SQUARES * gridSize, cap),
+    runIn:  Math.min(inSquares  * gridSize, cap),
+    runOut: Math.min(outSquares * gridSize, cap),
   };
 }
 
@@ -501,6 +511,11 @@ export async function runWarpEngageCard(payload, destination) {
     // ── 2. Flash out — the clip's biggest frame lands at WARP_FLASH_PEAK_MS,
     //       so the ship fades to be gone exactly at the peak, and the nacelle
     //       glow pops out with it. The clip's tail plays over empty space.
+    //
+    // The in-scene jump is deliberately style-agnostic: it passes no styleId,
+    // so it always draws the standard flash and the WARP_* constants below stay
+    // correct. Do not "fix" this to honour the ship's warp effect without also
+    // switching every timing below to getWarpFlashTiming().
     playWarpFlash(tok, "depart", {
       heading: vec.heading,
       x: launchPoint.x + halfW,
@@ -590,19 +605,31 @@ export async function runWarpEngageCard(payload, destination) {
  * fades it up, and glides it forward onto the position it started at — so the
  * ship decelerates out of warp onto the exact square the caller chose.
  *
- * @param {Token}  tok      Canvas token, already placed and invisible
- * @param {number} heading  Direction of travel in radians (canvas bearing)
+ * @param {Token}  tok        Canvas token, already placed and invisible
+ * @param {number} heading    Direction of travel in radians (canvas bearing)
+ * @param {object} [opts]
+ * @param {object} [opts.style] Pre-resolved warp effect style. The spawner
+ *   passes this because a token created moments ago may not yet resolve its
+ *   synthetic actor; otherwise it is read off the token.
  */
-export async function runShipWarpArrival(tok, heading) {
+export async function runShipWarpArrival(tok, heading, opts = {}) {
   const gridSize    = canvas?.grid?.size ?? 100;
   const destination = { x: tok.document.x, y: tok.document.y };
   const { halfW, halfH } = _tokenHalfSize(tok);
 
+  // A timeship's rift runs several times longer than the standard flash, so
+  // every beat below is timed against the style rather than the constants.
+  const style = opts.style ?? getShipWarpEffectStyle(tok?.actor ?? tok);
+  const { peakMs, arriveMs } = getWarpFlashTiming(style.id);
+
   // Computed directly rather than through _warpVector: with no trip distance,
   // its WARP_RUN_MAX_FRACTION cap collapses the run-out to zero and the ship
   // would simply pop in. Large ships get a proportionally longer run so the
-  // deceleration reads at any hull size.
-  const runOut = Math.max(gridSize, halfW, halfH);
+  // deceleration reads at any hull size. A fly-through style stretches the run
+  // so the ship visibly travels out of the effect rather than decelerating off
+  // its edge.
+  const runOut   = Math.max(gridSize, halfW, halfH) * style.transit.outSquares;
+  const runOutMs = style.transit.outMs;
   const ux = Math.cos(heading);
   const uy = Math.sin(heading);
   const arrival = {
@@ -623,16 +650,22 @@ export async function runShipWarpArrival(tok, heading) {
       x: arrival.x + halfW,
       y: arrival.y + halfH,
       soundKey: "sndWarpArrive",
+      styleId: style.id,
     });
-    await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_IN_MS)));
+    await new Promise(r => setTimeout(r, Math.max(0, peakMs - WARP_FADE_IN_MS)));
     await tok.document.update({ alpha: 1 }, { animate: true, animation: { duration: WARP_FADE_IN_MS } });
-    await new Promise(r => setTimeout(r, Math.max(0, WARP_ARRIVE_MS - WARP_FLASH_PEAK_MS)));
+    // The clip's tail plays over the ship either way. A fly-through style skips
+    // the hold and starts moving the moment it is solid, so it reads as coasting
+    // out of the aperture instead of appearing and then pausing.
+    if (!style.transit.flyThrough) {
+      await new Promise(r => setTimeout(r, Math.max(0, arriveMs - peakMs)));
+    }
 
     await tok.document.update(
       { x: destination.x, y: destination.y },
-      _scriptedGlideOptions(WARP_RUN_OUT_MS, "easeOutCircle")
+      _scriptedGlideOptions(runOutMs, "easeOutCircle")
     );
-    await new Promise(r => setTimeout(r, WARP_RUN_OUT_MS));
+    await new Promise(r => setTimeout(r, runOutMs));
   } finally {
     try {
       if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
@@ -642,6 +675,11 @@ export async function runShipWarpArrival(tok, heading) {
 
 export async function runWarpFleeCard(payload) {
   const tok = getCardShipToken(payload);
+
+  // Timeships leave through a rift rather than a warp flash — a much longer
+  // clip, so every beat below is timed against the style.
+  const style = getShipWarpEffectStyle(tok?.actor ?? tok);
+  const { peakMs, departMs } = getWarpFlashTiming(style.id);
 
   const gridSize  = canvas.grid?.size ?? 100;
   const tokW      = (tok.document.width  ?? 1) * gridSize;
@@ -668,7 +706,10 @@ export async function runWarpFleeCard(payload) {
 
   let targetRotation = tok.document.rotation || 0;
   // Same nacelle power-up as an engage jump; its stop() lands on the flash.
-  const chargeGlow = broadcastWarpChargeGlow(tok, { sweepMs: 500 });
+  // The glow self-expires at sweepMs + peakHoldMs, so the hold has to track the
+  // style's peak — on its 4000ms default a long rift peak would blink the
+  // nacelles out before the ship itself vanished.
+  const chargeGlow = broadcastWarpChargeGlow(tok, { sweepMs: 500, peakHoldMs: peakMs + 1500 });
   try {
     const angle = Math.atan2(destY - tok.y, destX - tok.x) * (180 / Math.PI);
     targetRotation = angle - 90;
@@ -686,7 +727,7 @@ export async function runWarpFleeCard(payload) {
   // never crosses the map; it warps out from where it stands.
   const startX = tok.x;
   const startY = tok.y;
-  const vec = _warpVector({ x: startX, y: startY }, { x: destX, y: destY });
+  const vec = _warpVector({ x: startX, y: startY }, { x: destX, y: destY }, style.transit);
   const { halfW, halfH } = _tokenHalfSize(tok);
 
   // No zone log for a ship leaving the map — suppress cards for the whole exit.
@@ -696,31 +737,51 @@ export async function runWarpFleeCard(payload) {
     x: startX + vec.ux * vec.runIn,
     y: startY + vec.uy * vec.runIn,
   };
+
+  const openEffect = () => {
+    playWarpFlash(tok, "depart", {
+      heading: vec.heading,
+      x: launchPoint.x + halfW,
+      y: launchPoint.y + halfH,
+      soundKey: "sndWarpEngage",
+      styleId: style.id,
+    });
+    // Corridor runs off the edge of the map — the ship is leaving, not arriving.
+    // A rift skips it: the ship flies through a portal rather than streaking out.
+    if (style.corridor) {
+      playWarpCorridor(
+        { x: launchPoint.x + halfW, y: launchPoint.y + halfH },
+        { x: destX + halfW,         y: destY + halfH },
+        { width: Math.max(halfW, halfH) }
+      );
+    }
+  };
+
+  // A fly-through style opens its aperture ahead of the ship first, then flies
+  // the ship into it over the whole opening window, so the ship crosses the
+  // threshold exactly as the effect peaks. The standard warp keeps its original
+  // order: short lurch, then flash where it stopped.
+  const approachMs = style.transit.inMs ?? Math.max(200, peakMs - WARP_FADE_OUT_MS);
+  if (style.transit.flyThrough) openEffect();
+
   if (vec.runIn > 0) {
     await tok.document.update(
       { x: launchPoint.x, y: launchPoint.y },
-      _scriptedGlideOptions(WARP_RUN_IN_MS, "easeInCircle")
+      _scriptedGlideOptions(approachMs, "easeInCircle")
     );
-    await new Promise(r => setTimeout(r, WARP_RUN_IN_MS));
+    await new Promise(r => setTimeout(r, approachMs));
   }
 
-  playWarpFlash(tok, "depart", {
-    heading: vec.heading,
-    x: launchPoint.x + halfW,
-    y: launchPoint.y + halfH,
-    soundKey: "sndWarpEngage",
-  });
-  // Corridor runs off the edge of the map — the ship is leaving, not arriving.
-  playWarpCorridor(
-    { x: launchPoint.x + halfW, y: launchPoint.y + halfH },
-    { x: destX + halfW,         y: destY + halfH },
-    { width: Math.max(halfW, halfH) }
-  );
-  // Ship gone exactly at the clip's peak frame, glow popping out with it.
-  await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_OUT_MS)));
+  if (!style.transit.flyThrough) openEffect();
+
+  // Ship gone exactly at the clip's peak frame, glow popping out with it. When
+  // the approach already ran under the effect it has consumed this hold, so the
+  // clamp lands on zero rather than double-counting it.
+  const sinceEffectOpened = style.transit.flyThrough && vec.runIn > 0 ? approachMs : 0;
+  await new Promise(r => setTimeout(r, Math.max(0, peakMs - WARP_FADE_OUT_MS - sinceEffectOpened)));
   chargeGlow?.stop?.();
   await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
-  await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FLASH_PEAK_MS)));
+  await new Promise(r => setTimeout(r, Math.max(0, departMs - peakMs)));
 
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
   try {
