@@ -1354,7 +1354,16 @@ export function registerSettings() {
   // client renders the flash the same size.
   game.settings.register("sta2e-toolkit", "warpFlashScale", {
     name: "Warp Flash Size (%)",
-    hint: "Scales the warp depart/arrive flash animation. 100 = default size.",
+    hint: "Scales the standard warp depart/arrive flash animation. 100 = default size. Does not affect the Temporal Rift, which has its own size.",
+    scope: "world", config: false, type: Number, default: 100,
+  });
+
+  // The rift is a different clip with a different amount of transparent margin,
+  // so it gets its own percent rather than sharing the flash's — sizing one
+  // must never resize the other.
+  game.settings.register("sta2e-toolkit", "warpRiftScale", {
+    name: "Temporal Rift Size (%)",
+    hint: "Scales the Temporal Rift animation. 100 = default size.",
     scope: "world", config: false, type: Number, default: 100,
   });
 

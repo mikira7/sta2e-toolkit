@@ -118,10 +118,12 @@ import {
   getActorRollUserId,
   getStationAllowedUserIds,
   promptShipCardDestination,
+  promptWarpFleeStyle,
   runImpulseEngageCard,
   runWarpEngageCard,
   runWarpFleeCard,
 } from "./ship-card-movement.js";
+import { shipHasWarpEffectChoice } from "../warp-effect-styles.js";
 import {
   useAction as _useTurnAction,
   resolveTurnCombatant as _findTurnCombatant,
@@ -23232,13 +23234,28 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
     // ── FLEE button — warp to nearest edge and remove token ─────────────────
     html.querySelectorAll(".sta2e-warp-flee").forEach(btn => {
       btn.addEventListener("click", async () => {
+        // Claim the button synchronously, before any await. On a player client
+        // the document-level delegate in main.js listens for this same button;
+        // the two used to de-duplicate via the disable below, but that now
+        // happens after an await, so the claim has to stand in for it.
+        if (btn.dataset.sta2eFleeBusy) return;
+        btn.dataset.sta2eFleeBusy = "1";
         try {
           const payload = JSON.parse(decodeURIComponent(btn.dataset.payload));
           const tok     = canvas.tokens?.get(payload.tokenId);
 
           if (!tok) {
             ui.notifications.warn("STA2e Toolkit: Token not found on current scene — cannot run flee sequence.");
+            delete btn.dataset.sta2eFleeBusy;
             return;
+          }
+
+          // Ships with a choice of warp effect are asked first. Nothing is
+          // committed until they answer, so cancelling costs no action.
+          let styleId = null;
+          if (shipHasWarpEffectChoice(tok.actor)) {
+            styleId = await promptWarpFleeStyle(tok.actor);
+            if (!styleId) { delete btn.dataset.sta2eFleeBusy; return; }
           }
 
           // Disable both buttons on this card
@@ -23248,13 +23265,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           btn.textContent = "🚀 FLEEING...";
 
           if (game.user.isGM) {
-            await runWarpFleeCard(payload);
+            await runWarpFleeCard(payload, { styleId });
           } else {
             game.socket.emit("module.sta2e-toolkit", {
               action: "runWarpFleeCard",
               messageId: message.id,
               requesterUserId: game.user.id,
               payload,
+              warpStyleId: styleId,
             });
           }
 
@@ -23274,6 +23292,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         } catch(err) {
           console.error("STA2e Toolkit | Warp flee error:", err);
           ui.notifications.error("Warp flee failed — see console.");
+          delete btn.dataset.sta2eFleeBusy;
           const tok2 = canvas.tokens?.get(JSON.parse(decodeURIComponent(btn.dataset.payload)).tokenId);
           if (tok2) try { await tok2.document.update({ alpha: 1 }); } catch {}
         }

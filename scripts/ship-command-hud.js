@@ -20,7 +20,8 @@
  * post the usual LCARS chat card.
  */
 
-import { promptShipCardDestination, runWarpEngageCard, runWarpFleeCard } from "./combat/ship-card-movement.js";
+import { promptShipCardDestination, promptWarpFleeStyle, runWarpEngageCard, runWarpFleeCard } from "./combat/ship-card-movement.js";
+import { shipHasWarpEffectChoice } from "./warp-effect-styles.js";
 import {
   CombatHUD,
   applyTractorBeamLock,
@@ -118,18 +119,29 @@ async function _onWarpJump(app, token) {
 async function _onWarpOut(app, token) {
   try { await app.clear?.(); } catch { /**/ }
 
-  const confirmed = await foundry.applications.api.DialogV2.confirm({
-    window: { title: "Warp Out" },
-    content: `<p><strong>${token.actor?.name ?? "This ship"}</strong> will warp out and its
-      token will be <strong>removed from this scene</strong>.</p>`,
-    yes: { label: "Warp Out" },
-    no:  { label: "Cancel" },
-    modal: true,
-  });
-  if (!confirmed) return;
+  const removalWarning = `<p><strong>${token.actor?.name ?? "This ship"}</strong> will warp out and its
+      token will be <strong>removed from this scene</strong>.</p>`;
+
+  // A ship with a choice of effects gets one dialog carrying both the choice
+  // and the removal warning; every other ship keeps the plain confirm it has
+  // always had, so nothing changes for the rest of the fleet.
+  let styleId = null;
+  if (shipHasWarpEffectChoice(token.actor)) {
+    styleId = await promptWarpFleeStyle(token.actor, { extraContent: removalWarning });
+    if (!styleId) return;
+  } else {
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      window: { title: "Warp Out" },
+      content: removalWarning,
+      yes: { label: "Warp Out" },
+      no:  { label: "Cancel" },
+      modal: true,
+    });
+    if (!confirmed) return;
+  }
 
   try {
-    await runWarpFleeCard({ tokenId: token.id });
+    await runWarpFleeCard({ tokenId: token.id }, { styleId });
   } catch (err) {
     console.error("STA2e Toolkit | GM warp out failed:", err);
     ui.notifications.error("Warp out failed — see console.");

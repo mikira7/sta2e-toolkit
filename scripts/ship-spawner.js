@@ -18,7 +18,11 @@ import { getLcCssVars, getLcTokens } from "./lcars-theme.js";
 import { SPAWN_PATTERNS, GEOMETRIC_PATTERNS, calcSpawnOffsets, scatterMaxRadius } from "./spawn-patterns.js";
 import { buildSpawnTokenData, protoHalfSize } from "./token-spawn-utils.js";
 import { runShipWarpArrival } from "./combat/ship-card-movement.js";
-import { getShipWarpEffectStyle } from "./warp-effect-styles.js";
+import {
+  WARP_EFFECT_STYLES,
+  WARP_STYLE_AUTO,
+  resolveRequestedWarpStyle,
+} from "./warp-effect-styles.js";
 
 const MODULE   = "sta2e-toolkit";
 const DIALOG_ID = "sta2e-ship-spawner";
@@ -42,7 +46,18 @@ let _queue = [];
 
 // ── Preferences ───────────────────────────────────────────────────────────────
 
-const PREF_DEFAULTS = { pattern: "circle", spacing: 350, snap: true, delay: 300 };
+const PREF_DEFAULTS = { pattern: "circle", spacing: 350, snap: true, delay: 300, warpStyle: WARP_STYLE_AUTO };
+
+/**
+ * Arrival-effect choices for the dialog. "Per Ship Default" keeps each actor's
+ * own Ship VFX setting, which is why one dialog-wide control can still serve a
+ * mixed fleet; the explicit choices override it for this spawn only, and any
+ * ship that lacks the trait for a gated style quietly falls back to standard.
+ */
+const WARP_STYLE_CHOICES = [
+  { value: WARP_STYLE_AUTO, label: "Per Ship Default" },
+  ...Object.values(WARP_EFFECT_STYLES).map(s => ({ value: s.id, label: s.label })),
+];
 
 function getPrefs() {
   try {
@@ -409,7 +424,7 @@ function centreToTopLeft(centre, halfW, halfH, snap) {
   return { x: snapped?.x ?? desired.x, y: snapped?.y ?? desired.y };
 }
 
-async function spawnFleet(slots, centres, heading, { snap, delay }) {
+async function spawnFleet(slots, centres, heading, { snap, delay, warpStyle }) {
   canvas.animatePan({ x: centres[0].x, y: centres[0].y, duration: 1000 });
 
   let spawned = 0;
@@ -434,7 +449,11 @@ async function spawnFleet(slots, centres, heading, { snap, delay }) {
       const tok = canvas.tokens.get(created.id);
       // Style resolved from the source actor rather than the token: the token
       // was created moments ago and its synthetic actor may not resolve yet.
-      if (tok) await runShipWarpArrival(tok, heading, { style: getShipWarpEffectStyle(slot.actor) });
+      // The dialog's choice wins over the ship's own default, and a ship that
+      // lacks the trait for it falls back to the standard flash.
+      if (tok) await runShipWarpArrival(tok, heading, {
+        style: resolveRequestedWarpStyle(slot.actor, warpStyle),
+      });
       spawned++;
     } catch (err) {
       console.error(`STA2e Toolkit | ship spawner: failed to spawn ${slot.displayName}:`, err);
@@ -449,7 +468,7 @@ async function spawnFleet(slots, centres, heading, { snap, delay }) {
 }
 
 /** Run the full placement flow. Returns true when ships were actually spawned. */
-async function runSpawn({ pattern, spacing, snap, delay }) {
+async function runSpawn({ pattern, spacing, snap, delay, warpStyle }) {
   const slots = expandQueue();
   if (!slots.length) {
     ui.notifications.warn("No ships in the spawn queue.");
@@ -518,7 +537,7 @@ async function runSpawn({ pattern, spacing, snap, delay }) {
   }
 
   ui.notifications.info(`Warping in ${slots.length} ship(s)…`);
-  const spawned = await spawnFleet(slots, centres, heading, { snap, delay });
+  const spawned = await spawnFleet(slots, centres, heading, { snap, delay, warpStyle });
 
   if (spawned > 0) ui.notifications.info(`${spawned} ship(s) warped in.`);
   else ui.notifications.error("No ships were spawned — see console.");
@@ -617,6 +636,13 @@ function buildContent(prefs) {
     <div class="sp-row" style="align-items:flex-end;padding-bottom:4px;">
       <input type="checkbox" id="sp-snap" ${prefs.snap ? "checked" : ""} style="width:auto;">
       <label for="sp-snap" style="margin:0;">Snap to Grid</label>
+    </div>
+    <div>
+      <label for="sp-warp-style">Arrival Effect</label>
+      <select id="sp-warp-style">
+        ${WARP_STYLE_CHOICES.map(({ value, label }) =>
+          `<option value="${value}" ${prefs.warpStyle === value ? "selected" : ""}>${label}</option>`).join("")}
+      </select>
     </div>
   </div>
 
@@ -744,6 +770,7 @@ function readForm(dialogOrElement) {
     spacing: num("#sp-spacing", PREF_DEFAULTS.spacing),
     delay:   num("#sp-delay", PREF_DEFAULTS.delay),
     snap:    q("#sp-snap")?.checked ?? PREF_DEFAULTS.snap,
+    warpStyle: q("#sp-warp-style")?.value ?? PREF_DEFAULTS.warpStyle,
   };
 }
 

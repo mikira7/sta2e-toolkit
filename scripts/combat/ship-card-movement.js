@@ -14,7 +14,59 @@ import {
   WARP_ARRIVE_MS,
   WARP_FLASH_PEAK_MS,
 } from "../warp-jump-vfx.js";
-import { getShipWarpEffectStyle, getWarpFlashTiming } from "../warp-effect-styles.js";
+import {
+  getShipWarpEffectStyle,
+  getWarpEffectStyleOptions,
+  getWarpFlashTiming,
+  resolveRequestedWarpStyle,
+  resolveShipWarpEffectStyleId,
+} from "../warp-effect-styles.js";
+
+/**
+ * Ask which warp effect a fleeing ship should leave with.
+ *
+ * A ship with no gated style available never sees a prompt — it resolves
+ * straight to its own default, so the existing one-click flee is untouched for
+ * every ordinary ship. Only a ship that genuinely has a choice is asked.
+ *
+ * The ship's stored Ship VFX setting becomes the pre-selected button, so that
+ * setting still acts as the default without being an override.
+ *
+ * @param   {Actor|Token} actorOrToken
+ * @param   {object} [opts]
+ * @param   {string} [opts.extraContent] HTML appended to the dialog body — used
+ *   by callers that would otherwise have shown their own confirmation.
+ * @returns {Promise<string|null>} chosen style id, or null if cancelled
+ */
+export async function promptWarpFleeStyle(actorOrToken, { extraContent = "" } = {}) {
+  const actor = actorOrToken?.actor ?? actorOrToken ?? null;
+  const options = getWarpEffectStyleOptions(actor);
+  const fallback = resolveShipWarpEffectStyleId(actor);
+  if (options.length < 2) return fallback;
+
+  const name = actor?.name ?? "This ship";
+  const choice = await foundry.applications.api.DialogV2.wait({
+    window: { title: "Warp Out" },
+    content: `
+      <div style="padding:4px 0;line-height:1.6;font-size:12px;">
+        How should <strong>${foundry.utils.escapeHTML?.(name) ?? name}</strong> leave?
+      </div>${extraContent}`,
+    buttons: [
+      ...options.map(option => ({
+        action: option.value,
+        label: option.label,
+        icon: option.value === "temporalRift" ? "fas fa-clock-rotate-left" : "fas fa-bolt",
+        default: option.value === fallback,
+      })),
+      { action: "cancel", label: "Cancel", icon: "fas fa-times" },
+    ],
+    rejectClose: false,
+    modal: true,
+  });
+
+  if (!choice || choice === "cancel") return null;
+  return choice;
+}
 
 export async function promptShipCardDestination({ overlayId, title, color, tokenId = null, actorId = null, maxZones = null }) {
   return await new Promise(resolve => {
@@ -673,12 +725,20 @@ export async function runShipWarpArrival(tok, heading, opts = {}) {
   }
 }
 
-export async function runWarpFleeCard(payload) {
+/**
+ * @param {object} payload  Ship card payload; only tokenId is read here.
+ * @param {object} [opts]
+ * @param {string} [opts.styleId] Warp effect chosen at the point of use. Passed
+ *   as a sibling of the payload rather than inside it, because the payload is
+ *   also fed to the chat-card access checks. Re-validated against the actor's
+ *   traits below — it can arrive from a player over a socket.
+ */
+export async function runWarpFleeCard(payload, opts = {}) {
   const tok = getCardShipToken(payload);
 
   // Timeships leave through a rift rather than a warp flash — a much longer
   // clip, so every beat below is timed against the style.
-  const style = getShipWarpEffectStyle(tok?.actor ?? tok);
+  const style = resolveRequestedWarpStyle(tok?.actor ?? tok, opts.styleId);
   const { peakMs, departMs } = getWarpFlashTiming(style.id);
 
   const gridSize  = canvas.grid?.size ?? 100;

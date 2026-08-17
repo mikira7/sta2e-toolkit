@@ -23,10 +23,15 @@ const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
  *                   vanishes (depart) or materialises (arrive). Not the clip
  *                   length; the tail plays on over empty space.
  * - `peakSettingKey` world setting that overrides `peakMs`, or null to pin it.
- * - `scaleMul`      multiplier on the token radius, before the GM's global
- *                   warpFlashScale percent.
+ * - `scaleMul`      multiplier on the token radius, before the GM's percent.
+ * - `scaleSettingKey` world setting holding that percent. Each style owns its
+ *                   own, so sizing one never resizes the other.
  * - `tailMs`        how long the depart/arrive beat runs past the peak.
  * - `corridor`      whether the jump also draws the streak between endpoints.
+ * - `orientToHeading` whether the clip rotates to face the ship's direction of
+ *                   travel. A radial burst leaves this false and draws upright.
+ * - `rotationOffsetDeg` correction between the clip's own "forward" and the
+ *                   canvas bearing, applied only when orientToHeading is set.
  * - `transit`       how the ship approaches and leaves the effect. See below.
  * - `requiresTrait` actor trait gating this style, or null for always-available.
  * - `soundKeys`     per-phase setting keys; a blank setting falls back to the
@@ -52,8 +57,13 @@ export const WARP_EFFECT_STYLES = Object.freeze({
     peakMs: 750,
     peakSettingKey: null,
     scaleMul: 6,
+    scaleSettingKey: "warpFlashScale",
     tailMs: 250,
     corridor: true,
+    // A radial burst — rotating it would change nothing, so it stays pinned
+    // upright and this path provably cannot shift.
+    orientToHeading: false,
+    rotationOffsetDeg: 0,
     // Matches WARP_RUN_IN/OUT_SQUARES and WARP_RUN_IN/OUT_MS in
     // ship-card-movement.js — the standard warp's long-standing behaviour.
     transit: Object.freeze({
@@ -73,8 +83,14 @@ export const WARP_EFFECT_STYLES = Object.freeze({
     peakMs: 2500,
     peakSettingKey: "warpRiftPeakMs",
     scaleMul: 7,
+    scaleSettingKey: "warpRiftScale",
     tailMs: 250,
     corridor: false,
+    // The rift is directional, so it turns to face the way the ship is going.
+    // The clip's art points 90 deg off the canvas bearing — the same correction
+    // the movement runners apply when they set token rotation to `angle - 90`.
+    orientToHeading: true,
+    rotationOffsetDeg: -90,
     // The ship flies through the aperture rather than vanishing at it. inMs is
     // null so the approach stretches across however long the rift takes to
     // open — otherwise the ship would lurch 320ms and then sit motionless for
@@ -90,6 +106,10 @@ export const WARP_EFFECT_STYLES = Object.freeze({
 });
 
 export const DEFAULT_WARP_EFFECT_STYLE_ID = "standard";
+
+// Sentinel for "no explicit choice — use whatever this ship defaults to".
+// Distinct from a style id so a control can offer it as a real third option.
+export const WARP_STYLE_AUTO = "auto";
 
 // Bounds on a GM-set peak. Cannot be validated against the real clip length —
 // that is only known asynchronously, on each client, once the video decodes.
@@ -152,6 +172,15 @@ export function getWarpEffectStyleOptions(actor) {
     .map(style => ({ value: style.id, label: style.label }));
 }
 
+/**
+ * Whether this ship has more than one effect to pick between — i.e. whether it
+ * is worth asking. Everything that offers a choice gates on this, so a ship
+ * without the trait never grows UI it cannot use.
+ */
+export function shipHasWarpEffectChoice(actorOrToken) {
+  return getWarpEffectStyleOptions(_resolveActor(actorOrToken)).length > 1;
+}
+
 function _resolveActor(actorOrToken) {
   if (!actorOrToken) return null;
   if (actorOrToken.documentName === "Actor") return actorOrToken;
@@ -177,6 +206,25 @@ export function resolveShipWarpEffectStyleId(actorOrToken) {
 /** Resolved style entry for a ship, peak and all. */
 export function getShipWarpEffectStyle(actorOrToken) {
   return getWarpEffectStyle(resolveShipWarpEffectStyleId(actorOrToken));
+}
+
+/**
+ * The style to actually use for one action, given what the caller asked for.
+ *
+ * A blank or "auto" request falls back to the ship's own default, so the
+ * per-ship setting stays meaningful. An explicit request is honoured only if
+ * the actor may actually use it — the request can arrive from a player over a
+ * socket or from a stale dialog, so the trait gate is re-checked here rather
+ * than trusted. This is the single place that decision is made.
+ */
+export function resolveRequestedWarpStyle(actorOrToken, requestedId) {
+  if (!requestedId || requestedId === WARP_STYLE_AUTO) {
+    return getShipWarpEffectStyle(actorOrToken);
+  }
+  const actor = _resolveActor(actorOrToken);
+  return warpEffectStyleAvailableFor(actor, requestedId)
+    ? getWarpEffectStyle(requestedId)
+    : getWarpEffectStyle(DEFAULT_WARP_EFFECT_STYLE_ID);
 }
 
 /**

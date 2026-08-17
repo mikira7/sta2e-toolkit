@@ -136,11 +136,14 @@ function _effectLayer() {
 // style so a failure on one clip never silences the other. See _webmFlash.
 const _taintWarned = new Set();
 
-// GM-tunable size multiplier (Sounds & Animations → Ship Tasks → "Warp — Flash
-// Size", stored as a percent). World scope, so every client scales alike.
-function _warpFlashScale() {
+// GM-tunable size multiplier (Sounds & Animations → Ship Tasks), stored as a
+// percent. Each style names its own setting key, so sizing the rift never
+// resizes the standard flash. World scope, so every client scales alike.
+function _styleScale(style) {
+  const key = style?.scaleSettingKey;
+  if (!key) return 1;
   try {
-    const pct = Number(game.settings.get(MODULE, "warpFlashScale"));
+    const pct = Number(game.settings.get(MODULE, key));
     if (!Number.isFinite(pct) || pct <= 0) return 1;
     return Math.min(5, Math.max(0.1, pct / 100));
   } catch { return 1; }   // setting not registered yet
@@ -152,7 +155,7 @@ function _warpFlashScale() {
  * peak instead of the clip playing differently per phase.
  * Additive blend keeps any black background reading as pure light.
  */
-function _webmFlash(layer, x, y, radius, zBase, style) {
+function _webmFlash(layer, x, y, radius, zBase, style, heading = 0) {
   const video = document.createElement("video");
   // Must precede the src assignment to take effect. Hosted games (The Forge)
   // redirect module assets to a CDN on another origin; without this the element
@@ -214,7 +217,7 @@ function _webmFlash(layer, x, y, radius, zBase, style) {
     sprite.blendMode = _addBlend();
     const vw = video.videoWidth || 1;
     const vh = video.videoHeight || 1;
-    const scale = (radius * style.scaleMul * _warpFlashScale()) / Math.max(vw, vh);
+    const scale = (radius * style.scaleMul * _styleScale(style)) / Math.max(vw, vh);
     sprite.width  = vw * scale;
     sprite.height = vh * scale;
 
@@ -222,6 +225,12 @@ function _webmFlash(layer, x, y, radius, zBase, style) {
     container.x      = x;
     container.y      = y;
     container.zIndex = zBase + 2;
+    // Rotation belongs on the container, not the sprite: the sprite carries the
+    // anchor and the width/height sizing above, and spinning it would fight
+    // both. A style that does not orient stays pinned upright at 0.
+    container.rotation = style.orientToHeading
+      ? heading + (style.rotationOffsetDeg ?? 0) * (Math.PI / 180)
+      : 0;
     container.addChild(sprite);
     layer.addChild(container);
     video.play().catch(() => { /* autoplay policy — muted, should not happen */ });
@@ -320,7 +329,7 @@ export function playNativeWarpFlash({ x, y, x2, y2, radius = 50, heading = 0, ph
       _warpCorridor(layer, { x, y }, { x: x2, y: y2 }, radius * 0.5, zBase);
       return;
     }
-    _webmFlash(layer, x, y, radius, zBase, getWarpEffectStyle(styleId));
+    _webmFlash(layer, x, y, radius, zBase, getWarpEffectStyle(styleId), heading);
   } catch (err) {
     console.warn("STA2e Toolkit | warp flash render failed:", err);
   }

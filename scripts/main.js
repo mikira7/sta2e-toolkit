@@ -15,7 +15,7 @@ import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { ToolkitAPI } from "./toolkit-api.js";
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
-import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
+import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, promptWarpFleeStyle, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
 import { buildWeaponContext, refreshToolkitSpriteCache } from "./weapon-configs.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
@@ -46,6 +46,7 @@ import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerShipCommandHud } from "./ship-command-hud.js";
 import { registerTokenWeaponHud } from "./token-weapon-hud.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
+import { shipHasWarpEffectChoice } from "./warp-effect-styles.js";
 import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
 import { GROUND_PHASER_VFX_ACTION, playGroundPhaserVfxFromSocket } from "./ground-phaser-vfx.js";
 import { BOLT_TRAVEL_VFX_ACTION, playBoltTravelLocal } from "./bolt-travel-vfx.js";
@@ -1049,6 +1050,11 @@ Hooks.once("ready", async () => {
       if (fleeBtn && !fleeBtn.disabled) {
         event.preventDefault();
         event.stopPropagation();
+        // Claim the button synchronously — the per-button listener in
+        // combat-hud-core.js watches the same element on this client, and both
+        // now await a dialog before disabling it.
+        if (fleeBtn.dataset.sta2eFleeBusy) return;
+        fleeBtn.dataset.sta2eFleeBusy = "1";
         let payload;
         try { payload = JSON.parse(decodeURIComponent(fleeBtn.dataset.payload ?? "{}")); }
         catch { payload = {}; }
@@ -1056,9 +1062,22 @@ Hooks.once("ready", async () => {
         const fleeMessage = fleeMessageId ? game.messages.get(fleeMessageId) : null;
         if (fleeMessage?.flags?.["sta2e-toolkit"]?.warpEngageConsumedAction) {
           applyShipCardLockToDom(fleeMessageId, fleeMessage.flags["sta2e-toolkit"]);
+          delete fleeBtn.dataset.sta2eFleeBusy;
           return;
         }
-        if (!getShipCardUserAccess(fleeMessage, payload).canUse) return;
+        if (!getShipCardUserAccess(fleeMessage, payload).canUse) {
+          delete fleeBtn.dataset.sta2eFleeBusy;
+          return;
+        }
+
+        // Ships with a choice of warp effect are asked first; nothing is
+        // committed until they answer, so cancelling costs no action.
+        const fleeTok = canvas.tokens?.get(payload.tokenId);
+        let fleeStyleId = null;
+        if (shipHasWarpEffectChoice(fleeTok?.actor)) {
+          fleeStyleId = await promptWarpFleeStyle(fleeTok.actor);
+          if (!fleeStyleId) { delete fleeBtn.dataset.sta2eFleeBusy; return; }
+        }
 
         fleeBtn.closest(".message-content")
           ?.querySelectorAll(".sta2e-warp-engage, .sta2e-warp-flee")
@@ -1070,6 +1089,7 @@ Hooks.once("ready", async () => {
           messageId: fleeMessageId,
           requesterUserId: game.user.id,
           payload,
+          warpStyleId: fleeStyleId,
         });
         if (fleeMessageId) {
           emitToolkitSocket({
@@ -1630,7 +1650,9 @@ Hooks.once("ready", async () => {
     else if (msg.action === "runWarpFleeCard" && _isResponsibleGM()) {
       const message = msg.messageId ? game.messages.get(msg.messageId) : null;
       if (!getShipCardUserAccess(message, msg.payload, msg.requesterUserId).canUse) return;
-      await runWarpFleeCard(msg.payload);
+      // The requested style is re-validated against the actor's traits inside
+      // runWarpFleeCard — a client cannot talk its way into a gated effect.
+      await runWarpFleeCard(msg.payload, { styleId: msg.warpStyleId });
     }
 
     else if (msg.action === "updateShipCardLock" && _isResponsibleGM()) {
