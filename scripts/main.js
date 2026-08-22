@@ -724,6 +724,9 @@ Hooks.once("ready", async () => {
     const cumbersomePenalty = pending.rollerOpts?.cumbersomePenalty ?? pending.cumbersomePenalty ?? 0;
     const pointDefensePenalty = pending.pointDefensePenalty ?? pending.rollerOpts?.pointDefensePenalty ?? 0;
     const attackPatternPenalty = pending.attackPatternPenalty ?? pending.rollerOpts?.attackPatternPenalty ?? 0;
+    // +1 for a larger vessel shooting at small craft. Resolved when the attack was
+    // declared (combat-hud-core.js) so it survives the round-trip through settings.
+    const smallCraftPenalty = pending.smallCraftPenalty ?? pending.rollerOpts?.smallCraftPenalty ?? 0;
     // +1 owed by a Major Action the attacker bought with Momentum this turn. In
     // ship combat the tracker activates the officer, not the ship, so check the
     // officer first and fall back to the ship actor for ground/solo attackers.
@@ -740,10 +743,11 @@ Hooks.once("ready", async () => {
     const extraActionPenalty = getExtraActionDifficulty(_atkOfficer)
       || getExtraActionDifficulty(_atkActor);
     const rawDifficulty = pending.overridePenalty
-      ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty + extraActionPenalty
+      ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty + smallCraftPenalty
+        + extraActionPenalty
       : clampedSuccesses + guardPenalty + chiefSecurityPenalty + defensiveTrainingPenalty
         + closeProtectionPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty
-        + extraActionPenalty;
+        + smallCraftPenalty + extraActionPenalty;
     const difficulty = Math.max(0, rawDifficulty - attackPatternPenalty);
 
     // Build the taskContext string now that defender's actual successes are known
@@ -766,6 +770,7 @@ Hooks.once("ready", async () => {
     } else {
       // Ship combat — use whatever context was stored in rollerOpts
       taskContext = pending.rollerOpts?.taskContext ?? null;
+      if (taskContext && smallCraftPenalty) taskContext += ` · +${smallCraftPenalty} Small Craft`;
     }
 
     const finalRollerOpts = {

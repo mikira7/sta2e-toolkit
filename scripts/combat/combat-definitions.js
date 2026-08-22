@@ -81,6 +81,45 @@ export function findChiefOfSecurityTalent(actor) {
   return findRoleAbilityTalent(actor, ["chief of security", "chief security officer"]);
 }
 
+// Small Craft: shuttles, fighters and runabouts are nimble targets. STA2e raises
+// the Difficulty of an attack against one by 1 — but only when the attacker is a
+// larger vessel; two small craft duelling each other are evenly matched.
+//
+// The trait can arrive three ways: a dedicated `smallcraft` actor type, a "Small
+// Craft" trait item on the sheet, or an entry in system.traits (array or object,
+// depending on how the sheet stored it).
+export function hasSmallCraftTrait(actor) {
+  if (!actor) return false;
+  if (actor.type === "smallcraft") return true;
+
+  const normalize = value => String(value ?? "").trim().toLowerCase();
+  if ((actor.items ?? []).some(item => normalize(item?.name) === "small craft")) {
+    return true;
+  }
+
+  const traits = actor.system?.traits;
+  if (Array.isArray(traits)) {
+    return traits.some(t => normalize(t?.name ?? t?.label ?? t) === "small craft");
+  }
+  if (traits && typeof traits === "object") {
+    return Object.entries(traits).some(([key, value]) => {
+      if (value === false || value === null) return false;
+      return normalize(key) === "small craft"
+        || normalize(value?.name ?? value?.label ?? value) === "small craft";
+    });
+  }
+  return false;
+}
+
+/**
+ * +1 Difficulty to hit a small craft, unless the attacker is a small craft too.
+ * Shared by every difficulty calculator — the roller (unopposed), opposed-task.js
+ * (the `smallCraftPenalty` option) and the legacy pending-task path in main.js.
+ */
+export function smallCraftDifficultyPenalty(attackerActor, targetActor) {
+  return hasSmallCraftTrait(targetActor) && !hasSmallCraftTrait(attackerActor) ? 1 : 0;
+}
+
 // Attack Run: character talent — when the ship takes Attack Pattern, attacks
 // against the ship do NOT reduce Difficulty. Checked on the Helm officer actor.
 export function hasAttackRun(actor) {

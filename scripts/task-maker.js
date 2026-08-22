@@ -1817,7 +1817,9 @@ async function applyExtendedTaskIntervalState(actor, intervalResult) {
   return intervals;
 }
 
-async function handleExtendedTaskRollResult(taskData, result = {}) {
+// Exported so a Working Results card can be resolved by a client that never held the
+// roller closure (see the PlayerRollCallbacks fallback in combat/combat-hud-core.js).
+export async function handleExtendedTaskRollResult(taskData, result = {}) {
   if (!taskData?.extendedTask?.actorId) return;
   const payload = {
     taskData,
@@ -2740,6 +2742,12 @@ function launchTaskRoller(taskData) {
         actorId: taskData.extendedTask?.actorId ?? null,
         mode: taskData.extendedTask?.intervals?.mode ?? null,
         intervals: taskData.extendedTask?.intervals ?? null,
+        // Card-side fallback for resolution. PlayerRollCallbacks is per-client and
+        // in-memory, so a GM resolving a player's Working Results card holds no
+        // closure to call; the confirm handler rebuilds the resolution from this.
+        // `traits` is stripped: the extended path never reads it and the descriptions
+        // bloat the button data-payload.
+        taskData: { ...taskData, traits: undefined },
       }
       : null,
     initialTraitSelectedIds: selectedTraitIdsForRoller(taskData.traits),

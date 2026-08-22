@@ -34,6 +34,7 @@ import {
   findChiefOfSecurityTalent,
   hasChiefTacticalOfficer,
   hasPointDefenseSystem,
+  smallCraftDifficultyPenalty,
 } from "./combat/combat-definitions.js";
 import {
   defensiveTrainingPenalty,
@@ -1237,29 +1238,6 @@ const _OVERRIDE_SKIP = new Set(["direct", "evasive-action", "defensive-fire", "a
 // These bypass the normal task-roll flow entirely.
 const _INSTANT_APPLY_TASKS = new Set(["evasive-action", "defensive-fire", "attack-pattern", "reroute-power", "modulate-shields", "direct"]);
 
-function _actorHasSmallCraftTrait(actor) {
-  if (!actor) return false;
-  if (actor.type === "smallcraft") return true;
-
-  const normalize = value => String(value ?? "").trim().toLowerCase();
-  if ((actor.items ?? []).some(item => normalize(item?.name) === "small craft")) {
-    return true;
-  }
-
-  const traits = actor.system?.traits;
-  if (Array.isArray(traits)) {
-    return traits.some(t => normalize(t?.name ?? t?.label ?? t) === "small craft");
-  }
-  if (traits && typeof traits === "object") {
-    return Object.entries(traits).some(([key, value]) => {
-      if (value === false || value === null) return false;
-      return normalize(key) === "small craft"
-        || normalize(value?.name ?? value?.label ?? value) === "small craft";
-    });
-  }
-  return false;
-}
-
 function _selectedCombatTargetToken(state) {
   const actorId = state.selectedTargetId ?? state.combatTaskContext?._selected?.targetId ?? null;
   if (actorId) {
@@ -1270,8 +1248,26 @@ function _selectedCombatTargetToken(state) {
   return Array.from(game.user.targets ?? [])[0] ?? null;
 }
 
+/** The ship firing the weapon, for rules that compare attacker against target. */
+function _combatAttackerShipActor(state) {
+  const shipActorId = state.weaponContext?.shipActorId
+    ?? state.combatTaskContext?.combatShip?.actorId
+    ?? null;
+  return shipActorId ? (game.actors?.get(shipActorId) ?? null) : null;
+}
+
+/**
+ * Small Craft: +1 Difficulty to hit one, waived when the attacker is small craft
+ * too.  Guarded exactly like _attackPatternDifficultyReduction below — without
+ * it the bonus leaks onto Task Maker / extended / ground rolls, which resolve
+ * their target through the game.user.targets fallback above.
+ */
 function _smallCraftDifficultyMod(state) {
-  return _actorHasSmallCraftTrait(_selectedCombatTargetToken(state)?.actor) ? 1 : 0;
+  if (state.groundMode || !state.weaponContext) return 0;
+  return smallCraftDifficultyPenalty(
+    _combatAttackerShipActor(state),
+    _selectedCombatTargetToken(state)?.actor,
+  );
 }
 
 function _attackPatternDifficultyReduction(state) {
@@ -2626,6 +2622,15 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               style="${state.weaponContext?.cumbersome && !state.groundMode ? "display:inline" : "display:none"};
               font-size:9px;color:${LC.textDim};font-family:${LC.font};white-space:nowrap;">
               +1 Cumbersome
+            </span>
+            <!-- Small Craft: +1 Difficulty for a larger vessel to hit one. Waived
+                 when the attacker is small craft too, so this is driven off the
+                 attacker/target pair rather than the target alone. -->
+            <span id="sta2e-smallcraft-note"
+              title="Small Craft — this vessel is a nimble target for a larger ship, increasing the Difficulty of an attack by 1"
+              style="${_smallCraftDifficultyMod(state) ? "display:inline" : "display:none"};
+              font-size:9px;color:${LC.textDim};font-family:${LC.font};white-space:nowrap;">
+              +1 Small Craft
             </span>
             <span style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
               (0 = routine, no limit)
@@ -4581,11 +4586,16 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       const base = startDifficulty !== null ? startDifficulty
         : opposedDifficulty !== null ? opposedDifficulty
           : (weaponContext?.isTorpedo ? 3 : 2) + (weaponContext?.cumbersome ? 1 : 0);
+      // Opposed rolls carry their own small-craft term through the opposed
+      // pipeline's `smallCraftPenalty` option (see opposed-task.js), so adding
+      // it again here would double-count it.
       const smallCraftMod = opposedDifficulty !== null
         ? 0
         : _smallCraftDifficultyMod({
             selectedTargetId: combatTaskContext?.preTargetId ?? null,
             combatTaskContext,
+            weaponContext,
+            groundMode,
           });
       const attackPatternReduction = opposedDifficulty !== null
         ? 0
@@ -4696,6 +4706,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
     const rollData = {
       callbackId,
+      // Whether a taskCallback was registered for this roll. PlayerRollCallbacks is
+      // per-client, so the resolving client cannot infer this from the map alone.
+      hasTaskCallback: !!state.taskCallback,
       opposedTaskRef: state.opposedTaskRef ?? null,
       actorId: actor.id,
       tokenId: token?.id ?? null,
@@ -6905,12 +6918,19 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
     if (state.combatTaskContext) {
       // Task buttons — update attr/disc, difficulty, ship pool on selection
       const _syncCombatDifficultyInput = () => {
-        // Runs before the early returns: the note is just as true when the
-        // difficulty is locked by an opposed task (the +1 is already baked in).
+        // The notes run before the early returns: both are just as true when the
+        // difficulty is locked by an opposed task, where the +1 is baked in
+        // upstream — Cumbersome and Small Craft are carried into the locked
+        // number as opposed-task options rather than added here.
+        const smallCraftMod = _smallCraftDifficultyMod(state);
         const cumbNote = el.querySelector("#sta2e-cumbersome-note");
         if (cumbNote) {
           cumbNote.style.display = state.weaponContext?.cumbersome && !state.groundMode
             ? "inline" : "none";
+        }
+        const smallCraftNote = el.querySelector("#sta2e-smallcraft-note");
+        if (smallCraftNote) {
+          smallCraftNote.style.display = smallCraftMod ? "inline" : "none";
         }
         const diffInput = el.querySelector("#difficulty");
         if (!diffInput) return;
@@ -6920,7 +6940,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         }
         const base = Number(state._combatTaskDifficultyBase);
         if (!Number.isFinite(base)) return;
-        const finalDifficulty = Math.max(0, base + _smallCraftDifficultyMod(state) - _attackPatternDifficultyReduction(state));
+        const finalDifficulty = Math.max(0, base + smallCraftMod - _attackPatternDifficultyReduction(state));
         diffInput.value = finalDifficulty;
         state.difficulty = finalDifficulty;
       };

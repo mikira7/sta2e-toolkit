@@ -91,7 +91,7 @@ import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "../weapon-range.js"
 import { makeSpendContext, speciesExtraDieBonusMomentum, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
 import { createTracker, getActiveTracker } from "../momentum-tracker.js";
 import { clearHullDecals, hasHullDecals } from "../hull-decals.js";
-import { postTaskRequestCard } from "../task-maker.js";
+import { handleExtendedTaskRollResult, postTaskRequestCard } from "../task-maker.js";
 import {
   NativeTractorBeamVFX,
   getPersistentTractorBeamKey,
@@ -113,6 +113,7 @@ import {
   hasGlancingImpact,
   hasPointDefenseSystem,
   hasRapidFireTorpedoLauncher,
+  smallCraftDifficultyPenalty,
 } from "./combat-definitions.js";
 import {
   getActorRollUserId,
@@ -272,7 +273,14 @@ function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null, opt
   const attackPatternReduction = Number(options.attackPatternReduction
     ?? _shipAttackPatternDifficultyReduction(options.defenderToken ?? options.targetToken)
     ?? 0) || 0;
-  return Math.max(0, base + (_weaponQualityFlag(weapon, "cumbersome") ? 1 : 0) - attackPatternReduction);
+  // Small Craft is opt-in rather than derived from the target here. The roller
+  // applies it itself on the unopposed paths (and re-applies it live when the
+  // player switches target), so only the opposed callers — whose result is
+  // handed over as a locked `opposedDifficulty` the roller will not touch —
+  // pass it in. Deriving it here would double-count on the unopposed paths.
+  const smallCraftPenalty = Number(options.smallCraftPenalty ?? 0) || 0;
+  return Math.max(0, base + (_weaponQualityFlag(weapon, "cumbersome") ? 1 : 0)
+    + smallCraftPenalty - attackPatternReduction);
 }
 
 function _shipWeaponConfigForRules(weapon, config = getWeaponConfig(weapon)) {
@@ -3061,6 +3069,7 @@ export class CombatHUD {
               pointDefensePenalty: Number(opposed.pointDefensePenalty ?? 0),
               weaponName:      weapon.name,
               attackPatternPenalty: _attackPatternPenalty,
+              smallCraftPenalty: smallCraftDifficultyPenalty(actor, _defenderToken?.actor),
               rollerOpts: {
                 hasTargetingSolution: _hasTS,
                 hasRapidFireTorpedo:  _hasRFT && _isTorpedo,
@@ -3084,7 +3093,12 @@ export class CombatHUD {
 
           // Store opposed context for the roller and hit/miss flow
           const _primaryShipTarget = selectedTargetToken ?? Array.from(game.user.targets ?? [])[0] ?? null;
-          this._opposedDifficulty  = _shipAttackDifficulty(weapon, config, opposed.difficulty, { targetToken: _primaryShipTarget });
+          this._opposedDifficulty  = _shipAttackDifficulty(weapon, config, opposed.difficulty, {
+            targetToken: _primaryShipTarget,
+            // The roller leaves a locked opposed difficulty alone, so Small Craft
+            // has to be folded in here.
+            smallCraftPenalty: smallCraftDifficultyPenalty(actor, _primaryShipTarget?.actor),
+          });
           this._opposedDefenseType = opposed.defenseType;
           this._defenderSuccesses  = opposed.defenderSuccesses;
 
@@ -9712,6 +9726,7 @@ export class CombatHUD {
           weaponName:      weapon.name,
           overridePenalty: true,   // flag so GM handler adds +1 to defender's successes
           attackPatternPenalty: _attackPatternPenalty,
+          smallCraftPenalty: smallCraftDifficultyPenalty(actor, _defenderToken?.actor),
           rollerOpts: {
             hasTargetingSolution: _hasTS,
             hasRapidFireTorpedo:  _hasRFT && isTorpedo,
@@ -9736,6 +9751,7 @@ export class CombatHUD {
       const baseOppDiff = _shipAttackDifficulty(weapon, getWeaponConfig(weapon), opposed.difficulty, {
         targetToken,
         attackPatternReduction: _shipAttackPatternDifficultyReduction(targetToken),
+        smallCraftPenalty: smallCraftDifficultyPenalty(actor, targetToken?.actor),
       }) + 1;  // +1 override on opposed difficulty too
 
       const rollerOpts = {
@@ -21361,28 +21377,48 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         // Fire taskCallback (if this roll had one registered)
         const cbEntry = skipCompletionEffects ? null : PlayerRollCallbacks.get(callbackId);
-        if (cbEntry) {
-          PlayerRollCallbacks.delete(callbackId);
+        // PlayerRollCallbacks is per-client and in-memory: the closure exists only on
+        // the client that opened the roller. When anyone else resolves the card — the
+        // GM pressing a gmOnlySucceedAtCost / gmOnlyConfirmResults button, or the
+        // roller having reloaded — that lookup misses and the result was silently
+        // dropped. Extended tasks persist their taskData on the card so the resolution
+        // can be rebuilt here instead.
+        const cardTaskData = skipCompletionEffects
+          ? null
+          : (payload.extendedTaskContext?.taskData ?? null);
+        if (cbEntry || cardTaskData) {
+          if (cbEntry) PlayerRollCallbacks.delete(callbackId);
+          const taskResult = {
+            successes: totalSuccesses,
+            passed,
+            momentum,
+            complications: totalComplications,
+            state:  null,   // no live state object in the chat-card path
+            actor:  cbEntry?.actor ?? game.actors.get(payload.officerActorId ?? actorId) ?? null,
+            token:  cbEntry?.token ?? tokenObj,
+            rollData: confirmedRollData,
+            trackerMessageId: _trackerMessageId,
+            trackerFloat: _trackerFloat,
+            trackerBanked: _trackerBanked,
+          };
           (async () => {
             try {
-              await cbEntry.taskCallback({
-                successes: totalSuccesses,
-                passed,
-                momentum,
-                complications: totalComplications,
-                state:  null,   // no live state object in the chat-card path
-                actor:  cbEntry.actor,
-                token:  cbEntry.token,
-                rollData: confirmedRollData,
-                trackerMessageId: _trackerMessageId,
-                trackerFloat: _trackerFloat,
-                trackerBanked: _trackerBanked,
-              });
+              if (cbEntry) await cbEntry.taskCallback(taskResult);
+              else await handleExtendedTaskRollResult(cardTaskData, taskResult);
             } catch(err) {
               console.error("STA2e Toolkit | playerConfirm taskCallback error:", err);
               ui.notifications.error("STA2e Toolkit: Task result error — see console.");
             }
           })();
+        } else if (payload.hasTaskCallback && !skipCompletionEffects) {
+          // A callback was registered for this roll but is unreachable here: a card
+          // posted before extended tasks carried their taskData, or another
+          // taskCallback consumer (the reactor eject task, which persists nothing)
+          // resolved from a client that did not roll it.
+          console.warn(
+            "STA2e Toolkit | task card resolved with no reachable taskCallback:",
+            { callbackId, resolvedBy: game.user?.name },
+          );
         }
       } catch(err) {
         console.error("STA2e Toolkit | player confirm error:", err);
