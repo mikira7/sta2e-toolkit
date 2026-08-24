@@ -55,7 +55,7 @@ export async function promptWarpFleeStyle(actorOrToken, { extraContent = "" } = 
       ...options.map(option => ({
         action: option.value,
         label: option.label,
-        icon: option.value === "temporalRift" ? "fas fa-clock-rotate-left" : "fas fa-bolt",
+        icon: option.icon ?? "fas fa-bolt",
         default: option.value === fallback,
       })),
       { action: "cancel", label: "Cancel", icon: "fas fa-times" },

@@ -80,7 +80,7 @@ Zones are stored as scene flags. The ruler measurement is patched in `main.js` t
 | [scripts/token-conditions.js](scripts/token-conditions.js) | STA combat conditions (add/remove/query) |
 | [scripts/transporter.js](scripts/transporter.js) | Transporter beam-in/out visual effect |
 | [scripts/warp-calc.js](scripts/warp-calc.js) | Warp travel calculator dialog |
-| [scripts/warp-effect-styles.js](scripts/warp-effect-styles.js) | Warp flash style registry (clip, scale, peak, corridor) + the actor trait gate. `standard` and `temporalRift`; timeships only. Must not import `ship-vfx-anchors.js` — that would close an import cycle |
+| [scripts/warp-effect-styles.js](scripts/warp-effect-styles.js) | Warp flash style registry (clip, scale, peak, corridor) + the trait and faction gates. `standard`, `temporalRift`, `cardassianTemporalRift`; the rifts are timeships only. Styles sharing a `family` are faction variants: a variant with a `faction` key replaces the family's generic one for ships of that faction, substituted by `resolveFactionVariantId` on the initiating client so the resolved id is what travels the socket. Must not import `ship-vfx-anchors.js` — that would close an import cycle; faction detection is imported from `actor-faction.js` instead |
 | [scripts/alert-hud.js](scripts/alert-hud.js) | Alert status HUD overlay |
 | [scripts/toolkit-widget.js](scripts/toolkit-widget.js) | Floating toolbar widget |
 | [scripts/hud-position.js](scripts/hud-position.js) | Viewport clamping shared by every draggable HUD panel — keeps a dragged/restored header on screen |
@@ -88,6 +88,7 @@ Zones are stored as scene flags. The ruler measurement is patched in `main.js` t
 | [scripts/wildcard-namer.js](scripts/wildcard-namer.js) | Auto-names wildcard tokens from rollable tables |
 | [scripts/elevation-ruler.js](scripts/elevation-ruler.js) | Patches FoundryVTT ruler for 3D elevation |
 | [scripts/star-system-scene.js](scripts/star-system-scene.js) | Builds a scene map from a Star System actor (tiles, orbit rings, per-orbit zones, hover tooltips) |
+| [scripts/actor-faction.js](scripts/actor-faction.js) | `resolveActorFactionKey` — guesses a ship's faction by regex over its name and traits. A leaf module with no imports, so gating code can use it without cycles; re-exported from `ship-vfx-anchors.js`, which is where every caller has always found it |
 | [scripts/scene-flags.js](scripts/scene-flags.js) | Scene flag helpers |
 
 ## Key Conventions

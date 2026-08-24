@@ -5,7 +5,12 @@
  */
 
 import { hasPointDefenseSystem } from "./combat/combat-definitions.js";
-import { normalizeWarpEffectStyleId, getWarpEffectStyleOptions } from "./warp-effect-styles.js";
+import {
+  normalizeWarpEffectStyleId,
+  getWarpEffectStyleOptions,
+  resolveShipWarpEffectStyleId,
+} from "./warp-effect-styles.js";
+import { resolveActorFactionKey } from "./actor-faction.js";
 
 const MODULE = "sta2e-toolkit";
 const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
@@ -958,33 +963,11 @@ export function shipEngineFacingToCanvasDeg(token, facingDeg) {
   return _normalizeDegrees(local - 90 + _tokenRotationDeg(token));
 }
 
-const FACTION_TESTS = [
-  { key: "klingon", test: /klingon/ },
-  { key: "romulan", test: /romulan/ },
-  { key: "cardassian", test: /cardassian/ },
-  { key: "borg", test: /\bborg\b/ },
-  { key: "dominion", test: /dominion|jem'?hadar|founder/ },
-  { key: "ferengi", test: /ferengi/ },
-  { key: "tos", test: /\b(tos|constitution|enterprise nx|nx-0|tos[- ]?era)\b/ },
-];
-
-// Guesses a ship's faction from its name, its traits text field and any child
-// trait Items. Returns null for Federation / anything unrecognised.
-export function resolveActorFactionKey(actorOrToken) {
-  const actor = _resolveActor(actorOrToken);
-  if (!actor) return null;
-  const traitItems = [];
-  for (const item of actor.items ?? []) {
-    if (item?.type === "trait" && item.name) traitItems.push(item.name);
-  }
-  const haystack = [actor.name, actor.system?.traits, ...traitItems]
-    .filter(Boolean).join(" ").toLowerCase();
-
-  for (const faction of FACTION_TESTS) {
-    if (faction.test.test(haystack)) return faction.key;
-  }
-  return null;
-}
+// Faction detection lives in actor-faction.js, a leaf module, so that
+// warp-effect-styles.js can gate on faction without importing this file and
+// closing an import cycle. Re-exported here because this is where every caller
+// — and any world macro — has always found it.
+export { resolveActorFactionKey };
 
 // Faction / era aware exhaust color. Custom hex wins; otherwise a warm impulse
 // glow and cool warp streak, tinted by the ship's faction guessed from its name.
@@ -3303,9 +3286,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       // A single option means nothing gated is available to this ship, so the
       // whole row is suppressed — that check IS the Timeship trait gate.
       showWarpEffectSelect: getWarpEffectStyleOptions(this.actor).length > 1,
+      // Selected against the *resolved* id, not the stored one. A Cardassian
+      // timeship saved before the Cardassian rift existed still holds
+      // "temporalRift", which is no longer one of its options — matching on the
+      // raw flag would show Standard as selected and then write that back on
+      // save, quietly downgrading a ship the GM never touched. Resolving first
+      // shows what the ship actually flies and migrates the flag on save.
       warpEffectStyleOptions: getWarpEffectStyleOptions(this.actor).map(option => ({
         ...option,
-        selected: option.value === this._activeWarpEffectSettings().style,
+        selected: option.value === resolveShipWarpEffectStyleId(this.actor),
       })),
       showPhaserEraSelector: _isEraPhaserWeapon(activeWeapon),
       phaserEraOptions: PHASER_ERA_OPTIONS.map(option => ({

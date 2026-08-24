@@ -51,12 +51,19 @@ const PREF_DEFAULTS = { pattern: "circle", spacing: 350, snap: true, delay: 300,
 /**
  * Arrival-effect choices for the dialog. "Per Ship Default" keeps each actor's
  * own Ship VFX setting, which is why one dialog-wide control can still serve a
- * mixed fleet; the explicit choices override it for this spawn only, and any
- * ship that lacks the trait for a gated style quietly falls back to standard.
+ * mixed fleet; the explicit choices override it for this spawn only.
+ *
+ * Only the canonical styles are listed — a faction variant would be meaningless
+ * as a fleet-wide control, because resolveRequestedWarpStyle already swaps each
+ * ship onto its own faction's variant. Picking "Temporal Rift" for a mixed
+ * fleet therefore gives the Cardassians their rift and the Federation ships
+ * theirs, and any ship lacking the trait falls back to standard.
  */
 const WARP_STYLE_CHOICES = [
   { value: WARP_STYLE_AUTO, label: "Per Ship Default" },
-  ...Object.values(WARP_EFFECT_STYLES).map(s => ({ value: s.id, label: s.label })),
+  ...Object.values(WARP_EFFECT_STYLES)
+    .filter(s => !s.faction)
+    .map(s => ({ value: s.id, label: s.label })),
 ];
 
 function getPrefs() {

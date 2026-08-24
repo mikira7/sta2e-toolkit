@@ -8,10 +8,13 @@
  *
  * Deliberately does NOT import ship-vfx-anchors.js — that would close an import
  * cycle (ship-vfx-anchors.js imports this file for the editor dropdown). The
- * shipVfxAnchors flag is read directly instead; it is a plain object.
+ * shipVfxAnchors flag is read directly instead; it is a plain object, and
+ * faction detection comes from actor-faction.js, the leaf module that half was
+ * split into for exactly this reason.
  */
 
 import { actorHasTrait } from "./trait-service.js";
+import { resolveActorFactionKey } from "./actor-faction.js";
 
 const MODULE = "sta2e-toolkit";
 const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
@@ -34,6 +37,14 @@ const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
  *                   canvas bearing, applied only when orientToHeading is set.
  * - `transit`       how the ship approaches and leaves the effect. See below.
  * - `requiresTrait` actor trait gating this style, or null for always-available.
+ * - `family`        styles sharing a family are faction variants of one effect.
+ *                   null for a style that stands alone.
+ * - `faction`       the resolveActorFactionKey() key this variant dresses for,
+ *                   or null for the family's generic variant. A faction variant
+ *                   *replaces* the generic one for ships of that faction rather
+ *                   than sitting beside it — a Cardassian timeship is never
+ *                   offered the Federation rift.
+ * - `icon`          Font Awesome class for the per-use Warp Out dialog button.
  * - `soundKeys`     per-phase setting keys; a blank setting falls back to the
  *                   caller's own soundKey, so an unconfigured style is silent
  *                   in exactly the way the standard warp already is.
@@ -72,6 +83,9 @@ export const WARP_EFFECT_STYLES = Object.freeze({
       flyThrough: false,
     }),
     requiresTrait: null,
+    family: null,
+    faction: null,
+    icon: "fas fa-bolt",
     soundKeys: null,
   }),
   // A rift is a portal rather than a streak, so it skips the corridor and runs
@@ -101,7 +115,37 @@ export const WARP_EFFECT_STYLES = Object.freeze({
       flyThrough: true,
     }),
     requiresTrait: "Timeship",
+    family: "rift",
+    faction: null,
+    icon: "fas fa-clock-rotate-left",
     soundKeys: Object.freeze({ depart: "sndTemporalRift", arrive: "sndTemporalRift" }),
+  }),
+  // The same portal dressed for the Cardassian Union. Identical staging to the
+  // generic rift — only the clip and its tuning keys differ — but it owns its
+  // own scale/peak/sound settings because it is a differently authored asset
+  // with its own margins and its own decisive frame.
+  cardassianTemporalRift: Object.freeze({
+    id: "cardassianTemporalRift",
+    label: "Cardassian Temporal Rift",
+    src: "modules/sta2e-toolkit/assets/vfx/Cardassian-Temporal-Rift.webm",
+    peakMs: 2500,
+    peakSettingKey: "warpCardassianRiftPeakMs",
+    scaleMul: 7,
+    scaleSettingKey: "warpCardassianRiftScale",
+    tailMs: 250,
+    corridor: false,
+    orientToHeading: true,
+    rotationOffsetDeg: 0,
+    transit: Object.freeze({
+      inSquares: 2.5, outSquares: 2.5,
+      inMs: null, outMs: 900,
+      flyThrough: true,
+    }),
+    requiresTrait: "Timeship",
+    family: "rift",
+    faction: "cardassian",
+    icon: "fas fa-clock-rotate-left",
+    soundKeys: Object.freeze({ depart: "sndCardassianTemporalRift", arrive: "sndCardassianTemporalRift" }),
   }),
 });
 
@@ -155,11 +199,83 @@ export function getWarpFlashTiming(styleId) {
   };
 }
 
-/** Whether this actor may use the style at all (the trait gate). */
+/**
+ * Whether this actor may use the style at all. Three gates, in order:
+ *
+ * 1. the trait gate — the ship must carry `requiresTrait`;
+ * 2. a faction variant is offered only to ships of that faction;
+ * 3. a family's *generic* variant is withdrawn once a faction variant of the
+ *    same family is available, so a Cardassian timeship is offered the
+ *    Cardassian rift instead of the Federation one, not as well as it.
+ *
+ * An ungated style still short-circuits to true on the first line, so the
+ * standard flash provably cannot regress.
+ */
 export function warpEffectStyleAvailableFor(actor, styleId) {
   const style = WARP_EFFECT_STYLES[normalizeWarpEffectStyleId(styleId)];
-  if (!style.requiresTrait) return true;
-  return actorHasTrait(actor, style.requiresTrait);
+  if (!style.requiresTrait && !style.faction && !style.family) return true;
+  if (style.requiresTrait && !actorHasTrait(actor, style.requiresTrait)) return false;
+  if (style.faction) return resolveActorFactionKey(actor) === style.faction;
+  return !_factionVariantFor(actor, style.family);
+}
+
+/**
+ * The faction-specific member of `family` this actor qualifies for, or null.
+ * Its own trait gate still has to pass — a Cardassian ship without the Timeship
+ * trait has no rift of any kind, so nothing should be withdrawn from it.
+ */
+function _factionVariantFor(actor, family) {
+  if (!family) return null;
+  const factionKey = resolveActorFactionKey(actor);
+  if (!factionKey) return null;
+  return Object.values(WARP_EFFECT_STYLES).find(style =>
+    style.family === family
+    && style.faction === factionKey
+    && (!style.requiresTrait || actorHasTrait(actor, style.requiresTrait))
+  ) ?? null;
+}
+
+/**
+ * Upgrade a style id to the variant this actor should actually fly — the plain
+ * Temporal Rift becomes the Cardassian one for a Cardassian timeship.
+ *
+ * This substitution has to happen on the client that *initiates* the effect,
+ * because playWarpFlash sends only a style id over the socket and the receiving
+ * clients resolve it with no actor in hand. It doubles as the migration path:
+ * ships that saved "temporalRift" before this existed upgrade on read.
+ */
+export function resolveFactionVariantId(actorOrToken, styleId) {
+  const id = normalizeWarpEffectStyleId(styleId);
+  const style = WARP_EFFECT_STYLES[id];
+  if (!style.family || style.faction) return id;
+  return _factionVariantFor(_resolveActor(actorOrToken), style.family)?.id ?? id;
+}
+
+/** The generic (faction-less) member of a family, used as a degrade target. */
+function _familyGenericId(family) {
+  if (!family) return null;
+  return Object.values(WARP_EFFECT_STYLES)
+    .find(style => style.family === family && !style.faction)?.id ?? null;
+}
+
+/**
+ * Substitute, then validate, then degrade — the single decision point behind
+ * both public resolvers.
+ *
+ * The degrade chain is: the id asked for -> this actor's faction variant of it
+ * -> the family's generic variant -> the standard flash. Stepping through the
+ * family before falling all the way back matters twice over: it keeps the Ship
+ * Spawner's one dialog-wide "Temporal Rift" meaningful across a mixed fleet,
+ * and it means renaming a Cardassian timeship drops it to the plain rift rather
+ * than silently costing it the rift altogether.
+ */
+function _resolveForActor(actorOrToken, styleId) {
+  const actor = _resolveActor(actorOrToken);
+  const wanted = resolveFactionVariantId(actor, styleId);
+  if (warpEffectStyleAvailableFor(actor, wanted)) return wanted;
+  const generic = _familyGenericId(WARP_EFFECT_STYLES[wanted].family);
+  if (generic && warpEffectStyleAvailableFor(actor, generic)) return generic;
+  return DEFAULT_WARP_EFFECT_STYLE_ID;
 }
 
 /**
@@ -169,7 +285,7 @@ export function warpEffectStyleAvailableFor(actor, styleId) {
 export function getWarpEffectStyleOptions(actor) {
   return Object.values(WARP_EFFECT_STYLES)
     .filter(style => warpEffectStyleAvailableFor(actor, style.id))
-    .map(style => ({ value: style.id, label: style.label }));
+    .map(style => ({ value: style.id, label: style.label, icon: style.icon }));
 }
 
 /**
@@ -188,9 +304,11 @@ function _resolveActor(actorOrToken) {
 }
 
 /**
- * The style id this ship should warp with. Re-checks the trait gate on read, so
- * stripping the Timeship trait off an actor immediately drops it back to the
- * standard flash rather than leaving a stale selection in the flag.
+ * The style id this ship should warp with. Re-resolved on every read rather
+ * than trusted from the flag: stripping the Timeship trait off an actor
+ * immediately drops it back to the standard flash, and a Cardassian ship
+ * holding the generic rift is upgraded to the Cardassian one — which is how
+ * ships saved before that variant existed migrate without a data pass.
  */
 export function resolveShipWarpEffectStyleId(actorOrToken) {
   const actor = _resolveActor(actorOrToken);
@@ -199,8 +317,7 @@ export function resolveShipWarpEffectStyleId(actorOrToken) {
   try {
     stored = actor.getFlag(MODULE, SHIP_VFX_ANCHORS_FLAG)?.settings?.warpEffect?.style ?? "";
   } catch { /* no flag / unreadable actor */ }
-  const styleId = normalizeWarpEffectStyleId(stored);
-  return warpEffectStyleAvailableFor(actor, styleId) ? styleId : DEFAULT_WARP_EFFECT_STYLE_ID;
+  return _resolveForActor(actor, stored);
 }
 
 /** Resolved style entry for a ship, peak and all. */
@@ -221,10 +338,7 @@ export function resolveRequestedWarpStyle(actorOrToken, requestedId) {
   if (!requestedId || requestedId === WARP_STYLE_AUTO) {
     return getShipWarpEffectStyle(actorOrToken);
   }
-  const actor = _resolveActor(actorOrToken);
-  return warpEffectStyleAvailableFor(actor, requestedId)
-    ? getWarpEffectStyle(requestedId)
-    : getWarpEffectStyle(DEFAULT_WARP_EFFECT_STYLE_ID);
+  return getWarpEffectStyle(_resolveForActor(actorOrToken, requestedId));
 }
 
 /**

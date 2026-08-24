@@ -1386,6 +1386,28 @@ export function registerSettings() {
     scope: "world", config: false, type: String, default: "", filePicker: "audio"
   });
 
+  // The Cardassian rift is a separately authored clip with its own margins and
+  // its own decisive frame, so it gets its own trio rather than sharing the
+  // Federation rift's — the same reason warpRiftScale was split off
+  // warpFlashScale. Only ships resolved as Cardassian ever read these.
+  game.settings.register("sta2e-toolkit", "warpCardassianRiftScale", {
+    name: "Cardassian Rift Size (%)",
+    hint: "Scales the Cardassian Temporal Rift animation. 100 = default size.",
+    scope: "world", config: false, type: Number, default: 100,
+  });
+
+  game.settings.register("sta2e-toolkit", "warpCardassianRiftPeakMs", {
+    name: "Cardassian Rift Peak (ms)",
+    hint: "When the Cardassian rift aperture is widest — the moment the ship vanishes or materialises. Keep this shorter than the Cardassian-Temporal-Rift clip itself.",
+    scope: "world", config: false, type: Number, default: 2500,
+  });
+
+  game.settings.register("sta2e-toolkit", "sndCardassianTemporalRift", {
+    name: "Cardassian Rift Sound",
+    hint: "Audio file played at both ends of a Cardassian timeship's rift transit. Blank uses the Warp Depart / Warp Arrive sounds.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
   // Ship spawner dialog state. Per-client so two GMs do not fight over the
   // formation they each prefer; config:false because the dialog is the UI.
   game.settings.register("sta2e-toolkit", "shipSpawnerPrefs", {
