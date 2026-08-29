@@ -25,6 +25,7 @@ import {
   normalizeStarSystemImageData,
 } from "./star-system-images.js";
 import { SFX_SETTING, SfxBoardConfig } from "./sfx-board.js";
+import { environmentSoundKeys } from "./viewscreen-environments.js";
 
 export function registerSettings() {
 
@@ -1538,6 +1539,27 @@ export function registerSettings() {
     scope: "world", config: false, type: Number, default: 100,
   });
 
+  // Per-environment audio, generated from the environment table rather than
+  // written out, so adding a travel environment brings its own three sound slots
+  // with it and stays a one-file change. Warp is skipped: its descriptor names
+  // the three keys registered immediately above, which predate the table and
+  // which every other environment falls back to when its own slot is blank.
+  for (const env of environmentSoundKeys()) {
+    if (env.legacy) continue;
+    const rows = [
+      [env.enter, "Enter",     `Played when the viewscreen enters ${env.label}.`],
+      [env.exit,  "Leave",     `Played when the viewscreen leaves ${env.label}.`],
+      [env.loop,  "Ambience",  `Looping bed held for as long as the viewscreen shows ${env.label}.`],
+    ];
+    for (const [key, beat, hint] of rows) {
+      game.settings.register("sta2e-toolkit", key, {
+        name: `Viewscreen: ${env.label} — ${beat}`,
+        hint: `${hint} Blank falls back to the plain Warp Viewscreen sound above.`,
+        scope: "world", config: false, type: String, default: "", filePicker: "audio",
+      });
+    }
+  }
+
   // ── Scene Warp ───────────────────────────────────────────────────────────
   // The top-down streak field that puts a whole tactical scene at warp. Unlike
   // the viewscreen above this has no sounds of its own — the GM drives it from
@@ -1692,5 +1714,19 @@ export function registerSettings() {
       tng:  "TNG/DS9/VOY",
     },
     default: "auto",
+  });
+
+  game.settings.register("sta2e-toolkit", "regionSplineSmoothness", {
+    name:    "Region Curve Smoothness",
+    hint:    "How finely the Regions layer's Curve tool tessellates. Samples are spread by span "
+      + "length rather than spread evenly, so a span running the width of the map gets more "
+      + "points than one shorter than a grid square. Raise it if a large curve looks faceted, "
+      + "lower it if a scene full of curved Regions feels heavy. World scope, because it "
+      + "determines the geometry that gets saved.",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 4, max: 24, step: 1 },
+    default: 12,
   });
 }

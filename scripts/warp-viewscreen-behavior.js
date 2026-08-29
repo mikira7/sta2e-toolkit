@@ -33,7 +33,13 @@ import {
   flashViewscreen,
   sweepViewscreens,
   getViewscreenTiming,
+  viewscreenEnvironmentId,
 } from "./warp-viewscreen-vfx.js";
+import {
+  getEnvironment,
+  environmentChoices,
+  DEFAULT_ENVIRONMENT,
+} from "./viewscreen-environments.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -99,6 +105,55 @@ export class WarpViewscreenBehaviorType
         hint: "Wall-clock stamp for the current phase. Every client derives its "
             + "own ramp position from this, so a player who joins mid-warp is in "
             + "step. Set by the panel — no reason to edit it by hand.",
+      }),
+
+      // ── Environment ───────────────────────────────────────────────────────
+      environment: new f.StringField({
+        required: true, blank: false, initial: DEFAULT_ENVIRONMENT,
+        choices: environmentChoices("viewscreen"),
+        label: "Environment",
+        hint: "What the ship is flying through. Warp is the classic starfield; "
+            + "the others reuse the same look controls below under different "
+            + "names, so Star Count means cloud density in a nebula and rock "
+            + "count in an asteroid field. The Warp Viewscreen panel retunes "
+            + "every one of them for you when you switch there — changing it "
+            + "here swaps the environment and leaves your look settings alone.",
+      }),
+      intensity: new f.NumberField({
+        required: true, initial: 100, min: 0, max: 100, step: 5, nullable: false,
+        label: "Environment Intensity (%)",
+        hint: "How strongly the environment asserts itself: how much gas, how "
+            + "much debris, how violent the storm, how heavy the static. Also "
+            + "drives the haze, the colour wash and how often lightning strikes. "
+            + "No effect at all on plain Warp.",
+      }),
+      lightning: new f.NumberField({
+        required: true, initial: 0, min: 0, max: 100, step: 5, nullable: false,
+        label: "Lightning (%)",
+        hint: "Switches the ion storm's electrical discharge on over whatever "
+            + "else the viewscreen is showing — an ionized nebula, a charged "
+            + "debris field. Drives the flash, the bolts, the shake and how "
+            + "often they strike. Bolts take the accent colour, so they match "
+            + "the environment they are in. Ignored when the environment is "
+            + "already an Ion Storm, which has its own.",
+      }),
+      interference: new f.NumberField({
+        required: true, initial: 0, min: 0, max: 100, step: 5, nullable: false,
+        label: "Interference (%)",
+        hint: "Lays the Signal Loss static over whatever else the viewscreen is "
+            + "showing, so a screen can break up while the ship is still at warp "
+            + "or in a nebula. 0 is a clean picture; 100 is as heavy as the "
+            + "Signal Loss environment itself, but with the view still visible "
+            + "underneath. Ignored when the environment is already Signal Loss, "
+            + "which has nothing to lay it over.",
+      }),
+      starMix: new f.NumberField({
+        required: true, initial: 100, min: 0, max: 100, step: 5, nullable: false,
+        label: "Starfield Mix (%)",
+        hint: "How much of the ordinary starfield survives behind the "
+            + "environment. 100% is a full field; lower values read as stars "
+            + "obscured by whatever you are flying through; 0 removes them "
+            + "entirely, which is what the Static environment wants.",
       }),
 
       // ── Flight ────────────────────────────────────────────────────────────
@@ -227,8 +282,15 @@ export class WarpViewscreenBehaviorType
     [CONST.REGION_EVENTS.BEHAVIOR_VIEWED]: function () {
       attachViewscreen(this);
       // A client arriving mid-warp gets the right starfield from `phaseAt`, but
-      // it saw no phase update, so the loop has to be picked up here too.
-      if (isAtWarp(this.behavior)) _startLoop(this.behavior.uuid);
+      // it saw no phase update, so the loop has to be picked up here too. An
+      // environment that persists at rest — a storm, a dead screen — is audible
+      // whether or not the ship is going anywhere, so it starts unconditionally.
+      if (isAtWarp(this.behavior) || _isRestAmbient(this.behavior)) {
+        _startLoop(this.behavior);
+      }
+      // The hiss follows the field, not the phase, so it is picked up here for
+      // exactly the same reason: a client arriving mid-scene saw no update.
+      _syncInterferenceLoop(this.behavior);
     },
     [CONST.REGION_EVENTS.BEHAVIOR_UNVIEWED]: function () {
       detachViewscreen(this.behavior?.uuid);
@@ -328,16 +390,55 @@ export function isAtWarp(behavior) {
 // client already receives the document update, so broadcasting as well would
 // double every cue.
 
-/** The looping warp rumble, one per behavior uuid. */
+/**
+ * The looping beds, keyed `uuid|slot`.
+ *
+ * Two slots, because interference is an overlay rather than a mode: a viewscreen
+ * breaking up while still at warp should hiss *over* the warp rumble, not
+ * instead of it. Keying by uuid alone — as this did while Signal Loss was only
+ * ever an environment of its own — meant starting one silently orphaned the
+ * other, leaving a sound playing with no handle to stop it.
+ */
 const _loops = new Map();
+const LOOP_ENV          = "env";
+const LOOP_INTERFERENCE = "interference";
+
+const _loopKey = (uuid, slot) => `${uuid}|${slot}`;
 
 function _settingPath(key) {
+  if (!key) return "";
   try {
     const v = game.settings.get(MODULE, key);
     return typeof v === "string" && v.trim() ? v.trim() : "";
   } catch {
     return "";
   }
+}
+
+/**
+ * The audio file for one beat of one viewscreen, resolved through its
+ * environment.
+ *
+ * Falls back to the plain warp keys when the environment's own slot is blank, so
+ * a GM who has configured warp audio and nothing else still hears something in a
+ * nebula rather than silence. Warp itself *names* those legacy keys, so this
+ * costs it nothing.
+ */
+function _envSoundPath(behavior, beat) {
+  const env = getEnvironment(viewscreenEnvironmentId(behavior));
+  return _settingPath(env.sounds?.[beat])
+      || _settingPath(getEnvironment(DEFAULT_ENVIRONMENT).sounds?.[beat]);
+}
+
+/**
+ * Does this viewscreen's environment persist while the ship is at rest?
+ *
+ * The renderer asks the same question to decide whether it may go dark; the
+ * sound layer asks it to decide whether dropping to idle should silence the
+ * loop. A storm does not stop when the engines do.
+ */
+function _isRestAmbient(behavior) {
+  return !!getEnvironment(viewscreenEnvironmentId(behavior)).restAmbient;
 }
 
 function _playLocal(src, { loop = false, volume = 0.7 } = {}) {
@@ -352,22 +453,65 @@ function _playLocal(src, { loop = false, volume = 0.7 } = {}) {
   }
 }
 
-async function _stopLoop(uuid) {
-  const pending = _loops.get(uuid);
+async function _stopLoopSlot(uuid, slot) {
+  const key = _loopKey(uuid, slot);
+  const pending = _loops.get(key);
   if (!pending) return;
-  _loops.delete(uuid);
+  _loops.delete(key);
   try {
     const sound = await pending;
     sound?.stop?.();
   } catch { /* the loop never started — nothing to stop */ }
 }
 
-function _startLoop(uuid) {
-  const src = _settingPath("sndWarpViewscreenLoop");
+/** Silence every bed on one viewscreen. */
+function _stopLoop(uuid) {
+  if (!uuid) return;
+  _stopLoopSlot(uuid, LOOP_ENV);
+  _stopLoopSlot(uuid, LOOP_INTERFERENCE);
+}
+
+/** Silence everything — canvas teardown only. */
+function _stopAllLoops() {
+  for (const key of [..._loops.keys()]) {
+    const [uuid, slot] = key.split("|");
+    _stopLoopSlot(uuid, slot);
+  }
+}
+
+function _startLoopSlot(uuid, slot, src, volume) {
+  _stopLoopSlot(uuid, slot);
   if (!src) return;
-  _stopLoop(uuid);
-  const pending = _playLocal(src, { loop: true, volume: 0.45 });
-  if (pending) _loops.set(uuid, Promise.resolve(pending));
+  const pending = _playLocal(src, { loop: true, volume });
+  if (pending) _loops.set(_loopKey(uuid, slot), Promise.resolve(pending));
+}
+
+/** The environment's own ambience. */
+function _startLoop(behavior) {
+  const uuid = behavior?.uuid ?? behavior;
+  if (!uuid) return;
+  const src = typeof behavior === "object" ? _envSoundPath(behavior, "loop") : "";
+  _startLoopSlot(uuid, LOOP_ENV, src, 0.45);
+}
+
+/**
+ * The interference hiss, held for as long as the screen is broken up.
+ *
+ * Independent of the phase, unlike every other cue here: a screen does not stop
+ * being broken because the ship dropped out of warp. It follows the Interference
+ * field alone, and its volume tracks it, so easing the slider up reads as the
+ * signal degrading rather than as a sound switching on.
+ */
+function _syncInterferenceLoop(behavior) {
+  const uuid = behavior?.uuid;
+  if (!uuid) return;
+  const level = Number(behavior.system?.interference ?? 0) / 100;
+  // The Signal Loss environment already carries this as its own ambience; a
+  // second copy of the same hiss on top of it is just louder.
+  const own = getEnvironment(viewscreenEnvironmentId(behavior)).grain;
+  if (!(level > 0) || own) { _stopLoopSlot(uuid, LOOP_INTERFERENCE); return; }
+  const src = _settingPath(getEnvironment("static").sounds.loop);
+  _startLoopSlot(uuid, LOOP_INTERFERENCE, src, 0.12 + 0.33 * level);
 }
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -390,16 +534,29 @@ function _onBehaviorUpdate(behavior, changed) {
     const phase = changedSystem.phase;
     if (phase === "entering") {
       flashViewscreen(behavior);
-      _playLocal(_settingPath("sndWarpViewscreenEnter"));
-      _startLoop(behavior.uuid);
+      _playLocal(_envSoundPath(behavior, "enter"));
+      _startLoop(behavior);
     } else if (phase === "exiting") {
       flashViewscreen(behavior);
-      _playLocal(_settingPath("sndWarpViewscreenExit"));
-      _stopLoop(behavior.uuid);
+      _playLocal(_envSoundPath(behavior, "exit"));
+      // A persistent environment keeps its bed running under the drop-out cue;
+      // only a viewscreen that is actually going quiet stops. The ENV slot
+      // only — a broken screen does not un-break because the ship slowed down.
+      if (!_isRestAmbient(behavior)) _stopLoopSlot(behavior.uuid, LOOP_ENV);
     } else if (phase === "idle") {
-      _stopLoop(behavior.uuid);
+      if (!_isRestAmbient(behavior)) _stopLoopSlot(behavior.uuid, LOOP_ENV);
     }
+  } else if ("environment" in changedSystem && isAtWarp(behavior)) {
+    // Changing environment mid-flight produces no phase update, so nothing else
+    // would swap the loop — a ship that flew from warp into a nebula would keep
+    // the warp rumble running under the new picture.
+    _startLoop(behavior);
   }
+
+  // Independent of the phase, and re-checked on every update rather than only
+  // when `interference` is in the diff: switching TO Signal Loss has to silence
+  // the overlay hiss the previous environment was carrying.
+  _syncInterferenceLoop(behavior);
 
   refreshViewscreen(behavior);
 }
@@ -414,7 +571,7 @@ function _onCanvasReady() {
   // Nothing should survive a scene swap; core re-fires behaviorViewed for the
   // new scene's behaviors immediately after.
   sweepViewscreens();
-  for (const uuid of [..._loops.keys()]) _stopLoop(uuid);
+  _stopAllLoops();
 }
 
 // ── The vanishing-point picker in the sheet ──────────────────────────────────

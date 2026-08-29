@@ -28,6 +28,7 @@ import {
   getArrayAreaShotCap,
   ARRAY_AREA_SHOT_CAP_DEFAULT,
 } from "./weapon-configs.js";
+import { environmentSoundKeys } from "./viewscreen-environments.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const MODULE = "sta2e-toolkit";
@@ -498,9 +499,39 @@ function buildTabDefs() {
         { label: "Viewscreen — Star Speed", slot: "", sndKey: null, animKey: null,
           delayKey: "warpViewscreenStarSpeed", unit: "%", step: 5,
           defaultHint: "Default: 100% — a trim on the whole field, sublight drift included. Raise it if warp reads too sedate on a large viewscreen." },
+        // The rows above cover plain warp and the ramp shared by every
+        // environment; the ones below are generated per travel environment from
+        // the same table the renderer reads, so adding an environment brings its
+        // own audio rows with it rather than needing an edit here.
+        ...environmentSoundRows(),
       ],
     },
   ];
+}
+
+/**
+ * Three sound rows for every travel environment except plain warp, which is
+ * already covered by the three keys written out above and which the others fall
+ * back to.
+ */
+function environmentSoundRows() {
+  const rows = [];
+  for (const env of environmentSoundKeys()) {
+    if (env.legacy) continue;
+    const fallback = " Blank falls back to the plain Viewscreen sound above.";
+    rows.push(
+      { label: `${env.label} — Enter`, slot: "", sndKey: env.enter, animKey: null,
+        defaultHint: `Played when the viewscreen enters ${env.label}.${fallback}` },
+      { label: `${env.label} — Leave`, slot: "", sndKey: env.exit, animKey: null,
+        defaultHint: `Played when the viewscreen leaves ${env.label}.${fallback}` },
+      { label: `${env.label} — Ambience`, slot: "", sndKey: env.loop, animKey: null,
+        defaultHint: `Looping bed held for as long as the viewscreen shows ${env.label}. `
+          + "Each client plays its own copy, so it is never doubled. An "
+          + "environment that persists at rest keeps this running even when the "
+          + `ship is stopped.${fallback}` },
+    );
+  }
+  return rows;
 }
 
 // Per-type torpedo count rows for the Torpedoes tab.

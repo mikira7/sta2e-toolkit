@@ -30,6 +30,34 @@ import {
   sceneShipTokens,
 } from "./scene-warp.js";
 import { syncSceneWarp } from "./scene-warp-vfx.js";
+import {
+  getEnvironment,
+  environmentsForSurface,
+  environmentFieldLabel,
+  environmentDefaults,
+  DEFAULT_ENVIRONMENT,
+} from "./viewscreen-environments.js";
+
+/**
+ * The environment default keys this surface actually reads.
+ *
+ * An environment's `defaults` block is written for the viewscreen, which has a
+ * few fields the top-down field has no notion of — `spread`, `backdrop`,
+ * `backdropAlpha`, `nebula`. Spreading the whole block into the scene flag would
+ * store dead keys that `getSceneWarp` ignores, so it is filtered here rather
+ * than the table being split in two.
+ */
+const SCENE_DEFAULT_KEYS = [
+  "density", "starTint", "accentTint", "variety",
+  "streakMul", "thickness", "intensity", "starMix",
+];
+
+function sceneDefaults(id) {
+  const all = environmentDefaults(id);
+  const out = {};
+  for (const k of SCENE_DEFAULT_KEYS) if (k in all) out[k] = all[k];
+  return out;
+}
 
 const PANEL_ID = "sta2e-scene-warp-panel";
 const POS_KEY  = "sta2e-toolkit.sceneWarpPanelPos";
@@ -268,6 +296,33 @@ export class SceneWarpPanel {
   }
 
   /**
+   * A dropdown. Same factory as the viewscreen panel's, for the same reason: the
+   * environment picker is the second select on this panel and the third across
+   * the two, which is where hand-built ones stop being worth it.
+   *
+   * Option text is set with `textContent`, never `innerHTML` — some of what goes
+   * through here is user data.
+   */
+  _mkSelect(entries, value, onChange) {
+    const LC  = getLcTokens();
+    const sel = document.createElement("select");
+    sel.style.cssText = `
+      width: 100%; background: ${LC.bg}; color: ${LC.text}; font-family: ${LC.font};
+      font-size: 10px; border: 1px solid ${LC.borderDim}; border-radius: 2px; padding: 3px 4px;
+    `;
+    for (const entry of entries) {
+      const opt = document.createElement("option");
+      opt.value = entry.value;
+      opt.textContent = entry.label;
+      if (entry.title) opt.title = entry.title;
+      if (entry.value === value) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => onChange(sel.value));
+    return sel;
+  }
+
+  /**
    * The Quality mirror. Writes the client setting, not the scene flag, so it
    * affects this browser only — hence the "(this device)" label.
    */
@@ -285,27 +340,16 @@ export class SceneWarpPanel {
     head.title = "How much of the field YOUR browser draws. Players set their own in "
       + "Module Settings; this never changes what anyone else sees.";
 
-    const sel = document.createElement("select");
-    sel.style.cssText = `
-      width: 100%; background: ${LC.bg}; color: ${LC.text}; font-family: ${LC.font};
-      font-size: 10px; border: 1px solid ${LC.borderDim}; border-radius: 2px; padding: 3px 4px;
-    `;
     let current = "high";
     try { current = String(game.settings.get("sta2e-toolkit", "sceneWarpQuality") ?? "high"); } catch { /* pre-init */ }
-    for (const [value, label] of [
-      ["high",   "High — full field"],
-      ["medium", "Medium — half, none over tokens"],
-      ["low",    "Low — sparse, two bands"],
-    ]) {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.textContent = label;
-      if (value === current) opt.selected = true;
-      sel.appendChild(opt);
-    }
+
     // The setting's own onChange resyncs the renderer, so this only has to write.
-    sel.addEventListener("change", () => {
-      game.settings.set("sta2e-toolkit", "sceneWarpQuality", sel.value)
+    const sel = this._mkSelect([
+      { value: "high",   label: "High — full field" },
+      { value: "medium", label: "Medium — half, none over tokens" },
+      { value: "low",    label: "Low — sparse, two bands" },
+    ], current, value => {
+      game.settings.set("sta2e-toolkit", "sceneWarpQuality", value)
         .catch(err => console.warn("STA2e Toolkit | scene warp quality:", err));
     });
 
@@ -469,7 +513,49 @@ export class SceneWarpPanel {
     // set their own in Foundry's module settings.
     body.appendChild(this._mkQuality());
 
-    body.appendChild(this._mkSlider("Star Count", {
+    // ── Environment ───────────────────────────────────────────────────────────
+    // Static is absent by design: the registry marks it viewscreen-only, because
+    // television static on a top-down tactical map means nothing.
+    const env    = getEnvironment(cfg.environment);
+    const envId  = env.id;
+    const isWarp = envId === DEFAULT_ENVIRONMENT;
+    const label  = (field, fallback) => environmentFieldLabel(env, field, fallback);
+
+    body.appendChild(this._mkSelect(
+      environmentsForSurface("scene").map(e => ({
+        value: e.id, label: e.label, title: e.hint,
+      })),
+      envId,
+      // The defaults ride along in the same update, so picking an environment
+      // gives a tuned look rather than the previous one's numbers wearing new
+      // labels.
+      id => this._apply({ environment: id, ...sceneDefaults(id) }),
+    ));
+
+    if (!isWarp) {
+      body.appendChild(this._mkSlider(label("intensity", "Intensity"), {
+        min: 0, max: 100, step: 5, value: Math.round(cfg.intensity * 100),
+        format: v => `${Math.round(v)}%`,
+        onCommit: v => this._apply({ intensity: v }),
+      }));
+      body.appendChild(this._mkSlider("Starfield Mix", {
+        min: 0, max: 100, step: 5, value: Math.round(cfg.starMix * 100),
+        format: v => (v === 0 ? "no stars" : `${Math.round(v)}%`),
+        onCommit: v => this._apply({ starMix: v }),
+      }));
+    }
+
+    // An Ion Storm already carries its own discharge, so the field would be a
+    // control with nothing to act on — the resolver ignores it there anyway.
+    if (!env.strobe) {
+      body.appendChild(this._mkSlider("Lightning", {
+        min: 0, max: 100, step: 5, value: Math.round(cfg.lightning * 100),
+        format: v => (v === 0 ? "off" : `${Math.round(v)}%`),
+        onCommit: v => this._apply({ lightning: v }),
+      }));
+    }
+
+    body.appendChild(this._mkSlider(label("density", "Star Count"), {
       min: 50, max: 2000, step: 10, value: cfg.density,
       format: v => String(Math.round(v)),
       onCommit: v => this._apply({ density: Math.round(v) }),
@@ -477,22 +563,22 @@ export class SceneWarpPanel {
 
     body.appendChild(this._mkSwatches([
       { label: "Stars",  key: "starTint",   value: cfg.starTint },
-      { label: "Accent", key: "accentTint", value: cfg.accentTint },
+      { label: label("accentTint", "Accent"), key: "accentTint", value: cfg.accentTint },
     ]));
 
-    body.appendChild(this._mkSlider("Colour Variety", {
+    body.appendChild(this._mkSlider(label("variety", "Colour Variety"), {
       min: 0, max: 100, step: 5, value: Math.round(cfg.variety * 100),
       format: v => `${Math.round(v)}%`,
       onCommit: v => this._apply({ variety: v }),
     }));
 
-    body.appendChild(this._mkSlider("Streak Length", {
+    body.appendChild(this._mkSlider(label("streakMul", "Streak Length"), {
       min: 10, max: 400, step: 5, value: Math.round(cfg.streakMul * 100),
       format: v => `${Math.round(v)}%`,
       onCommit: v => this._apply({ streakMul: v }),
     }));
 
-    body.appendChild(this._mkSlider("Streak Thickness", {
+    body.appendChild(this._mkSlider(label("thickness", "Streak Thickness"), {
       min: 50, max: 400, step: 5, value: Math.round(cfg.thickness * 100),
       format: v => `${Math.round(v)}%`,
       onCommit: v => this._apply({ thickness: v }),
@@ -519,6 +605,15 @@ export class SceneWarpPanel {
       + "stars over your map art during a normal encounter.",
       v => this._apply({ drift: v }),
     ));
+
+    if (!isWarp) {
+      body.appendChild(this._mkBtn(
+        "fas fa-rotate-left", "Reset to Environment Defaults",
+        `Put every look setting back to the tuned starting point for ${env.label}`,
+        LC.textDim,
+        () => this._apply(sceneDefaults(envId)),
+      ));
+    }
 
     // ── Teardown ──────────────────────────────────────────────────────────────
     body.appendChild(this._mkBtn(

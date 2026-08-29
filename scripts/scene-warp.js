@@ -60,6 +60,14 @@ const DEFAULTS = {
   warpFactor:              6,
   lockHeading:             true,
   disableWeaponAutoRotate: true,
+  // What the fleet is flying through. The ids live in
+  // viewscreen-environments.js, which this module deliberately does NOT import
+  // — see the header. An unknown id is passed through untouched and resolved
+  // (with a fallback to warp) by the renderer, which does import the table.
+  environment:             "warp",
+  intensity:               100,
+  starMix:                 100,
+  lightning:               0,
   density:                 700,
   starTint:                "#cfe6ff",
   accentTint:              "#7dd3fc",
@@ -167,6 +175,17 @@ export function getSceneWarp(scene = canvas?.scene) {
 
     lockHeading:             s.lockHeading !== false,
     disableWeaponAutoRotate: s.disableWeaponAutoRotate !== false,
+
+    // Passed through as a bare string rather than validated against the
+    // environment table: validating would mean importing it, and staying a leaf
+    // is what lets the weapon-firing path consult this module at all. The
+    // renderer resolves it and falls back to warp on anything unrecognised.
+    environment: typeof s.environment === "string" && s.environment
+      ? s.environment
+      : DEFAULTS.environment,
+    intensity:  _clamp(s.intensity, 0, 100, DEFAULTS.intensity) / 100,
+    lightning:  _clamp(s.lightning, 0, 100, DEFAULTS.lightning) / 100,
+    starMix:    _clamp(s.starMix,   0, 100, DEFAULTS.starMix)   / 100,
 
     density:    Math.round(_clamp(s.density, 50, 2000, DEFAULTS.density)),
     starTint:   String(s.starTint   ?? DEFAULTS.starTint),

@@ -78,6 +78,72 @@ Zones are stored as scene flags. The ruler measurement is patched in `main.js` t
 
 **Multi-zone tokens:** very large ships (Borg cubes, stations) can be flagged via a Token Config checkbox ("Occupies Multiple Zones", token flag `flags.sta2e-toolkit.multiZone`, injected by [scripts/zone-token-config.js](scripts/zone-token-config.js)). Flagged tokens test their full footprint rect against zone polygons (`getZonesForToken`) and may occupy several zones at once. Range is measured to the nearest occupied zone (`getZoneDistanceBetweenTokens`, multi-source BFS); weapon range checks and area-attack target filters use this. Hazards and movement remain center-based. Note: the hazard effect property `establishedEffects.multiZone` in zone-hazard.js is unrelated.
 
+### Region Curve Tool
+
+A **Curve** tool on the Regions toolbar, beside Polygon: click control points and
+get a smooth closed outline that passes *through* every one of them, for the
+curved viewscreen cut into a bridge map, a nebula boundary, a debris-field edge.
+[region-spline-tool.js](scripts/region-spline-tool.js) is the whole feature;
+[spline-geometry.js](scripts/spline-geometry.js) is the maths, a leaf with no
+imports.
+
+**Core's shape drawing is driven by data, not by tool name, and that is why this
+is ~90 lines rather than a reimplementation of the Regions layer.**
+`ShapeLayerMixin` branches on `interaction.shape.type === "polygon"` and seeds
+the shape from `ui.controls.tool.shapeData`, so a tool declaring
+`creation: true, shapeData: {type: "polygon", …}` inherits click-to-place, the
+rubber-band point, right-click-to-undo-a-point, double-click-or-click-the-first-
+point to close, Escape, vertex snapping, the Hole toggle and the
+add-a-shape-to-the-selected-Region path for free. The module supplies only a
+curve in place of the raw click list. Two facts from core make that safe: a
+polygon shape's `points` has `min: 4` and **no maximum and no integer
+constraint**, and polygon `_createControlHandles` emits only
+translate/scale/rotate — never one handle per vertex, so a 60-point curve does
+not litter the canvas with 60 handles.
+
+Five things the implementation rests on:
+
+- **`_updateDragPreview` is the only seam that matters.**
+  `PlaceablesLayer#_commitDragLeftDrop` creates the document from
+  `interaction.preview.document`, *not* from `interaction.shape`, and
+  `_updateDragPreview` is the only thing that copies one into the other — so
+  patching that single method covers both the live preview and what gets saved.
+- **The patch SWAPS a splined stand-in in for the duration of the core call; it
+  must never write the curve onto `interaction.shape`.** Core appends the next
+  click to that same points array, so overwriting it destroys the control-point
+  list after the first click. The raw shape is restored in a `finally`.
+- **`_commitDragLeftDrop` needs its own patch, and only for one branch.**
+  Drawing while a Region is selected takes core's multi-shape path, which writes
+  `{shapes: preview.document.toObject().shapes}` — **shapes only, flags
+  dropped** — so the stamped control points would vanish on the single most
+  common way of adding a second curve.
+- **The stamp is rewritten on every click, not appended to.** `_updateDragPreview`
+  fires per click, and `raw.points` carries the trailing rubber-band point until
+  `_onDragLeftDrop` slices it off and refreshes one last time. Each call pops its
+  own previous entry, so the surviving stamp is the one made from the final
+  control points.
+- **Stored control points are matched back to a live shape by REGENERATING and
+  comparing, never by shape index.** An index breaks the moment a shape is
+  deleted or reordered. `sameOutline` tolerates a centroid offset, so a dragged
+  Region still matches and the rebuild re-anchors the controls onto its new
+  position; it deliberately does *not* tolerate the scale or rotate handles,
+  where a transformed shape simply stops matching and reverts to being an
+  ordinary polygon. The Region Config panel says so rather than failing silently.
+
+The curve is a **closed centripetal Catmull-Rom** (alpha = 0.5), the same knot
+spacing as `_catmullRomPoint` in [ship-vfx-anchors.js](scripts/ship-vfx-anchors.js)
+and for the same reason — uniform spacing bows and overshoots on unevenly spaced
+points, which hand-clicked points always are. It is duplicated rather than
+imported: that module is heavy, its curve is *open*, and it works in `{x, y}`
+objects where a Region shape wants a flat array. Two numbers worth knowing:
+sampling is **adaptive** (spread by span length against `canvas.grid.size`, so a
+map-wide span gets more points than one shorter than a grid square, capped either
+side), and the Hermite tangents are **clamped to the shorter of the two chords
+meeting at each point** — centripetal spacing removes cusps within a span, the
+clamp covers the tight zigzags and near-duplicate clicks it does not. Measured:
+six clicks on a circle give an outline within 2.5% of true, where a straight
+hexagon dips 13%.
+
 ### Spawn Window
 
 GM-only token spawning lives in one draggable LCARS console (`Shift+B`, DOM id `sta2e-spawn-window`) with a tab per spawner — **Transporter, Ships, Q**. [scripts/spawn-window.js](scripts/spawn-window.js) owns only the chrome: a gold bar across the top and the bottom, a **central control rail** rising between them that carries the tab keys and the tab's action keys, and a content column either side, under the module's usual floating-panel header strip (title + close, as `scene-warp-panel.js` builds it). The header and the top band are both drag handles, clamped via `hud-position.js`; the grabbing cursor is flagged on the root so whichever one was grabbed shows it. The header names the **window** and the artwork's title cap names the **active tab**, so neither repeats the other. **The two bands are not drawn in CSS.** Each is artwork (`assets/spawn-frame-top.svg`, `-bottom.svg`) worn as a `mask-image` with `var(--sw-primary)` painted through it — the same trick the bridge-station glyphs use in [lcars-action-ring.js](scripts/lcars-action-ring.js), and the reason hand-drawn chrome still recolours per era instead of needing one export per theme. Reconstructing those LCARS curves in `border-radius` was the wrong tool; every correction meant re-deriving geometry from a picture.
@@ -117,9 +183,325 @@ Placement is shared: [scripts/spawn-picker.js](scripts/spawn-picker.js) has the 
 
 Spin is floored to whole turns and clamped so no single waypoint rotates more than ~150°, because Foundry tweens rotation along the shortest path and a larger step visibly spins backwards. The token lands at its **original** rotation — the tumble is theatre, not a change of facing. Its look is [scripts/q-vfx.js](scripts/q-vfx.js): a white screen flash (broadcast as `qSceneFlashVfx`, scene-guarded) plus the `qFlash` warp style at each token. The screen flash is deliberately **a DOM overlay sibling to `#board`, not a PIXI object** — inside the canvas it would be composited under lighting, weather and overhead tiles, and would stop at the scene edge when zoomed out. As a sibling of the board canvas it covers the viewport at any zoom and still passes under Foundry's UI chrome. It animates with a CSS transition, so it needs no animejs. That style carries two fields no other style uses — `hidden` keeps it out of every style picker (`getWarpEffectStyleOptions`, the Ship Spawner's Arrival Effect list), and `whiten` makes `_webmFlash` desaturate the clip, because sprite tint multiplies and so cannot turn the blue warp flash white. All Q timing comes from `getWarpFlashTiming("qFlash")`, never the `WARP_*_MS` constants. Its sounds and flash size are tuned in **Settings → Sounds & Animations → Q** ([effect-config.js](scripts/effect-config.js) `qSpawner` tab); every sound row in that menu has a ▶ button that auditions the typed path locally. The Q panel emits only the shared `.sw-*` classes and registers no styles of its own.
 
+### Travel Environments
+
+**What the ship is flying through**, shared by the Warp Viewscreen and Scene Warp
+below. [viewscreen-environments.js](scripts/viewscreen-environments.js) is a
+frozen registry modelled on `WARP_EFFECT_STYLES`. Five **volumes** you fly
+through — `warp`, `nebula`, `ionStorm`, `asteroid` — four **tunnels** you fly
+down — `transwarpConduit`, `slipstream`, `wormhole`, `subspaceVortex` — and
+`static`, a screen state. The tunnels and `static` are viewscreen-only: a vortex
+is something you look *down* and TV static on a tactical map means nothing.
+
+**Neither camera changed to make this possible, and that is the point.** A
+particle at `(x, y, z)` marching toward the near plane and projecting to
+`vp + (x/z, y/z) * FOCAL` describes flying through a cloud bank or a rock field
+exactly as well as it describes warp, and Scene Warp's depth bands are the same
+story from another angle. What differs is the *material*: texture, blend mode,
+whether it smears, whether it grows as it approaches, whether it tumbles, how
+many. So an environment is a table entry, not a code path.
+
+Five rules the registry lives by, all easy to break:
+
+- **It imports nothing, and must not start.** The panels read labels without
+  pulling PIXI into a DOM module, and [scene-warp.js](scripts/scene-warp.js)
+  carries an environment id while staying the leaf the weapon-firing path needs.
+  Textures are named by **string key**; each renderer owns its own key-to-builder
+  switch, which is what keeps the table free of PIXI.
+- **Every particle number is a MULTIPLIER over the renderer's own tuned constant,
+  never an absolute.** The viewscreen's `WARP_STRETCH` is 8 and Scene Warp's is
+  6.5 for a documented reason; a descriptor supplying an absolute flattens that
+  distinction. `stretchMul: 1` means "whatever this surface already decided".
+- **`warp` is the identity element.** Every multiplier 1, `defaults` equal to the
+  pre-existing schema initials. A viewscreen or scene that has never heard of
+  environments must render exactly as it did before. This is verifiable: drive
+  both renderers against a `git worktree` of the previous commit under a seeded
+  PRNG and diff the sprite tree. Doing exactly that is what caught `warp` gaining
+  a haze blob, a wash and a flash sprite on the Scene Warp surface.
+- **`stretchMul` and `tumbleDeg` are mutually exclusive.** A sprite has one
+  rotation and the two want it for different things — a smear points along the
+  direction of travel, a tumble spins about the particle's centre. Both renderers
+  branch on `stretchMul > 0` and honour exactly one, so an entry setting both
+  silently loses its tumble.
+- **Clouds are procedurally textured, not gradient stacks.** `buildCloudTexture`
+  lays overlapping soft lobes (a single radial gradient reads as a glowing ball —
+  a light source, not a volume of gas) and then **carves fBm noise through the
+  alpha**. The lobes alone are smooth, and a smooth blob scaled to a couple of
+  hundred pixels is a thumbprint on the lens; the noise is what cuts the
+  filaments and density variation the eye actually reads as gas. `contrast` is
+  the exponent on it — raising it thins the sparse regions faster and leaves
+  ragged wisps, which is most of the difference between `cloud` (nebula) and
+  `stormCloud` (ion storm). ~5 ms per texture, ~20 ms for a set of four, one-off
+  at attach. `getImageData` is wrapped — a tainted or stubbed canvas falls back
+  to the lobes rather than failing to build.
+
+- **Three separate things made clouds read as "rotating noise discs", and all
+  three had to go.** Worth knowing, because each is easy to reintroduce:
+  1. **The rim guard was doing the shaping.** It started at 0.55 of the radius,
+     which forced the alpha onto a circular falloff whatever the noise did. It
+     now starts at 0.88 and exists only to stop a square edge; the silhouette
+     comes from the lobes and the noise.
+  2. **Circular lobes.** However irregular their arrangement, a pile of circles
+     still has a roughly circular hull, so `_blob` draws each one **elliptical
+     and freely rotated**, and the angles are stratified so a few lobes cannot
+     all land on one side.
+  3. **Rigid-body spin.** Gas does not rotate as a solid, and the eye knows it —
+     `tumbleDeg` went from 8/14 to 1.8/3.2, slow enough to register as drift.
+     What replaces it is `aspect` (per-particle area-preserving eccentricity,
+     rolled at seed) and `churn` (a slow billow on alpha and one scale axis).
+
+  Lobe layout was **swept, not guessed** — `spread`, `lobeMin/Max` and `lobes`
+  are exposed as options for exactly that. The trade is raggedness against
+  coverage: scattered lobes are lumpy but break into separate puffs, tight ones
+  fill the sprite and merge into a disc. The current values hold ~30% coverage at
+  ~20% off-round for the nebula and ~21% at ~49% for the storm. Coverage matters
+  more than it sounds: an early version reached only 0.72 of the radius and,
+  after the noise ate the faint tail, covered ~15% of the texture — so every
+  cloud rendered at roughly a third of its configured size, with the rest paid
+  for as transparent fill.
+
+- **`features` is the most important number in the cloud, and it is a cell count,
+  not a frequency.** `_fbm` samples a 64-cell lattice, so passing a plain
+  frequency of 1 spans all of it and puts the coarsest feature at 192/64 =
+  **three pixels**, with every later octave below the pixel grid contributing
+  nothing but grey. That is not cloud structure, it is speckle, and it is exactly
+  what "too tightly compact" looks like. `features: 3` gives octaves of 64/32/16/8
+  px — an actual fractal spread. The domain warp has to be coarser still (~2
+  blobs across the sprite) or it jitters each pixel independently and adds grain
+  rather than shearing anything.
+
+- **The field's brightness is measured, not eyeballed.** `saturation.mjs` in the
+  scratchpad sums every sprite's `alpha x on-screen area x its texture's own fill
+  factor` over the region area, giving a mean additive alpha — roughly how many
+  full-strength layers stack on a pixel. Under ~0.2 reads as too thin, over ~1.0
+  saturates into a flat wash. Nebula sits at ~0.6, the storm at ~0.2 (it has
+  lightning and a wash on top). This is worth re-running after any change to
+  count, size or alpha, because the intuition is bad: the first saturated build
+  measured 2.5, and **96% of it was the haze, not the clouds** — the haze sizes
+  from the region's long edge, so a `scale` of 1.5 meant single blobs over 2000px
+  wide on a 1150px viewscreen, while the clouds underneath contributed 0.07 and
+  were effectively invisible. Only `warp` still uses a big-blob haze, and that is
+  the deliberate single static sprite it has always had.
+
+- **Trade cloud count for alpha, not the reverse.** Overdraw cost is the sprite
+  *rect*, not the light it emits, so fewer brighter clouds give the same reading
+  for measurably less fragment shading. The fill factor barely responds to the
+  noise settings (the lobes limit it), so `alphaNear` and `sizeMax` are the real
+  levers on visibility.
+
+- **A tunnel is a seeding shape, not a camera.** Transwarp conduits, slipstreams
+  and wormholes are not volumes you fly through but **walls wrapped round the
+  axis** — and the pinhole camera draws one with no changes at all. Seed `(x, y)`
+  on a ring instead of in a box and with `r` fixed while `z` falls, the projected
+  radius `r * FOCAL / z` grows: the wall rushes outward past the viewer and the
+  untouched centre is the hole you look down. The smear, recycle, depth fade,
+  palette and pooling all carry over, and the smear runs along the direction of
+  travel, which for a ring *is* the radial direction — so wall striations fall out
+  free. `shape` defaults to `"box"`, which is what keeps every environment that
+  predates tunnels untouched; the identity A/B proves it.
+
+  Four things the tunnels rest on:
+  - **The aperture is the phase ramp.** `open = APERTURE_MIN + (1-APERTURE_MIN) *
+    ramp` scales the whole tube radius, so entering blooms it out of a point and
+    dropping out collapses it — with no new document field, no timer and no
+    socket, and a client joining mid-transit lands at the right dilation like
+    everything else here. `APERTURE_MIN` is **not** cosmetic: at a true zero the
+    entire pool projects onto one pixel and a few hundred additive sprites stack
+    into a blinding dot. The layer alpha fades with the ramp for the same reason.
+  - **`swirl` rotates the CONTAINER, never the sprites.** A sprite's one rotation
+    is already claimed by the smear — the same conflict that makes `stretchMul`
+    and `tumbleDeg` exclusive. A container roll is one property write per frame
+    *and* correct: a child at local `P` with rotation `angle(P̂)` maps to world
+    `angle(P̂) + R = angle(R·P̂)`, so every streak stays radially aligned as the
+    wall turns. It pivots on the vanishing point (pivot == position is identity),
+    set on attach/refresh rather than per frame, and a box environment resets the
+    transform so switching away from a tunnel cannot strand the pool rolled over.
+  - **`depth` is resolved before the projection**, because the flare needs it. For
+    a box environment the multiplier is exactly 1 and the projection is unchanged.
+  - **Watch `ENV_POOL_MAX`.** It clamps at 400, and a tunnel wall wants to read as
+    continuous, so `density * countMul` can easily exceed it — at which point the
+    cap silently swallows the GM's Wall Density slider *and* any retuning of
+    `countMul`. Two of the four were clamped when first tuned, which is why
+    lowering their counts changed the measured brightness by nothing at all. Keep
+    every environment's product under 400.
+
+  - **A conduit wall is thick vapour, not a bundle of hairlines.** The first pass
+    drew crisp striations against black and read as wire. The reference look is
+    broad luminous plumes with brighter threads *in* them and haze filling the
+    volume between — so the two conduits take the `wisp` texture (a soft body with
+    a bright spine, broken into filaments by fBm), triple their `wall` depth, and
+    switch their ambient haze on. Plumes carry far more light than hairlines: the
+    wisp's fill factor is ~0.13 against the cloud's ~0.046, which put both
+    conduits over 1.0 and flat until their cross-section and alpha came down.
+    Brightness is trimmed by **size and alpha, never by count** — fewer plumes
+    breaks the wall's continuity, which is the thing that reads as a tunnel.
+
+  What separates a tube from a box, measurably, is the **ratio of the closest
+  projected particle to the median** — boxes 0.02–0.09, tubes 0.20–0.35, with no
+  overlap. A tube cannot seed anything near its own axis, so its floor stays a
+  real fraction of its median; a box seeds right through the middle. The ratio is
+  scale-free, which matters: two earlier metrics both had to be thrown away.
+  Counting particles near the centre fails because perspective crowds any wall
+  inward — once the conduits gained thick walls their near-centre density
+  overtook the nebula's outright. An absolute pixel floor fails because it is
+  calibrated to one wall thickness. Pool the samples over several attaches, too:
+  a 67-particle snapshot is noise.
+
+- **`speedMul` is the only lever on longevity.** A particle's whole life is one
+  traversal of the depth range, so nothing else changes how long it stays on
+  screen. Clouds run at a third of the star speed and therefore last three times
+  as long — at parity they flicked past and never read as volume at all.
+  Honoured by both surfaces (the viewscreen scales `envSpeed`, Scene Warp scales
+  the band `step`).
+- **The ion storm is cells, not particles.** It drew a field of small fast motes
+  first and that was wrong: a scatter of discrete dots reads as confetti rather
+  than weather, and it left the bolts flashing over nothing. Cells give the
+  lightning something to be *inside*, and the storm's violence then shows as
+  churn and contrast rather than as count. Its glow is 0.8, not the motes' 1.2 —
+  a big additive sprite under a strong glow blooms into a flat wash and loses
+  exactly the structure the texture just bought. The `mote` texture key is still
+  supported with no current user.
+- **`haze.surfaces` exists on `warp` and nowhere else.** That blob *is* the
+  viewscreen's old `_syncNebula` sprite, reproduced exactly (count 1, driftRate
+  0, 0.2 alpha, 1.7× the long edge); the top-down field never had one, so drawing
+  it there smears lilac over every map that only ever asked for plain warp. Every
+  other environment omits the key and is hazy from both angles.
+
+**The thirteen look fields are reused and relabelled, not duplicated.** `density`
+reads "Cloud Density" under a nebula and "Rock Count" in an asteroid field, via
+`environmentFieldLabel`. That is what keeps the schema and both panels from
+tripling. Only five fields were added: `environment`, `intensity` (how strongly
+the environment asserts itself — pool size, haze, wash, storm violence, static),
+`starMix` (how much of the ordinary starfield survives behind it), and the two
+overlay fields `interference` and `lightning` (below).
+
+**Two capabilities are overlays rather than environments,** and they share one
+shape: a thing an environment can own *intrinsically* or have switched on over
+it by a 0–100 field. Both resolve through a helper returning a single
+`{ spec, strength }`, so no renderer branches on which source is in play, and in
+both cases **the environment's own always wins** — the field is *ignored* rather
+than compounded, and the panels hide it there.
+
+| field | helper | shared spec | owned by |
+|---|---|---|---|
+| `interference` | `environmentGrain` | `INTERFERENCE_GRAIN` | `static` |
+| `lightning` | `environmentStrobe` | `IONIZED_STROBE` | `ionStorm` |
+
+`static` answers "the screen is dead" and `interference` answers "the screen is
+breaking up *while* something else is on it". `ionStorm` answers "this is a
+storm" and `lightning` answers "this place is charged" — an ionized nebula, a
+charged debris field. Naming each spec once and having the owning environment
+reference it is what stops the two copies drifting: lightning in a nebula at 100%
+is exactly the storm's lightning, over a nebula. The strike takes its colour from
+the environment's accent, so violet lightning in a violet nebula falls out free.
+
+Both fields are **live look fields**, so their layers build on first need rather
+than at attach — the grain sprites from `_syncGrain`, the bolt pool from
+`_tickStrobe`, and on Scene Warp the whole discharge from `_ensureStrobeLayers`.
+Neither may cost a reattach, and neither breaks the create-once rule: the parent
+containers are made up front and never move, so appending to them reorders
+nothing. `strength` scales flash alpha, shake *and* strike rate together, so one
+control is one idea.
+
+Four more things interference rests on:
+
+- **`environmentGrain(env, interference, intensity)` resolves both sources to one
+  `{spec, strength}`,** so no renderer branches on which of the two is in play —
+  and the environment's own grain always wins, which is what makes the field
+  *ignored* on Signal Loss rather than compounded with it.
+- **The grain sprites are built lazily, on first need.** Interference is an
+  ordinary look field draggable off zero at any time, unlike an environment
+  change, which forces a reattach. This does not violate the create-once rule:
+  the sprites go inside `grainLayer`, which *is* created up front and never
+  moves, so appending to it can reorder nothing.
+- **It suppresses the dark gate.** A GM who has deliberately broken the screen
+  wants to see it break, not see it switched off because the ship is parked with
+  drift off — the same argument as `restAmbient`, from the other direction.
+- **The hiss needs its own loop slot.** `_loops` is keyed `uuid|slot`
+  (`env` / `interference`), because a screen breaking up at warp should hiss
+  *over* the warp rumble rather than instead of it. Keyed by uuid alone — as it
+  was while Signal Loss was only ever its own environment — starting one silently
+  orphaned the other, leaving a sound playing with no handle to stop it. A phase
+  change stops only the `env` slot: a broken screen does not un-break because the
+  ship slowed down.
+
+**Changing environment is structural** — it swaps textures, blend modes and which
+layers exist — so both renderers take the one branch that reattaches wholesale
+rather than keeping a list of which fields matter. Both attach functions are
+already idempotent, which is what makes that a single line. The **panels** write
+the environment's `defaults` in the same update as the id, so picking one gives a
+tuned look; the behavior sheet's raw dropdown deliberately does not, and a Reset
+to Environment Defaults button covers that case.
+
+**Sounds are generated from the table**, so adding an environment is a one-file
+change: `settings.js` registers three keys per entry and `effect-config.js`
+builds three rows, both by walking `ENVIRONMENT_ORDER`. `warp` names the three
+keys that predate the table (`sndWarpViewscreenEnter/Exit/Loop`) so nobody's
+configured audio breaks, and every other environment falls back to them when its
+own slot is blank. Scene Warp still has no sounds of its own.
+
+`restAmbient` means an environment keeps running at ramp 0 with drift off — a
+storm does not stop crackling when the engines do. **It is honoured on the
+viewscreen and deliberately not on Scene Warp**, where it would mean a scene
+merely *configured* for a storm never releasing its ticker; there, `drift` is how
+a GM asks for persistence.
+
 ### Warp Viewscreen
 
-A starfield that plays **inside a Region's outline**, so a viewscreen or window painted into a bridge map can show warp. The GM drives the three beats — enter warp, stars streaming by, drop out — from a floating panel.
+A starfield that plays **inside a Region's outline**, so a viewscreen or window painted into a bridge map can show warp. The GM drives the three beats — enter warp, stars streaming by, drop out — from a floating panel. It also draws the other travel environments above; the type id stays `sta2e-toolkit.warpViewscreen` (changing it would orphan every existing behavior), only the display label in `lang/en.json` broadened to "Viewscreen".
+
+**The layers are sub-containers, and the two particle pools have one each.**
+Bottom to top: `backdrop → haze → stars → environment → wash → grain → bloom`.
+Before that, star sprites were appended straight onto the root and only landed
+above the fixed layers by accident of call order; with a container each, a pool
+resizes without any re-append reordering anything — which is the create-once,
+toggle-`visible` invariant made structural rather than merely observed. Two
+consequences: the **GlowFilter moved off the root onto the star layer** (an
+asteroid field draws on normal blend and must not be glowed, and a root filter
+would catch it), and the **wash sits above both pools**, because painted
+underneath it would tint the backdrop and nothing else.
+
+The **shake** is one term at the projection (`vp.x + shakeX`), decayed
+exponentially in `dt` and only ever *set* by a lightning strike, never added to,
+so repeated strobes cannot accumulate.
+
+**Lightning** is the ion storm's `strobe.bolt` block, drawn by both renderers.
+One strike is a discharge glow and one to three bolts sharing a single strike
+point, so the flash always sits *on* the lightning. Five things it rests on:
+
+- **`buildLightningPath` displaces sideways rather than subdividing.** The
+  classic fractal midpoint method spends its detail at scales too small to see
+  once a bolt is two pixels wide, and is far harder to keep in a vertex budget.
+- **The displacement tapers to zero at both ends** (`sin(t·π)`). Without it the
+  endpoints wander off the line they were asked to connect, so a bolt aimed at
+  the flash visibly misses it — the detail that stops it reading as lightning.
+- **A bolt is a chord *through* the strike point, not a line ending at it,** so
+  it enters and leaves frame like something arcing past rather than terminating
+  politely on screen. The mask clips the overshoot for free. Scene Warp uses a
+  much shorter chord relative to its frame (0.28 of the diagonal against the
+  viewscreen's 0.75) — scaled to a scene rect, a bolt reads as a crack across
+  the whole map instead of weather somewhere in it.
+- **Two stroke passes, wide-soft then thin-bright,** the same construction
+  `engine-trail-vfx.js` uses. A single stroke reads as a drawn line; the pair
+  reads as something incandescent.
+- **Redrawn per *strike*, never per frame.** Between strikes the Graphics are
+  hidden, and the flicker moves the container's alpha rather than re-tracing any
+  path, so a storm costs a redraw a second or two rather than sixty. On Scene
+  Warp that matters more, since its tick is on the critical path for the map.
+
+`strokePolyline` in [starfield-common.js](scripts/starfield-common.js) is the
+shim (v7 sets the line style *before* the path, v8 strokes it *after*, the same
+inversion `gFillRect` handles). **Round caps and joins are load-bearing, not a
+nicety** — a bolt is short segments meeting at sharp angles, and mitred joins
+spit visible spikes out of every one. `spawn-picker.js`'s `stroked` is the better
+shim but drags lcars-theme and spawn-patterns in with it, far too much for a
+per-frame renderer. `strobe.bolt` is optional: an environment wanting only the
+flash omits it. The **static** layer is two grain sprites
+stacked one above the other so the rolling tear is seamless without a
+`TilingSprite`, whose constructor signature changed between PIXI v7 and v8; the
+scanline texture is baked at the region's own height so a plain horizontal
+stretch is exact, and is separate from the noise frames because scanlines must
+not flicker.
 
 This is the module's **only `RegionBehaviorType`** ([scripts/warp-viewscreen-behavior.js](scripts/warp-viewscreen-behavior.js)). Core's `RegionBehaviorConfig` builds the whole sheet from `defineSchema()`, so **there is no `.hbs`** — labels and hints are literal strings in the field options. It deliberately omits `_createEventsField()` (it never reacts to token movement), which suppresses the sheet's "Subscribed events" fieldset. `TypeDataModel.schema` sets `name = "system"`, so schema fields render as `name="system.vanishX"` — that is what lets the injected **Set Vanishing Point** button write into the native inputs and rely on ordinary form submission, the same trick `region-pad-config.js` uses.
 
@@ -254,6 +636,22 @@ and a ship already at warp has its nacelles lit.
 
 Ramp timings live in [settings.js](scripts/settings.js) (`sceneWarpEnterMs` /
 `ExitMs` / `StarSpeed`). It has no sounds of its own.
+
+**Environments map onto the bands rather than replacing them.** An environment
+with a particle spec contributes a *second set of bands* beside the star ones —
+same depth definitions, same containers, same thinning — each of one of two
+kinds. A `streak` band is stars and anything with `stretchMul > 0`: length and
+thickness are band-constant, so they still resolve to one scale pair and the
+deadband still elides almost every write. A `tumble` band is anything with
+`tumbleDeg`: without a z axis a particle's depth *is* its band, so its scale is
+fixed for its life and written at seed, leaving only position and rotation per
+frame. `_poolSignature` gained `environment`, `intensity` and `starMix`; dice
+thinning needed no change at all, because an environment band is an ordinary
+band. The wash here is **additive and low-alpha**, unlike the viewscreen's, since
+it lies directly on the GM's map art rather than over a backdrop this renderer
+deliberately does not paint — and the wash and flash sprite are built **only for
+an environment that uses them**, which is what keeps plain warp's sprite tree
+byte-identical to the field that predates environments.
 
 **Performance — five rules the tick depends on.** The field runs every frame, so
 everything in `_tick` is on the critical path, and it shares a frame budget with
@@ -614,11 +1012,14 @@ through `lcarsChatCard`.
 | [scripts/spawn-buffer.js](scripts/spawn-buffer.js) | Hold/restore group buffer, keyed by setting |
 | [scripts/spawn-regions.js](scripts/spawn-regions.js) | Region spawn destinations — pad-marker discovery/order, grid fill, `parseLocation`, `buildLocationOptions` |
 | [scripts/region-pad-config.js](scripts/region-pad-config.js) | Injects the spawn-marker checkbox + Pad Group field into Region Config |
+| [scripts/region-spline-tool.js](scripts/region-spline-tool.js) | The Regions-toolbar **Curve** tool — the scene-control descriptor, the two `RegionLayer` patches, the control-point stamp, and the Region Config rebuild panel |
+| [scripts/spline-geometry.js](scripts/spline-geometry.js) | Closed centripetal Catmull-Rom over flat `[x,y,…]` arrays — adaptive sampling, the tangent overshoot clamp, and the centroid-tolerant outline match. A leaf with **no imports** |
 | [scripts/scene-warp.js](scripts/scene-warp.js) | Scene Warp state — the scene flag, phase ramp, course/rotation conversions, the ship test. A leaf with **no imports**, so the firing path can consult it without a cycle |
 | [scripts/scene-warp-vfx.js](scripts/scene-warp-vfx.js) | The top-down parallax streak field — nested masked/rotated containers, depth bands, the over-tokens band |
 | [scripts/scene-warp-panel.js](scripts/scene-warp-panel.js) | Floating GM-only LCARS panel driving engage/drop out, warp factor, course, the two rules switches and the look |
-| [scripts/starfield-common.js](scripts/starfield-common.js) | Star *material* shared by both renderers — streak/radial textures, palette construction, colour maths, PIXI v7/v8 shims. Knows nothing about either camera |
-| [scripts/warp-viewscreen-behavior.js](scripts/warp-viewscreen-behavior.js) | The `sta2eWarpViewscreen` RegionBehaviorType — schema, phase writes, sounds, the vanishing-point picker |
+| [scripts/starfield-common.js](scripts/starfield-common.js) | Star and environment *material* shared by both renderers — streak/radial/cloud/storm-cloud/wisp/rock/mote/grain/scanline textures, fBm noise, lightning geometry, palette construction, colour maths, PIXI v7/v8 shims. Knows nothing about either camera |
+| [scripts/viewscreen-environments.js](scripts/viewscreen-environments.js) | The travel environment registry — four volumes (warp, nebula, ion storm, asteroid), four tunnels (transwarp conduit, slipstream, wormhole, subspace vortex) and signal loss. A leaf with **no imports**, so the panels and `scene-warp.js` can read it; textures named by string key, every particle number a multiplier |
+| [scripts/warp-viewscreen-behavior.js](scripts/warp-viewscreen-behavior.js) | The `sta2e-toolkit.warpViewscreen` RegionBehaviorType — schema, phase writes, environment-resolved sounds, the vanishing-point picker |
 | [scripts/warp-viewscreen-vfx.js](scripts/warp-viewscreen-vfx.js) | The masked star-streak renderer — projection, star pool, ramp, bloom, teardown |
 | [scripts/warp-viewscreen-panel.js](scripts/warp-viewscreen-panel.js) | Floating GM-only LCARS panel driving enter/exit warp, warp factor, aim and look |
 | [scripts/warp-stretch-vfx.js](scripts/warp-stretch-vfx.js) | The hull smear at both ends of a warp jump — the only place the module deforms a token sprite. Owns the `Token#_refreshSize` / `#_refreshMesh` patch that keeps it applied |

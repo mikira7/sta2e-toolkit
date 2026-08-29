@@ -25,6 +25,13 @@ import {
   pickVanishingPoint,
 } from "./warp-viewscreen-behavior.js";
 import { numOrNull } from "./warp-viewscreen-vfx.js";
+import {
+  getEnvironment,
+  environmentsForSurface,
+  environmentFieldLabel,
+  environmentDefaults,
+  DEFAULT_ENVIRONMENT,
+} from "./viewscreen-environments.js";
 
 const PANEL_ID = "sta2e-warp-viewscreen-panel";
 const POS_KEY  = "sta2e-toolkit.warpViewscreenPanelPos";
@@ -247,6 +254,36 @@ export class WarpViewscreenPanel {
     return row;
   }
 
+  /**
+   * A dropdown.
+   *
+   * Generalised out of the viewscreen-target picker, which was the only select
+   * in the panel and was built inline. The environment picker needs the same
+   * thing, and a third caller would have been the point at which the duplication
+   * became a bug waiting to happen.
+   *
+   * Option text is set with `textContent`, never `innerHTML` — region names and
+   * behavior names are user data.
+   */
+  _mkSelect(entries, value, onChange) {
+    const LC  = getLcTokens();
+    const sel = document.createElement("select");
+    sel.style.cssText = `
+      width: 100%; background: ${LC.bg}; color: ${LC.text}; font-family: ${LC.font};
+      font-size: 10px; border: 1px solid ${LC.borderDim}; border-radius: 2px; padding: 3px 4px;
+    `;
+    for (const entry of entries) {
+      const opt = document.createElement("option");
+      opt.value = entry.value;
+      opt.textContent = entry.label;
+      if (entry.title) opt.title = entry.title;
+      if (entry.value === value) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => onChange(sel.value));
+    return sel;
+  }
+
   /** A row of labelled colour wells, one per schema colour field. */
   _mkSwatches(entries) {
     const LC  = getLcTokens();
@@ -311,24 +348,14 @@ export class WarpViewscreenPanel {
     // ── Target ────────────────────────────────────────────────────────────────
     if (all.length > 1) {
       body.appendChild(this._mkLabel("Viewscreen"));
-      const sel = document.createElement("select");
-      sel.style.cssText = `
-        width: 100%; background: ${LC.bg}; color: ${LC.text}; font-family: ${LC.font};
-        font-size: 10px; border: 1px solid ${LC.borderDim}; border-radius: 2px; padding: 3px 4px;
-      `;
-      for (const b of all) {
-        const opt = document.createElement("option");
-        opt.value = b.uuid;
-        // textContent, not innerHTML — region names are user data.
-        opt.textContent = viewscreenLabel(b) + (b.disabled ? " (disabled)" : "");
-        if (b.uuid === behavior.uuid) opt.selected = true;
-        sel.appendChild(opt);
-      }
-      sel.addEventListener("change", () => {
-        this._selectedUuid = sel.value;
-        this.render();
-      });
-      body.appendChild(sel);
+      body.appendChild(this._mkSelect(
+        all.map(b => ({
+          value: b.uuid,
+          label: viewscreenLabel(b) + (b.disabled ? " (disabled)" : ""),
+        })),
+        behavior.uuid,
+        uuid => { this._selectedUuid = uuid; this.render(); },
+      ));
     }
 
     // ── Status strip ──────────────────────────────────────────────────────────
@@ -355,6 +382,30 @@ export class WarpViewscreenPanel {
       body.appendChild(warn);
     }
 
+    // ── Environment ───────────────────────────────────────────────────────────
+    // Which controls make sense depends on what is being drawn. Static has no
+    // flight, no aim and no starfield; warp has no intensity or star mix,
+    // because it *is* the unmodified field — which is what keeps warp's panel
+    // exactly as it was before environments existed, one picker row aside.
+    const envId    = getEnvironment(sys.environment).id;
+    const env      = getEnvironment(envId);
+    const isWarp   = envId === DEFAULT_ENVIRONMENT;
+    const flies    = !env.grain;                  // static is a screen state, not a place
+    const hasStars = flies;
+    const label    = (field, fallback) => environmentFieldLabel(env, field, fallback);
+
+    body.appendChild(this._mkLabel("Environment"));
+    body.appendChild(this._mkSelect(
+      environmentsForSurface("viewscreen").map(e => ({
+        value: e.id, label: e.label, title: e.hint,
+      })),
+      envId,
+      // The defaults ride along in the same update, so picking an environment
+      // gives a tuned look rather than the previous one's numbers wearing new
+      // labels. The behavior sheet's own dropdown deliberately does not do this.
+      id => this._apply({ environment: id, ...environmentDefaults(id) }),
+    ));
+
     // ── The primary beat ──────────────────────────────────────────────────────
     body.appendChild(warp
       ? this._mkBtn("fas fa-arrow-down-short-wide", "Exit Warp", "Drop the viewscreen back to sublight",
@@ -363,27 +414,29 @@ export class WarpViewscreenPanel {
           LC.secondary ?? "#66ccff", () => this._run(() => enterWarp(behavior)), { big: true }));
 
     // ── Flight ────────────────────────────────────────────────────────────────
-    body.appendChild(this._mkSlider("Warp Factor", {
-      min: 1, max: 9.9, step: 0.1, value: Number(sys.warpFactor ?? 6),
-      format: v => `WF ${v.toFixed(1)}`,
-      // Live while at warp: the renderer reads warpFactor every tick, so this
-      // re-eases the speed in place without restarting the phase.
-      onCommit: v => this._apply({ warpFactor: v }),
-    }));
+    if (flies) {
+      body.appendChild(this._mkSlider("Warp Factor", {
+        min: 1, max: 9.9, step: 0.1, value: Number(sys.warpFactor ?? 6),
+        format: v => `WF ${v.toFixed(1)}`,
+        // Live while at warp: the renderer reads warpFactor every tick, so this
+        // re-eases the speed in place without restarting the phase.
+        onCommit: v => this._apply({ warpFactor: v }),
+      }));
 
-    body.appendChild(this._mkSlider("Spread", {
-      min: 0, max: 100, step: 5, value: Number(sys.spread ?? 30),
-      format: v => (v === 0 ? "point" : `${v}%`),
-      onCommit: v => this._apply({ spread: v }),
-    }));
+      body.appendChild(this._mkSlider(label("spread", "Spread"), {
+        min: 0, max: 100, step: 5, value: Number(sys.spread ?? 30),
+        format: v => (v === 0 ? "point" : `${v}%`),
+        onCommit: v => this._apply({ spread: v }),
+      }));
 
-    body.appendChild(this._mkBtn(
-      sys.inbound ? "fas fa-arrows-to-dot" : "fas fa-arrows-to-circle",
-      sys.inbound ? "Flow: Inward (rear)" : "Flow: Outward (forward)",
-      "Outward: flying toward the vanishing point. Inward: a rear view, or backing away.",
-      LC.tertiary ?? LC.secondary ?? "#66ccff",
-      () => this._apply({ inbound: !sys.inbound }),
-    ));
+      body.appendChild(this._mkBtn(
+        sys.inbound ? "fas fa-arrows-to-dot" : "fas fa-arrows-to-circle",
+        sys.inbound ? "Flow: Inward (rear)" : "Flow: Outward (forward)",
+        "Outward: flying toward the vanishing point. Inward: a rear view, or backing away.",
+        LC.tertiary ?? LC.secondary ?? "#66ccff",
+        () => this._apply({ inbound: !sys.inbound }),
+      ));
+    }
 
     // ── Aim ───────────────────────────────────────────────────────────────────
     // numOrNull, not Number.isFinite(Number(v)) — Number(null) is a finite 0,
@@ -392,48 +445,87 @@ export class WarpViewscreenPanel {
     const vy = numOrNull(sys.vanishY);
     const aimed = vx !== null && vy !== null;
 
-    body.appendChild(this._mkLabel("Vanishing Point"));
-    body.appendChild(this._mkBtn(
-      "fas fa-crosshairs",
-      aimed ? `Set (${Math.round(vx)}, ${Math.round(vy)})` : "Set (centred)",
-      "Click a point on the canvas for the stars to stream out of",
-      LC.green ?? "#66cc66",
-      () => this._pickPoint(behavior),
-    ));
-    if (aimed) {
+    if (flies) {
+      body.appendChild(this._mkLabel("Vanishing Point"));
       body.appendChild(this._mkBtn(
-        "fas fa-xmark", "Re-centre on Region",
-        "Drop the picked point and centre the stars on the region",
-        LC.textDim,
-        () => this._apply({ vanishX: null, vanishY: null }),
+        "fas fa-crosshairs",
+        aimed ? `Set (${Math.round(vx)}, ${Math.round(vy)})` : "Set (centred)",
+        "Click a point on the canvas for the stars to stream out of",
+        LC.green ?? "#66cc66",
+        () => this._pickPoint(behavior),
       ));
+      if (aimed) {
+        body.appendChild(this._mkBtn(
+          "fas fa-xmark", "Re-centre on Region",
+          "Drop the picked point and centre the stars on the region",
+          LC.textDim,
+          () => this._apply({ vanishX: null, vanishY: null }),
+        ));
+      }
     }
 
     // ── Look ──────────────────────────────────────────────────────────────────
-    body.appendChild(this._mkSlider("Star Count", {
-      min: 20, max: 1500, step: 10, value: Number(sys.density ?? 600),
-      format: v => `${v}`,
-      onCommit: v => this._apply({ density: v }),
-    }));
-    body.appendChild(this._mkSlider("Streak Length", {
-      min: 10, max: 400, step: 5, value: Number(sys.streakMul ?? 100),
-      format: v => `${v}%`,
-      onCommit: v => this._apply({ streakMul: v }),
-    }));
-    body.appendChild(this._mkSlider("Streak Thickness", {
-      min: 50, max: 400, step: 5, value: Number(sys.thickness ?? 100),
-      format: v => `${v}%`,
-      onCommit: v => this._apply({ thickness: v }),
-    }));
-    body.appendChild(this._mkSlider("Colour Variety", {
-      min: 0, max: 100, step: 5, value: Number(sys.variety ?? 45),
-      format: v => `${v}%`,
-      onCommit: v => this._apply({ variety: v }),
-    }));
+    if (!isWarp) {
+      body.appendChild(this._mkSlider(label("intensity", "Intensity"), {
+        min: 0, max: 100, step: 5, value: Number(sys.intensity ?? 100),
+        format: v => `${v}%`,
+        onCommit: v => this._apply({ intensity: v }),
+      }));
+      if (hasStars) {
+        body.appendChild(this._mkSlider("Starfield Mix", {
+          min: 0, max: 100, step: 5, value: Number(sys.starMix ?? 100),
+          format: v => (v === 0 ? "no stars" : `${v}%`),
+          onCommit: v => this._apply({ starMix: v }),
+        }));
+      }
+    }
+
+    // An Ion Storm already carries its own discharge, so the field would be a
+    // control with nothing to act on — the resolver ignores it there anyway.
+    if (!env.strobe) {
+      body.appendChild(this._mkSlider("Lightning", {
+        min: 0, max: 100, step: 5, value: Number(sys.lightning ?? 0),
+        format: v => (v === 0 ? "off" : `${v}%`),
+        onCommit: v => this._apply({ lightning: v }),
+      }));
+    }
+
+    // Signal Loss *is* interference, so laying more over it would be a control
+    // with nothing to act on — the resolver ignores the field there anyway.
+    if (!env.grain) {
+      body.appendChild(this._mkSlider("Interference", {
+        min: 0, max: 100, step: 5, value: Number(sys.interference ?? 0),
+        format: v => (v === 0 ? "clear" : `${v}%`),
+        onCommit: v => this._apply({ interference: v }),
+      }));
+    }
+
+    if (hasStars) {
+      body.appendChild(this._mkSlider(label("density", "Star Count"), {
+        min: 20, max: 1500, step: 10, value: Number(sys.density ?? 600),
+        format: v => `${v}`,
+        onCommit: v => this._apply({ density: v }),
+      }));
+      body.appendChild(this._mkSlider(label("streakMul", "Streak Length"), {
+        min: 10, max: 400, step: 5, value: Number(sys.streakMul ?? 100),
+        format: v => `${v}%`,
+        onCommit: v => this._apply({ streakMul: v }),
+      }));
+      body.appendChild(this._mkSlider(label("thickness", "Streak Thickness"), {
+        min: 50, max: 400, step: 5, value: Number(sys.thickness ?? 100),
+        format: v => `${v}%`,
+        onCommit: v => this._apply({ thickness: v }),
+      }));
+      body.appendChild(this._mkSlider(label("variety", "Colour Variety"), {
+        min: 0, max: 100, step: 5, value: Number(sys.variety ?? 45),
+        format: v => `${v}%`,
+        onCommit: v => this._apply({ variety: v }),
+      }));
+    }
 
     body.appendChild(this._mkSwatches([
       { label: "Star",   key: "starTint",   value: sys.starTint,   fallback: "#cfe6ff" },
-      { label: "Accent", key: "accentTint", value: sys.accentTint, fallback: "#a855f7" },
+      { label: label("accentTint", "Accent"), key: "accentTint", value: sys.accentTint, fallback: "#a855f7" },
       { label: "Space",  key: "backdrop",   value: sys.backdrop,   fallback: "#05030c" },
     ]));
 
@@ -443,13 +535,15 @@ export class WarpViewscreenPanel {
       onCommit: v => this._apply({ backdropAlpha: v }),
     }));
 
-    body.appendChild(this._mkBtn(
-      sys.nebula === false ? "fas fa-circle" : "fas fa-cloud",
-      sys.nebula === false ? "Nebula Haze: Off" : "Nebula Haze: On",
-      "A soft wash of the accent colour off to one side",
-      LC.textDim,
-      () => this._apply({ nebula: sys.nebula === false }),
-    ));
+    if (env.haze) {
+      body.appendChild(this._mkBtn(
+        sys.nebula === false ? "fas fa-circle" : "fas fa-cloud",
+        sys.nebula === false ? "Ambient Haze: Off" : "Ambient Haze: On",
+        "A soft wash of the accent colour off to one side",
+        LC.textDim,
+        () => this._apply({ nebula: sys.nebula === false }),
+      ));
+    }
 
     body.appendChild(this._mkBtn(
       sys.flash === true ? "fas fa-sun" : "fas fa-circle",
@@ -466,13 +560,26 @@ export class WarpViewscreenPanel {
       LC.textDim,
       () => this._apply({ aboveTokens: !sys.aboveTokens }),
     ));
-    body.appendChild(this._mkBtn(
-      sys.sublightDrift ? "fas fa-eye" : "fas fa-eye-slash",
-      sys.sublightDrift ? "Drift When Idle: On" : "Drift When Idle: Off",
-      "Whether a slow starfield keeps running while not at warp",
-      LC.textDim,
-      () => this._apply({ sublightDrift: !sys.sublightDrift }),
-    ));
+    // A persistent environment ignores this — it keeps running at rest by
+    // definition, so offering the switch would be offering a no-op.
+    if (!env.restAmbient) {
+      body.appendChild(this._mkBtn(
+        sys.sublightDrift ? "fas fa-eye" : "fas fa-eye-slash",
+        sys.sublightDrift ? "Drift When Idle: On" : "Drift When Idle: Off",
+        "Whether a slow starfield keeps running while not at warp",
+        LC.textDim,
+        () => this._apply({ sublightDrift: !sys.sublightDrift }),
+      ));
+    }
+
+    if (!isWarp) {
+      body.appendChild(this._mkBtn(
+        "fas fa-rotate-left", "Reset to Environment Defaults",
+        `Put every look setting back to the tuned starting point for ${env.label}`,
+        LC.textDim,
+        () => this._apply(environmentDefaults(envId)),
+      ));
+    }
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────────

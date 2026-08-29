@@ -49,6 +49,7 @@ import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerRegionPadConfig } from "./region-pad-config.js";
+import { registerRegionSplineTool } from "./region-spline-tool.js";
 import { registerWarpViewscreenBehavior } from "./warp-viewscreen-behavior.js";
 import { WarpViewscreenPanel } from "./warp-viewscreen-panel.js";
 import { SceneWarpPanel } from "./scene-warp-panel.js";
@@ -342,6 +343,7 @@ Hooks.once("init", () => {
   registerSceneWarpCache();
   registerSceneWarpDiceCoordination();
   registerRegionPadConfig();
+  registerRegionSplineTool();
   registerWarpViewscreenBehavior();
   registerShipCommandHud();
   registerQHud();
