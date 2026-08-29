@@ -1,0 +1,565 @@
+/**
+ * Warp Viewscreen — the Region Behavior.
+ *
+ * This is the module's first RegionBehaviorType. A Region drawn over the
+ * viewscreen or window in a bridge map gains this behavior, and the starfield in
+ * warp-viewscreen-vfx.js renders clipped to that Region outline.
+ *
+ * Why a behavior rather than a scene flag: Foundry hands a behavior a per-client
+ * `behaviorViewed` / `behaviorUnviewed` lifecycle for free, which is exactly the
+ * attach/detach signal the renderer needs, and it fires on the right clients
+ * without any bookkeeping of our own.
+ *
+ * The config sheet is generated entirely from the schema by core's
+ * RegionBehaviorConfig — there is no .hbs to write. The one hand-built control is
+ * the canvas picker for the vanishing point, injected into the rendered sheet the
+ * same way region-pad-config.js injects the spawn-marker checkbox.
+ */
+
+import {
+  awaitCanvasClick,
+  cursorPoint,
+  showOverlay,
+  setCrosshairCursor,
+  crosshair,
+  stroked,
+  INDICATOR_COLOR,
+} from "./spawn-picker.js";
+import {
+  attachViewscreen,
+  detachViewscreen,
+  rebuildMask,
+  refreshViewscreen,
+  flashViewscreen,
+  sweepViewscreens,
+  getViewscreenTiming,
+} from "./warp-viewscreen-vfx.js";
+
+const MODULE = "sta2e-toolkit";
+
+/**
+ * The RegionBehavior document type.
+ *
+ * Namespaced with the module id because that is what the server builds: a module
+ * subtype declared in module.json as `documentTypes.RegionBehavior.warpViewscreen`
+ * lands in `game.model.RegionBehavior` under `<module-id>.<type>`. `Document.TYPES`
+ * reads that model, and the Add Behavior dropdown reads `TYPES` — so registering
+ * `CONFIG.RegionBehavior.dataModels` alone is *not* enough to make the type
+ * offered, and the key here has to match the namespaced one exactly.
+ */
+export const VIEWSCREEN_TYPE = "sta2e-toolkit.warpViewscreen";
+
+/**
+ * The label shown in the Add Behavior dropdown.
+ *
+ * It must be a real localization key, not a literal string: `createDialog` does
+ * `game.i18n.has(label) ? localize(label) : type`, so a plain string silently
+ * falls back to printing the raw type id. This is the same key core's own
+ * localization pass would derive.
+ */
+const TYPE_LABEL_KEY = `TYPES.RegionBehavior.${VIEWSCREEN_TYPE}`;
+const TYPE_HINT_KEY  = `TYPES.HINTS.RegionBehavior.${VIEWSCREEN_TYPE}`;
+
+/** The phases the GM panel drives, in the order they run. */
+export const VIEWSCREEN_PHASES = ["idle", "entering", "cruise", "exiting"];
+
+const PHASE_CHOICES = {
+  idle:     "Idle — sublight",
+  entering: "Entering warp",
+  cruise:   "At warp",
+  exiting:  "Dropping out of warp",
+};
+
+// ── The data model ───────────────────────────────────────────────────────────
+
+export class WarpViewscreenBehaviorType
+  extends foundry.data.regionBehaviors.RegionBehaviorType {
+
+  /** Only the base prefix — every field below carries its own literal label. */
+  static LOCALIZATION_PREFIXES = ["BEHAVIOR.TYPES.base"];
+
+  /**
+   * No `_createEventsField()` here on purpose: this behavior never reacts to
+   * token movement, so the sheet's "Subscribed events" fieldset is suppressed by
+   * simply not declaring one.
+   */
+  static defineSchema() {
+    const f = foundry.data.fields;
+    return {
+      // ── Live state, written by the GM panel ────────────────────────────────
+      phase: new f.StringField({
+        required: true, blank: false, initial: "idle", choices: PHASE_CHOICES,
+        label: "Phase",
+        hint: "Driven by the Warp Viewscreen panel. Entering and Exiting settle "
+            + "into At warp / Idle on their own once the ramp finishes.",
+      }),
+      phaseAt: new f.NumberField({
+        required: true, integer: true, initial: 0, nullable: false,
+        label: "Phase started at",
+        hint: "Wall-clock stamp for the current phase. Every client derives its "
+            + "own ramp position from this, so a player who joins mid-warp is in "
+            + "step. Set by the panel — no reason to edit it by hand.",
+      }),
+
+      // ── Flight ────────────────────────────────────────────────────────────
+      warpFactor: new f.NumberField({
+        required: true, initial: 6, min: 1, max: 9.9, step: 0.1, nullable: false,
+        label: "Warp Factor",
+        hint: "How fast the stars run once at warp. 1 is a crawl, 9.9 streaks.",
+      }),
+      inbound: new f.BooleanField({
+        initial: false,
+        label: "Reverse flow (rear view)",
+        hint: "Off: stars stream out of the vanishing point — the forward view. "
+            + "On: stars converge into it, for a rear window or backing away.",
+      }),
+      spread: new f.NumberField({
+        required: true, initial: 30, min: 0, max: 100, step: 5, nullable: false,
+        label: "Spread (%)",
+        hint: "How wide an area stars appear from. At 0 they all stream out of a "
+            + "single point — about 60% of the field bunches at the vanishing "
+            + "point. The 30% default drops that to under 10%. Stars cross in "
+            + "the same time either way, but a wider spread does lengthen the "
+            + "average streak, since more of the field sits out where the "
+            + "apparent motion is fastest — trim Streak Length to compensate.",
+      }),
+
+      // ── Aim ───────────────────────────────────────────────────────────────
+      vanishX: new f.NumberField({
+        required: false, nullable: true, initial: null,
+        label: "Vanishing Point X",
+        hint: "Canvas coordinate the stars radiate from. Blank centres it on the "
+            + "region. Use Set Vanishing Point to click it instead of typing.",
+      }),
+      vanishY: new f.NumberField({
+        required: false, nullable: true, initial: null,
+        label: "Vanishing Point Y",
+      }),
+
+      // ── Look ──────────────────────────────────────────────────────────────
+      density: new f.NumberField({
+        required: true, integer: true, initial: 600, min: 20, max: 1500, step: 10,
+        nullable: false,
+        label: "Star Count",
+        hint: "A warp field wants to be dense — a few hundred stars reads as "
+            + "sparse. 600 is the tuned default.",
+      }),
+      starTint: new f.ColorField({
+        required: true, nullable: false, initial: "#cfe6ff",
+        label: "Star Colour",
+        hint: "The base of the field — cold white-blue by default.",
+      }),
+      accentTint: new f.ColorField({
+        required: true, nullable: false, initial: "#a855f7",
+        label: "Accent Star Colour",
+        hint: "The second hue mixed through the field, and the colour of the "
+            + "nebula haze. Violet by default.",
+      }),
+      variety: new f.NumberField({
+        required: true, initial: 45, min: 0, max: 100, step: 5, nullable: false,
+        label: "Colour Variety (%)",
+        hint: "Share of stars drawn toward the accent colour. At 0 every star is "
+            + "the base hue (brightness still varies with distance); the default "
+            + "leaves most stars white-blue with a scattering of accent ones, "
+            + "which is what makes the field read as depth rather than wallpaper.",
+      }),
+      streakMul: new f.NumberField({
+        required: true, initial: 100, min: 10, max: 400, step: 5, nullable: false,
+        label: "Streak Length (%)",
+        hint: "Trims how far each star smears. 100% is the tuned default.",
+      }),
+      thickness: new f.NumberField({
+        required: true, initial: 100, min: 50, max: 400, step: 5, nullable: false,
+        label: "Streak Thickness (%)",
+        hint: "How heavy each streak is. 100% is a hairline of roughly one pixel, "
+            + "which is what a trailed star actually looks like; raise it for a "
+            + "bolder field or on a large viewscreen where hairlines get lost. "
+            + "Below 100% streaks go sub-pixel and read as fainter rather than "
+            + "genuinely thinner — drop Star Colour brightness instead if that "
+            + "is what you are after.",
+      }),
+      backdrop: new f.ColorField({
+        required: true, nullable: false, initial: "#05030c",
+        label: "Backdrop Colour",
+      }),
+      backdropAlpha: new f.NumberField({
+        required: true, initial: 85, min: 0, max: 100, step: 5, nullable: false,
+        label: "Backdrop Opacity (%)",
+        hint: "Paints space behind the stars, clipped to the region. Set to 0 if "
+            + "the map art already draws a black screen underneath.",
+      }),
+      nebula: new f.BooleanField({
+        initial: true,
+        label: "Nebula haze",
+        hint: "A soft wash of the accent colour off to one side, away from the "
+            + "vanishing point.",
+      }),
+      flash: new f.BooleanField({
+        // Off by default, unlike the other look options: this burst was removed
+        // once for being intrusive, so it is opt-in rather than opt-out.
+        initial: false,
+        label: "Starburst on enter and exit",
+        hint: "A short white burst at the centre of the viewscreen the moment "
+            + "the ship jumps to warp or drops out. Off by default — the speed "
+            + "ramp and the sounds already mark those beats.",
+      }),
+      sublightDrift: new f.BooleanField({
+        initial: true,
+        label: "Drift when not at warp",
+        hint: "Keeps a slow starfield in the viewscreen while idle. Turn off for "
+            + "a viewscreen that should be dark until the ship jumps.",
+      }),
+      aboveTokens: new f.BooleanField({
+        initial: false,
+        label: "Draw above tokens",
+        hint: "Off by default, so crew standing in front of the viewscreen are "
+            + "not painted over. Turn on for a window a token can pass behind.",
+      }),
+    };
+  }
+
+  /**
+   * `behaviorViewed` fires per client when the behavior is active and its scene
+   * is the one being looked at — precisely the renderer's attach signal.
+   * `regionBoundary` covers the GM reshaping the region while it runs.
+   */
+  static events = {
+    [CONST.REGION_EVENTS.BEHAVIOR_VIEWED]: function () {
+      attachViewscreen(this);
+      // A client arriving mid-warp gets the right starfield from `phaseAt`, but
+      // it saw no phase update, so the loop has to be picked up here too.
+      if (isAtWarp(this.behavior)) _startLoop(this.behavior.uuid);
+    },
+    [CONST.REGION_EVENTS.BEHAVIOR_UNVIEWED]: function () {
+      detachViewscreen(this.behavior?.uuid);
+      _stopLoop(this.behavior?.uuid);
+    },
+    [CONST.REGION_EVENTS.REGION_BOUNDARY]: function () {
+      rebuildMask(this.behavior?.uuid);
+    },
+  };
+}
+
+// ── Finding viewscreens ──────────────────────────────────────────────────────
+
+/**
+ * Every warp-viewscreen behavior on the scene being viewed.
+ *
+ * Reads `canvas.scene.regions` only, matching how spawn-regions.js has always
+ * enumerated regions — this module never reaches across scenes.
+ */
+export function listViewscreenBehaviors({ includeDisabled = true } = {}) {
+  const out = [];
+  try {
+    const regions = canvas?.scene?.regions;
+    if (!regions?.size) return out;
+    for (const region of regions) {
+      for (const behavior of region.behaviors ?? []) {
+        if (behavior.type !== VIEWSCREEN_TYPE) continue;
+        if (!includeDisabled && behavior.disabled) continue;
+        out.push(behavior);
+      }
+    }
+  } catch (err) {
+    console.warn("STA2e Toolkit | warp viewscreen: could not list behaviors:", err);
+  }
+  return out;
+}
+
+/** A readable name for one viewscreen, for the panel's target list. */
+export function viewscreenLabel(behavior) {
+  const regionName = behavior?.region?.name || "Unnamed Region";
+  const own = behavior?.name;
+  return own && own !== "Warp Viewscreen" ? `${regionName} — ${own}` : regionName;
+}
+
+// ── Driving the sequence ─────────────────────────────────────────────────────
+
+/**
+ * Write a new phase. This is the *only* thing that has to travel between
+ * clients, and Foundry's own document replication carries it — see the header of
+ * warp-viewscreen-vfx.js for why there is no socket here.
+ */
+export async function setViewscreenPhase(behavior, phase) {
+  if (!behavior || !VIEWSCREEN_PHASES.includes(phase)) return;
+  if (!game.user?.isGM) return;
+  await behavior.update({ system: { phase, phaseAt: Date.now() } });
+}
+
+/** Jump to warp. */
+export function enterWarp(behavior) {
+  return setViewscreenPhase(behavior, "entering");
+}
+
+/** Drop out of warp. */
+export function exitWarp(behavior) {
+  return setViewscreenPhase(behavior, "exiting");
+}
+
+/**
+ * The phase the viewscreen actually reads as right now, settling a finished ramp.
+ *
+ * The stored phase stays `entering` forever once the GM presses the button — the
+ * renderer treats a finished ramp as cruise on its own, and so must anything that
+ * labels a button.
+ */
+export function effectivePhase(behavior) {
+  const s = behavior?.system ?? {};
+  const phase = VIEWSCREEN_PHASES.includes(s.phase) ? s.phase : "idle";
+  if (phase !== "entering" && phase !== "exiting") return phase;
+  const at = Number(s.phaseAt);
+  if (!Number.isFinite(at) || at <= 0) return phase === "entering" ? "cruise" : "idle";
+  const timing  = getViewscreenTiming();
+  const elapsed = Date.now() - at;
+  const rampMs  = phase === "entering" ? timing.enterMs : timing.exitMs;
+  if (elapsed < rampMs) return phase;
+  return phase === "entering" ? "cruise" : "idle";
+}
+
+/** Is this viewscreen at warp or on its way there? */
+export function isAtWarp(behavior) {
+  const p = effectivePhase(behavior);
+  return p === "entering" || p === "cruise";
+}
+
+// ── Sound ────────────────────────────────────────────────────────────────────
+//
+// Played locally on every client from the update hook, never broadcast. Each
+// client already receives the document update, so broadcasting as well would
+// double every cue.
+
+/** The looping warp rumble, one per behavior uuid. */
+const _loops = new Map();
+
+function _settingPath(key) {
+  try {
+    const v = game.settings.get(MODULE, key);
+    return typeof v === "string" && v.trim() ? v.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+function _playLocal(src, { loop = false, volume = 0.7 } = {}) {
+  if (!src) return null;
+  try {
+    const AudioHelper = foundry.audio?.AudioHelper ?? globalThis.AudioHelper;
+    // `false` is the broadcast flag — this client only.
+    return AudioHelper?.play({ src, volume, autoplay: true, loop }, false) ?? null;
+  } catch (err) {
+    console.warn("STA2e Toolkit | warp viewscreen: sound failed:", err);
+    return null;
+  }
+}
+
+async function _stopLoop(uuid) {
+  const pending = _loops.get(uuid);
+  if (!pending) return;
+  _loops.delete(uuid);
+  try {
+    const sound = await pending;
+    sound?.stop?.();
+  } catch { /* the loop never started — nothing to stop */ }
+}
+
+function _startLoop(uuid) {
+  const src = _settingPath("sndWarpViewscreenLoop");
+  if (!src) return;
+  _stopLoop(uuid);
+  const pending = _playLocal(src, { loop: true, volume: 0.45 });
+  if (pending) _loops.set(uuid, Promise.resolve(pending));
+}
+
+// ── Hooks ────────────────────────────────────────────────────────────────────
+
+/**
+ * Config or phase changed on the document.
+ *
+ * A phase change is the cue for the starburst and the sounds; anything else is a
+ * look change the renderer can absorb in place. Only a change that moves the
+ * behavior's *rendered* identity — being enabled, or its region — needs a full
+ * re-attach, and core fires behaviorViewed/Unviewed for those itself.
+ */
+function _onBehaviorUpdate(behavior, changed) {
+  if (behavior?.type !== VIEWSCREEN_TYPE) return;
+  if (behavior.parent?.parent?.id !== canvas?.scene?.id) return;
+
+  const changedSystem = changed?.system ?? {};
+
+  if ("phase" in changedSystem) {
+    const phase = changedSystem.phase;
+    if (phase === "entering") {
+      flashViewscreen(behavior);
+      _playLocal(_settingPath("sndWarpViewscreenEnter"));
+      _startLoop(behavior.uuid);
+    } else if (phase === "exiting") {
+      flashViewscreen(behavior);
+      _playLocal(_settingPath("sndWarpViewscreenExit"));
+      _stopLoop(behavior.uuid);
+    } else if (phase === "idle") {
+      _stopLoop(behavior.uuid);
+    }
+  }
+
+  refreshViewscreen(behavior);
+}
+
+function _onBehaviorDelete(behavior) {
+  if (behavior?.type !== VIEWSCREEN_TYPE) return;
+  _stopLoop(behavior.uuid);
+  detachViewscreen(behavior.uuid);
+}
+
+function _onCanvasReady() {
+  // Nothing should survive a scene swap; core re-fires behaviorViewed for the
+  // new scene's behaviors immediately after.
+  sweepViewscreens();
+  for (const uuid of [..._loops.keys()]) _stopLoop(uuid);
+}
+
+// ── The vanishing-point picker in the sheet ──────────────────────────────────
+
+/** Same shape as region-pad-config.js `_buildFormGroup`. */
+function _buildPickerRow() {
+  const group = document.createElement("div");
+  group.className = "form-group sta2e-viewscreen-pick";
+  group.innerHTML = `
+    <label>Vanishing Point <span style="opacity:0.6;font-size:0.85em;">(STA Toolkit)</span></label>
+    <div class="form-fields">
+      <button type="button" class="sta2e-viewscreen-pick-btn">
+        <i class="fa-solid fa-crosshairs"></i> Set Vanishing Point
+      </button>
+      <button type="button" class="sta2e-viewscreen-pick-clear">
+        <i class="fa-solid fa-xmark"></i> Centre
+      </button>
+    </div>
+    <p class="hint">Click a point on the canvas for the stars to stream out of.
+      It may sit outside the region — that is how you aim an angled window.</p>`;
+  return group;
+}
+
+/**
+ * Rays fanning out of the cursor, previewing the star flow. Drawn through
+ * `stroked` so it works under both the PIXI v7 and v8 Graphics APIs.
+ */
+function _drawPickPreview(g, region, inbound) {
+  const p = cursorPoint();
+  const b = region?.object?.bounds ?? null;
+  const reach = b
+    ? Math.max(b.width, b.height) * 0.8
+    : (canvas.dimensions?.size ?? 100) * 4;
+
+  stroked(g, { width: 2, color: INDICATOR_COLOR, alpha: 0.8 }, gg => {
+    for (let i = 0; i < 12; i++) {
+      const a  = (i / 12) * Math.PI * 2;
+      // Tails point back toward the vanishing point on a forward view, and away
+      // from it on a rear view, so the preview reads as the actual direction.
+      const t0 = inbound ? 1 : 0.28;
+      const t1 = inbound ? 0.35 : 1;
+      gg.moveTo(p.x + Math.cos(a) * reach * t0, p.y + Math.sin(a) * reach * t0);
+      gg.lineTo(p.x + Math.cos(a) * reach * t1, p.y + Math.sin(a) * reach * t1);
+    }
+  });
+  stroked(g, { width: 2, color: 0xffffff, alpha: 0.95 }, gg => crosshair(gg, p.x, p.y, 12));
+}
+
+/**
+ * Click a vanishing point on the canvas. Resolves to the point, or null if the
+ * GM right-clicked or pressed Escape.
+ *
+ * Shared by the behavior sheet and the GM panel — both need the same pick, and
+ * the panel needs it without a sheet open.
+ */
+export async function pickVanishingPoint(region, { inbound = false } = {}) {
+  if (!canvas?.ready) {
+    ui.notifications.warn("The canvas is not ready — open the scene first.");
+    return null;
+  }
+  const overlay = showOverlay(
+    "VANISHING POINT",
+    "Click where the stars stream from · [RMB/Esc] abort",
+  );
+  setCrosshairCursor(true);
+  try {
+    return await awaitCanvasClick({ onMove: g => _drawPickPreview(g, region, inbound) });
+  } finally {
+    setCrosshairCursor(false);
+    overlay.remove();
+  }
+}
+
+/**
+ * Injected into the rendered behavior sheet.
+ *
+ * The picker writes straight into the `system.vanishX` / `system.vanishY` inputs
+ * core already rendered, so ordinary form submission persists it — the same
+ * native-form-path trick region-pad-config.js relies on, with no _updateObject
+ * override needed.
+ */
+function _injectVanishingPointButton(app, html) {
+  const doc = app?.document ?? app?.object ?? null;
+  if (doc?.type !== VIEWSCREEN_TYPE) return;
+
+  const root = html instanceof HTMLElement ? html : html?.[0];
+  if (!root) return;
+  if (root.querySelector(".sta2e-viewscreen-pick")) return;   // idempotency guard
+
+  const xInput = root.querySelector('[name="system.vanishX"]');
+  const yInput = root.querySelector('[name="system.vanishY"]');
+  if (!xInput || !yInput) return;
+
+  const row = _buildPickerRow();
+  xInput.closest(".form-group")?.before(row);
+
+  row.querySelector(".sta2e-viewscreen-pick-clear")?.addEventListener("click", () => {
+    xInput.value = "";
+    yInput.value = "";
+  });
+
+  row.querySelector(".sta2e-viewscreen-pick-btn")?.addEventListener("click", async () => {
+    // The sheet sits over the canvas, so it has to get out of the way.
+    try { await app.minimize?.(); } catch { /**/ }
+    let point = null;
+    try {
+      point = await pickVanishingPoint(doc.region, {
+        inbound: !!root.querySelector('[name="system.inbound"]')?.checked,
+      });
+    } finally {
+      try { await app.maximize?.(); } catch { /**/ }
+    }
+    if (!point) return;
+    xInput.value = Math.round(point.x);
+    yInput.value = Math.round(point.y);
+    ui.notifications.info("Vanishing point set — save the behavior to apply it.");
+  });
+}
+
+// ── Registration ─────────────────────────────────────────────────────────────
+
+export function registerWarpViewscreenBehavior() {
+  CONFIG.RegionBehavior.dataModels[VIEWSCREEN_TYPE] = WarpViewscreenBehaviorType;
+  CONFIG.RegionBehavior.typeLabels[VIEWSCREEN_TYPE] = TYPE_LABEL_KEY;
+  CONFIG.RegionBehavior.typeHints[VIEWSCREEN_TYPE]  = TYPE_HINT_KEY;
+  CONFIG.RegionBehavior.typeIcons[VIEWSCREEN_TYPE]  = "fa-solid fa-meteor";
+
+  // If the manifest declaration did not take, the type is missing from
+  // game.model and no amount of CONFIG registration will list it — say so rather
+  // than leaving a silently absent dropdown entry. Wrapped because this runs
+  // inside the init chain, where a throw would take the rest of the module down.
+  try {
+    const types = getDocumentClass("RegionBehavior")?.TYPES ?? [];
+    if (!types.includes(VIEWSCREEN_TYPE)) {
+      console.warn(
+        `STA2e Toolkit | "${VIEWSCREEN_TYPE}" is not in game.model.RegionBehavior — `
+        + "the Warp Viewscreen behavior will not appear in the Add Behavior list. "
+        + "Check that module.json declares documentTypes.RegionBehavior.warpViewscreen, "
+        + "then fully restart the world — a browser reload does not re-read the manifest.",
+      );
+    }
+  } catch { /* diagnostic only — never block init */ }
+
+  Hooks.on("renderRegionBehaviorConfig", _injectVanishingPointButton);
+  Hooks.on("updateRegionBehavior", _onBehaviorUpdate);
+  Hooks.on("deleteRegionBehavior", _onBehaviorDelete);
+  Hooks.on("canvasReady", _onCanvasReady);
+}

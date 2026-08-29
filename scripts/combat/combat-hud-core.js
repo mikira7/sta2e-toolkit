@@ -48,6 +48,7 @@ import {
   callOutTargetsSourceForActor, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum,
   packTacticsBonusMomentum,
   rollSuccessTotal, allRolledDice, rollPassed, succeedAtCostComplications,
+  complicationsIgnored,
 } from "../npc-roller.js";
 import { addAssistPending, clearAssistPending } from "../assist-pending.js";
 import { playGroundPhaserCone } from "../ground-phaser-vfx.js";
@@ -61,6 +62,7 @@ import {
   OFFICER_DISCIPLINES,
 } from "../crew-manifest.js";
 import { getLcTokens }  from "../lcars-theme.js";
+import { lcarsChatCard } from "../chat-card-frame.js";
 import { clampHudPos, clampHudElement, onViewportResize } from "../hud-position.js";
 import { adjustPool } from "../pool-service.js";
 import {
@@ -131,6 +133,7 @@ import {
   initiativeEnabled as _turnOrderEnabled,
   markMajorWasAttack as _markMajorWasAttack,
 } from "./initiative-order.js";
+import { resolveActingOfficer, resolveActingOfficerIndex } from "./acting-officer.js";
 import {
   alliesWithinClose,
   defensiveTrainingPenalty,
@@ -186,7 +189,7 @@ function _actionKind(key) {
  * Never throws and never blocks — going over budget only warns, because the
  * table may be doing something the module does not model.
  */
-async function _markTurnAction(actor, kind, stationId = null) {
+async function _markTurnAction(actor, kind, stationId = null, actingActorId = null) {
   if (!kind || !actor) return;
   try {
     if (!_turnOrderEnabled()) return;
@@ -194,7 +197,9 @@ async function _markTurnAction(actor, kind, stationId = null) {
     if (!game.combat?.started) return;
     // `stationId` lets a ship action land on the officer manning that station
     // rather than on the ship, which stands by during starship combat.
-    const combatant = _findTurnCombatant(actor, game.combat, { stationId });
+    // `actingActorId` pins it further: Command seats two officers, so the station
+    // alone cannot tell the First Officer's action from the Captain's.
+    const combatant = _findTurnCombatant(actor, game.combat, { stationId, actingActorId });
     if (!combatant) return;
     await _useTurnAction(combatant, kind);
     try { ui.combat?.render(); } catch {}
@@ -320,9 +325,22 @@ function lcarsSection(title) {
   return el;
 }
 
-// Helper: LCARS-styled chat card wrapper HTML
+/**
+ * LCARS-styled chat card wrapper HTML — the module's most-used card by a wide
+ * margin: every damage, injury, shield, warp, tractor, cloak, destruction and
+ * scan card comes through here, ~139 call sites.
+ *
+ * Under the TNG theme this renders the shared top/bottom-bar frame
+ * (scripts/chat-card-frame.js); every other era gets the markup below, unchanged.
+ * The signature already separated title, accent and body, which is why the whole
+ * family could be reskinned without touching a single call site.
+ */
 function lcarsCard(headerLabel, headerColor, bodyHtml) {
-  return `
+  return lcarsChatCard({
+    title: headerLabel,
+    accent: headerColor ?? LC.primary,
+    body: bodyHtml,
+    legacy: () => `
     <div style="
       background: ${LC.bg};
       border: 1px solid ${headerColor ?? LC.primary};
@@ -344,7 +362,8 @@ function lcarsCard(headerLabel, headerColor, bodyHtml) {
       <div style="padding: 8px 10px;">
         ${bodyHtml}
       </div>
-    </div>`;
+    </div>`,
+  });
 }
 
 const TRAIT_DAMAGE_SOURCE_LABELS = {
@@ -6002,8 +6021,11 @@ export class CombatHUD {
     {
       const kind = _actionKind(action?.key);
       const turningOff = action?.isToggle && this[`_groundToggle_${action.key}`] === true;
-      // Pass the station so a ship action charges the officer manning it.
-      if (kind && !turningOff) await _markTurnAction(actor, kind, station?.id ?? null);
+      // Pass the station so a ship action charges the officer manning it, plus the
+      // acting character the ring supplied so a two-seat station lands on the right one.
+      if (kind && !turningOff) {
+        await _markTurnAction(actor, kind, station?.id ?? null, action?.actingActorId ?? null);
+      }
     }
 
     // v13 helper — DialogV2 returns the button action string
@@ -6051,22 +6073,22 @@ export class CombatHUD {
       }
 
       case "rally": {
-        await this._handleRally(actor, token);
+        await this._handleRally(actor, token, action);
         break;
       }
 
       case "damage-control": {
-        await this._handleDamageControl(actor, token, station);
+        await this._handleDamageControl(actor, token, station, action);
         break;
       }
 
       case "regen-shields": {
-        await this._handleRegenShields(actor, token);
+        await this._handleRegenShields(actor, token, action);
         break;
       }
 
       case "regain-power": {
-        await this._handleRegainPower(actor, token);
+        await this._handleRegainPower(actor, token, action);
         break;
       }
 
@@ -6081,7 +6103,7 @@ export class CombatHUD {
       }
 
       case "maneuver": {
-        await this._handleManeuver(actor, token);
+        await this._handleManeuver(actor, token, action);
         break;
       }
 
@@ -6092,7 +6114,7 @@ export class CombatHUD {
 
       case "tractor-beam": {
         if (!target) { ui.notifications.warn("Select a target first."); return; }
-        await this._handleTractorBeam(actor, token, target);
+        await this._handleTractorBeam(actor, token, target, action);
         break;
       }
 
@@ -6115,7 +6137,7 @@ export class CombatHUD {
       }
 
       case "warp": {
-        await this._handleWarp(actor, token);
+        await this._handleWarp(actor, token, action);
         break;
       }
 
@@ -6127,17 +6149,17 @@ export class CombatHUD {
       }
 
       case "sensor-sweep": {
-        await this._handleSensorTask(actor, token, "sensor-sweep");
+        await this._handleSensorTask(actor, token, "sensor-sweep", action);
         break;
       }
 
       case "reveal": {
-        await this._handleSensorTask(actor, token, "reveal");
+        await this._handleSensorTask(actor, token, "reveal", action);
         break;
       }
 
       case "transport": {
-        await this._handleTransport(actor, token, station);
+        await this._handleTransport(actor, token, station, action);
         break;
       }
 
@@ -6151,7 +6173,7 @@ export class CombatHUD {
           scanTarget = targetResolution.token;
         }
         if (!scanTarget) { ui.notifications.warn("Select a target first."); return; }
-        await this._handleScanForWeakness(actor, token, scanTarget);
+        await this._handleScanForWeakness(actor, token, scanTarget, action);
         break;
       }
 
@@ -6289,32 +6311,32 @@ export class CombatHUD {
 
       case "ram": {
         if (!target) { ui.notifications.warn("Select a target first."); return; }
-        await this._handleRam(actor, token, target);
+        await this._handleRam(actor, token, target, action);
         break;
       }
 
       case "assist": {
-        await this._handleAssist(actor, token, station);
+        await this._handleAssist(actor, token, station, action);
         break;
       }
 
       case "assist-command": {
-        await this._handleAssistCommand(actor, token, station);
+        await this._handleAssistCommand(actor, token, station, action);
         break;
       }
 
       case "direct": {
-        await this._handleDirect(actor, token, station);
+        await this._handleDirect(actor, token, station, action);
         break;
       }
 
       case "task-roll": {
-        await this._handleTaskRoll(actor, token, station);
+        await this._handleTaskRoll(actor, token, station, action);
         break;
       }
 
       case "override": {
-        await this._handleOverride(actor, token, station);
+        await this._handleOverride(actor, token, station, action);
         break;
       }
 
@@ -6784,7 +6806,7 @@ export class CombatHUD {
 
   // ── Regen Shields ────────────────────────────────────────────────────────
 
-  async _handleRegenShields(actor, token) {
+  async _handleRegenShields(actor, token, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "operations", "Operations")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
@@ -6814,8 +6836,7 @@ export class CombatHUD {
     const diff      = curShield === 0 ? 3 : 2;  // +1 Difficulty if shields at 0
 
     // Resolve Ops station officer
-    const opsOfficers = getStationOfficers(actor, "operations");
-    const opsOfficer  = opsOfficers.length > 0 ? readOfficerStats(opsOfficers[0]) : null;
+    const opsOfficer = readOfficerStats(resolveActingOfficer(actor, "operations", { actingActorId }));
 
     // Base shields restored = roller's Engineering discipline:
     //   Named officer → their Engineering discipline value
@@ -6962,7 +6983,7 @@ export class CombatHUD {
 
   // ── Regain Power ──────────────────────────────────────────────────────────
 
-  async _handleRegainPower(actor, token) {
+  async _handleRegainPower(actor, token, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "operations", "Operations")) return;
 
     // The button is hidden on ships without Reserve Power — this catches the
@@ -6996,8 +7017,7 @@ export class CombatHUD {
     const diff     = 1 + uses;
     const inCombat = !!game.combat?.active;
 
-    const opsOfficers = getStationOfficers(actor, "operations");
-    const opsOfficer  = opsOfficers.length > 0 ? readOfficerStats(opsOfficers[0]) : null;
+    const opsOfficer = readOfficerStats(resolveActingOfficer(actor, "operations", { actingActorId }));
 
     if (isNpc && isGM) {
       openNpcRoller(actor, token, {
@@ -7145,7 +7165,7 @@ export class CombatHUD {
 
   // ── Ram ───────────────────────────────────────────────────────────────────
 
-  async _handleRam(actor, token, target) {
+  async _handleRam(actor, token, target, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "helm", "Helm")) return;
 
     const isNpc  = CombatHUD.isNpcShip(actor);
@@ -7219,8 +7239,7 @@ export class CombatHUD {
     const atkDmg = getCollisionDamage(token, zonesMoved);   // Scale + floor(zones/2)
     const defDmg = getCollisionDamage(target, 0);            // defender didn't move
 
-    const helmOfficers = getStationOfficers(actor, "helm");
-    const helmOfficer  = helmOfficers.length > 0 ? readOfficerStats(helmOfficers[0]) : null;
+    const helmOfficer = readOfficerStats(resolveActingOfficer(actor, "helm", { actingActorId }));
 
     const applyRam = async (momentumBonus = 0) => {
       await fireRam(token, target);
@@ -7438,7 +7457,7 @@ export class CombatHUD {
 
   // ── Tractor Beam ─────────────────────────────────────────────────────────
 
-  async _handleTractorBeam(actor, token, target) {
+  async _handleTractorBeam(actor, token, target, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "tactical", "Tactical")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
@@ -7475,8 +7494,7 @@ export class CombatHUD {
     // Tractor strength = ship's Structure system rating (used as break-free Difficulty)
     const tractorStr = actor.system?.systems?.structure?.value ?? 0;
 
-    const tacticalOfficers = getStationOfficers(actor, "tactical");
-    const tacticalOfficer  = tacticalOfficers.length > 0 ? readOfficerStats(tacticalOfficers[0]) : null;
+    const tacticalOfficer = readOfficerStats(resolveActingOfficer(actor, "tactical", { actingActorId }));
 
     const engagePayload = encodeURIComponent(JSON.stringify({
       sourceTokenId: token.id,
@@ -7744,7 +7762,7 @@ export class CombatHUD {
 
   // ── Warp ──────────────────────────────────────────────────────────────────
 
-  async _handleWarp(actor, token) {
+  async _handleWarp(actor, token, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "helm", "Helm")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
@@ -7767,8 +7785,7 @@ export class CombatHUD {
     }
 
     const enginesRating = actor.system?.systems?.engines?.value ?? "?";
-    const helmOfficers  = getStationOfficers(actor, "helm");
-    const helmOfficer   = helmOfficers.length > 0 ? readOfficerStats(helmOfficers[0]) : null;
+    const helmOfficer   = readOfficerStats(resolveActingOfficer(actor, "helm", { actingActorId }));
     const allowedUserIds = getStationAllowedUserIds(actor, "helm");
 
     // Encode token payload for the Engage button
@@ -7878,14 +7895,13 @@ export class CombatHUD {
 
   // ── Maneuver ──────────────────────────────────────────────────────────────
 
-  async _handleManeuver(actor, token) {
+  async _handleManeuver(actor, token, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "helm", "Helm")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
     const isGM  = game.user.isGM;
 
-    const helmOfficers = getStationOfficers(actor, "helm");
-    const helmOfficer  = helmOfficers.length > 0 ? readOfficerStats(helmOfficers[0]) : null;
+    const helmOfficer = readOfficerStats(resolveActingOfficer(actor, "helm", { actingActorId }));
 
     if (isNpc && isGM) {
       openNpcRoller(actor, token, {
@@ -8208,7 +8224,7 @@ export class CombatHUD {
 
   // ── Transporter ──────────────────────────────────────────────────────────
 
-  async _handleTransport(actor, token, station) {
+  async _handleTransport(actor, token, station, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, station?.id ?? "operations", station?.label ?? "Operations")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
@@ -8359,8 +8375,7 @@ export class CombatHUD {
     const siteLabel   = siteLabels[operationSite];
 
     // Resolve officer for NPC ships
-    const stationOfficers = station ? getStationOfficers(actor, station.id) : [];
-    const officer = stationOfficers.length > 0 ? readOfficerStats(stationOfficers[0]) : null;
+    const officer = readOfficerStats(resolveActingOfficer(actor, station?.id ?? null, { actingActorId }));
 
     if (isNpc && isGM) {
       openNpcRoller(actor, token, {
@@ -8455,14 +8470,13 @@ export class CombatHUD {
 
   // ── Scan for Weakness ────────────────────────────────────────────────────
 
-  async _handleScanForWeakness(actor, token, target) {
+  async _handleScanForWeakness(actor, token, target, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "sensors", "Sensors")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
     const isGM  = game.user.isGM;
 
-    const sensorsOfficers = getStationOfficers(actor, "sensors");
-    const sensorsOfficer  = sensorsOfficers.length > 0 ? readOfficerStats(sensorsOfficers[0]) : null;
+    const sensorsOfficer = readOfficerStats(resolveActingOfficer(actor, "sensors", { actingActorId }));
 
     const applyResult = async () => {
       const cardData = await applyScanForWeakness(token, target, token.name ?? actor.name);
@@ -8528,7 +8542,7 @@ export class CombatHUD {
 
   // ── Sensor Tasks (Sweep + Reveal) ─────────────────────────────────────────
 
-  async _handleSensorTask(actor, token, taskKey) {
+  async _handleSensorTask(actor, token, taskKey, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "sensors", "Sensors")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
@@ -8541,8 +8555,7 @@ export class CombatHUD {
       : { label: "Reveal",       icon: "👁️", diff: 3, task: "Reason + Science (assisted by Sensors + Science)",
           effect: "If a hidden vessel is within Long range, reveals which zone it occupies. Attackers may fire at it (Difficulty +2) until it moves." };
 
-    const sensorsOfficers = getStationOfficers(actor, "sensors");
-    const sensorsOfficer  = sensorsOfficers.length > 0 ? readOfficerStats(sensorsOfficers[0]) : null;
+    const sensorsOfficer = readOfficerStats(resolveActingOfficer(actor, "sensors", { actingActorId }));
 
     if (isNpc && isGM) {
       openNpcRoller(actor, token, {
@@ -8614,7 +8627,7 @@ export class CombatHUD {
 
   // ── Damage Control ───────────────────────────────────────────────────────
 
-  async _handleDamageControl(actor, token, station = null) {
+  async _handleDamageControl(actor, token, station = null, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, station?.id ?? "operations", station?.label ?? "Operations")) return;
 
     const isNpc   = CombatHUD.isNpcShip(actor);
@@ -8767,8 +8780,7 @@ export class CombatHUD {
     // Resolve officer for the station that triggered this task (defaults to "operations").
     // Using the actual station id ensures the assist-pending flag is matched correctly.
     const dcStationId  = station?.id ?? "operations";
-    const dcOfficers   = getStationOfficers(actor, dcStationId);
-    const opsOfficer   = dcOfficers.length > 0 ? readOfficerStats(dcOfficers[0]) : null;
+    const opsOfficer   = readOfficerStats(resolveActingOfficer(actor, dcStationId, { actingActorId }));
 
     if (isNpc && isGM) {
       // ── NPC: open roller, then ask success/fail (same as PC path) ────────
@@ -8886,16 +8898,15 @@ export class CombatHUD {
 
   // ── Rally ────────────────────────────────────────────────────────────────
 
-  async _handleRally(actor, token) {
+  async _handleRally(actor, token, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, "command", "Command")) return;
 
     const isNpc = CombatHUD.isNpcShip(actor);
     const isGM  = game.user.isGM;
 
-    // Resolve Command station officer for NPC ships
-    const commandOfficers = getStationOfficers(actor, "command");
-    const commandOfficer  = commandOfficers.length > 0
-      ? readOfficerStats(commandOfficers[0]) : null;
+    // Resolve the acting Command officer. No picker here, so the hint is the only
+    // thing separating a First Officer's Rally from the Captain's.
+    const commandOfficer = readOfficerStats(resolveActingOfficer(actor, "command", { actingActorId }));
 
     if (isNpc && isGM) {
       // ── NPC: open roller pre-set to Difficulty 0, Presence+Command ───────
@@ -8931,11 +8942,11 @@ export class CombatHUD {
 
   // ── Assist (standard — 1 target station) ────────────────────────────────
 
-  async _handleAssist(actor, token, station) {
+  async _handleAssist(actor, token, station, { actingActorId = null } = {}) {
     // Resolve who is at the acting station
-    const officers     = getStationOfficers(actor, station?.id ?? "");
-    const actorName    = officers[0]?.name ?? actor.name;
-    const stationLabel = station?.label ?? "Bridge";
+    const actingOfficer = resolveActingOfficer(actor, station?.id ?? null, { actingActorId });
+    const actorName     = actingOfficer?.name ?? actor.name;
+    const stationLabel  = station?.label ?? "Bridge";
 
     // Build target list — excluding the acting station itself.
     // For NPC ships, all stations are valid (crew quality is used when no officer is assigned).
@@ -8995,7 +9006,7 @@ export class CombatHUD {
     // the crew-assist die when the target station's next task is rolled.
     // Also store the actor ID so the roller can load the assister's attr/disc stats.
     await addAssistPending(token?.document, targetId,
-      { name: actorName, actorId: officers[0]?.id ?? null });
+      { name: actorName, actorId: actingOfficer?.id ?? null });
 
     const targetStation = STATION_SLOTS.find(s => s.id === targetId);
 
@@ -9026,9 +9037,11 @@ export class CombatHUD {
 
   // ── Assist (Command — up to 2 target stations + officer pick) ────────────
 
-  async _handleAssistCommand(actor, token, station) {
+  async _handleAssistCommand(actor, token, station, { actingActorId = null } = {}) {
     const commandOfficers = getStationOfficers(actor, "command");
     const hasTwo = commandOfficers.length >= 2;
+    // Default the picker to whoever is actually acting, not to the Captain in seat 0.
+    const defaultOfficerIdx = resolveActingOfficerIndex(actor, "command", { actingActorId });
 
     // Build target list — all stations except command itself.
     // For NPC ships, stations without an assigned officer show "NPC Crew" as the fallback.
@@ -9048,7 +9061,7 @@ export class CombatHUD {
       return;
     }
 
-    let chosenOfficerIdx = 0;
+    let chosenOfficerIdx = defaultOfficerIdx;
     let targetId1 = null;
     let targetId2 = null;
 
@@ -9063,7 +9076,7 @@ export class CombatHUD {
             padding:5px 8px;border-radius:2px;margin-bottom:2px;
             border:1px solid ${LC.borderDim};background:${LC.panel};">
             <input type="radio" name="cmd-officer" value="${i}"
-              ${i === 0 ? "checked" : ""}
+              ${i === defaultOfficerIdx ? "checked" : ""}
               style="accent-color:${LC.primary};" />
             <span style="font-size:11px;font-weight:700;color:${LC.text};
               font-family:${LC.font};">⭐ ${o.name}</span>
@@ -9127,7 +9140,8 @@ export class CombatHUD {
           callback: (event, btn, dlg) => {
             const el = dlg.element ?? btn.closest(".app.dialog-v2");
             if (hasTwo) {
-              chosenOfficerIdx = parseInt(el?.querySelector("input[name='cmd-officer']:checked")?.value ?? "0") || 0;
+              const pickedIdx = parseInt(el?.querySelector("input[name='cmd-officer']:checked")?.value ?? "");
+              chosenOfficerIdx = Number.isInteger(pickedIdx) ? pickedIdx : defaultOfficerIdx;
             }
             targetId1 = el?.querySelector("input[name='assist-target-1']:checked")?.value ?? null;
             const raw2 = el?.querySelector("input[name='assist-target-2']:checked")?.value ?? "none";
@@ -9139,7 +9153,7 @@ export class CombatHUD {
     });
     if (result !== "confirm" || !targetId1) return;
 
-    const chosenOfficer = commandOfficers[chosenOfficerIdx] ?? commandOfficers[0];
+    const chosenOfficer = commandOfficers[chosenOfficerIdx] ?? commandOfficers[defaultOfficerIdx];
     const officerName   = chosenOfficer?.name ?? actor.name;
     const tgt1 = STATION_SLOTS.find(s => s.id === targetId1);
     const tgt2 = targetId2 ? STATION_SLOTS.find(s => s.id === targetId2) : null;
@@ -9188,9 +9202,11 @@ export class CombatHUD {
 
   // ── Direct (Command — single target, Control + Command assist die) ──────────
 
-  async _handleDirect(actor, token, station) {
+  async _handleDirect(actor, token, station, { actingActorId = null } = {}) {
     const commandOfficers = getStationOfficers(actor, "command");
     const hasTwo = commandOfficers.length >= 2;
+    // Default the picker to whoever is actually acting, not to the Captain in seat 0.
+    const defaultOfficerIdx = resolveActingOfficerIndex(actor, "command", { actingActorId });
 
     const isNpc = CombatHUD.isNpcShip(actor);
     const options = STATION_SLOTS
@@ -9207,7 +9223,7 @@ export class CombatHUD {
       return;
     }
 
-    let chosenOfficerIdx = 0;
+    let chosenOfficerIdx = defaultOfficerIdx;
     let targetId = null;
 
     const officerSection = hasTwo ? `
@@ -9221,7 +9237,7 @@ export class CombatHUD {
             padding:5px 8px;border-radius:2px;margin-bottom:2px;
             border:1px solid ${LC.borderDim};background:${LC.panel};">
             <input type="radio" name="cmd-officer" value="${i}"
-              ${i === 0 ? "checked" : ""}
+              ${i === defaultOfficerIdx ? "checked" : ""}
               style="accent-color:${LC.primary};" />
             <span style="font-size:11px;font-weight:700;color:${LC.text};
               font-family:${LC.font};">⭐ ${o.name}</span>
@@ -9271,7 +9287,8 @@ export class CombatHUD {
           callback: (event, btn, dlg) => {
             const el = dlg.element ?? btn.closest(".app.dialog-v2");
             if (hasTwo) {
-              chosenOfficerIdx = parseInt(el?.querySelector("input[name='cmd-officer']:checked")?.value ?? "0") || 0;
+              const pickedIdx = parseInt(el?.querySelector("input[name='cmd-officer']:checked")?.value ?? "");
+              chosenOfficerIdx = Number.isInteger(pickedIdx) ? pickedIdx : defaultOfficerIdx;
             }
             targetId = el?.querySelector("input[name='direct-target']:checked")?.value ?? null;
           },
@@ -9281,7 +9298,7 @@ export class CombatHUD {
     });
     if (result !== "confirm" || !targetId) return;
 
-    const chosenOfficer = commandOfficers[chosenOfficerIdx] ?? commandOfficers[0];
+    const chosenOfficer = commandOfficers[chosenOfficerIdx] ?? commandOfficers[defaultOfficerIdx];
     const officerName   = chosenOfficer?.name ?? actor.name;
     const tgt           = STATION_SLOTS.find(s => s.id === targetId);
 
@@ -9440,7 +9457,7 @@ export class CombatHUD {
   //   • Multiple actors (e.g. Command with Captain + XO) → picker dialog first.
   // If no actor is assigned the roller opens in generic NPC crew quality mode.
 
-  async _handleTaskRoll(actor, token, station) {
+  async _handleTaskRoll(actor, token, station, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, station.id, station.label)) return;
 
     const hasTS  = CombatHUD.hasTargetingSolution(token);
@@ -9448,12 +9465,14 @@ export class CombatHUD {
     const isNpc  = CombatHUD.isNpcShip(actor);
 
     const stationOfficers = getStationOfficers(actor, station.id);
+    const defaultOfficerIdx = resolveActingOfficerIndex(actor, station.id, { actingActorId });
     let resolvedOfficer = null;
 
     if (stationOfficers.length === 1) {
       resolvedOfficer = readOfficerStats(stationOfficers[0]);
     } else if (stationOfficers.length > 1) {
-      // Multiple actors at this station — ask which is acting this turn
+      // Multiple actors at this station — ask which is acting this turn, defaulting
+      // to whoever the ring or the initiative tracker says that is.
       const choice = await foundry.applications.api.DialogV2.wait({
         window:  { title: `${station.label} — Who is acting?` },
         content: `<div style="font-family:${LC.font};padding:4px 0;font-size:11px;color:${LC.text};">
@@ -9461,7 +9480,7 @@ export class CombatHUD {
         buttons: stationOfficers.map((o, i) => ({
           action:  String(i),
           label:   o.name,
-          default: i === 0,
+          default: i === defaultOfficerIdx,
         })),
       });
       const idx = parseInt(choice);
@@ -9491,7 +9510,7 @@ export class CombatHUD {
 
   // ── Override ──────────────────────────────────────────────────────────────
 
-  async _handleOverride(actor, token, station) {
+  async _handleOverride(actor, token, station, { actingActorId = null } = {}) {
     if (!CombatHUD._requiresPlayerOfficer(actor, station.id, station.label)) return;
     const isNpc = CombatHUD.isNpcShip(actor);
 
@@ -9598,9 +9617,7 @@ export class CombatHUD {
     if (!chosenTask) return;
 
     // Resolve the overriding officer (uses the CURRENT station's assigned officer)
-    const stationOfficers = getStationOfficers(actor, station.id);
-    const resolvedOfficer = stationOfficers.length > 0
-      ? readOfficerStats(stationOfficers[0]) : null;
+    const resolvedOfficer = readOfficerStats(resolveActingOfficer(actor, station.id, { actingActorId }));
 
     const overrideContext = `Override from ${station.label} · +1 Difficulty penalty`;
 
@@ -9732,6 +9749,10 @@ export class CombatHUD {
             hasRapidFireTorpedo:  _hasRFT && isTorpedo,
             weaponContext:        weaponCtx,
             stationId:            station.id,
+            // A weapon attack is Control + Security wherever it is run from, and
+            // stationId here is the OVERRIDING station, so it cannot supply the pair.
+            defaultAttr:          "control",
+            defaultDisc:          "security",
             officer:              resolvedOfficer,
             crewQuality:          isNpc && !resolvedOfficer ? CombatHUD.getCrewQuality(actor) : null,
             cumbersomePenalty:    _weaponQualityFlag(weapon, "cumbersome") ? 1 : 0,
@@ -9759,6 +9780,10 @@ export class CombatHUD {
         hasRapidFireTorpedo:  hasRFT && isTorpedo,
         weaponContext:        weaponCtx,
         stationId:            station.id,
+        // A weapon attack is Control + Security wherever it is run from, and
+        // stationId here is the OVERRIDING station, so it cannot supply the pair.
+        defaultAttr:          "control",
+        defaultDisc:          "security",
         officer:              resolvedOfficer,
         crewQuality:          isNpc && !resolvedOfficer ? CombatHUD.getCrewQuality(actor) : null,
         opposedDifficulty:    opposed.difficulty !== null ? baseOppDiff : null,
@@ -9794,21 +9819,47 @@ export class CombatHUD {
       return;
     }
 
+    // The TASK decides the Attribute + Discipline and the ship's System + Department —
+    // not the station the overriding officer happens to man. `stationId` stays the
+    // overriding station (it routes assists and breach penalties), so without this an
+    // override from Command rolled Presence + Command whatever it took over.
+    const tp = TASK_PARAMS[taskPick] ?? null;
+    // Leave the roller's own fallback in place for a sparse NPC officer who has no
+    // value for the task's pair — pinning it here would select an empty box.
+    const taskAttr = tp?.charAttr && (!resolvedOfficer || resolvedOfficer.attributes?.[tp.charAttr] != null)
+      ? tp.charAttr : null;
+    const taskDisc = tp?.charDisc && (!resolvedOfficer || resolvedOfficer.disciplines?.[tp.charDisc] != null)
+      ? tp.charDisc : null;
+    const taskPairLine = [
+      taskAttr && taskDisc
+        ? `${OFFICER_ATTRIBUTES.find(a => a.key === taskAttr)?.label ?? taskAttr} + ${_rollEditLabel(_ROLL_EDIT_DEPT_LABELS, taskDisc)}`
+        : null,
+      tp?.shipSystemKey && tp?.shipDeptKey
+        ? `${_rollEditLabel(_ROLL_EDIT_SYSTEM_LABELS, tp.shipSystemKey)} + ${_rollEditLabel(_ROLL_EDIT_DEPT_LABELS, tp.shipDeptKey)}`
+        : null,
+    ].filter(Boolean).join(" · ");
+
     const rollerOpts = {
       stationId:   station.id,
       officer:     resolvedOfficer,
       crewQuality: isNpc && !resolvedOfficer ? CombatHUD.getCrewQuality(actor) : null,
       difficulty,
+      ...(taskAttr                ? { defaultAttr:         taskAttr         } : {}),
+      ...(taskDisc                ? { defaultDisc:         taskDisc         } : {}),
+      ...(tp?.shipSystemKey       ? { shipSystemKey:       tp.shipSystemKey } : {}),
+      ...(tp?.shipDeptKey         ? { shipDeptKey:         tp.shipDeptKey   } : {}),
+      ...(tp?.ignoreBreachPenalty ? { ignoreBreachPenalty: true             } : {}),
+      ...(tp?.noShipAssist        ? { noShipAssist:        true             } : {}),
       taskLabel:   taskPick === "scan-for-weakness"
         ? `Override — Scan for Weakness — ${scanTargetToken.name}`
         : `Override — ${chosenTask.label}`,
-      taskContext: overrideContext
-        + (taskPick === "scan-for-weakness" ? ` · Target: ${scanTargetToken.name}` : "")
-        + (difficulty !== null ? ` (Difficulty ${difficulty})` : ""),
+      taskContext: [
+        taskPairLine || null,
+        overrideContext
+          + (taskPick === "scan-for-weakness" ? ` · Target: ${scanTargetToken.name}` : "")
+          + (difficulty !== null ? ` (Difficulty ${difficulty})` : ""),
+      ].filter(Boolean).join(" · "),
       ...(taskPick === "scan-for-weakness" ? {
-        ignoreBreachPenalty: true,
-        shipSystemKey:       "sensors",
-        shipDeptKey:         "security",
         taskCallback: async ({ passed }) => {
           if (!passed) return;
           const cardData = await applyScanForWeakness(token, scanTargetToken, token.name ?? actor.name);
@@ -9824,6 +9875,7 @@ export class CombatHUD {
   // ── Create Trait ─────────────────────────────────────────────────────────
 
   async _handleCreateTrait(actor, token, station, options = {}) {
+    const actingActorId = options?.actingActorId ?? null;
     const creatorActor = options?.creatorActorId ? game.actors.get(options.creatorActorId) : null;
     const allowUnassignedCreator = options?.allowUnassignedCreator === true && !!creatorActor;
     if (!allowUnassignedCreator
@@ -9866,8 +9918,9 @@ export class CombatHUD {
       ],
     });
     if (!method || method === "cancel") return;
-    const stationOfficers = station ? getStationOfficers(actor, station.id) : [];
-    const traitCreator = creatorActor ?? stationOfficers[0] ?? actor;
+    const traitCreator = creatorActor
+      ?? resolveActingOfficer(actor, station?.id ?? null, { actingActorId })
+      ?? actor;
     if (method === "spend") {
       const spend = await spendForTraitCreation(actor, token, 2);
       if (!spend) return;
@@ -12466,14 +12519,7 @@ export class CombatHUD {
           const textDim   = LC?.textDim   ?? "#888";
           const bg        = LC?.bg        ?? "#1a1a1a";
           const font      = LC?.font      ?? "var(--font-primary)";
-          await ChatMessage.create({
-            content: `
-              <div style="background:${bg};border:2px solid ${secondary};border-radius:3px;
-                overflow:hidden;font-family:${font};">
-                <div style="background:${secondary};color:${bg};font-size:9px;font-weight:700;
-                  letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;">
-                  ⚡ MOMENTUM OVERFLOW
-                </div>
+          const overflowBody = `
                 <div style="padding:8px 10px;">
                   <div style="font-size:11px;font-weight:700;color:${tertiary};
                     margin-bottom:4px;">Pool at maximum (${max})</div>
@@ -12482,8 +12528,21 @@ export class CombatHUD {
                     excess Momentum cannot be banked.<br>
                     <span style="color:${textDim};">Must be spent immediately or it is lost.</span>
                   </div>
-                </div>
+                </div>`;
+          await ChatMessage.create({
+            content: lcarsChatCard({
+              title: "⚡ MOMENTUM OVERFLOW",
+              accent: secondary,
+              body: overflowBody,
+              legacy: () => `
+              <div style="background:${bg};border:2px solid ${secondary};border-radius:3px;
+                overflow:hidden;font-family:${font};">
+                <div style="background:${secondary};color:${bg};font-size:9px;font-weight:700;
+                  letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;">
+                  ⚡ MOMENTUM OVERFLOW
+                </div>${overflowBody}
               </div>`,
+            }),
             speaker: ChatMessage.getSpeaker({ token: speakerToken }),
           });
         }
@@ -19479,15 +19538,19 @@ function _armCardSelection(html, {
     btn.style.opacity = "0.4";
   }
   // The armed ability, the tray and the selected dice all read yellow, so it is
-  // obvious which ability the highlighted dice belong to.
-  armBtn.style.background  = "rgba(255,255,255,0.06)";
+  // obvious which ability the highlighted dice belong to. A card skin that draws
+  // its buttons filled (data-filled, set by the TNG LCARS frame) inverts instead:
+  // darkening one key in a row of lit ones reads as disabled, not as armed.
+  const armFilled = armBtn.dataset.filled === "1";
+  armBtn.style.background  = armFilled ? LC.yellow : "rgba(255,255,255,0.06)";
   armBtn.style.borderColor = LC.yellow;
-  armBtn.style.color       = LC.yellow;
-  armBtn.innerHTML = `▶ ${armBtn.innerHTML}`;
+  armBtn.style.color       = armFilled ? LC.bg : LC.yellow;
+  const armLabelEl = armBtn.querySelector(".sta2e-rr-name") ?? armBtn;
+  armLabelEl.innerHTML = `▶ ${armLabelEl.innerHTML}`;
 
   const btnStyle = (accent, strong) => `flex:1;padding:5px 8px;
     background:${strong ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)"};
-    border:1px solid ${accent};border-radius:2px;cursor:pointer;
+    border:1px solid ${accent};border-radius:var(--tcx-btn-radius, 9px);cursor:pointer;
     font-family:${LC.font};font-size:10px;font-weight:700;
     color:${accent};letter-spacing:0.06em;`;
 
@@ -19495,7 +19558,7 @@ function _armCardSelection(html, {
   tray.className = "sta2e-reroll-tray";
   tray.style.cssText = `margin-top:5px;padding:5px 6px;
     background:rgba(255,255,255,0.04);border:1px solid ${LC.yellow};
-    border-radius:2px;font-family:${LC.font};`;
+    border-radius:var(--tcx-tray-radius, 10px);font-family:${LC.font};`;
   tray.innerHTML = `
     <div style="font-size:8px;color:${LC.yellow};letter-spacing:0.08em;
       text-transform:uppercase;margin-bottom:5px;text-align:center;">${hint}</div>
@@ -19928,8 +19991,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         );
         return;
       }
-      const officer = readOfficerStats(stationOfficers[0]);
-      const officerActorObj = stationOfficers[0] ?? null;
+      const officerActorObj = resolveActingOfficer(shipActor, stationId);
+      const officer = readOfficerStats(officerActorObj);
 
       // ── Instant-apply branch — tasks with no dice roll ────────────────────
       // These apply an effect directly; opening the roller would be wrong.
@@ -20044,6 +20107,14 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       // Task-specific roller pre-configuration — defined at module scope as TASK_PARAMS
 
       const tp             = taskKey ? (TASK_PARAMS[taskKey] ?? null) : null;
+      // The station's canonical pair is not always the task's pair — Ram is Daring
+      // at a Control station, Damage Control is Presence at an Engineering one — so
+      // take the pair from the task and leave the roller's fallback for an officer
+      // whose sheet has no value there.
+      const tpAttr = tp?.charAttr && (!officer || officer.attributes?.[tp.charAttr] != null)
+        ? tp.charAttr : null;
+      const tpDisc = tp?.charDisc && (!officer || officer.disciplines?.[tp.charDisc] != null)
+        ? tp.charDisc : null;
       const resolvedLabel  = taskLabel ?? `${stationLabel} Task`;
       const resolvedContext = [
         tp?.ctx ?? null,
@@ -20082,6 +20153,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
         stationId,
         officer,
         ...(tp?.difficulty    !== undefined ? { difficulty:          tp.difficulty    } : {}),
+        ...(tpAttr                          ? { defaultAttr:         tpAttr           } : {}),
+        ...(tpDisc                          ? { defaultDisc:         tpDisc           } : {}),
         ...(tp?.shipSystemKey               ? { shipSystemKey:       tp.shipSystemKey } : {}),
         ...(tp?.shipDeptKey                 ? { shipDeptKey:         tp.shipDeptKey   } : {}),
         ...(tp?.ignoreBreachPenalty         ? { ignoreBreachPenalty: true             } : {}),
@@ -20633,7 +20706,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
             armBtn: btn,
             eligible: teEligible,
             hint: `${abilityLabel} — click one die to reroll (Computers / Sensors only)`,
-            confirmLabel: "🎲 Reroll",
+            confirmLabel: "Reroll",
             onConfirm: async ([pick]) => {
               const tePool = pick.pool;
               const teIdx  = pick.index;
@@ -20682,7 +20755,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           armBtn: btn,
           eligible: crewDice.map((_d, i) => ({ pool: "crew", index: i })),
           hint: `${abilityLabel} — ${selectHint}`,
-          confirmLabel: "🎲 Reroll",
+          confirmLabel: "Reroll",
           multi: useCheckbox,
           max: maxSelect,
           onConfirm: async selected => {
@@ -20933,9 +21006,10 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           ? "Threat"
           : generatedPool === "alliedNpcMomentum" ? "Allied Momentum" : "Momentum";
         const poolColor  = momentum > 0 ? (LC.secondary ?? "#cc88ff") : (LC.textDim ?? "#888");
-        const totalComplications = allDice.filter(d => d.complication).length
+        const totalComplications = Math.max(0, allDice.filter(d => d.complication).length
           + _rollResultAutoComplications(payload)
-          + succeedAtCostComplications(payload);
+          + succeedAtCostComplications(payload)
+          - complicationsIgnored(payload));
 
         // Auto-bank momentum/threat to the pool and post a Momentum Overflow
         // Tracker chat card. The tracker holds float (mirror of the just-
@@ -21352,15 +21426,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
         // Rally context: post Momentum result card (player ships always use Momentum)
         if (!skipCompletionEffects && rallyContext) {
-          await ChatMessage.create({
-            content: `
-              <div style="border:2px solid ${LC.primary ?? "#ff9900"};border-radius:3px;
-                background:rgba(255,153,0,0.06);padding:8px 10px;
-                font-family:${LC.font ?? "var(--font-primary)"};">
-                <div style="font-size:9px;font-weight:700;color:${LC.primary ?? "#ff9900"};
-                  letter-spacing:0.1em;text-transform:uppercase;margin-bottom:5px;">
-                  💫 RALLY — MOMENTUM GENERATED
-                </div>
+          const rallyBody = `
                 <div style="font-size:12px;font-weight:700;color:${LC.tertiary ?? "#ffcc66"};
                   margin-bottom:6px;">${shipActor?.name ?? ""}</div>
                 <div style="font-size:32px;font-weight:700;color:${LC.primary ?? "#ff9900"};
@@ -21369,8 +21435,22 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 </div>
                 <div style="font-size:11px;color:${LC.textDim ?? "#888"};text-align:center;">
                   Momentum · Presence + Command · Difficulty 0
-                </div>
+                </div>`;
+          await ChatMessage.create({
+            content: lcarsChatCard({
+              title: "💫 RALLY — MOMENTUM GENERATED",
+              accent: LC.primary,
+              body: rallyBody,
+              legacy: () => `
+              <div style="border:2px solid ${LC.primary ?? "#ff9900"};border-radius:3px;
+                background:rgba(255,153,0,0.06);padding:8px 10px;
+                font-family:${LC.font ?? "var(--font-primary)"};">
+                <div style="font-size:9px;font-weight:700;color:${LC.primary ?? "#ff9900"};
+                  letter-spacing:0.1em;text-transform:uppercase;margin-bottom:5px;">
+                  💫 RALLY — MOMENTUM GENERATED
+                </div>${rallyBody}
               </div>`,
+            }),
             speaker: ChatMessage.getSpeaker({ token: tokenObj }),
           });
         }
@@ -21719,8 +21799,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
       const actor     = token.actor;
       const isNpcDef  = CombatHUD.isNpcShip(actor);
       const stationId = btn.dataset.stationId;
-      const officers  = stationId ? getStationOfficers(actor, stationId) : [];
-      const officer   = officers.length ? readOfficerStats(officers[0]) : null;
+      const officer   = readOfficerStats(resolveActingOfficer(actor, stationId));
 
       const rollerOpts = {
         officer,

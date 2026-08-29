@@ -1,0 +1,351 @@
+/*
+ * sta2e-toolkit | task-card.css
+ *
+ * Geometry for the classic Working Results task-roll card (buildPlayerRollCardHtml
+ * in scripts/npc-roller.js) and for the reroll grid both skins share.
+ *
+ * Colours stay inline on the card markup, exactly as they always were — this file
+ * owns shape only. The root carries `data-theme="<lcars theme id>"` and the
+ * --tc-* custom properties (getLcCssVars("tc")), so a per-era look is a rule
+ * block here rather than a change to the renderer.
+ *
+ * ── Two hard rules (same as styles/task-card-slim.css) ───────────────────────
+ * 1. NO `!important` anywhere in this file. The card's buttons and dice are
+ *    inline-styled on purpose: _armCardSelection() in combat/combat-hud-core.js
+ *    round-trips a button through `style.cssText` when a reroll is armed and
+ *    disarmed, and it paints dice via el.style.*. Stylesheet declarations that
+ *    outrank those inline styles would leave buttons stuck looking armed and
+ *    dice stuck highlighted.
+ * 2. Never set background / border-color / color / opacity on
+ *    .sta2e-player-reroll or .sta2e-make-own-luck — combat-hud-core.js owns
+ *    those four while an ability is armed. Layout properties (display, grid-*,
+ *    border-radius, padding) are safe, and so is opacity on a CHILD span.
+ *
+ * Also: .sta2e-working-actions stays a plain block — the reroll tray is appended
+ * to `armBtn.closest(".sta2e-working-actions")` and must land BELOW the buttons.
+ * The grid therefore lives on the inner .sta2e-task-rerolls wrapper.
+ */
+
+/* ── Card frame ───────────────────────────────────────────────────────────── */
+/* The renderer sets background / border / overflow:hidden inline; overflow is
+   what clips the header bar and the last action row to these corners. */
+.sta2e-task-card {
+  --tcx-radius: 14px;
+  --tcx-head-radius: 0;
+  --tcx-btn-radius: 9px;
+  --tcx-tray-radius: 10px;
+  border-radius: var(--tcx-radius);
+}
+
+/* ── Per-era shape ────────────────────────────────────────────────────────── */
+/* One block per theme id from lcars-theme.js THEMES. Only TNG differs from the
+   base so far; the rest are stubs kept here so each era can take its own shape
+   without touching the renderer. */
+.sta2e-task-card[data-theme="lcars-tng"] {
+  --tcx-radius: 16px;
+}
+
+.sta2e-task-card[data-theme="lcars-tng-blue"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="blue"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="tos-panel"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="tmp-console"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="ent-panel"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="klingon"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="romulan"] { /* inherits the base shape */ }
+
+/* Hook for a per-era header shape. The bar's colours are inline. */
+.sta2e-task-card .sta2e-task-head {
+  border-radius: var(--tcx-head-radius);
+}
+
+/* ── Reroll grid ──────────────────────────────────────────────────────────── */
+/* Two columns, so a card with a dozen live reroll talents is half as tall.
+   Shared by both skins: the slim renderer puts this class on its .tcs-btns,
+   which is a column flex. The doubled-class selector is there to outrank that
+   rule on specificity rather than on stylesheet order, so neither file's
+   position in module.json's styles array matters. */
+.sta2e-task-rerolls,
+.tcs-btns.sta2e-task-rerolls {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px;
+}
+
+/* A lone trailing button spans the row rather than leaving a hole. */
+.sta2e-task-rerolls > button:last-child:nth-child(odd),
+.tcs-btns.sta2e-task-rerolls > button:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* min-width:0 lets the name ellipsise instead of forcing the column wider.
+
+   height:auto overrides core's `.chat-message button { height: var(--input-height) }`
+   (2rem, border-box). A reroll button carrying a cost line needs ~21px of content
+   and that rule leaves 22px inside the padding, so the second line sits one font
+   metric away from clipping. The selector is two classes deep to win on
+   specificity rather than on which stylesheet the browser loaded last. */
+.sta2e-task-card .sta2e-task-rerolls > button,
+.sta2e-slim-task-card .sta2e-task-rerolls > button {
+  min-width: 0;
+  height: auto;
+  min-height: 22px;
+  line-height: 1.2;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+/* Every button on the card, plus the two <div>s that are drawn as buttons
+   ("Applied to …", "Completed"), which carry .sta2e-task-btn for this rule. The
+   renderer leaves border-radius out of their inline styles on purpose — inline
+   would beat this, and then a per-era shape could not reach them. The reroll
+   tray injected by _armCardSelection() is inline-styled and reads the same vars
+   itself, so its fallbacks in combat-hud-core.js must match these defaults. */
+.sta2e-task-card button,
+.sta2e-task-card .sta2e-task-btn {
+  border-radius: var(--tcx-btn-radius);
+}
+
+/* Padding lives here rather than inline so a skin can resize the keys — an
+   inline value cannot be overridden by a rule. These restate what each site
+   used to carry, so the non-frame card is unchanged. The two .sta2e-task-btn
+   divs are told apart by their section, since they share the class. */
+.sta2e-task-card .sta2e-add-to-pool,
+.sta2e-task-card .sta2e-assist-to-roll,
+.sta2e-task-card .sta2e-player-confirm,
+.sta2e-task-card .sta2e-working-actions--confirm .sta2e-task-btn {
+  padding: 7px 10px;
+}
+
+.sta2e-task-card .sta2e-player-assist-roll {
+  padding: 5px 8px;
+}
+
+.sta2e-task-card .sta2e-make-own-luck,
+.sta2e-task-card .sta2e-working-actions--assist-apply .sta2e-task-btn {
+  padding: 6px 8px;
+}
+
+.sta2e-task-card .sta2e-edit-roll-card {
+  padding: 5px 10px;
+}
+
+.sta2e-task-card .sta2e-succeed-at-cost {
+  padding: 6px 10px;
+}
+
+.sta2e-task-card .sta2e-task-rerolls > button {
+  padding: 4px 7px;
+  text-align: left;
+}
+
+.sta2e-rr-name {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Child opacity, not the button's own — see rule 2. */
+.sta2e-rr-cost {
+  display: block;
+  margin-top: 1px;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+/* ── TNG LCARS frame ─────────────────────────────────────────────────────────
+   Opted into by the renderer, which adds .sta2e-task-card--frame when the active
+   theme is lcars-tng (the lcarsFrame flag in npc-roller.js). Every rule below
+   hangs off that class, so no other era can be reached by them, and opting one
+   in later is a one-line change in the renderer rather than a rewrite here.
+
+   The frame is two gold pieces and nothing else: a vertical spine down the left,
+   and one horizontal bar heading the results block. No card border, no bar across
+   the top, no tick marks down the right edge.
+
+   The two hard rules at the top of this file still apply: no !important, and
+   nothing here may set background / border-color / color / opacity on
+   .sta2e-player-reroll or .sta2e-make-own-luck. The spine is an inert span and
+   the bars are coloured inline by the renderer, so nothing here fights code that
+   paints at runtime. */
+.sta2e-task-card--frame {
+  position: relative;
+  padding: 0 0 0 var(--tcf-spine-w);
+  --tcf-spine-w: 10px;
+  --tcf-fillet: 16px;
+  --tcf-bar-cap: 16px;
+  --tcx-btn-radius: 16px;
+}
+
+/* Square card: the spine's ends must read flat, and the root's corner radius plus
+   its inline overflow:hidden would clip them round. This sets the property rather
+   than --tcx-radius, and doubles the class to outrank the per-era rule that owns
+   that var — .sta2e-task-card[data-theme="lcars-tng"] is two components, so a
+   single-class frame rule loses to it. */
+.sta2e-task-card.sta2e-task-card--frame {
+  border-radius: 0;
+}
+
+/* The spine runs the full height with flat ends, and is solid: breaks in it cannot
+   line up with the content rows, whose heights depend on what the roll produced,
+   so any period at all reads as an accident.
+
+   --tcf-frame-c is stamped on the root by the renderer and is the whole frame's
+   colour — spine, both bars and the bars' fillets. A confirmed card sets it to the
+   pass/fail colour, which is what turns the entire frame green (or red) on
+   resolve; an assist card sets it to the secondary accent. */
+.sta2e-task-card--frame .tcf-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--tcf-spine-w);
+  pointer-events: none;
+  background: var(--tcf-frame-c, var(--tc-primary));
+}
+
+/* ── Identity row ─────────────────────────────────────────────────────────── */
+/* Character/context name on the left, complication range on the right — the two
+   labels the renderer already builds as contextLeftLabel / contextRightLabel. */
+.sta2e-task-card--frame .tcf-ident {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sta2e-task-card--frame .tcf-ident-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--tc-text);
+}
+
+.sta2e-task-card--frame .tcf-ident-meta {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--tc-primary);
+}
+
+/* ── The bar ─────────────────────────────────────────────────────────── */
+/* The bar runs from the card's left edge — the negative margin puts its left end
+   under the spine — to a rounded cap on the right. It carries the task label and
+   turns pass/fail coloured on resolve.
+
+   Colour comes from --tcf-frame-c rather than from the renderer's inline style:
+   the fillets below are gradients, and a gradient cannot pick a colour up from
+   background, so a var is the only way to keep all four pieces in step. */
+.sta2e-task-card--frame .tcf-bar {
+  position: relative;
+  background: var(--tcf-frame-c, var(--tc-primary));
+  color: var(--tc-bg);
+  margin: 5px 0 0 calc(var(--tcf-spine-w) * -1);
+  /* Symmetric inset clears the cap so the label does not sit in the curve. */
+  padding: 3px 16px;
+  text-align: right;
+  border-radius: 0 var(--tcf-bar-cap) var(--tcf-bar-cap) 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  /* Pinned rather than left at normal, so the bar's height is the same 16px
+     whatever font the theme resolves to. */
+  line-height: 10px;
+}
+
+/* Concave fillets where the bar meets the spine, one above and one below.
+
+   A radial-gradient is the only way to paint a concave corner in CSS: the circle
+   is centred on the far corner of a --tcf-fillet square and is transparent inside
+   its own radius, so what remains is the quarter that hugs the junction. Without
+   these the bar butts into the spine at a right angle and reads as two unrelated
+   rectangles rather than as one console. */
+.sta2e-task-card--frame .tcf-bar::before,
+.sta2e-task-card--frame .tcf-bar::after {
+  content: "";
+  position: absolute;
+  left: var(--tcf-spine-w);
+  width: var(--tcf-fillet);
+  height: var(--tcf-fillet);
+  pointer-events: none;
+}
+
+.sta2e-task-card--frame .tcf-bar::before {
+  top: calc(var(--tcf-fillet) * -1);
+  background: radial-gradient(
+    circle at 100% 0,
+    transparent 0 var(--tcf-fillet),
+    var(--tcf-frame-c, var(--tc-primary)) var(--tcf-fillet)
+  );
+}
+
+.sta2e-task-card--frame .tcf-bar::after {
+  bottom: calc(var(--tcf-fillet) * -1);
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent 0 var(--tcf-fillet),
+    var(--tcf-frame-c, var(--tc-primary)) var(--tcf-fillet)
+  );
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* height:auto is doing real work: core's rule .chat-message button { height:
+   2rem } is border-box, so without it every key stays 32px tall no matter how
+   much padding it is given. */
+.sta2e-task-card--frame .sta2e-working-actions button,
+.sta2e-task-card--frame .sta2e-task-btn {
+  height: auto;
+  padding: 9px 11px;
+}
+
+/* Three classes, so it outranks the rule above on specificity rather than on
+   source order. At this padding a reroll key has ~103px of text room, which
+   clears the longest stock ability name ("Spend Determination", 90px). */
+.sta2e-task-card--frame .sta2e-working-actions--rerolls button {
+  padding: 6px 6px;
+  text-align: center;
+}
+
+.sta2e-task-card--frame .sta2e-task-rerolls {
+  gap: 8px;
+}
+
+/* Foundry rounds every chat message (.chat-message { border-radius: 6px }), which
+   is what puts curved corners around a card whose own corners are square. Square
+   the bubble off for messages hosting the frame — :has() keeps this to CSS rather
+   than needing the render hook to tag the message element. */
+.chat-message:has(.sta2e-task-card--frame) {
+  border-radius: 0;
+}
+
+/* ── Hover ────────────────────────────────────────────────────────────────── */
+/* filter, not a colour swap, and that is not a stylistic choice: the renderer
+   writes every key's background and colour inline (btnFill), and an inline
+   declaration beats any rule here, so a :hover that set background would simply
+   never show. filter composites over whatever colour the element ended up with —
+   the lit key, the armed yellow one, the green confirm — and needs to know none
+   of them. It is also the one safe option under rule 2 at the top of this file,
+   since _armCardSelection owns background / border-color / color / opacity.
+
+   Same reasoning as the slim skin's hover (styles/task-card-slim.css). */
+.sta2e-task-card--frame button:hover:not(:disabled) {
+  filter: brightness(1.28) saturate(0.92);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.28);
+}
+
+.sta2e-task-card--frame button:active:not(:disabled) {
+  filter: brightness(0.88);
+  box-shadow: none;
+}
+
+.sta2e-task-card--frame button {
+  transition: filter 0.11s ease-out, box-shadow 0.11s ease-out;
+}

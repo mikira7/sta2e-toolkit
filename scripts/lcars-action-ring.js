@@ -1160,7 +1160,13 @@ export class LcarsActionRing {
       }
       return;
     }
-    await combatHud.triggerRingAction(context.token, entry.action, entry.station);
+    // The ring knows exactly which character was clicked — carry it through so the
+    // handler credits that officer rather than slot 0 of the station (Command seats two).
+    await combatHud.triggerRingAction(
+      context.token,
+      { ...entry.action, actingActorId: context.actor?.id ?? null },
+      entry.station,
+    );
   }
 
   _render(actor, npcShipToken = null) {

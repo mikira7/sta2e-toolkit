@@ -25,14 +25,16 @@
  */
 
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
-import { allRolledDice, callOutTargetsBonusMomentum, openNpcRoller, openPlayerRoller, packTacticsBonusMomentum } from "./npc-roller.js";
-import { getStationOfficers, readOfficerStats } from "./crew-manifest.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
+import { allRolledDice, callOutTargetsBonusMomentum, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum, openNpcRoller, openPlayerRoller, packTacticsBonusMomentum } from "./npc-roller.js";
+import { readOfficerStats } from "./crew-manifest.js";
 import { labelFromKey as _labelFromKey, orderedShipsForActor, serializeShipsForRoller } from "./ship-pool.js";
 import { CombatHUD } from "./combat-hud.js";
 import { createTracker } from "./momentum-tracker.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { planOfActionBonusMomentum } from "./trait-service.js";
 import { getExtraActionDifficulty } from "./combat/initiative-order.js";
+import { resolveActingOfficer } from "./combat/acting-officer.js";
 import { smallCraftDifficultyPenalty } from "./combat/combat-definitions.js";
 // The setup UI now lives in the Task Maker's "Opposed Task" tab.  opposed-panel.js
 // imports nothing but lcars-theme.js, so pulling from it here stays cycle-free —
@@ -121,7 +123,13 @@ function _opposedSideBonusMomentum(sideData = {}, passed = false) {
   });
   // Pack Tactics — an assistant's talent paying out on the assisted roll.
   const packTacticsBonus = packTacticsBonusMomentum(rollData, true);
-  return Math.max(0, callOutTargetsBonus + planOfActionBonus + speciesBonus + packTacticsBonus);
+  // Role abilities that pay bonus Momentum on a success. Omitting these here is
+  // why an opposed Evasive Action never paid the Flight Controller's +1 no matter
+  // how the roller was set — every other path summed them, this one did not.
+  const flightControllerBonus = flightControllerBonusMomentum(rollData, true);
+  const chiefMedicalBonus = chiefMedicalOfficerBonusMomentum(rollData, true);
+  return Math.max(0, callOutTargetsBonus + planOfActionBonus + speciesBonus + packTacticsBonus
+    + flightControllerBonus + chiefMedicalBonus);
 }
 
 function _calculateOpposedDifficulty(taskData = {}) {
@@ -405,10 +413,8 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
     ? _normalizeTraitModifier(opts.options ?? opts)
     : _normalizeTraitModifier({ traitModifierMode: "none" });
 
-  const defenderOfficers = getStationOfficers(defenderActor, defStationId);
-  const attackerOfficers = getStationOfficers(attackerActor, atkStationId);
-  const defenderOfficer = opts.defenderOfficer ?? (defenderOfficers[0] ? readOfficerStats(defenderOfficers[0]) : null);
-  const attackerOfficer = opts.attackerOfficer ?? (attackerOfficers[0] ? readOfficerStats(attackerOfficers[0]) : null);
+  const defenderOfficer = opts.defenderOfficer ?? readOfficerStats(resolveActingOfficer(defenderActor, defStationId));
+  const attackerOfficer = opts.attackerOfficer ?? readOfficerStats(resolveActingOfficer(attackerActor, atkStationId));
 
   const taskId = foundry.utils.randomID();
   const taskData = {
@@ -829,17 +835,8 @@ function _renderCardHtml(d) {
       <div style="margin-top:6px;padding-top:6px;border-top:1px dashed ${LC.borderDim};font-size:11px;">${statusHtml}</div>
     </div>`;
 
-  return `
-<div class="sta2e-op-card-v2" data-task-id="${d.taskId}" data-theme="${theme}" data-template="${template}"
-  style="${themeVars}background:${LC.bg};
-    border:1px solid ${primary};border-radius:3px;font-family:${font};color:${LC.text};max-width:640px;overflow:hidden;padding:0;box-shadow:none;">
-  <div class="sta2e-op-v2-header"
-    style="background:${primary};color:${LC.bg};padding:6px 12px;
-      display:flex;justify-content:space-between;align-items:center;
-      font-weight:700;letter-spacing:0.16em;text-transform:uppercase;border-radius:0;">
-    <span style="font-size:11px;">Opposed Task</span>
-    <span style="font-size:10px;opacity:0.9;">${isStarshipCombat ? "Starship Combat" : isGroundCombat ? "Ground Combat" : "Social Contest"}</span>
-  </div>
+  const kind = isStarshipCombat ? "Starship Combat" : isGroundCombat ? "Ground Combat" : "Social Contest";
+  const opBody = `
 
   <div style="padding:8px 12px 4px;">
     <div style="font-size:14px;font-weight:700;color:${primary};letter-spacing:0.02em;">${_esc(d.taskName)}</div>
@@ -866,9 +863,32 @@ function _renderCardHtml(d) {
     ${blindNote ? `<div style="padding:0 12px 6px;">${blindNote}</div>` : ""}
   ` : `<div style="height:6px;"></div>`}
 
+`;
+
+  // The frame's bottom bar replaces the card's own 3px footer strip, so the body
+  // ends at the content and the legacy path keeps the strip.
+  return lcarsChatCard({
+    title: `Opposed Task — ${kind}`,
+    accent: primary,
+    body: opBody,
+    rootClass: "sta2e-op-card-v2",
+    attrs: `data-task-id="${d.taskId}"`,
+    legacy: () => `
+<div class="sta2e-op-card-v2" data-task-id="${d.taskId}" data-theme="${theme}" data-template="${template}"
+  style="${themeVars}background:${LC.bg};
+    border:1px solid ${primary};border-radius:3px;font-family:${font};color:${LC.text};max-width:640px;overflow:hidden;padding:0;box-shadow:none;">
+  <div class="sta2e-op-v2-header"
+    style="background:${primary};color:${LC.bg};padding:6px 12px;
+      display:flex;justify-content:space-between;align-items:center;
+      font-weight:700;letter-spacing:0.16em;text-transform:uppercase;border-radius:0;">
+    <span style="font-size:11px;">Opposed Task</span>
+    <span style="font-size:10px;opacity:0.9;">${kind}</span>
+  </div>
+${opBody}
   <div class="sta2e-op-v2-footerbar" style="height:3px;background:${primary};"></div>
 </div>
-  `;
+  `,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────

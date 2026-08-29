@@ -62,11 +62,16 @@ const diceLine = (label, diceHtml, sub = "") => `
     <span class="tcs-row-dice">${diceHtml}</span>
   </div>`;
 
-/** An action section. Keeps the wrapper a block; flex goes on the inner list. */
-const actionSection = (modifier, inner) => `
+/**
+ * An action section. Keeps the wrapper a block; flex goes on the inner list.
+ * `listClass` adds a class to that inner list — the rerolls pass the shared
+ * .sta2e-task-rerolls grid (styles/task-card.css), which overrides the column
+ * flex with two columns.
+ */
+const actionSection = (modifier, inner, listClass = "") => `
   <div class="sta2e-working-actions sta2e-working-actions--${modifier}"
     style="padding:4px 6px 4px 0;border-top:1px solid ${LC.borderDim};">
-    <div class="tcs-btns">${inner}</div>
+    <div class="tcs-btns${listClass ? ` ${listClass}` : ""}">${inner}</div>
   </div>`;
 
 /**
@@ -83,7 +88,7 @@ export function renderSlimTaskCard(view) {
     crewDiceHeading, shipDiceHeading, namedAssistBlocks,
     noteStrips, traitNotes, statCells,
     interactiveActive, spentVisible, spentGroups, gained, poolButton,
-    showMakeYourOwnLuck, rerollButtons, canGmEditCard, confirmLabel, p,
+    showMakeYourOwnLuck, rerollButtons, rerollButtonBody, canGmEditCard, confirmLabel, p,
     succeedAtCostButton,
   } = view;
 
@@ -101,10 +106,10 @@ export function renderSlimTaskCard(view) {
   // an HTML <span> blob rather than a name — it injects a whole flex row into
   // the header. Slim deliberately uses the plain name instead; do not "fix".
   const headerTitle = isAssistRoll
-    ? `🤝 Assist — ${assistOfficerName ?? rollData.officerName ?? "Officer"}`
+    ? `Assist — ${assistOfficerName ?? rollData.officerName ?? "Officer"}`
     : confirmed
-      ? `📋 ${taskLabel || "Task Roll"} — ${finalResultLabel}`
-      : `📋 ${taskLabel || "Task Roll"} — Working`;
+      ? `${taskLabel || "Task Roll"} — ${finalResultLabel}`
+      : `${taskLabel || "Task Roll"} — Working`;
 
   // ── Notes: talent strips, ship badges and applied traits, all as chips ──────
   const noteChips = [
@@ -144,7 +149,7 @@ export function renderSlimTaskCard(view) {
   )).join("")}
 
   ${(apAssistDice ?? []).length > 0
-    ? diceLine("⚡ Helm — Attack Pattern", diceRow(apAssistDice, "ap-assist", dieOpts))
+    ? diceLine("Helm — Attack Pattern", diceRow(apAssistDice, "ap-assist", dieOpts))
     : ""}
 
   ${(shipDice ?? []).length > 0
@@ -188,9 +193,8 @@ export function renderSlimTaskCard(view) {
         data-payload="${p}"
         data-assist-index="${i}"
         style="${btnStyle(LC.primary, { left: true, tint: "rgba(255,153,0,0.10)" })}">
-        🎲 Assist — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 "
-          : ao.type === "attack-pattern" ? "⚡ " : "🤝 "}${ao.name}${
-          ao.type === "methodical-planning" ? " (Methodical Planning)"
+        Assist — ${ao.name}${ao.type === "direct" ? " (Direct)"
+          : ao.type === "methodical-planning" ? " (Methodical Planning)"
           : ao.type === "attack-pattern" ? " (Attack Pattern)" : ""}
       </button>`).join(""))
     : ""}
@@ -208,20 +212,20 @@ export function renderSlimTaskCard(view) {
         data-payload="${p}"
         data-ability="${rb.ability}"
         data-ability-label="${rb.label}"
-        style="${btnStyle(LC.secondary, { left: true, tint: "rgba(150,100,255,0.08)" })}">
-        🔄 ${rb.label} — ${rb.labelShort}
-      </button>`).join(""))
+        title="${rb.label} — ${rb.labelShort}"
+        style="${btnStyle(LC.secondary, { left: true, tint: "rgba(150,100,255,0.08)" })}">${rerollButtonBody(rb)}
+      </button>`).join(""), "sta2e-task-rerolls")
     : ""}
 
   ${isAssistRoll
     ? actionSection("assist-apply", assistApplied
         ? `<div style="${btnStyle(LC.secondary, { tint: "rgba(0,150,255,0.08)" })}cursor:default;">
-             ✓ Applied to: ${assistApplied}
+             Applied to: ${assistApplied}
            </div>`
         : `<button class="sta2e-assist-to-roll"
              data-payload="${p}"
              style="${btnStyle(LC.secondary, { strong: true, tint: "rgba(0,150,255,0.10)" })}">
-             ➕ Add to Task Roll →
+             Add to Task Roll →
            </button>`)
     : confirmed
       ? actionSection("confirm", poolButton.visible

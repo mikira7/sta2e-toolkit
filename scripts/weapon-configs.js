@@ -45,6 +45,9 @@ import {
   getZoneAtPoint,
 } from "./zone-data.js";
 import { stampHullDecal } from "./hull-decals.js";
+// scene-warp.js is deliberately import-free so it can be consulted from here
+// without closing a cycle — see its header.
+import { isSceneWeaponAutoRotateDisabled } from "./scene-warp.js";
 
 const SHIP_HULL_IMPACT_EFFECT = "jb2a.explosion_side.01.orange.2";
 // A shield burst should read as slightly smaller than the hull detonation it
@@ -192,9 +195,27 @@ const SHIP_SCALE_SPEED_MIN = 0.6;
 const SHIP_SCALE_SPEED_MAX = 2.5;
 const DISABLE_WEAPON_AUTO_ROTATE_FLAG = "disableWeaponAutoRotate";
 
+/**
+ * Does this token skip the turn-to-face when it fires?
+ *
+ * Two independent sources, either of which is enough: the per-token checkbox in
+ * Token Config, and the scene-wide switch on the Scene Warp panel — at warp the
+ * whole fleet is bow-forward, so a ship firing on a target abeam must not slew
+ * across the formation to do it.
+ *
+ * This is the single choke point for both: it already gates the facing prep in
+ * `prepareShipEmitterFacing` and the emitter pick in
+ * `getShipWeaponEmitterPoint`, so dropping firing-arc enforcement in favour of
+ * the nearest emitter comes with it — which is intended in both cases.
+ *
+ * `_isWeaponAutoRotateDisabled` in native-weapon-vfx.js is the same test for the
+ * VFX side and **must be kept in step with this one**, or the beam will leave
+ * from a different emitter than the one the rules picked.
+ */
 function isWeaponAutoRotateDisabled(token) {
   const doc = token?.document ?? token;
-  return !!doc?.getFlag?.("sta2e-toolkit", DISABLE_WEAPON_AUTO_ROTATE_FLAG);
+  if (doc?.getFlag?.("sta2e-toolkit", DISABLE_WEAPON_AUTO_ROTATE_FLAG)) return true;
+  return isSceneWeaponAutoRotateDisabled(doc?.parent ?? canvas?.scene);
 }
 
 /**

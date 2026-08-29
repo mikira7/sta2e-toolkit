@@ -1,8 +1,9 @@
 /* sta2e-toolkit | token-hud-flyout.css
  *
  * Shared shell for the module's Token HUD flyouts — the ship command palette
- * (ship-command-hud.js) and the weapon flyout (token-weapon-hud.js). Feature
- * files style their own contents; this owns the container and the control.
+ * (ship-command-hud.js), the Q palette (q-hud.js) and the weapon flyout
+ * (token-weapon-hud.js). This owns the container, the overflow fixes, and the
+ * plain `.sta2e-hud-item` row; feature files style anything beyond that.
  *
  * Colours are static LCARS orange — the Token HUD sits outside the themed LC
  * token system, and no other HUD injection in this module themes itself.
@@ -43,4 +44,57 @@
   white-space: nowrap;
   pointer-events: auto;
   cursor: default;
+}
+
+/* ── Palette rows ─────────────────────────────────────────────────────────────
+   Shared by every flyout. `.sta2e-ship-command-item` is kept as a second class
+   on the ship palette's rows so any selector aimed at it still lands. */
+
+.sta2e-hud-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 5px 10px 5px 7px;
+
+  background: rgba(255, 156, 0, 0.08);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  box-shadow: none;
+
+  color: #ffcc66;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.sta2e-hud-item:hover {
+  background: rgba(255, 156, 0, 0.22);
+  border-color: #ff9c00;
+  color: #fff;
+}
+
+.sta2e-hud-item i {
+  flex: 0 0 14px;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.sta2e-hud-item.danger {
+  background: rgba(255, 51, 51, 0.08);
+  color: #ff9b9b;
+}
+
+.sta2e-hud-item.danger:hover {
+  background: rgba(255, 51, 51, 0.24);
+  border-color: #ff3333;
+  color: #fff;
 }

@@ -14,7 +14,7 @@
  * Task result is evaluated against Difficulty and posted to chat as an LCARS card.
  */
 
-import { getLcTokens } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
@@ -32,6 +32,8 @@ import {
   findChiefEngineerTalent,
   findChiefMedicalOfficerTalent,
   findChiefOfSecurityTalent,
+  findFlightControllerTalent,
+  findNavigatorTalent,
   hasChiefTacticalOfficer,
   hasPointDefenseSystem,
   smallCraftDifficultyPenalty,
@@ -41,6 +43,7 @@ import {
   hasGroundTalent,
 } from "./combat/ground-talents.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { clearAssistPending } from "./assist-pending.js";
 import {
   getExtraActionDifficulty, clearExtraActionDifficulty, markTaskRollMajor,
@@ -181,14 +184,28 @@ export function rollSuccessTotal(source) {
   return countSuccesses(scoringDice(source)) + autoSuccesses(source);
 }
 
+/**
+ * Complications bought off after the roll — currently only the Navigator role
+ * ability, which spends 1 Momentum per complication ignored (Repeatable).
+ *
+ * Sole owner of that subtraction. Four sites total complications independently
+ * (rollComplicationTotal here, plus three inline recomputations in this file and
+ * one in combat-hud-core.js), so any future complication-cancelling effect must
+ * feed THIS helper rather than adding a fifth subtraction of its own.
+ */
+export function complicationsIgnored(source) {
+  return Math.max(0, Number(source?.navigatorComplicationsIgnored ?? 0) || 0);
+}
+
 /** Task complication total — every pool, always, Reserve Power doubling included. */
 export function rollComplicationTotal(source) {
-  return countComplicationsTotal(
+  const raw = countComplicationsTotal(
     source?.crewDice ?? [],
     assistDicePools(source),
     source?.shipDice ?? [],
     source?.reservePower,
   ) + autoComplications(source) + succeedAtCostComplications(source);
+  return Math.max(0, raw - complicationsIgnored(source));
 }
 
 // ── Succeed at Cost ───────────────────────────────────────────────────────────
@@ -681,10 +698,22 @@ function isFlightControllerPilotTask(source = {}) {
   return /\b(pilot|piloting|helm|flight|propulsion|impulse|thrusters|evasive|warp|ram)\b/.test(text);
 }
 
+/**
+ * Flight Controller: +1 bonus Momentum on a successful Conn Task to pilot a
+ * starship.
+ *
+ * The roller carries an explicit toggle (`flightControllerBonusSelected`) and it
+ * is authoritative — isFlightControllerPilotTask() only SEEDS the checkbox's
+ * default. It used to be the gate, which silently dropped the bonus on every
+ * task it did not recognise: "Maneuver", bare character-sheet Conn rolls with no
+ * task label at all, and the impulse/thrusters keys that never reach
+ * selectedTaskKey.
+ */
 export function flightControllerBonusMomentum(source = {}, passed = false) {
   if (!passed || !source?.hasFlightController) return 0;
   if ((source.officerDiscKey ?? source.discKey) !== "conn") return 0;
-  return isFlightControllerPilotTask(source) ? 1 : 0;
+  const marked = source.flightControllerBonusSelected;
+  return (marked ?? isFlightControllerPilotTask(source)) ? 1 : 0;
 }
 
 function hasActualAssistanceDice(source = {}) {
@@ -1087,6 +1116,12 @@ function resultSummaryHtml(resultMods) {
         Flight Controller: +${flightBonus} bonus Momentum for this piloting task
       </div>`
     : "";
+  const navigatorIgnored = complicationsIgnored(resultMods);
+  const navigatorNote = navigatorIgnored > 0
+    ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};margin-top:2px;">
+        ${resultMods?.navigatorSource ?? "Navigator"}: spent ${navigatorIgnored} Momentum to ignore ${navigatorIgnored} complication${navigatorIgnored > 1 ? "s" : ""}
+      </div>`
+    : "";
 
   return `
     <div style="
@@ -1121,7 +1156,7 @@ function resultSummaryHtml(resultMods) {
     </div>
     ${resultMods?.showOffSelected ? `<div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};padding:2px 10px 0;background:rgba(0,0,0,0.4);">
       ${resultMods.showOffSource ?? "Show-Off"} - Difficulty increased by 1
-    </div>` : ""}${reserveNote}${persistentNote}${flightControllerNote}
+    </div>` : ""}${reserveNote}${persistentNote}${flightControllerNote}${navigatorNote}
     <div style="
       text-align:center;padding:6px 10px 8px;
       font-size:14px;font-weight:700;letter-spacing:0.15em;
@@ -2002,6 +2037,42 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 ${state.flightControllerSource ?? "Flight Controller"} - use Conn for Engineering flight/propulsion task
               </span>
             </label>` : ""}
+            ${/* The +1 Momentum mark. Rendered for every Conn-capable roll and shown/hidden
+                  live by the #officer-disc change listener, so switching discipline or picking
+                  a task in the combat panel reveals it without a full re-render. Pre-ticked
+                  when the pilot-task heuristic recognises the task, ticked by hand otherwise. */""}
+            ${state.hasFlightController && !state.isAssistRoll && !state.groundMode ? `
+            <label id="flight-controller-bonus-row"
+              style="display:${officerDiscKey === "conn" ? "flex" : "none"};align-items:center;gap:6px;cursor:pointer;">
+              <input id="flight-controller-bonus" type="checkbox"
+                ${(state.flightControllerBonusSelected ?? isFlightControllerPilotTask(state)) ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.flightControllerSource ?? "Flight Controller"} - piloting a starship: +1 bonus Momentum on success
+              </span>
+            </label>` : ""}
+            ${state.hasNavigator && !state.isAssistRoll && !state.groundMode && (officerDiscKey === "science" || state.navigatorActive || state._navigatorBaseDisc === "science") ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="has-navigator" type="checkbox"
+                ${state.navigatorActive ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.navigatorSource ?? "Navigator"} - use Conn for an astrophysics / stellar navigation task
+              </span>
+            </label>` : ""}
+            ${/* Deliberately NOT gated on isAssistRoll — the ability reads "attempt or Assist". */""}
+            ${state.hasNavigator && !state.groundMode ? `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="navigator-terrain" type="checkbox"
+                ${state.navigatorTerrainSelected ? "checked" : ""}
+                style="accent-color:${LC.secondary};" />
+              <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
+                text-transform:uppercase;letter-spacing:0.06em;">
+                ${state.navigatorSource ?? "Navigator"} - difficult/dangerous terrain: spend 1 Momentum to ignore a complication
+              </span>
+            </label>` : ""}
             ${state.extendedTaskContext && state.hasMeticulous && !state.isAssistRoll ? `
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
               <input id="has-meticulous" type="checkbox"
@@ -2052,6 +2123,11 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
               padding:1px 0;letter-spacing:0.05em;">
               ✦ ${state.chiefMedicalOfficerSource ?? "Chief Medical Officer"} - Medicine tasks with assistance gain +1 bonus Momentum
+            </div>` : ""}
+            ${state.hasNavigator ? `
+            <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
+              padding:1px 0;letter-spacing:0.05em;">
+              ✦ ${state.navigatorSource ?? "Navigator"} - Conn for astrophysics / stellar navigation; 1 Momentum ignores a terrain complication
             </div>` : ""}
             ${state.hasChiefOfSecurity ? `
             <div style="font-size:9px;color:${LC.tertiary};font-family:${LC.font};
@@ -2995,16 +3071,37 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         // Generic reroll — always available once per roll for any talent/trait not listed above
         mkTalent("genericReroll", state.traitRerollSource ?? "Talent / Trait Reroll", true, state.genericRerollUsed),
       ].filter(Boolean).join("");
-      if (!buttons) return "";
+      // Navigator's complication buy-off is a SPEND, not a reroll — it never arms
+      // a die pip, so it sits in its own row rather than joining the reroll list.
+      // The guard reads the live complication total, which already subtracts what
+      // has been ignored, so the button retires itself once the last complication
+      // is bought off. That is what makes it correctly Repeatable with no cap of
+      // its own.
+      const navigatorBtn = state.hasNavigator && state.navigatorTerrainSelected
+        && rollComplicationTotal(state) > 0
+        ? `<button class="navigator-ignore-compl-btn" style="${btnOff}">
+             ${state.navigatorSource ?? "Navigator"} — Spend 1 Momentum: Ignore a Complication${state.navigatorComplicationsIgnored > 0 ? ` (${state.navigatorComplicationsIgnored} ignored)` : ""}
+           </button>`
+        : "";
+      if (!buttons && !navigatorBtn) return "";
       return `
         <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
+          ${buttons ? `
           <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
             letter-spacing:0.08em;margin-bottom:5px;font-family:${LC.font};">
             Available Rerolls
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
             ${buttons}
+          </div>` : ""}
+          ${navigatorBtn ? `
+          <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
+            letter-spacing:0.08em;margin:${buttons ? "7px" : "0"} 0 5px;font-family:${LC.font};">
+            Momentum Spends
           </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${navigatorBtn}
+          </div>` : ""}
           ${armed === "detReroll" && !state.detRerollUsed ? `
           <div id="det-reroll-panel" style="padding:6px 0 0;">
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
@@ -3218,14 +3315,8 @@ function buildChatCard(actorName, state) {
   }).join("")}
     </div>`;
 
-  return `
-    <div style="background:${LC.bg};border:1px solid ${LC.border};
-      border-radius:3px;overflow:hidden;font-family:${LC.font};">
-      <div style="background:${LC.primary};color:${LC.bg};
-        font-size:9px;font-weight:700;letter-spacing:0.15em;
-        text-transform:uppercase;padding:3px 10px;">
-        ${state.taskLabel ? `${state.taskLabel} — ` : sheetMode ? "Task Roll — " : "NPC Task Roll — "}${actorName}
-      </div>
+  const summaryTitle = `${state.taskLabel ? `${state.taskLabel} — ` : sheetMode ? "Task Roll — " : "NPC Task Roll — "}${actorName}`;
+  const summaryBody = `
       ${state.taskContext ? `
       <div style="padding:2px 10px 4px;background:rgba(255,153,0,0.06);
         border-bottom:1px solid ${LC.borderDim};
@@ -3275,6 +3366,11 @@ function buildChatCard(actorName, state) {
         state.hasPiercingSalvo ? "Piercing Salvo (offered on a hit — 2 Momentum for Piercing)" : null,
         state.multiTaskingActive ? "Multi-Tasking (Conn)" : null,
         state.flightControllerActive ? "Flight Controller (Conn)" : null,
+        state.navigatorActive ? `${state.navigatorSource ?? "Navigator"} (Conn)` : null,
+        (state.navigatorComplicationsIgnored ?? 0) > 0
+          ? `${state.navigatorSource ?? "Navigator"}: spent ${state.navigatorComplicationsIgnored} Momentum to ignore `
+            + `${state.navigatorComplicationsIgnored} complication${state.navigatorComplicationsIgnored > 1 ? "s" : ""}`
+          : null,
         state.chiefEngineerRerollUsed ? "Chief Engineer (1 Momentum reroll)" : null,
         state.adaptAndExcelRerollUsed ? `${state.adaptAndExcelSource ?? "Adapt and Excel"} (Stress reroll)` : null,
       ].filter(Boolean).join(" · ");
@@ -3406,8 +3502,22 @@ function buildChatCard(actorName, state) {
             color:${LC.primary};letter-spacing:0.06em;text-align:center;">
           ${state.playerMode ? "💫" : "⚡"} +${momentum} ${state.playerMode ? "Momentum" : "Threat"} → Pool
         </button>
-      </div>` : "")}
-    </div>`;
+      </div>` : "")}`;
+
+  return lcarsChatCard({
+    title: summaryTitle,
+    accent: LC.primary,
+    body: summaryBody,
+    legacy: () => `
+    <div style="background:${LC.bg};border:1px solid ${LC.border};
+      border-radius:3px;overflow:hidden;font-family:${LC.font};">
+      <div style="background:${LC.primary};color:${LC.bg};
+        font-size:9px;font-weight:700;letter-spacing:0.15em;
+        text-transform:uppercase;padding:3px 10px;">
+        ${summaryTitle}
+      </div>${summaryBody}
+    </div>`,
+  });
 }
 
 /**
@@ -3484,10 +3594,27 @@ export function buildPlayerRollCardHtml(rollData) {
   const generatedPool = resourceProfile.generatedPool;
   const poolLabel = generatedPool === "threat" ? "Threat" : resourceProfile.momentumLabel;
   const poolColor = displayMomentum > 0 ? LC.secondary : LC.textDim;
-  const totalComplications = allRolledDice(rollData)
+  const totalComplications = Math.max(0, allRolledDice(rollData)
     .filter(d => d.complication).length
     + autoComplications(rollData)
-    + succeedAtCostComplications(rollData);
+    + succeedAtCostComplications(rollData)
+    - complicationsIgnored(rollData));
+  // ── TNG LCARS frame ──────────────────────────────────────────────────────
+  // Spine, top elbow, notched results bar and edge ticks. Opting in is a CLASS on
+  // the root, not a data-theme selector in the stylesheet: every other era is then
+  // out of reach of those rules, and opting one in later is this line rather than
+  // a CSS rewrite. See styles/task-card.css.
+  const lcarsFrame = getActiveLcThemeKey() === "lcars-tng";
+
+  // Buttons read as filled LCARS keys inside the frame and stay outlined outside
+  // it. Only the two colour declarations move — padding, font size and border
+  // width stay written at each site, so the non-frame card renders as it always
+  // did. _armCardSelection owns these same two properties while a reroll is
+  // armed, which is why they are inline here and never in the stylesheet.
+  const btnFill = (accent, tint) => lcarsFrame
+    ? `background:${accent};color:${LC.bg};`
+    : `background:${tint};color:${accent};`;
+
   const completedPoolButton = confirmed && displayMomentum > 0 && !noPoolButton
     ? (rollData.autoBanked
         ? ""
@@ -3495,10 +3622,10 @@ export function buildPlayerRollCardHtml(rollData) {
             data-pool="${generatedPool}"
             data-amount="${displayMomentum}"
             data-token-id="${rollData.tokenId ?? ""}"
-            style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.25);
-              border:2px solid ${LC.secondary};border-radius:2px;cursor:pointer;
+            style="width:100%;${btnFill(LC.secondary, "rgba(0,0,0,0.25)")}
+              border:2px solid ${LC.secondary};cursor:pointer;
               font-family:${LC.font};font-size:11px;font-weight:700;
-              color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
+              letter-spacing:0.06em;text-align:center;">
             Add ${poolLabel} to Pool (+${displayMomentum})
           </button>`)
     : "";
@@ -3620,38 +3747,58 @@ export function buildPlayerRollCardHtml(rollData) {
     && failedOwnLuckDice.length > 0
     && crewTarget != null;
 
-  // Reroll abilities that still have charges
+  // Reroll abilities that still have charges.
+  // `label` is the ability name, and is what data-ability-label carries into
+  // the armed tray hint; `labelShort` is the full effect, kept as the button
+  // tooltip; `cost` is the optional small second line under the name in the
+  // two-column grid — set only where the effect is not a plain "Reroll a Die".
   const rerollButtons = makeYourOwnLuckUsed ? [] : [
     talentRerollValid && !talentRerollUsed ? { ability: "talent", label: talentRerollSource ?? "Bold / Cautious", labelShort: "Reroll a Die" } : null,
     hasAdvisorReroll && !advisorRerollUsed ? { ability: "advisor", label: advisorRerollSource ?? "Advisor", labelShort: "Reroll a Die" } : null,
     hasSystemReroll && !systemRerollUsed ? { ability: "system", label: systemRerollSource ?? "System Talent", labelShort: "Reroll a Die" } : null,
     hasShipTalentReroll && !shipTalentRerollUsed ? { ability: "shipTalent", label: shipTalentRerollSource ?? "Ship Talent", labelShort: "Reroll a Die" } : null,
-    !detRerollUsed ? { ability: "detReroll", label: "Spend Determination", labelShort: "Reroll Dice" } : null,
+    !detRerollUsed ? { ability: "detReroll", label: "Spend Determination", labelShort: "Reroll Dice", cost: "Multiple dice" } : null,
     hasTargetingSolution && tsChoice !== "system" && !tsRerollUsed
       ? { ability: "ts", label: "Targeting Solution", labelShort: "Reroll a Die" } : null,
     hasCalibratesensors && !csRerollUsed ? { ability: "cs", label: "Calibrate Sensors", labelShort: "Reroll a Die" } : null,
     hasTechExpertise && !techExpertiseUsed
       && (shipSystemKey === "computers" || shipSystemKey === "sensors")
-      ? { ability: "techExpertise", label: techExpertiseSource ?? "Technical Expertise", labelShort: "Reroll a Die (Crew or Ship)" } : null,
+      ? { ability: "techExpertise", label: techExpertiseSource ?? "Technical Expertise", labelShort: "Reroll a Die (Crew or Ship)", cost: "Crew or ship" } : null,
     hasChiefEngineerReroll && !chiefEngineerRerollUsed
-      ? { ability: "chiefEngineer", label: "Chief Engineer", labelShort: "Spend 1 Momentum - Reroll a Die" } : null,
+      ? { ability: "chiefEngineer", label: "Chief Engineer", labelShort: "Spend 1 Momentum - Reroll a Die", cost: "1 Momentum" } : null,
     hasAdaptAndExcelReroll && !adaptAndExcelRerollUsed
-      ? { ability: "adaptAndExcel", label: adaptAndExcelSource ?? "Adapt and Excel", labelShort: "Suffer 1 Stress - Reroll a Die" } : null,
+      ? { ability: "adaptAndExcel", label: adaptAndExcelSource ?? "Adapt and Excel", labelShort: "Suffer 1 Stress - Reroll a Die", cost: "1 Stress" } : null,
     (aimRerolls ?? 0) > (aimRerollsUsed ?? 0) ? { ability: "aim", label: `Aim (${(aimRerolls ?? 0) - (aimRerollsUsed ?? 0)} remaining)`, labelShort: "Reroll a Die" } : null,
     !genericRerollUsed ? { ability: "genericReroll", label: "Talent / Trait Reroll", labelShort: "Reroll a Die" } : null,
   ].filter(Boolean);
 
+  // Button face for one reroll entry. Two columns leave ~half the width, so the
+  // name gets the line and the cost (when there is one) a small line beneath;
+  // the full effect stays in the tooltip. Both skins render the same body.
+  const rerollButtonBody = rb => `
+        <span class="sta2e-rr-name">${rb.label}</span>${rb.cost
+          ? `<span class="sta2e-rr-cost">${rb.cost}</span>` : ""}`;
+
+  // The results bar heads the block below the dice, and is the frame's stand-in
+  // for the classic header: same accent and the same three labels, so a confirmed
+  // card turns the whole bar pass/fail coloured. Uses rollData.officerName rather
+  // than the `officerName` local, which is an HTML blob (see the slim skin's note).
+  const frameBarAccent = confirmed ? passColor : (isAssistRoll ? LC.secondary : LC.primary);
+  const frameBarLabel = isAssistRoll
+    ? `Assist Roll — ${assistOfficerName ?? rollData.officerName ?? "Officer"}`
+    : `${taskLabel || "Task Roll"} — ${confirmed ? finalResultLabel : "Working"}`;
+
   // Confirm / resolve button label
   const confirmLabel = weaponContext
-    ? `${totalSuccesses >= (difficulty ?? 0) ? "⚡ Resolve HIT" : "✗ Resolve MISS"} (${totalSuccesses} succ.)`
-    : `✓ Confirm Results (${totalSuccesses} success${totalSuccesses !== 1 ? "es" : ""})`;
+    ? `${totalSuccesses >= (difficulty ?? 0) ? "Resolve HIT" : "Resolve MISS"} (${totalSuccesses} succ.)`
+    : `Confirm Results (${totalSuccesses} success${totalSuccesses !== 1 ? "es" : ""})`;
 
   // Succeed at Cost — offered instead of taking the failure. One click resolves
   // the task as a success and adds one complication; it shares the confirm handler.
   const showSucceedAtCost = canSucceedAtCost(rollData);
   const succeedAtCostLabel = weaponContext
-    ? "⚠ Hit at Cost (+1 Complication)"
-    : "⚠ Succeed at Cost (+1 Complication)";
+    ? "Hit at Cost (+1 Complication)"
+    : "Succeed at Cost (+1 Complication)";
 
   // ── Slim LCARS skin ────────────────────────────────────────────────────────
   // Same content, tighter chrome. The view is assembled inside this branch on
@@ -3668,7 +3815,8 @@ export function buildPlayerRollCardHtml(rollData) {
       passColor, passed, finalResultLabel,
       contextLeftLabel, contextRightLabel,
       crewDiceHeading,
-      interactiveActive, showMakeYourOwnLuck, rerollButtons, canGmEditCard, confirmLabel,
+      interactiveActive, showMakeYourOwnLuck, rerollButtons, rerollButtonBody,
+      canGmEditCard, confirmLabel,
       succeedAtCostButton: { visible: showSucceedAtCost, label: succeedAtCostLabel },
 
       shipDiceHeading: [
@@ -3681,7 +3829,7 @@ export function buildPlayerRollCardHtml(rollData) {
 
       namedAssistBlocks: (namedAssistDice ?? []).map(d => ({
         die: d,
-        heading: `🤝 ${d.officerName ?? "Assist"} — Assist Die`,
+        heading: `${d.officerName ?? "Assist"} — Assist Die`,
         subHeading: ((d.shipSystemKey && d.shipDeptKey) || (d.attrKey && d.discKey))
           ? [
               d.shipName ?? null,
@@ -3697,11 +3845,11 @@ export function buildPlayerRollCardHtml(rollData) {
       // the Make Your Own Luck note is the else-branch of the luck button.
       noteStrips: [
         succeedAtCost
-          ? { tone: "warn", text: `⚠ ${SUCCEED_AT_COST_NOTE}` } : null,
+          ? { tone: "warn", text: SUCCEED_AT_COST_NOTE } : null,
         crewFailed && !isAssistRoll
-          ? { tone: "warn", text: `✗ ${ASSIST_GATE_NOTE}` } : null,
+          ? { tone: "warn", text: ASSIST_GATE_NOTE } : null,
         showShipBlock && advancedSensorsActive
-          ? { tone: "note", text: "★ Advanced Sensor Suites" } : null,
+          ? { tone: "note", text: "Advanced Sensor Suites" } : null,
         showShipBlock && communicationsOfficerShipAssistActive
           ? { tone: "note", text: `${communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1` } : null,
         persistentUsed
@@ -3714,6 +3862,11 @@ export function buildPlayerRollCardHtml(rollData) {
           ? { tone: "note", text: `${rollData.percussiveMaintenanceSource ?? "Percussive Maintenance"}: +1 Threat, Daring for Control, -1 interval on success` } : null,
         rollData.flightControllerActive
           ? { tone: "note", text: `${rollData.flightControllerSource ?? "Flight Controller"}: using Conn for this task` } : null,
+        rollData.navigatorActive
+          ? { tone: "note", text: `${rollData.navigatorSource ?? "Navigator"}: using Conn for this task` } : null,
+        complicationsIgnored(rollData) > 0
+          ? { tone: "note", text: `${rollData.navigatorSource ?? "Navigator"}: spent ${complicationsIgnored(rollData)} Momentum to ignore `
+              + `${complicationsIgnored(rollData)} complication${complicationsIgnored(rollData) > 1 ? "s" : ""}` } : null,
         rollData.chiefEngineerRerollUsed
           ? { tone: "note", text: `${rollData.chiefEngineerSource ?? "Chief Engineer"}: spent 1 Momentum to reroll a d20` } : null,
         rollData.adaptAndExcelRerollUsed
@@ -3775,21 +3928,30 @@ export function buildPlayerRollCardHtml(rollData) {
   }
 
   return `
-<div style="background:${LC.bg};border:1px solid ${LC.border};border-radius:3px;overflow:hidden;font-family:${LC.font};">
-  <div style="background:${confirmed ? passColor : (isAssistRoll ? LC.secondary : LC.primary)};color:${LC.bg};font-size:9px;font-weight:700;
+<div class="sta2e-task-card${lcarsFrame ? " sta2e-task-card--frame" : ""}" data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("tc")}${lcarsFrame ? `--tcf-frame-c:${frameBarAccent};` : `border:2px solid ${LC.primary};`}background:${LC.bg};
+    overflow:hidden;font-family:${LC.font};">
+  ${lcarsFrame ? `<span class="tcf-spine" aria-hidden="true"></span>` : ""}
+  ${lcarsFrame ? `
+  <div class="tcf-ident">
+    <span class="tcf-ident-name">${contextLeftLabel}</span>
+    <span class="tcf-ident-meta">${contextRightLabel}</span>
+  </div>` : `
+  <div class="sta2e-task-head"
+    style="background:${frameBarAccent};color:${LC.bg};font-size:9px;font-weight:700;
     letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;">
     ${isAssistRoll
-      ? `🤝 ASSIST ROLL — ${assistOfficerName ?? officerName ?? "Officer"}`
+      ? `ASSIST ROLL — ${assistOfficerName ?? officerName ?? "Officer"}`
       : confirmed
-        ? `📋 ${taskLabel || "Task Roll"} — ${finalResultLabel}`
-        : `📋 ${taskLabel || "Task Roll"} — Working Results`}
+        ? `${taskLabel || "Task Roll"} — ${finalResultLabel}`
+        : `${taskLabel || "Task Roll"} — Working Results`}
   </div>
   ${(contextLeftLabel || contextRightLabel) ? `
   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 10px 4px;background:rgba(255,153,0,0.06);
     border-bottom:1px solid ${LC.borderDim};font-size:9px;color:transparent;
     font-family:${LC.font};letter-spacing:0.06em;text-transform:uppercase;">
     ${[officerName, taskContext].filter(Boolean).join(" · ")}
-  </div>` : ""}
+  </div>` : ""}`}
 
   <div style="padding:6px 10px;">
     ${!groundMode ? `<div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
@@ -3801,7 +3963,7 @@ export function buildPlayerRollCardHtml(rollData) {
   <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:3px;text-align:center;">
-      🤝 ${d.officerName ?? "Assist"} — Assist Die
+      ${d.officerName ?? "Assist"} — Assist Die
     </div>
     ${(d.shipSystemKey && d.shipDeptKey) || (d.attrKey && d.discKey) ? `
     <div style="font-size:8px;color:${LC.textDim};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">
@@ -3820,7 +3982,7 @@ export function buildPlayerRollCardHtml(rollData) {
   ${(apAssistDice ?? []).length > 0 ? `
   <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
-      letter-spacing:0.08em;margin-bottom:3px;text-align:center;">⚡ Helm — Attack Pattern</div>
+      letter-spacing:0.08em;margin-bottom:3px;text-align:center;">Helm — Attack Pattern</div>
     ${diceRow(apAssistDice, "ap-assist")}
   </div>` : ""}
 
@@ -3835,7 +3997,7 @@ export function buildPlayerRollCardHtml(rollData) {
         `(target: ${shipTarget ?? "—"})`,
       ].filter(Boolean).join(" · ")
       }</div>
-    ${advancedSensorsActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">★ Advanced Sensor Suites</div>` : ""}
+    ${advancedSensorsActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">Advanced Sensor Suites</div>` : ""}
     ${communicationsOfficerShipAssistActive ? `<div style="font-size:8px;color:${LC.secondary};letter-spacing:0.06em;margin-bottom:3px;text-align:center;">${communicationsOfficerSource ?? "Communications Officer"} - ship assist die counted as 1</div>` : ""}
     ${diceRow(shipDice, "ship")}
   </div>` : ""}
@@ -3843,13 +4005,13 @@ export function buildPlayerRollCardHtml(rollData) {
   ${crewFailed && !isAssistRoll ? `
   <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
     font-family:${LC.font};font-size:9px;color:${LC.red};letter-spacing:0.06em;text-transform:uppercase;">
-    ✗ ${ASSIST_GATE_NOTE}
+    ${ASSIST_GATE_NOTE}
   </div>` : ""}
 
   ${succeedAtCost ? `
   <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
     font-family:${LC.font};font-size:9px;color:${LC.red};letter-spacing:0.06em;text-transform:uppercase;">
-    ⚠ ${SUCCEED_AT_COST_NOTE}
+    ${SUCCEED_AT_COST_NOTE}
   </div>` : ""}
 
   ${persistentUsed ? `
@@ -3880,6 +4042,18 @@ export function buildPlayerRollCardHtml(rollData) {
   <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
     font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
     ${rollData.flightControllerSource ?? "Flight Controller"}: using Conn for this task
+  </div>` : ""}
+
+  ${rollData.navigatorActive ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.navigatorSource ?? "Navigator"}: using Conn for this task
+  </div>` : ""}
+
+  ${complicationsIgnored(rollData) > 0 ? `
+  <div style="padding:5px 10px;border-top:1px solid ${LC.borderDim};
+    font-family:${LC.font};font-size:9px;color:${LC.secondary};letter-spacing:0.06em;text-transform:uppercase;">
+    ${rollData.navigatorSource ?? "Navigator"}: spent ${complicationsIgnored(rollData)} Momentum to ignore ${complicationsIgnored(rollData)} complication${complicationsIgnored(rollData) > 1 ? "s" : ""}
   </div>` : ""}
 
   ${rollData.chiefEngineerRerollUsed ? `
@@ -3926,6 +4100,9 @@ export function buildPlayerRollCardHtml(rollData) {
     Pack Tactics${packTacticsNames.length ? ` (${packTacticsNames.join(", ")})` : ""}: +${packTacticsPotential} bonus Momentum on success
   </div>` : ""}
 
+  ${lcarsFrame ? `
+  <div class="tcf-bar">${frameBarLabel}</div>` : ""}
+
   ${!isAssistRoll ? `<div style="display:grid;grid-template-columns:repeat(${totalComplications > 0 ? 5 : 4},1fr);gap:4px;
     padding:6px 10px;border-top:1px solid ${LC.borderDim};">
     ${[
@@ -3964,11 +4141,13 @@ export function buildPlayerRollCardHtml(rollData) {
       <button class="sta2e-player-assist-roll"
         data-payload="${p}"
         data-assist-index="${i}"
-        style="width:100%;padding:5px 8px;background:rgba(255,153,0,0.10);
-          border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+        style="width:100%;${btnFill(LC.primary, "rgba(255,153,0,0.10)")}
+          border:1px solid ${LC.primary};cursor:pointer;
           font-family:${LC.font};font-size:10px;font-weight:700;
-          color:${LC.primary};letter-spacing:0.04em;text-align:left;">
-        🎲 Roll Assist Die — ${ao.type === "direct" ? "🎖️ " : ao.type === "methodical-planning" ? "📋 " : ao.type === "attack-pattern" ? "⚡ " : "🤝 "}${ao.name}${ao.type === "methodical-planning" ? " (Methodical Planning)" : ao.type === "attack-pattern" ? " (Attack Pattern)" : ""}
+          letter-spacing:0.04em;text-align:left;">
+        Roll Assist Die — ${ao.name}${ao.type === "direct" ? " (Direct)"
+          : ao.type === "methodical-planning" ? " (Methodical Planning)"
+          : ao.type === "attack-pattern" ? " (Attack Pattern)" : ""}
       </button>`).join("")}
     </div>
   </div>` : ""}
@@ -3978,10 +4157,11 @@ export function buildPlayerRollCardHtml(rollData) {
     style="padding:5px 10px;border-top:1px solid ${LC.borderDim};">
     <button class="sta2e-make-own-luck"
       data-payload="${p}"
-      style="width:100%;padding:6px 8px;background:rgba(255,153,0,0.10);
-        border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+      ${lcarsFrame ? 'data-filled="1"' : ""}
+      style="width:100%;${btnFill(LC.primary, "rgba(255,153,0,0.10)")}
+        border:1px solid ${LC.primary};cursor:pointer;
         font-family:${LC.font};font-size:10px;font-weight:700;
-        color:${LC.primary};letter-spacing:0.04em;text-align:left;">
+        letter-spacing:0.04em;text-align:left;">
       ${makeYourOwnLuckSource ?? "Make Your Own Luck"} - suffer 1 Stress, change a failed die to ${crewTarget}
     </button>
   </div>` : makeYourOwnLuckUsed ? `
@@ -3995,17 +4175,18 @@ export function buildPlayerRollCardHtml(rollData) {
     style="padding:5px 10px;border-top:1px solid ${LC.borderDim};">
     <div style="font-size:8px;color:${LC.textDim};text-transform:uppercase;
       letter-spacing:0.08em;margin-bottom:4px;">Rerolls Available</div>
-    <div style="display:flex;flex-direction:column;gap:3px;">
+    <div class="sta2e-task-rerolls">
       ${rerollButtons.map(rb => `
       <button class="sta2e-player-reroll"
-        data-payload="${encodeURIComponent(JSON.stringify(rollData))}"
+        data-payload="${p}"
         data-ability="${rb.ability}"
         data-ability-label="${rb.label}"
-        style="width:100%;padding:5px 8px;background:rgba(150,100,255,0.08);
-          border:1px solid ${LC.secondary};border-radius:2px;cursor:pointer;
+        title="${rb.label} — ${rb.labelShort}"
+        ${lcarsFrame ? 'data-filled="1"' : ""}
+        style="width:100%;${btnFill(LC.secondary, "rgba(150,100,255,0.08)")}
+          border:1px solid ${LC.secondary};cursor:pointer;
           font-family:${LC.font};font-size:10px;font-weight:700;
-          color:${LC.secondary};letter-spacing:0.04em;text-align:left;">
-        🔄 ${rb.label} — ${rb.labelShort}
+          letter-spacing:0.04em;">${rerollButtonBody(rb)}
       </button>`).join("")}
     </div>
   </div>` : ""}
@@ -4014,29 +4195,29 @@ export function buildPlayerRollCardHtml(rollData) {
   <div class="sta2e-working-actions sta2e-working-actions--assist-apply"
     style="padding:6px 10px;border-top:1px solid ${LC.borderDim};">
     ${assistApplied ? `
-    <div style="padding:6px 8px;background:rgba(0,150,255,0.08);
-      border:1px solid ${LC.secondary};border-radius:2px;
+    <div class="sta2e-task-btn" style="${btnFill(LC.secondary, "rgba(0,150,255,0.08)")}
+      border:1px solid ${LC.secondary};
       font-family:${LC.font};font-size:10px;font-weight:700;
-      color:${LC.secondary};letter-spacing:0.06em;text-align:center;">
-      ✓ Applied to: ${assistApplied}
+      letter-spacing:0.06em;text-align:center;">
+      Applied to: ${assistApplied}
     </div>` : `
     <button class="sta2e-assist-to-roll"
       data-payload="${p}"
-      style="width:100%;padding:7px 10px;background:rgba(0,150,255,0.10);
-        border:2px solid ${LC.secondary};border-radius:2px;cursor:pointer;
+      style="width:100%;${btnFill(LC.secondary, "rgba(0,150,255,0.10)")}
+        border:2px solid ${LC.secondary};cursor:pointer;
         font-family:${LC.font};font-size:11px;font-weight:700;
-        color:${LC.secondary};letter-spacing:0.06em;">
-      ➕ Add to Task Roll →
+        letter-spacing:0.06em;">
+      Add to Task Roll →
     </button>`}
   </div>` : confirmed ? `
   <div class="sta2e-working-actions sta2e-working-actions--confirm"
     style="padding:6px 10px;border-top:1px solid ${LC.borderDim};">
     ${completedPoolButton || `
-    <div style="width:100%;padding:7px 10px;
-      background:${passed ? "rgba(0,200,100,0.12)" : "rgba(255,80,80,0.08)"};
-      border:2px solid ${passColor};border-radius:2px;
+    <div class="sta2e-task-btn" style="width:100%;
+      ${btnFill(passColor, passed ? "rgba(0,200,100,0.12)" : "rgba(255,80,80,0.08)")}
+      border:2px solid ${passColor};
       font-family:${LC.font};font-size:11px;font-weight:700;
-      color:${passColor};letter-spacing:0.06em;text-align:center;">
+      letter-spacing:0.06em;text-align:center;">
       Completed
     </div>`}
   </div>` : `
@@ -4045,31 +4226,31 @@ export function buildPlayerRollCardHtml(rollData) {
     ${canGmEditCard ? `
     <button class="sta2e-edit-roll-card"
       data-payload="${p}"
-      style="width:100%;padding:5px 10px;margin-bottom:5px;
-        background:rgba(255,153,0,0.08);
-        border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+      style="width:100%;margin-bottom:5px;
+        ${btnFill(LC.primary, "rgba(255,153,0,0.08)")}
+        border:1px solid ${LC.primary};cursor:pointer;
         font-family:${LC.font};font-size:10px;font-weight:700;
-        color:${LC.primary};letter-spacing:0.06em;">
+        letter-spacing:0.06em;">
       Edit Results
     </button>` : ""}
     ${showSucceedAtCost ? `
     <button class="sta2e-succeed-at-cost"
       data-payload="${p}"
       title="Resolve this task as a success. It gains 1 extra complication; the GM narrates the cost."
-      style="width:100%;padding:6px 10px;margin-bottom:5px;
-        background:rgba(255,153,0,0.10);
-        border:1px solid ${LC.primary};border-radius:2px;cursor:pointer;
+      style="width:100%;margin-bottom:5px;
+        ${btnFill(LC.primary, "rgba(255,153,0,0.10)")}
+        border:1px solid ${LC.primary};cursor:pointer;
         font-family:${LC.font};font-size:10px;font-weight:700;
-        color:${LC.primary};letter-spacing:0.06em;">
+        letter-spacing:0.06em;">
       ${succeedAtCostLabel}
     </button>` : ""}
     <button class="sta2e-player-confirm"
       data-payload="${p}"
-      style="width:100%;padding:7px 10px;
-        background:${passed ? "rgba(0,200,100,0.12)" : "rgba(255,80,80,0.08)"};
-        border:2px solid ${passColor};border-radius:2px;cursor:pointer;
+      style="width:100%;
+        ${btnFill(passColor, passed ? "rgba(0,200,100,0.12)" : "rgba(255,80,80,0.08)")}
+        border:2px solid ${passColor};cursor:pointer;
         font-family:${LC.font};font-size:11px;font-weight:700;
-        color:${passColor};letter-spacing:0.06em;">
+        letter-spacing:0.06em;">
       ${confirmLabel}
     </button>
   </div>`}
@@ -4347,8 +4528,16 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   const _percussiveTalent = _officerActorFull
     ? detectNamedTalent(_officerActorFull, "Percussive Maintenance")
     : { hasTalent: false, source: null };
-  const _flightControllerTalent = _officerActorFull
-    ? detectNamedTalent(_officerActorFull, "Flight Controller")
+  // Role abilities are matched with findRoleAbilityTalent, not detectNamedTalent:
+  // sheets and the sta compendium commonly name these items "Role Ability: X",
+  // which the exact-name matcher silently misses.
+  const _flightControllerItem = _officerActorFull ? findFlightControllerTalent(_officerActorFull) : null;
+  const _flightControllerTalent = _flightControllerItem
+    ? { hasTalent: true, source: _flightControllerItem.name }
+    : { hasTalent: false, source: null };
+  const _navigatorItem = _officerActorFull ? findNavigatorTalent(_officerActorFull) : null;
+  const _navigatorTalent = _navigatorItem
+    ? { hasTalent: true, source: _navigatorItem.name }
     : { hasTalent: false, source: null };
   const _chiefEngineerItem = _officerActorFull ? findChiefEngineerTalent(_officerActorFull) : null;
   const _chiefEngineerTalent = _chiefEngineerItem
@@ -4472,6 +4661,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     flightControllerSource: _flightControllerTalent.source,
     flightControllerActive: false,
     _flightControllerBaseDisc: null,
+    // Tri-state: null = untouched, fall back to isFlightControllerPilotTask().
+    // Once the GM/player ticks or unticks the box their choice is authoritative.
+    flightControllerBonusSelected: null,
+    hasNavigator: _navigatorTalent.hasTalent,
+    navigatorSource: _navigatorTalent.source,
+    navigatorActive: false,
+    _navigatorBaseDisc: null,
+    navigatorTerrainSelected: false,
+    navigatorComplicationsIgnored: 0,
     hasChiefEngineer: _chiefEngineerTalent.hasTalent,
     chiefEngineerSource: _chiefEngineerTalent.source,
     hasChiefEngineerReroll: false,
@@ -4805,6 +5003,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       hasFlightController: state.hasFlightController ?? false,
       flightControllerSource: state.flightControllerSource ?? null,
       flightControllerActive: state.flightControllerActive ?? false,
+      // Tri-state, so the card and the combat-HUD confirm path reach the same
+      // verdict the dialog did — including "explicitly unticked", which must not
+      // fall back to the heuristic.
+      flightControllerBonusSelected: state.flightControllerBonusSelected ?? null,
+      hasNavigator: state.hasNavigator ?? false,
+      navigatorSource: state.navigatorSource ?? null,
+      navigatorActive: state.navigatorActive ?? false,
+      navigatorTerrainSelected: state.navigatorTerrainSelected ?? false,
+      navigatorComplicationsIgnored: state.navigatorComplicationsIgnored ?? 0,
       hasChiefEngineer: state.hasChiefEngineer ?? false,
       chiefEngineerSource: state.chiefEngineerSource ?? null,
       hasChiefEngineerReroll: state.hasChiefEngineerReroll ?? false,
@@ -5113,8 +5320,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
               // Compute attacker's total successes for opposed task delta
               const attackerTotalSuccesses = rollSuccessTotal(state);
-              const attackComplications = allRolledDice(state)
-                .filter(d => d.complication).length + autoComplications(state);
+              const attackComplications = Math.max(0, allRolledDice(state)
+                .filter(d => d.complication).length + autoComplications(state)
+                - complicationsIgnored(state));
 
               // Sheet-roller path: use the ship token, not the character token
               const resolveToken = state.weaponContext.shipActorId
@@ -5206,7 +5414,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
               const _prDifficulty = taskDifficulty(state);
               const _prPassed = _prSuccesses >= _prDifficulty;
               const _prMomentum = Math.max(0, _prSuccesses - _prDifficulty);
-              const _prComplications = _prAllDice.filter(d => d.complication).length + autoComplications(state);
+              const _prComplications = Math.max(0, _prAllDice.filter(d => d.complication).length
+                + autoComplications(state) - complicationsIgnored(state));
               const _prSpeciesBonus = speciesExtraDieBonusMomentum({
                 slots: state.paymentSlots,
                 hasFreeExtraDie: state.hasFreeExtraDie,
@@ -5284,15 +5493,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                 const tertiary = LC?.tertiary ?? "#ffcc66";
                 const textDim = LC?.textDim ?? "#888";
 
-                ChatMessage.create({
-                  content: `
-                      <div style="border:2px solid ${primary};border-radius:3px;
-                        background:rgba(255,153,0,0.06);padding:8px 10px;
-                        font-family:${font};">
-                        <div style="font-size:9px;font-weight:700;color:${primary};
-                          letter-spacing:0.1em;text-transform:uppercase;margin-bottom:5px;">
-                          ${icon} RALLY — ${currency.toUpperCase()} GENERATED
-                        </div>
+                const rallyTitle = `${icon} RALLY — ${currency.toUpperCase()} GENERATED`;
+                const rallyBody = `
                         <div style="font-size:12px;font-weight:700;color:${tertiary};
                           margin-bottom:6px;">${actor.name}</div>
                         <div style="font-size:32px;font-weight:700;color:${primary};
@@ -5301,8 +5503,23 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
                         </div>
                         <div style="font-size:11px;color:${textDim};text-align:center;">
                           ${currency}${successes !== 1 ? "" : ""} · Presence + Command · Difficulty 0
-                        </div>
+                        </div>`;
+
+                ChatMessage.create({
+                  content: lcarsChatCard({
+                    title: rallyTitle,
+                    accent: primary,
+                    body: rallyBody,
+                    legacy: () => `
+                      <div style="border:2px solid ${primary};border-radius:3px;
+                        background:rgba(255,153,0,0.06);padding:8px 10px;
+                        font-family:${font};">
+                        <div style="font-size:9px;font-weight:700;color:${primary};
+                          letter-spacing:0.1em;text-transform:uppercase;margin-bottom:5px;">
+                          ${rallyTitle}
+                        </div>${rallyBody}
                       </div>`,
+                  }),
                   speaker: ChatMessage.getSpeaker({ token }),
                 }).catch(err => {
                   console.error("STA2e Toolkit | failed to post Rally card:", err);
@@ -5873,6 +6090,8 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
     const persistentCb = el.querySelector("#has-persistent");
     const showOffCb = el.querySelector("#has-show-off");
     const flightControllerCb = el.querySelector("#has-flight-controller");
+    const flightControllerBonusCb = el.querySelector("#flight-controller-bonus");
+    const navigatorCb = el.querySelector("#has-navigator");
     const meticulousCb = el.querySelector("#has-meticulous");
     const percussiveCb = el.querySelector("#has-percussive-maintenance");
     if (attrSel?.value) state.officerAttrKey = attrSel.value;
@@ -5900,6 +6119,35 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
       state.officerDiscKey = state._flightControllerBaseDisc;
       state._flightControllerBaseDisc = null;
     }
+    // The +1 Momentum mark. Absent element leaves the tri-state at null, so the
+    // pilot-task heuristic keeps seeding the default until the box is touched.
+    if (flightControllerBonusCb !== null) {
+      state.flightControllerBonusSelected = flightControllerBonusCb.checked;
+    }
+    // Navigator's Science -> Conn swap. A direct mirror of the Flight Controller
+    // machine above; the two can never both be live (one needs a base discipline
+    // of Engineering, the other Science) and each restore branch only undoes its
+    // own swap, keyed on its own _…BaseDisc.
+    const wasNavigatorActive = !!state.navigatorActive;
+    const navigatorBaseDisc = wasNavigatorActive
+      ? (state._navigatorBaseDisc ?? "science")
+      : state.officerDiscKey;
+    const navigatorEligible = state.hasNavigator
+      && !state.isAssistRoll
+      && !state.groundMode
+      && navigatorBaseDisc === "science";
+    state.navigatorActive = !!(navigatorCb?.checked && navigatorEligible);
+    if (state.navigatorActive) {
+      state._navigatorBaseDisc = navigatorBaseDisc;
+      state.officerDiscKey = "conn";
+    } else if (wasNavigatorActive && state._navigatorBaseDisc) {
+      state.officerDiscKey = state._navigatorBaseDisc;
+      state._navigatorBaseDisc = null;
+    }
+    // No isAssistRoll gate — the ability covers attempting OR Assisting the task.
+    const navigatorTerrainCb = el.querySelector("#navigator-terrain");
+    state.navigatorTerrainSelected = !!(navigatorTerrainCb?.checked
+      && state.hasNavigator && !state.groundMode);
     state.meticulousSelected = !!(meticulousCb?.checked && state.extendedTaskContext && state.hasMeticulous && !state.isAssistRoll);
     const percussiveEligible = state.extendedTaskContext
       && state.hasPercussiveMaintenance
@@ -6630,8 +6878,20 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         if (targetEl) targetEl.textContent = attrVal + discVal;
         if (focusEl) focusEl.textContent = `1–${discVal}`;
       };
+      // Flight Controller's +1 Momentum mark only applies to a Conn Task, so its
+      // row follows the discipline live rather than waiting for a re-render. The
+      // combat panel's task buttons already dispatch "change" on this select, so
+      // picking a task reveals or hides the row for free.
+      const updateFlightControllerBonusRow = () => {
+        const row = el.querySelector("#flight-controller-bonus-row");
+        if (!row) return;
+        const disc = officerDiscSel?.value ?? state.officerDiscKey;
+        row.style.display = disc === "conn" ? "flex" : "none";
+      };
+      updateFlightControllerBonusRow();
       officerAttrSel?.addEventListener("change", updateOfficerTarget);
       officerDiscSel?.addEventListener("change", updateOfficerTarget);
+      officerDiscSel?.addEventListener("change", updateFlightControllerBonusRow);
     }
 
     // Ship system select → live ship target + focus + Advanced Sensors activation
@@ -7044,6 +7304,10 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           const diff = parseInt(btn.dataset.diff ?? "1");
           const diffMod = parseInt(btn.dataset.diffMod ?? "0");
 
+          // Reset the Flight Controller mark to its tri-state null so the pilot-task
+          // heuristic re-seeds for the newly picked task rather than carrying over a
+          // tick made for the previous one.
+          if (state.selectedTaskKey !== taskKey) state.flightControllerBonusSelected = null;
           state.selectedTaskKey = taskKey;
           state.selectedTaskStationId = taskStationId;
 
@@ -7128,6 +7392,23 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           const discSel = el.querySelector("select#officer-disc");
           if (attr && attrSel) { attrSel.value = attr; attrSel.dispatchEvent(new Event("change")); }
           if (disc && discSel) { discSel.value = disc; discSel.dispatchEvent(new Event("change")); }
+
+          // Flight Controller's +1 Momentum mark follows the task just picked.
+          // Done here rather than by dispatching "change" on the hidden input,
+          // because in sheetMode #officer-disc is an <input>, and the shared
+          // change handler would parse its non-existent selectedOptions and zero
+          // the target display the block above just set correctly.
+          const fcBonusRow = el.querySelector("#flight-controller-bonus-row");
+          const fcBonusCb = el.querySelector("#flight-controller-bonus");
+          if (fcBonusRow) {
+            fcBonusRow.style.display =
+              (disc ?? state.officerDiscKey) === "conn" ? "flex" : "none";
+          }
+          // Only re-seed while the tri-state is untouched — an explicit tick from
+          // the GM outranks the heuristic and must survive.
+          if (fcBonusCb && state.flightControllerBonusSelected === null) {
+            fcBonusCb.checked = isFlightControllerPilotTask(state);
+          }
 
           // 2. Update difficulty input
           // For transport, use the value computed by the config dialog (type + site modifiers).
@@ -7893,6 +8174,22 @@ function _wireDiePips(state, dialog, openDialog) {
         const ability = btn.dataset.ability;
         // Toggle: clicking the active button again disarms it
         state.activeRerollAbility = state.activeRerollAbility === ability ? null : ability;
+        openDialog();
+      });
+    });
+
+    // ── Navigator — spend 1 Momentum to ignore a complication (Repeatable) ────
+    // Not an arm-then-click-a-die ability: the complication is a total, not a
+    // particular die, so this pays immediately and bumps the ignored counter that
+    // rollComplicationTotal subtracts. _spendImmediateRerollCost resolves the
+    // right pool (Momentum / Threat / Allied) and returns false on an empty one,
+    // so a failed payment leaves the complication standing.
+    el.querySelectorAll(".navigator-ignore-compl-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (rollComplicationTotal(state) <= 0) return;
+        const paid = await _spendImmediateRerollCost(state, "the Navigator complication buy-off");
+        if (!paid) return;
+        state.navigatorComplicationsIgnored = (state.navigatorComplicationsIgnored ?? 0) + 1;
         openDialog();
       });
     });

@@ -1,0 +1,873 @@
+/*
+ * sta2e-toolkit | task-maker.css
+ *
+ * Geometry for the Task Maker dialog (scripts/task-maker.js) and its Opposed
+ * Task tab (scripts/opposed-panel.js), plus the four small picker sub-dialogs
+ * those two open.
+ *
+ * Colours come from the --tmk-* custom properties the renderer stamps on the
+ * root via getLcCssVars("tmk"), so all eight era themes are covered without a
+ * rule per theme.  Per-element accents arrive as one inline custom property,
+ * --tmk-a, the same way task-card-slim.js passes --tcs-a and chat-card-frame.js
+ * passes --ccf-c.
+ *
+ * ── Three hard rules ─────────────────────────────────────────────────────────
+ * 1. NO `!important` anywhere in this file, matching task-card.css,
+ *    task-card-slim.css and chat-card.css.
+ * 2. The renderers must emit NO inline `border-radius` — inline beats any
+ *    selector, which is exactly the trap chat-card-frame.js's unroundButtons()
+ *    exists to work around.  Shape lives here; colour lives in the vars.
+ * 3. Selectors are prefixed with `.sta2e-task-maker` (0,2,0) so they outrank
+ *    core's `.application button` (0,1,1) without needing !important.
+ *
+ * ── Why the spine is a background, not an element ────────────────────────────
+ * The root scrolls (max-height below).  An absolutely positioned spine inside a
+ * scroll container scrolls away with the content and resolves bottom:0 against
+ * the visible box, so it cannot span a tall Extended tab.  A background gradient
+ * on the scroll container itself is painted against the border box and does not
+ * scroll, so it is always exactly full height.  styles/opposed-task.css draws
+ * its spine the same way.
+ */
+
+.sta2e-task-maker {
+  /* ── Geometry tokens ─────────────────────────────────────────────────── */
+  --tmk-elbow: 22px;
+  --tmk-spine-w: 12px;
+  --tmk-gutter: 18px;
+  --tmk-bar-h: 18px;
+  --tmk-bar-cap: 12px;
+  --tmk-fillet: 9px;
+  --tmk-panel-radius: 12px;
+  --tmk-field-radius: 9px;
+  --tmk-btn-radius: 999px;
+  --tmk-key-size: 22px;
+  --tmk-gap: 9px;
+
+  position: relative;
+  container-type: inline-size;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmk-gap);
+  /* No padding-top: the masthead bar sits flush against the top edge, so the spine
+     has no stub sticking up above it.  That stub — a 12px square-topped nub beside
+     the bar's ::before fillet — was the notch in the top-left corner. */
+  padding: 0 12px 12px var(--tmk-gutter);
+  max-height: 72vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-family: var(--tmk-font);
+  color: var(--tmk-text);
+  /* No outer border: the dialog fills its window frame flush, so an outline here
+     just draws a second frame inside Foundry's own.
+
+     The one rounded corner is the top-left LCARS elbow, and it belongs on the ROOT
+     rather than on the masthead bar.  The spine is the root's background, so it
+     paints underneath that corner — rounding the bar alone would reveal spine
+     orange in the cutaway instead of a curve.  Clipping at the root takes the
+     spine and the bar together, which is what makes them read as one elbow. */
+  border: 0;
+  border-radius: var(--tmk-elbow) 0 0 0;
+  /* One solid spine colour, matching the bars.  A three-stop gradient across
+     primary/secondary/tertiary put muddy olive and pale-cream bands in the gaps
+     between sections, which read as smudges rather than as one console rail. */
+  background:
+    linear-gradient(var(--tmk-primary), var(--tmk-primary))
+      0 0 / var(--tmk-spine-w) 100% no-repeat,
+    var(--tmk-bg);
+}
+
+/* ── Head ───────────────────────────────────────────────────────────────── */
+/* The masthead elbow: one tall bar pulled out over the spine, and a body block
+   indented past it.  Same construction as every section bar below, just taller. */
+.sta2e-task-maker .tmk-head-bar {
+  --tmk-bar-h: 30px;
+  --tmk-bar-cap: 15px;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+}
+
+/* Nothing sits above the masthead, so its upper fillet has no junction to fill —
+   left in place it drew a hook floating over the top-left corner. */
+.sta2e-task-maker .tmk-head-bar::before {
+  display: none;
+}
+
+.sta2e-task-maker .tmk-head-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: 0 0 var(--tmk-panel-radius) var(--tmk-panel-radius);
+  background: var(--tmk-panel);
+}
+
+.sta2e-task-maker .tmk-head-sub {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--tmk-text-dim);
+}
+
+/* ── Panels ─────────────────────────────────────────────────────────────── */
+.sta2e-task-maker .tmk-panel {
+  display: block;
+  min-width: 0;
+}
+
+/* The LCARS elbow.  The negative margin pulls the bar's left edge out to the
+   root's border box so it sits on top of the spine and the two read as one
+   continuous shape rather than as a bar next to a stripe. */
+.sta2e-task-maker .tmk-panel-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--tmk-bar-h);
+  margin-left: calc(var(--tmk-gutter) * -1);
+  padding: 3px 12px 3px calc(var(--tmk-gutter) + 4px);
+  /* Every bar is the same solid colour, and it lives here rather than being
+     passed in per section: the sections butt up against one another with only a
+     small gap, so a different hue per bar read as a muddle rather than as a
+     hierarchy.  Sections are told apart by their labels.  The var is set on the
+     element (not just used with a fallback) because the fillets below are
+     gradients, and a gradient cannot read a colour out of `background`. */
+  --tmk-bar-c: var(--tmk-primary);
+  background: var(--tmk-bar-c);
+  color: var(--tmk-bg);
+  border-radius: 0 var(--tmk-bar-cap) var(--tmk-bar-cap) 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Concave fillets where the bar meets the spine, one above and one below.
+
+   A radial-gradient is the only way to paint a concave corner in CSS: the circle
+   is centred on the far corner of a --tmk-fillet square and is transparent inside
+   its own radius, so what survives is the quarter that hugs the junction.  This
+   is the same construction as .tcf-bar::before/::after in task-card.css.
+
+   The bar's colour has to reach these gradients, which is why the renderer sets
+   --tmk-bar-c as well as painting the background with it — a gradient cannot
+   read a colour back out of `background`. */
+.sta2e-task-maker .tmk-panel-bar::before,
+.sta2e-task-maker .tmk-panel-bar::after {
+  content: "";
+  position: absolute;
+  left: var(--tmk-spine-w);
+  width: var(--tmk-fillet);
+  height: var(--tmk-fillet);
+  pointer-events: none;
+}
+
+.sta2e-task-maker .tmk-panel-bar::before {
+  top: calc(var(--tmk-fillet) * -1);
+  background: radial-gradient(
+    circle at 100% 0,
+    transparent 0 var(--tmk-fillet),
+    var(--tmk-bar-c, var(--tmk-primary)) var(--tmk-fillet)
+  );
+}
+
+.sta2e-task-maker .tmk-panel-bar::after {
+  bottom: calc(var(--tmk-fillet) * -1);
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent 0 var(--tmk-fillet),
+    var(--tmk-bar-c, var(--tmk-primary)) var(--tmk-fillet)
+  );
+}
+
+.sta2e-task-maker .tmk-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 0 0 var(--tmk-panel-radius) var(--tmk-panel-radius);
+  background: var(--tmk-panel);
+}
+
+/* Nested well — interval fields, talent list, breakthrough rows, drop targets. */
+.sta2e-task-maker .tmk-well {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--tmk-border-dim);
+  border-radius: var(--tmk-panel-radius);
+  background: var(--tmk-bg);
+}
+
+.sta2e-task-maker .tmk-well-title {
+  margin-bottom: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tmk-a, var(--tmk-secondary));
+}
+
+/* ── Drop targets ───────────────────────────────────────────────────────── */
+/* Dragover is a class toggle, not an inline border-color write, so the stylesheet
+   keeps ownership of the colour in every theme.
+
+   Two separate concerns: .tmk-drop is the dashed empty-state box, .tmk-dropzone
+   marks an element that only lights up on dragover and otherwise keeps whatever
+   box it already had (the character slot's own panel body). */
+.sta2e-task-maker .tmk-drop {
+  min-width: 0;
+  padding: 8px;
+  border: 1px dashed var(--tmk-border-dim);
+  border-radius: var(--tmk-panel-radius);
+  background: var(--tmk-bg);
+  color: var(--tmk-text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.sta2e-task-maker .tmk-drop,
+.sta2e-task-maker .tmk-dropzone {
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* Three components so this outranks .tmk-panel-body / .tmk-drop on specificity
+   rather than on stylesheet order.
+
+   The ring is drawn with an inset box-shadow rather than a border: .tmk-dropzone
+   is the character slot's own panel body, which carries no border at all, so the
+   border properties below are no-ops there and only firm up .tmk-drop's dashes. */
+.sta2e-task-maker .tmk-drop.is-dropping,
+.sta2e-task-maker .tmk-dropzone.is-dropping {
+  border-color: var(--tmk-a, var(--tmk-primary));
+  border-style: solid;
+  box-shadow:
+    inset 0 0 0 1px var(--tmk-a, var(--tmk-primary)),
+    inset 0 0 12px color-mix(in srgb, var(--tmk-a, var(--tmk-primary)) 22%, transparent);
+}
+
+.sta2e-task-maker .tmk-drop-hint {
+  padding: 6px 2px 2px;
+  color: var(--tmk-text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── Assigned-actor rows ────────────────────────────────────────────────── */
+.sta2e-task-maker .tmk-actor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sta2e-task-maker .tmk-actor-row img {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border: 1px solid var(--tmk-a, var(--tmk-border));
+  border-radius: var(--tmk-field-radius);
+}
+
+.sta2e-task-maker .tmk-actor-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sta2e-task-maker .tmk-actor-name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sta2e-task-maker .tmk-actor-meta {
+  font-size: 10px;
+  color: var(--tmk-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sta2e-task-maker .tmk-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+.sta2e-task-maker .tmk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tmk-text-dim);
+}
+
+/* min-width:0 on the control is the actual fix for the columns that used to jump
+   on a tab switch: a <select> otherwise takes its widest <option> as a min-content
+   floor ("No difficulty change", "Timed Challenge") and inflates its grid track. */
+.sta2e-task-maker .tmk-input,
+.sta2e-task-maker .tmk-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  padding: 6px 9px;
+  background: var(--tmk-bg);
+  color: var(--tmk-text);
+  border: 1px solid var(--tmk-border);
+  border-radius: var(--tmk-field-radius);
+  font-family: var(--tmk-font);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.sta2e-task-maker .tmk-input--num {
+  text-align: center;
+  font-weight: 700;
+  color: var(--tmk-a, var(--tmk-tertiary));
+}
+
+.sta2e-task-maker .tmk-input:focus-visible,
+.sta2e-task-maker .tmk-select:focus-visible {
+  outline: none;
+  border-color: var(--tmk-primary);
+  box-shadow: 0 0 0 1px var(--tmk-primary);
+}
+
+.sta2e-task-maker .tmk-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--tmk-text);
+  cursor: pointer;
+}
+
+.sta2e-task-maker .tmk-check input[type="checkbox"] {
+  flex: 0 0 auto;
+  accent-color: var(--tmk-a, var(--tmk-primary));
+}
+
+.sta2e-task-maker .tmk-check--top {
+  align-items: flex-start;
+  line-height: 1.35;
+  font-size: 10px;
+}
+
+.sta2e-task-maker .tmk-check--top input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+/* Complication-range slider well. */
+.sta2e-task-maker .tmk-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--tmk-border);
+  border-radius: var(--tmk-field-radius);
+  background: var(--tmk-bg);
+}
+
+.sta2e-task-maker .tmk-range input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--tmk-a, var(--tmk-primary));
+  cursor: pointer;
+}
+
+.sta2e-task-maker .tmk-range-val {
+  flex: 0 0 auto;
+  min-width: 14px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tmk-a, var(--tmk-primary));
+}
+
+.sta2e-task-maker .tmk-range-desc {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--tmk-text-dim);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+/* height:auto and width:auto are doing real work — core sizes dialog buttons from
+   --button-size and stretches them to the form width. */
+.sta2e-task-maker .tmk-btn {
+  --tmk-a: var(--tmk-primary);
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  padding: 6px 12px;
+  background: var(--tmk-bg);
+  color: var(--tmk-text);
+  border: 1px solid var(--tmk-a);
+  border-radius: var(--tmk-btn-radius);
+  font-family: var(--tmk-font);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  cursor: pointer;
+  transition: filter 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+/* Hover never swaps a colour, only filter/box-shadow — the convention the other
+   three card stylesheets follow. */
+.sta2e-task-maker .tmk-btn:not(:disabled):hover {
+  filter: brightness(1.25);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--tmk-a) 45%, transparent);
+  transform: translateY(-1px);
+}
+
+.sta2e-task-maker .tmk-btn:not(:disabled):active {
+  transform: translateY(0);
+}
+
+.sta2e-task-maker .tmk-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sta2e-task-maker .tmk-btn--fill {
+  background: var(--tmk-a);
+  color: var(--tmk-bg);
+}
+
+/* Equal-width keys inside a slot's action row. */
+.sta2e-task-maker .tmk-slot-actions .tmk-btn {
+  flex: 1 1 0;
+  padding: 5px 8px;
+}
+
+/* A pill sitting inside a panel bar — smaller, and inverted so it reads on the
+   bar's fill rather than disappearing into it. */
+.sta2e-task-maker .tmk-panel-bar .tmk-btn {
+  --tmk-a: var(--tmk-bg);
+  padding: 3px 10px;
+  background: var(--tmk-bg);
+  color: var(--tmk-bar-c, var(--tmk-primary));
+  border-color: var(--tmk-bg);
+  font-size: 8px;
+}
+
+/* The round X keys.  These were bare borderless text before. */
+.sta2e-task-maker .tmk-key {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tmk-key-size);
+  height: var(--tmk-key-size);
+  padding: 0;
+  background: transparent;
+  color: var(--tmk-text-dim);
+  border: 1px solid var(--tmk-border-dim);
+  border-radius: 999px;
+  font-family: var(--tmk-font);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.sta2e-task-maker .tmk-key:hover {
+  color: var(--tmk-red);
+  border-color: var(--tmk-red);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--tmk-red) 40%, transparent);
+}
+
+/* ── Mode tabs ──────────────────────────────────────────────────────────── */
+.sta2e-task-maker .tmk-mode-panel {
+  display: flex;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 0 0 var(--tmk-panel-radius) var(--tmk-panel-radius);
+  background: var(--tmk-panel);
+}
+
+.sta2e-task-maker .tmk-mode-toggle {
+  flex: 1 1 0;
+  width: auto;
+  height: auto;
+  padding: 8px 10px;
+  background: var(--tmk-bg);
+  color: var(--tmk-text);
+  border: 1px solid var(--tmk-a, var(--tmk-primary));
+  border-radius: var(--tmk-btn-radius);
+  font-family: var(--tmk-font);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+.sta2e-task-maker .tmk-mode-toggle:hover {
+  filter: brightness(1.25);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--tmk-a, var(--tmk-primary)) 40%, transparent);
+}
+
+/* Active state is a class, not an inline background write, so CSS keeps it. */
+.sta2e-task-maker .tmk-mode-toggle.is-active {
+  background: var(--tmk-a, var(--tmk-primary));
+  color: var(--tmk-bg);
+}
+
+/* ── Grids ──────────────────────────────────────────────────────────────── */
+/* Every track carries a minmax(0, …) floor.  Bare `1fr` is minmax(auto, 1fr), so
+   a wide control pushes its track past its share and the grid overflows its panel
+   instead of shrinking — that, plus the missing min-width above, is the whole
+   "fields don't resize" complaint. */
+.sta2e-task-maker .tmk-grid {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  align-items: end;
+}
+
+.sta2e-task-maker .tmk-grid > * {
+  min-width: 0;
+}
+
+.sta2e-task-maker .tmk-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sta2e-task-maker .tmk-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sta2e-task-maker .tmk-params-grid {
+  grid-template-columns:
+    minmax(0, 1fr) minmax(0, 1fr) minmax(68px, 0.5fr) minmax(0, 1.25fr);
+}
+
+.sta2e-task-maker[data-mode="extended"] .tmk-params-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr);
+}
+
+.sta2e-task-maker .tmk-ship-fields {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.sta2e-task-maker .tmk-ext-core-grid {
+  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(62px, 0.5fr));
+}
+
+.sta2e-task-maker .tmk-ext-interval-fields {
+  grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(58px, 0.5fr));
+}
+
+.sta2e-task-maker .tmk-ext-breakthrough-row {
+  grid-template-columns:
+    minmax(58px, 0.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(76px, 0.45fr) minmax(0, 1.5fr);
+}
+
+.sta2e-task-maker .op-trait-panel-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(64px, 0.45fr) minmax(0, 1.4fr);
+}
+
+.sta2e-task-maker .tmk-ext-breakthrough-list,
+.sta2e-task-maker .tmk-trait-list,
+.sta2e-task-maker .tmk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* ── Trait rows ─────────────────────────────────────────────────────────── */
+.sta2e-task-maker .tmk-trait-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--tmk-border-dim);
+  border-radius: var(--tmk-field-radius);
+  background: var(--tmk-bg);
+}
+
+.sta2e-task-maker .tmk-trait-row img {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border: 1px solid var(--tmk-border);
+  border-radius: 6px;
+}
+
+.sta2e-task-maker .tmk-trait-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tmk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sta2e-task-maker .tmk-trait-detail {
+  font-size: 9px;
+  color: var(--tmk-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Toolbars ───────────────────────────────────────────────────────────── */
+.sta2e-task-maker .tmk-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sta2e-task-maker .tmk-toolbar .tmk-select {
+  width: auto;
+  flex: 1 1 140px;
+  border-radius: var(--tmk-btn-radius);
+  padding: 5px 12px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Tab visibility ─────────────────────────────────────────────────────── */
+/* This replaces the old MODE_PANELS table, which stored a guessed display value
+   per element ("block" for panels authored as default-block divs, "inline-block"
+   for a flex item) and reapplied it on every switch.  Here the renderer only sets
+   data-mode and the authored display is never overwritten. */
+/* The doubled root outranks the .tmk-grid / .tmk-panel-body display rules above
+   on specificity rather than on order, so the `hidden` attribute genuinely hides
+   a grid.  Wiring toggles el.hidden instead of writing el.style.display, which
+   would put the element permanently out of this stylesheet's reach. */
+.sta2e-task-maker.sta2e-task-maker [hidden] {
+  display: none;
+}
+
+.sta2e-task-maker[data-mode="opposed"] .tmk-actor-slot,
+.sta2e-task-maker[data-mode="opposed"] .tmk-params-panel,
+.sta2e-task-maker[data-mode="opposed"] .tmk-ship-panel,
+.sta2e-task-maker[data-mode="opposed"] .tmk-trait-panel,
+.sta2e-task-maker[data-mode="opposed"] .tmk-reuse-last,
+.sta2e-task-maker:not([data-mode="task"]) .tmk-difficulty-cell,
+.sta2e-task-maker:not([data-mode="extended"]) .tmk-extended-panel,
+.sta2e-task-maker:not([data-mode="opposed"]) .tmk-opposed-panel {
+  display: none;
+}
+
+/* ── Narrow reflow ──────────────────────────────────────────────────────── */
+/* Container queries, not media queries: the dialog is resizable, so the viewport
+   width is the wrong signal — what matters is how wide the panel itself got. */
+@container (max-width: 600px) {
+  .sta2e-task-maker .tmk-params-grid,
+  .sta2e-task-maker[data-mode="extended"] .tmk-params-grid,
+  .sta2e-task-maker .tmk-ship-fields,
+  .sta2e-task-maker .tmk-ext-core-grid,
+  .sta2e-task-maker .tmk-ext-interval-fields,
+  .sta2e-task-maker .tmk-ext-breakthrough-row,
+  .sta2e-task-maker .op-trait-panel-grid,
+  .sta2e-task-maker .tmk-grid--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The free-text and long-label fields take the whole row rather than sitting
+     half-width beside a dead cell: ship names, task names and breakthrough notes
+     are the widest content in the dialog. */
+  .sta2e-task-maker .tmk-ext-core-grid > :first-child,
+  .sta2e-task-maker .tmk-ext-interval-fields > :first-child,
+  .sta2e-task-maker .tmk-ship-fields > :first-child,
+  .sta2e-task-maker .op-trait-panel-grid > :last-child,
+  .sta2e-task-maker .tmk-ext-breakthrough-row > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 420px) {
+  .sta2e-task-maker .tmk-grid,
+  .sta2e-task-maker .tmk-params-grid,
+  .sta2e-task-maker[data-mode="extended"] .tmk-params-grid,
+  .sta2e-task-maker .tmk-ship-fields,
+  .sta2e-task-maker .tmk-ext-core-grid,
+  .sta2e-task-maker .tmk-ext-interval-fields,
+  .sta2e-task-maker .tmk-ext-breakthrough-row,
+  .sta2e-task-maker .op-trait-panel-grid,
+  .sta2e-task-maker .tmk-grid--2,
+  .sta2e-task-maker .tmk-grid--3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sta2e-task-maker .tmk-slot-actions .tmk-btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* ── Picker sub-dialogs ─────────────────────────────────────────────────── */
+/* Pick Character / Pick Extended Task / Pick Scene Trait / Reuse Task Setup.
+   Small enough to share one skin; they stamp the same --tmk-* vars. */
+.sta2e-tmk-picker {
+  --tmk-field-radius: 9px;
+  --tmk-panel-radius: 12px;
+  --tmk-btn-radius: 999px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 60vh;
+  font-family: var(--tmk-font);
+  color: var(--tmk-text);
+}
+
+.sta2e-tmk-picker .tmk-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 6px 9px;
+  background: var(--tmk-bg);
+  color: var(--tmk-text);
+  border: 1px solid var(--tmk-border);
+  border-radius: var(--tmk-field-radius);
+  font-family: var(--tmk-font);
+  font-size: 12px;
+}
+
+.sta2e-tmk-picker .tmk-pick-list {
+  overflow-y: auto;
+  max-height: 50vh;
+  border: 1px solid var(--tmk-border);
+  border-radius: var(--tmk-panel-radius);
+  background: var(--tmk-bg);
+}
+
+.sta2e-tmk-picker .tmk-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--tmk-text);
+  border: 0;
+  border-bottom: 1px solid var(--tmk-border-dim);
+  border-radius: 0;
+  font-family: var(--tmk-font);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sta2e-tmk-picker .tmk-pick-row:last-child {
+  border-bottom: 0;
+}
+
+.sta2e-tmk-picker .tmk-pick-row:hover {
+  background: var(--tmk-panel);
+}
+
+.sta2e-tmk-picker .tmk-pick-row img {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border: 1px solid var(--tmk-border);
+  border-radius: 6px;
+}
+
+.sta2e-tmk-picker .tmk-pick-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sta2e-tmk-picker .tmk-pick-tag {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tmk-text-dim);
+  white-space: nowrap;
+}
+
+/* ── Per-era shape hooks ────────────────────────────────────────────────── */
+/* One stub per theme id, the extension point task-card.css documents.  Colour
+   already varies by theme through the --tmk-* vars; these are here for shape.
+   The root itself is always square; these only tune the inner shapes. */
+.sta2e-task-maker[data-theme="lcars-tng"] {
+  /* Defaults above are the TNG reference look. */
+}
+
+.sta2e-task-maker[data-theme="lcars-tng-blue"] {
+  /* Defaults above. */
+}
+
+.sta2e-task-maker[data-theme="blue"] {
+  --tmk-elbow: 10px;
+  --tmk-bar-cap: 6px;
+  --tmk-fillet: 5px;
+  --tmk-panel-radius: 8px;
+  --tmk-btn-radius: 6px;
+}
+
+.sta2e-task-maker[data-theme="tos-panel"] {
+  --tmk-elbow: 0px;
+  --tmk-bar-cap: 0px;
+  --tmk-fillet: 0px;
+  --tmk-panel-radius: 0px;
+  --tmk-field-radius: 2px;
+  --tmk-btn-radius: 2px;
+}
+
+.sta2e-task-maker[data-theme="tmp-console"] {
+  --tmk-elbow: 14px;
+  --tmk-bar-cap: 8px;
+  --tmk-fillet: 6px;
+  --tmk-panel-radius: 10px;
+}
+
+.sta2e-task-maker[data-theme="ent-panel"] {
+  --tmk-elbow: 5px;
+  --tmk-bar-cap: 4px;
+  --tmk-fillet: 3px;
+  --tmk-panel-radius: 4px;
+  --tmk-field-radius: 3px;
+  --tmk-btn-radius: 4px;
+}
+
+.sta2e-task-maker[data-theme="klingon"],
+.sta2e-task-maker[data-theme="romulan"] {
+  --tmk-elbow: 0px;
+  --tmk-bar-cap: 0px;
+  --tmk-fillet: 0px;
+  --tmk-panel-radius: 0px;
+  --tmk-field-radius: 0px;
+  --tmk-btn-radius: 0px;
+}

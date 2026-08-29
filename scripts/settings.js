@@ -1358,6 +1358,16 @@ export function registerSettings() {
     scope: "world", config: false, type: Number, default: 100,
   });
 
+  // How far the ship's own hull elongates along its heading at the two ends of
+  // a jump. A percent on the *elongation*, so 0 is genuinely no stretch rather
+  // than a collapsed hull. World scope: every client deforms the same ship, so
+  // they must agree. See warp-stretch-vfx.js.
+  game.settings.register("sta2e-toolkit", "warpTokenStretch", {
+    name: "Warp Token Stretch (%)",
+    hint: "How far a ship's hull smears along its heading as it enters and leaves warp. 100 = default; 0 turns the stretch off. Rift effects never stretch.",
+    scope: "world", config: false, type: Number, default: 100,
+  });
+
   // The rift is a different clip with a different amount of transparent margin,
   // so it gets its own percent rather than sharing the flash's — sizing one
   // must never resize the other.
@@ -1412,7 +1422,163 @@ export function registerSettings() {
   // formation they each prefer; config:false because the dialog is the UI.
   game.settings.register("sta2e-toolkit", "shipSpawnerPrefs", {
     scope: "client", config: false, type: Object,
-    default: { pattern: "circle", spacing: 350, snap: true, delay: 300 },
+    default: { pattern: "circle", spacing: 350, snap: true, delay: 300, location: "canvas" },
+  });
+
+  // Spawn window shell state — which tab was last in front, where the window
+  // sits, and each tab's last spawn site. Per-client for the same reason as the
+  // spawner's own prefs.
+  game.settings.register("sta2e-toolkit", "spawnWindowPrefs", {
+    scope: "client", config: false, type: Object,
+    default: {
+      activeTab: "transporter", pos: null,
+      transporterLocation: "canvas", qLocation: "canvas",
+    },
+  });
+
+  // ── Q spawner ───────────────────────────────────────────────────────────────
+
+  // Whoever Q has taken out of the scene. World-scoped like the transporter's
+  // pattern buffer, and deliberately a separate setting: restoring one must
+  // never disturb the other.
+  game.settings.register("sta2e-toolkit", "qHoldBuffer", {
+    scope: "world", config: false, type: Array, default: [],
+  });
+
+  game.settings.register("sta2e-toolkit", "qFlashScale", {
+    name: "Q Flash Size",
+    hint: "Percent size of the Q flash relative to the token it plays on. 100 matches the standard warp flash.",
+    scope: "world", config: false, type: Number, default: 100,
+  });
+
+  game.settings.register("sta2e-toolkit", "qFlashPeakMs", {
+    name: "Q Flash Peak (ms)",
+    hint: "When the flash's decisive frame lands — the moment a token appears or vanishes. Lower is snappier.",
+    scope: "world", config: false, type: Number, default: 450,
+  });
+
+  // The white wash across the board. Separate from the per-token flash above so
+  // a table that finds full-screen flashes uncomfortable can set this to 0 and
+  // still get the bursts.
+  game.settings.register("sta2e-toolkit", "qScreenFlashIntensity", {
+    name: "Q Screen Flash Intensity (%)",
+    hint: "Peak whiteness of the board-wide flash. 0 turns the screen flash off entirely; the per-token flashes still play.",
+    scope: "world", config: false, type: Number, default: 75,
+  });
+
+  game.settings.register("sta2e-toolkit", "qScreenFlashMs", {
+    name: "Q Screen Flash Duration (ms)",
+    hint: "How long the board-wide flash takes to rise, hold and fade.",
+    scope: "world", config: false, type: Number, default: 500,
+  });
+
+  // Q Flash Kick — the throw across the scene. Distance is not a setting: it is
+  // always as far as the scene goes in that direction.
+  game.settings.register("sta2e-toolkit", "qKickMs", {
+    name: "Q Kick Flight (ms)",
+    hint: "How long the throw takes from the flash to the landing. Most of the distance is covered in the first quarter of it; the rest is the tumble.",
+    scope: "world", config: false, type: Number, default: 2600,
+  });
+
+  game.settings.register("sta2e-toolkit", "qKickSpins", {
+    name: "Q Kick Spins",
+    hint: "Full rotations the token makes on the way out. Clamped against the flight length — too many for the time available would visibly stutter.",
+    scope: "world", config: false, type: Number, default: 3,
+  });
+
+  game.settings.register("sta2e-toolkit", "sndQFlashIn", {
+    name: "Q Flash — Arrive Sound",
+    hint: "Audio file played when Q brings someone into the scene. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndQFlashOut", {
+    name: "Q Flash — Depart Sound",
+    hint: "Audio file played when Q removes someone from the scene. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  // ── Warp Viewscreen ──────────────────────────────────────────────────────
+  // The Region behavior that renders a warp starfield inside a viewscreen or
+  // window drawn into the map art. Sounds play locally on every client from the
+  // behavior's update hook, so none of these are broadcast.
+  game.settings.register("sta2e-toolkit", "sndWarpViewscreenEnter", {
+    name: "Warp Viewscreen — Enter Warp Sound",
+    hint: "Audio file played when the viewscreen jumps to warp. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndWarpViewscreenExit", {
+    name: "Warp Viewscreen — Drop Out Sound",
+    hint: "Audio file played when the viewscreen falls back to sublight. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndWarpViewscreenLoop", {
+    name: "Warp Viewscreen — Warp Loop",
+    hint: "Looping rumble held for as long as the viewscreen is at warp. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "warpViewscreenEnterMs", {
+    name: "Warp Viewscreen — Enter Ramp",
+    hint: "How long the stars take to stretch from sublight to full warp, in milliseconds.",
+    scope: "world", config: false, type: Number, default: 2000,
+  });
+
+  game.settings.register("sta2e-toolkit", "warpViewscreenExitMs", {
+    name: "Warp Viewscreen — Exit Ramp",
+    hint: "How long the stars take to settle back to sublight, in milliseconds.",
+    scope: "world", config: false, type: Number, default: 1600,
+  });
+
+  game.settings.register("sta2e-toolkit", "warpViewscreenStarSpeed", {
+    name: "Warp Viewscreen — Star Speed",
+    hint: "Percent trim on the whole star field, sublight drift included. Raise it if warp reads too sedate on a large viewscreen.",
+    scope: "world", config: false, type: Number, default: 100,
+  });
+
+  // ── Scene Warp ───────────────────────────────────────────────────────────
+  // The top-down streak field that puts a whole tactical scene at warp. Unlike
+  // the viewscreen above this has no sounds of its own — the GM drives it from
+  // the Scene Warp panel, and the ships supply their own audio.
+  game.settings.register("sta2e-toolkit", "sceneWarpEnterMs", {
+    name: "Scene Warp — Enter Ramp",
+    hint: "How long the field takes to stretch from a standstill to full warp, in milliseconds.",
+    scope: "world", config: false, type: Number, default: 2600,
+  });
+
+  game.settings.register("sta2e-toolkit", "sceneWarpExitMs", {
+    name: "Scene Warp — Exit Ramp",
+    hint: "How long the field takes to settle back to sublight, in milliseconds.",
+    scope: "world", config: false, type: Number, default: 2000,
+  });
+
+  // Client scope on purpose: frame rate is a per-machine problem. A player on a
+  // laptop needs to turn this down for themselves without the GM deciding it for
+  // the whole table, which a scene flag would do. It can only ever reduce what
+  // the scene's own Star Count and band toggles ask for.
+  game.settings.register("sta2e-toolkit", "sceneWarpQuality", {
+    name: "Scene Warp — Quality (this device)",
+    hint: "How much of the warp star field this device draws. Lower it if the frame rate "
+        + "dips while at warp — especially alongside 3D dice. Affects only your own view.",
+    scope: "client", config: true, type: String, default: "high",
+    choices: {
+      high:   "High — full field, streaks over tokens",
+      medium: "Medium — about half the stars, none over tokens",
+      low:    "Low — sparse field, two depth bands",
+    },
+    onChange: () => {
+      // Rebuild this client's pools immediately rather than at the next scene
+      // update, so the setting reads as instant.
+      import("./scene-warp-vfx.js").then(m => m.syncSceneWarp()).catch(() => { /* canvas not up */ });
+    },
+  });
+
+  game.settings.register("sta2e-toolkit", "sceneWarpStarSpeed", {
+    name: "Scene Warp — Star Speed",
+    hint: "Percent trim on the whole field, sublight drift included. Raise it if warp reads too sedate on a large scene.",
+    scope: "world", config: false, type: Number, default: 100,
   });
 
   // Tractor beam sound

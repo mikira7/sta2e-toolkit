@@ -313,6 +313,33 @@ export class ToolkitWidget {
         () => game.sta2eToolkit?.openShipSpawner?.(),
       ));
 
+      // Q spawner button — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-hand-sparkles",
+        game.i18n.localize("STA2E.Widget.Button.QSpawner.Label"),
+        game.i18n.localize("STA2E.Widget.Button.QSpawner.Hint"),
+        LC.tertiary ?? LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openQSpawner?.(),
+      ));
+
+      // Warp Viewscreen button — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-meteor",
+        game.i18n.localize("STA2E.Widget.Button.WarpViewscreen.Label"),
+        game.i18n.localize("STA2E.Widget.Button.WarpViewscreen.Hint"),
+        LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openWarpViewscreenPanel?.(),
+      ));
+
+      // Scene Warp button — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-forward-fast",
+        game.i18n.localize("STA2E.Widget.Button.SceneWarp.Label"),
+        game.i18n.localize("STA2E.Widget.Button.SceneWarp.Hint"),
+        LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openSceneWarpPanel?.(),
+      ));
+
       // VFX Test button — GM only
       btnContainer.appendChild(mkBtn(
         "fas fa-wand-magic-sparkles",

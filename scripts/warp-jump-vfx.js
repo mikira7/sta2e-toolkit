@@ -155,6 +155,29 @@ function _styleScale(style) {
  * peak instead of the clip playing differently per phase.
  * Additive blend keeps any black background reading as pure light.
  */
+/**
+ * Drain the colour out of a style's clip, for `whiten` styles.
+ *
+ * A sprite tint multiplies, so it can only ever darken or shift a colour — it
+ * cannot turn the blue-white warp clip into Q's white-hot snap. A colour matrix
+ * can: desaturate to grey, then push the brightness back up past what the
+ * desaturation cost. Silently skipped when the filter is unavailable, so the
+ * flash degrades to its normal blue rather than disappearing.
+ */
+function _applyWhiten(sprite, style) {
+  if (!style?.whiten) return;
+  try {
+    const CMF = PIXI.ColorMatrixFilter ?? PIXI.filters?.ColorMatrixFilter;
+    if (!CMF) return;
+    const cmf = new CMF();
+    cmf.desaturate();
+    cmf.brightness(1.35, true);   // multiply=true, so it stacks on the desaturate
+    sprite.filters = [cmf];
+  } catch (err) {
+    console.warn("STA2e Toolkit | whiten filter unavailable:", err);
+  }
+}
+
 function _webmFlash(layer, x, y, radius, zBase, style, heading = 0) {
   const video = document.createElement("video");
   // Must precede the src assignment to take effect. Hosted games (The Forge)
@@ -215,6 +238,7 @@ function _webmFlash(layer, x, y, radius, zBase, style, heading = 0) {
     }
     sprite.anchor.set(0.5);
     sprite.blendMode = _addBlend();
+    _applyWhiten(sprite, style);
     const vw = video.videoWidth || 1;
     const vh = video.videoHeight || 1;
     const scale = (radius * style.scaleMul * _styleScale(style)) / Math.max(vw, vh);

@@ -36,6 +36,15 @@ const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
  * - `rotationOffsetDeg` correction between the clip's own "forward" and the
  *                   canvas bearing, applied only when orientToHeading is set.
  * - `transit`       how the ship approaches and leaves the effect. See below.
+ * - `stretch`       how far the ship's own hull elongates along its heading as
+ *                   it enters and leaves the effect, as `{max, squeeze}`, or
+ *                   null for a style whose ship does not deform. `max` is the
+ *                   multiplier along the nose axis at full smear (scaled by the
+ *                   GM percent) and `squeeze` is how much of the volume-
+ *                   preserving narrowing to apply across the beam, 0..1. Only a
+ *                   style that reads as *acceleration* wants this: a rift is a
+ *                   portal the ship flies through at its normal size, so both
+ *                   rifts leave it null. See warp-stretch-vfx.js.
  * - `requiresTrait` actor trait gating this style, or null for always-available.
  * - `family`        styles sharing a family are faction variants of one effect.
  *                   null for a style that stands alone.
@@ -82,6 +91,10 @@ export const WARP_EFFECT_STYLES = Object.freeze({
       inMs: 320, outMs: 380,
       flyThrough: false,
     }),
+    // 7x reads as a hard smear without turning the hull into a featureless band;
+    // the squeeze is partial because a fully volume-preserving narrowing at that
+    // elongation leaves a sliver rather than a ship.
+    stretch: Object.freeze({ max: 7, squeeze: 0.45 }),
     requiresTrait: null,
     family: null,
     faction: null,
@@ -114,6 +127,9 @@ export const WARP_EFFECT_STYLES = Object.freeze({
       inMs: null, outMs: 900,
       flyThrough: true,
     }),
+    // No hull stretch: the ship coasts through an aperture at its normal size
+    // rather than accelerating away, which is the whole point of flyThrough.
+    stretch: null,
     requiresTrait: "Timeship",
     family: "rift",
     faction: null,
@@ -141,11 +157,52 @@ export const WARP_EFFECT_STYLES = Object.freeze({
       inMs: null, outMs: 900,
       flyThrough: true,
     }),
+    // No hull stretch: the ship coasts through an aperture at its normal size
+    // rather than accelerating away, which is the whole point of flyThrough.
+    stretch: null,
     requiresTrait: "Timeship",
     family: "rift",
     faction: "cardassian",
     icon: "fas fa-clock-rotate-left",
     soundKeys: Object.freeze({ depart: "sndCardassianTemporalRift", arrive: "sndCardassianTemporalRift" }),
+  }),
+  // Q's snap. The standard warp clip run through a desaturate, because sprite
+  // tint multiplies and so cannot turn a blue asset white — see `whiten` and
+  // its handling in warp-jump-vfx.js#_webmFlash.
+  //
+  // `hidden` keeps it out of every style picker: it is not a way for a ship to
+  // warp, it is what happens when Q decides you are somewhere else now. The Q
+  // spawner passes the id explicitly.
+  qFlash: Object.freeze({
+    id: "qFlash",
+    label: "Q Flash",
+    src: "modules/sta2e-toolkit/assets/vfx/Warp-Flash.webm",
+    // Faster than a warp jump — a snap of the fingers has no wind-up.
+    peakMs: 450,
+    peakSettingKey: "qFlashPeakMs",
+    scaleMul: 6,
+    scaleSettingKey: "qFlashScale",
+    tailMs: 250,
+    corridor: false,
+    // A radial burst, and Q has no direction of travel to orient to.
+    orientToHeading: false,
+    rotationOffsetDeg: 0,
+    // Never read — nothing flies into a Q flash — but present so anything
+    // walking the registry finds the shape it expects.
+    transit: Object.freeze({
+      inSquares: 0, outSquares: 0,
+      inMs: 0, outMs: 0,
+      flyThrough: false,
+    }),
+    // Nothing accelerates into a snap of the fingers.
+    stretch: null,
+    requiresTrait: null,
+    family: null,
+    faction: null,
+    hidden: true,
+    whiten: true,
+    icon: "fas fa-hand-sparkles",
+    soundKeys: Object.freeze({ depart: "sndQFlashOut", arrive: "sndQFlashIn" }),
   }),
 });
 
@@ -284,7 +341,9 @@ function _resolveForActor(actorOrToken, styleId) {
  */
 export function getWarpEffectStyleOptions(actor) {
   return Object.values(WARP_EFFECT_STYLES)
-    .filter(style => warpEffectStyleAvailableFor(actor, style.id))
+    // `hidden` styles are not ways for a ship to warp — the Q flash is asked
+    // for by id, never chosen from a list.
+    .filter(style => !style.hidden && warpEffectStyleAvailableFor(actor, style.id))
     .map(style => ({ value: style.id, label: style.label, icon: style.icon }));
 }
 

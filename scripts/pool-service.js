@@ -7,6 +7,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 
 const MODULE = "sta2e-toolkit";
 const POOL_LOG_BATCH_MS = 150;
@@ -143,15 +144,7 @@ function _buildPoolChangeCard(entries, source, actorName) {
     </div>`;
   }).join("");
 
-  return `
-<div class="sta2e-pool-change-card" data-pool="${entries.length > 1 ? "multiple" : entries[0]?.pool}" style="background:${bg};
-  border:1px solid ${primary};border-left:4px solid ${primary};border-radius:3px;overflow:hidden;max-width:320px;
-  font-family:${font};">
-  <div style="background:${primary};color:${entries.length === 1 && entries[0]?.pool === "threat" ? "#ffffff" : bg};
-    padding:3px 8px;font-size:8px;font-weight:800;letter-spacing:0.1em;
-    text-transform:uppercase;">
-    ${title}
-  </div>
+  const body = `
   <div style="padding:5px 8px;border-bottom:1px solid ${borderDim};">
     <div style="color:${textBright};font-size:11px;font-weight:700;line-height:1.15;">
       ${_escapeHtml(actorName)}
@@ -163,8 +156,25 @@ function _buildPoolChangeCard(entries, source, actorName) {
   </div>
   <div style="padding:3px 8px 4px;">
     ${rows}
-  </div>
-</div>`;
+  </div>`;
+
+  return lcarsChatCard({
+    title,
+    accent: primary,
+    body,
+    rootClass: "sta2e-pool-change-card",
+    attrs: `data-pool="${entries.length > 1 ? "multiple" : entries[0]?.pool}"`,
+    legacy: () => `
+<div class="sta2e-pool-change-card" data-pool="${entries.length > 1 ? "multiple" : entries[0]?.pool}" style="background:${bg};
+  border:1px solid ${primary};border-left:4px solid ${primary};border-radius:3px;overflow:hidden;max-width:320px;
+  font-family:${font};">
+  <div style="background:${primary};color:${entries.length === 1 && entries[0]?.pool === "threat" ? "#ffffff" : bg};
+    padding:3px 8px;font-size:8px;font-weight:800;letter-spacing:0.1em;
+    text-transform:uppercase;">
+    ${title}
+  </div>${body}
+</div>`,
+  });
 }
 
 function _poolLogBatchKey(user, actor, token, source, actorName) {

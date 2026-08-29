@@ -21,6 +21,31 @@ import {
   resolveRequestedWarpStyle,
   resolveShipWarpEffectStyleId,
 } from "../warp-effect-styles.js";
+import {
+  broadcastWarpStretch,
+  getWarpStretchConfig,
+  getWarpStretchTipOffset,
+} from "../warp-stretch-vfx.js";
+import { isSceneHeadingLocked, isSceneAtWarp } from "../scene-warp.js";
+
+/**
+ * Drop `rotation` from a movement update while the scene holds a formation
+ * heading.
+ *
+ * Scene Warp's heading lock is absolute: ships at warp translate bow-forward
+ * without ever turning, so the runners below still fly their arcs and glides but
+ * stop writing the facing that goes with them. Stripping the key here rather
+ * than skipping the update keeps every path — the Bezier steps, the final
+ * settle, the jump teleport — moving exactly as it did.
+ *
+ * The standalone rotate loops are guarded at their own call sites instead, since
+ * there is nothing left of them once the rotation is gone.
+ */
+function _moveUpdate(update) {
+  if (!isSceneHeadingLocked()) return update;
+  const { rotation, ...rest } = update;
+  return rest;
+}
 
 /**
  * Ask which warp effect a fleeing ship should leave with.
@@ -492,14 +517,14 @@ export async function runImpulseEngageCard(payload, destination) {
     const p = sampleImpulsePath(nextProgress);
 
     await tok.document.update(
-      { x: p.x, y: p.y, rotation: p.rotation },
+      _moveUpdate({ x: p.x, y: p.y, rotation: p.rotation }),
       _scriptedStepOptions(STEP_MS)
     );
     await new Promise(r => setTimeout(r, STEP_MS));
   }
 
   const finalAngle = Math.atan2(finalDestination.y - startPos.y, finalDestination.x - startPos.x) * (180 / Math.PI) - 90;
-  await tok.document.update({ x: finalDestination.x, y: finalDestination.y, rotation: finalAngle });
+  await tok.document.update(_moveUpdate({ x: finalDestination.x, y: finalDestination.y, rotation: finalAngle }));
   await new Promise(r => setTimeout(r, _distanceTrailTailMs(startPos, finalDestination)));
   trail?.stop?.();
 
@@ -512,12 +537,54 @@ export async function runImpulseEngageCard(payload, destination) {
 
 }
 
+/**
+ * The Warp movement task on a scene that is *already* at warp.
+ *
+ * Repositioning within a warp formation is not another jump: the ship simply
+ * changes station, so this glides it there and skips the whole jump sequence —
+ * no turn, no run-up, no flash, no vanish, no hull smear. Jumping to warp while
+ * at warp makes no fiction sense, and the vanish in particular reads badly
+ * against a moving starfield.
+ *
+ * It also deliberately does **not** touch the nacelle glow. Scene Warp holds
+ * that lit for the duration; firing the jump's own `broadcastWarpChargeGlow`
+ * here and stopping it at the end would pop the nacelles dark mid-warp.
+ */
+async function _runWarpStationChange(tok, startPosition, startOrigin, finalDestination) {
+  game.sta2eToolkit?.zoneMovementLog?._suppressIds?.add(tok.document.id);
+  try {
+    const durationMs = _distanceDurationMs(startPosition, finalDestination, {
+      base: 460, perSquare: 150, min: 620, max: 2400,
+    });
+    // No rotation in this update at all: the heading lock owns facing here, and
+    // even with the lock off a ship at warp holds its course.
+    await tok.document.update(
+      { x: finalDestination.x, y: finalDestination.y },
+      _scriptedGlideOptions(durationMs, "easeInOutCircle"),
+    );
+    await new Promise(r => setTimeout(r, durationMs));
+
+    game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
+    game.sta2eToolkit?.zoneMovementLog?.onTokenMove(
+      tok.document, startOrigin,
+      { x: finalDestination.x, y: finalDestination.y },
+    );
+  } finally {
+    game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
+  }
+}
+
 export async function runWarpEngageCard(payload, destination) {
   const tok = getCardShipToken(payload);
   const startPosition = { x: tok.x, y: tok.y };
   const startOrigin = tok.center ?? { x: tok.x + tok.w / 2, y: tok.y + tok.h / 2 };
   const finalDestination = normalizeShipDestination(tok, destination);
   let targetRotation = tok.document.rotation || 0;
+
+  // Already at warp — a station change, not a jump. See the note above.
+  if (isSceneAtWarp()) {
+    return _runWarpStationChange(tok, startPosition, startOrigin, finalDestination);
+  }
 
   // Suppress per-step zone log chat cards during the stepped flight; one card
   // is posted manually after the final position update (same as impulse).
@@ -530,18 +597,31 @@ export async function runWarpEngageCard(payload, destination) {
   try {
     const angle = Math.atan2(finalDestination.y - startPosition.y, finalDestination.x - startPosition.x) * (180 / Math.PI);
     targetRotation = angle - 90;
-    const orig  = tok.document.rotation || 0;
-    const delta = ((targetRotation - orig + 540) % 360) - 180;
-    const steps = 15;
-    for (let i = 1; i <= steps; i++) {
-      await tok.document.update({ rotation: orig + (delta / steps * i) });
-      await new Promise(r => setTimeout(r, 20));
+    // Under a formation heading lock the ship keeps its facing and the run-up,
+    // flash and jump below all still play — it simply departs sideways.
+    if (isSceneHeadingLocked()) {
+      targetRotation = tok.document.rotation || 0;
+    } else {
+      const orig  = tok.document.rotation || 0;
+      const delta = ((targetRotation - orig + 540) % 360) - 180;
+      const steps = 15;
+      for (let i = 1; i <= steps; i++) {
+        await tok.document.update({ rotation: orig + (delta / steps * i) });
+        await new Promise(r => setTimeout(r, 20));
+      }
+      await tok.document.update({ rotation: targetRotation });
     }
-    await tok.document.update({ rotation: targetRotation });
   } catch(e) { console.warn("STA2e | warp rotate:", e); }
 
   const vec = _warpVector(startPosition, finalDestination);
   const { halfW, halfH } = _tokenHalfSize(tok);
+
+  // The hull smear at both ends. This jump always draws the *standard* flash
+  // (see the style-agnostic note at the depart beat below), so it reads the
+  // standard style's stretch — a look rather than a timing, so honouring it here
+  // does not weaken that contract the way honouring the ship's style would.
+  const stretchCfg = getWarpStretchConfig("standard");
+  let stretch = null;
 
   // The ship is invisible between the two flashes. If anything throws in that
   // window it must not be left that way, so everything below runs under a
@@ -552,6 +632,32 @@ export async function runWarpEngageCard(payload, destination) {
       x: startPosition.x + vec.ux * vec.runIn,
       y: startPosition.y + vec.uy * vec.runIn,
     };
+    // Wind-up: the hull elongates through the run-up and reaches full smear
+    // exactly as alpha hits 0 at the flash peak. playWarpStretch holds a non-1
+    // target once it arrives, so it stays smeared until stopped below.
+    //
+    // Anchored at the trailing end so the bow tears forward while the stern digs
+    // in — that is what makes the run-up lunge read. A symmetric smear grows as
+    // much hull backwards as forwards and cancels it.
+    if (stretchCfg) {
+      stretch = broadcastWarpStretch(tok, {
+        from: 1, to: stretchCfg.max, squeeze: stretchCfg.squeeze,
+        durationMs: WARP_RUN_IN_MS + WARP_FLASH_PEAK_MS,
+        easing: "in",
+        anchor: "stern", dir: { x: vec.ux, y: vec.uy },
+      });
+    }
+
+    // Where each flash goes: the far tip of the smear, opposite its anchor — the
+    // bow at departure, the stern on arrival — so the ship punches into the
+    // burst rather than having it go off amidships. Both are measured once, here,
+    // while the mesh is still at base scale and the depart stretch's captured
+    // hull length is live; by corridor time that smear has already been dropped.
+    // Zero when there is no stretch, so they can be added unconditionally.
+    const tipArgs = { max: stretchCfg?.max, dir: { x: vec.ux, y: vec.uy } };
+    const tipOut = getWarpStretchTipOffset(tok, { ...tipArgs, anchor: "stern" });
+    const tipIn  = getWarpStretchTipOffset(tok, { ...tipArgs, anchor: "bow" });
+
     if (vec.runIn > 0) {
       await tok.document.update(
         { x: launchPoint.x, y: launchPoint.y },
@@ -570,13 +676,17 @@ export async function runWarpEngageCard(payload, destination) {
     // switching every timing below to getWarpFlashTiming().
     playWarpFlash(tok, "depart", {
       heading: vec.heading,
-      x: launchPoint.x + halfW,
-      y: launchPoint.y + halfH,
+      x: launchPoint.x + halfW + tipOut.x,
+      y: launchPoint.y + halfH + tipOut.y,
       soundKey: "sndWarpEngage",
     });
     await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_OUT_MS)));
     chargeGlow?.stop?.();
     await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
+    // Ship gone — drop the smear now, so an undeformed token makes the teleport
+    // and nothing is left held across the corridor wait.
+    stretch?.stop?.();
+    stretch = null;
     await new Promise(r => setTimeout(r, Math.max(0, WARP_DEPART_MS - WARP_FLASH_PEAK_MS)));
 
     // ── 3. The jump — one update, no waypoints. Land short of the destination
@@ -588,14 +698,29 @@ export async function runWarpEngageCard(payload, destination) {
 
     // The corridor spans the jump itself. Start it, then move the (still
     // invisible) ship to the far end while it plays.
+    //
+    // It runs flash-to-flash rather than centre-to-centre, so the streak links
+    // the two bursts instead of stopping short of them. Both tips point *inward*
+    // along the travel line — the bow reaches forward from the launch point, the
+    // stern trails back from the arrival point — so on a short hop they can
+    // cross, a full smear being many squares long. Fall back to the centres
+    // rather than draw a reversed streak.
+    const launchCentre  = { x: launchPoint.x  + halfW, y: launchPoint.y  + halfH };
+    const arrivalCentre = { x: arrivalPoint.x + halfW, y: arrivalPoint.y + halfH };
+    const corridorFrom  = { x: launchCentre.x  + tipOut.x, y: launchCentre.y  + tipOut.y };
+    const corridorTo    = { x: arrivalCentre.x + tipIn.x,  y: arrivalCentre.y  + tipIn.y };
+    const tipSpan = (corridorTo.x - corridorFrom.x) * vec.ux
+                  + (corridorTo.y - corridorFrom.y) * vec.uy;
+    const tipsCross = tipSpan < (canvas?.grid?.size ?? 100);
+
     const corridor = playWarpCorridor(
-      { x: launchPoint.x  + halfW, y: launchPoint.y  + halfH },
-      { x: arrivalPoint.x + halfW, y: arrivalPoint.y + halfH },
+      tipsCross ? launchCentre  : corridorFrom,
+      tipsCross ? arrivalCentre : corridorTo,
       { width: Math.max(halfW, halfH) }
     );
 
     await tok.document.update(
-      { x: arrivalPoint.x, y: arrivalPoint.y, rotation: targetRotation, alpha: 0 },
+      _moveUpdate({ x: arrivalPoint.x, y: arrivalPoint.y, rotation: targetRotation, alpha: 0 }),
       { animate: false, teleport: true, sta2eScriptedMove: true }
     );
 
@@ -609,10 +734,26 @@ export async function runWarpEngageCard(payload, destination) {
     ]);
 
     // ── 4. Flash in — the ship materialises on the clip's peak frame ───────
+    // Still smeared when it does: the stretch is held through the invisible
+    // window and starts settling exactly as the alpha fade begins, easing out
+    // across the run-out glide so the hull comes back as the ship decelerates.
+    //
+    // Anchored at the leading end this time — the ship materialises nose-first
+    // on the arrival point with the hull trailing behind it, and compacts onto
+    // it rather than growing forward out of it.
+    if (stretchCfg) {
+      stretch = broadcastWarpStretch(tok, {
+        from: stretchCfg.max, to: 1, squeeze: stretchCfg.squeeze,
+        holdMs: Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_IN_MS),
+        durationMs: Math.max(0, WARP_ARRIVE_MS - WARP_FLASH_PEAK_MS) + WARP_RUN_OUT_MS,
+        easing: "out",
+        anchor: "bow", dir: { x: vec.ux, y: vec.uy },
+      });
+    }
     playWarpFlash(tok, "arrive", {
       heading: vec.heading,
-      x: arrivalPoint.x + halfW,
-      y: arrivalPoint.y + halfH,
+      x: arrivalCentre.x + tipIn.x,
+      y: arrivalCentre.y + tipIn.y,
       soundKey: "sndWarpArrive",
     });
     await new Promise(r => setTimeout(r, Math.max(0, WARP_FLASH_PEAK_MS - WARP_FADE_IN_MS)));
@@ -642,6 +783,8 @@ export async function runWarpEngageCard(payload, destination) {
     // Idempotent — a no-op when the glow already stopped at the depart flash,
     // but keeps it from lingering if anything above threw before that.
     chargeGlow?.stop?.();
+    // Likewise: a throw mid-jump must never leave the hull smeared.
+    stretch?.stop?.();
     try {
       if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
     } catch { /* token may have been deleted mid-jump */ }
@@ -674,6 +817,11 @@ export async function runShipWarpArrival(tok, heading, opts = {}) {
   const style = opts.style ?? getShipWarpEffectStyle(tok?.actor ?? tok);
   const { peakMs, arriveMs } = getWarpFlashTiming(style.id);
 
+  // Null for a rift — a ship coasting out of an aperture is not decelerating,
+  // so it arrives at its normal size.
+  const stretchCfg = getWarpStretchConfig(style);
+  let stretch = null;
+
   // Computed directly rather than through _warpVector: with no trip distance,
   // its WARP_RUN_MAX_FRACTION cap collapses the run-out to zero and the ship
   // would simply pop in. Large ships get a proportionally longer run so the
@@ -697,10 +845,29 @@ export async function runShipWarpArrival(tok, heading, opts = {}) {
       { animate: false, teleport: true, sta2eScriptedMove: true }
     );
 
+    // Arrives fully smeared and settles across the run-out glide — the same
+    // nose-first beat as the arrival half of an in-scene jump.
+    if (stretchCfg) {
+      stretch = broadcastWarpStretch(tok, {
+        from: stretchCfg.max, to: 1, squeeze: stretchCfg.squeeze,
+        holdMs: Math.max(0, peakMs - WARP_FADE_IN_MS),
+        durationMs: Math.max(0, arriveMs - peakMs) + runOutMs,
+        easing: "out",
+        anchor: "bow", dir: { x: ux, y: uy },
+      });
+    }
+
+    // The burst goes at the far tip of the smear — behind the ship, at its stern
+    // — so it streams forward out of the flash rather than wearing it amidships.
+    // Measured after the stretch starts, so the captured hull length is live.
+    const tipIn = getWarpStretchTipOffset(tok, {
+      max: stretchCfg?.max, anchor: "bow", dir: { x: ux, y: uy },
+    });
+
     playWarpFlash(tok, "arrive", {
       heading,
-      x: arrival.x + halfW,
-      y: arrival.y + halfH,
+      x: arrival.x + halfW + tipIn.x,
+      y: arrival.y + halfH + tipIn.y,
       soundKey: "sndWarpArrive",
       styleId: style.id,
     });
@@ -719,6 +886,7 @@ export async function runShipWarpArrival(tok, heading, opts = {}) {
     );
     await new Promise(r => setTimeout(r, runOutMs));
   } finally {
+    stretch?.stop?.();
     try {
       if ((tok.document.alpha ?? 1) < 1) await tok.document.update({ alpha: 1 });
     } catch { /* token may have been deleted mid-arrival */ }
@@ -773,14 +941,20 @@ export async function runWarpFleeCard(payload, opts = {}) {
   try {
     const angle = Math.atan2(destY - tok.y, destX - tok.x) * (180 / Math.PI);
     targetRotation = angle - 90;
-    const orig  = tok.document.rotation || 0;
-    const delta = ((targetRotation - orig + 540) % 360) - 180;
-    const steps = 12;
-    for (let i = 1; i <= steps; i++) {
-      await tok.document.update({ rotation: orig + (delta / steps * i) });
-      await new Promise(r => setTimeout(r, 20));
+    // Same rule as an engage jump: a formation heading lock keeps the facing,
+    // and the ship leaves the map on its existing course.
+    if (isSceneHeadingLocked()) {
+      targetRotation = tok.document.rotation || 0;
+    } else {
+      const orig  = tok.document.rotation || 0;
+      const delta = ((targetRotation - orig + 540) % 360) - 180;
+      const steps = 12;
+      for (let i = 1; i <= steps; i++) {
+        await tok.document.update({ rotation: orig + (delta / steps * i) });
+        await new Promise(r => setTimeout(r, 20));
+      }
+      await tok.document.update({ rotation: targetRotation });
     }
-    await tok.document.update({ rotation: targetRotation });
   } catch(e) { console.warn("STA2e | warp-flee rotate:", e); }
 
   // Same departure beat as an engage jump — run-up, flash, gone. The ship
@@ -798,20 +972,39 @@ export async function runWarpFleeCard(payload, opts = {}) {
     y: startY + vec.uy * vec.runIn,
   };
 
+  // Resolved before openEffect rather than beside the stretch below, because a
+  // fly-through style calls openEffect *first* and the closure would otherwise
+  // hit the temporal dead zone on it.
+  const stretchCfg = getWarpStretchConfig(style);
+
   const openEffect = () => {
+    // Flash at the far tip of the smear — the bow, opposite its stern anchor —
+    // so the ship punches into the burst. Read at call time, when the stretch
+    // that owns the hull length is already running. Zero for a rift, which does
+    // not smear, and for a style whose flash opens before the stretch starts.
+    const tipOut = getWarpStretchTipOffset(tok, {
+      max: stretchCfg?.max, anchor: "stern", dir: { x: vec.ux, y: vec.uy },
+    });
+    const launchCentre = { x: launchPoint.x + halfW, y: launchPoint.y + halfH };
+    const flashPoint = { x: launchCentre.x + tipOut.x, y: launchCentre.y + tipOut.y };
+
     playWarpFlash(tok, "depart", {
       heading: vec.heading,
-      x: launchPoint.x + halfW,
-      y: launchPoint.y + halfH,
+      x: flashPoint.x,
+      y: flashPoint.y,
       soundKey: "sndWarpEngage",
       styleId: style.id,
     });
     // Corridor runs off the edge of the map — the ship is leaving, not arriving.
     // A rift skips it: the ship flies through a portal rather than streaking out.
+    // It starts at the flash so the two read as one event, unless the bow tip has
+    // already overshot the exit point, in which case fall back to the centre.
     if (style.corridor) {
+      const exit = { x: destX + halfW, y: destY + halfH };
+      const span = (exit.x - flashPoint.x) * vec.ux + (exit.y - flashPoint.y) * vec.uy;
       playWarpCorridor(
-        { x: launchPoint.x + halfW, y: launchPoint.y + halfH },
-        { x: destX + halfW,         y: destY + halfH },
+        span > (canvas?.grid?.size ?? 100) ? flashPoint : launchCentre,
+        exit,
         { width: Math.max(halfW, halfH) }
       );
     }
@@ -822,26 +1015,50 @@ export async function runWarpFleeCard(payload, opts = {}) {
   // threshold exactly as the effect peaks. The standard warp keeps its original
   // order: short lurch, then flash where it stopped.
   const approachMs = style.transit.inMs ?? Math.max(200, peakMs - WARP_FADE_OUT_MS);
+  // Hoisted above the approach because the hull smear has to span the same
+  // window the departure hold does — see the clamp it feeds below.
+  const sinceEffectOpened = style.transit.flyThrough && vec.runIn > 0 ? approachMs : 0;
+
   if (style.transit.flyThrough) openEffect();
 
-  if (vec.runIn > 0) {
-    await tok.document.update(
-      { x: launchPoint.x, y: launchPoint.y },
-      _scriptedGlideOptions(approachMs, "easeInCircle")
-    );
-    await new Promise(r => setTimeout(r, approachMs));
+  // Same wind-up as an engage jump: full smear exactly as alpha reaches 0 at the
+  // peak, spanning the approach and the hold that follows it, anchored at the
+  // trailing end so the bow tears off the map. stretchCfg is resolved up by
+  // openEffect; it is null for a rift, so a timeship leaves undeformed.
+  const stretch = stretchCfg
+    ? broadcastWarpStretch(tok, {
+        from: 1, to: stretchCfg.max, squeeze: stretchCfg.squeeze,
+        durationMs: (vec.runIn > 0 ? approachMs : 0)
+          + Math.max(0, peakMs - WARP_FADE_OUT_MS - sinceEffectOpened)
+          + WARP_FADE_OUT_MS,
+        easing: "in",
+        anchor: "stern", dir: { x: vec.ux, y: vec.uy },
+      })
+    : null;
+
+  // Everything up to the ship being gone runs under a finally, so a throw in the
+  // approach or the fade can never leave the hull smeared on the map.
+  try {
+    if (vec.runIn > 0) {
+      await tok.document.update(
+        { x: launchPoint.x, y: launchPoint.y },
+        _scriptedGlideOptions(approachMs, "easeInCircle")
+      );
+      await new Promise(r => setTimeout(r, approachMs));
+    }
+
+    if (!style.transit.flyThrough) openEffect();
+
+    // Ship gone exactly at the clip's peak frame, glow popping out with it. When
+    // the approach already ran under the effect it has consumed this hold, so the
+    // clamp lands on zero rather than double-counting it.
+    await new Promise(r => setTimeout(r, Math.max(0, peakMs - WARP_FADE_OUT_MS - sinceEffectOpened)));
+    chargeGlow?.stop?.();
+    await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
+    await new Promise(r => setTimeout(r, Math.max(0, departMs - peakMs)));
+  } finally {
+    stretch?.stop?.();
   }
-
-  if (!style.transit.flyThrough) openEffect();
-
-  // Ship gone exactly at the clip's peak frame, glow popping out with it. When
-  // the approach already ran under the effect it has consumed this hold, so the
-  // clamp lands on zero rather than double-counting it.
-  const sinceEffectOpened = style.transit.flyThrough && vec.runIn > 0 ? approachMs : 0;
-  await new Promise(r => setTimeout(r, Math.max(0, peakMs - WARP_FADE_OUT_MS - sinceEffectOpened)));
-  chargeGlow?.stop?.();
-  await tok.document.update({ alpha: 0 }, { animate: true, animation: { duration: WARP_FADE_OUT_MS } });
-  await new Promise(r => setTimeout(r, Math.max(0, departMs - peakMs)));
 
   game.sta2eToolkit?.zoneMovementLog?._suppressIds?.delete(tok.document.id);
   try {

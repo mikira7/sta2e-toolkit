@@ -81,6 +81,14 @@ export function findChiefOfSecurityTalent(actor) {
   return findRoleAbilityTalent(actor, ["chief of security", "chief security officer"]);
 }
 
+export function findFlightControllerTalent(actor) {
+  return findRoleAbilityTalent(actor, ["flight controller"]);
+}
+
+export function findNavigatorTalent(actor) {
+  return findRoleAbilityTalent(actor, ["navigator"]);
+}
+
 // Small Craft: shuttles, fighters and runabouts are nimble targets. STA2e raises
 // the Difficulty of an attack against one by 1 — but only when the attacker is a
 // larger vessel; two small craft duelling each other are evenly matched.

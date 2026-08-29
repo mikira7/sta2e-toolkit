@@ -15,14 +15,15 @@
  * lcars-theme.js.
  *
  * The panel keeps the original `.op-*` class names so the resolution side of
- * opposed-task.js (and anything reading the posted card) is unaffected, but it
- * is styled with the Task Maker's shared inline builders rather than the
- * `.sta2e-opposed-setup` rules in styles/opposed-task.css — those are written
- * for a full dialog root (min-height 700px, huge padding, absolute LCARS
- * elbows) and would draw a second frame inside the Task Maker's own.
+ * opposed-task.js (and anything reading the posted card) is unaffected.  It also
+ * carries the Task Maker's `.tmk-*` classes, so its shape comes from
+ * styles/task-maker.css — NOT from the `.sta2e-opposed-setup` rules in
+ * styles/opposed-task.css, which are written for a full dialog root (min-height
+ * 700px, huge padding, absolute LCARS elbows) and would draw a second frame
+ * inside the Task Maker's own.
  */
 
-import { getLcTokens, inputStyle, labelStyle, pillStyle, selectStyle } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, getLcTokens } from "./lcars-theme.js";
 import { isShipActor, orderedShipsForActor, shipDeptOptions, shipSystemOptions } from "./ship-pool.js";
 
 // Resolved at render time — the active campaign's theme can change between renders.
@@ -52,6 +53,45 @@ export const DEFAULT_KIND = { key: "social", label: "Social", icon: "Social" };
 // Single source for slot headings — the old code built them as "Defender" but
 // rebuilt them as "🛡 Defender" on assignment, so the heading silently changed.
 const SLOT_TITLES = { defender: "Defender", attacker: "Attacker" };
+
+// ── Markup helpers ──────────────────────────────────────────────────────────
+// Deliberately duplicated from task-maker.js rather than imported: this module
+// must stay a leaf (see the header note), and it already keeps its own esc() and
+// clampInt() for the same reason.  Shape lives in styles/task-maker.css, so
+// nothing here may emit an inline border-radius — inline beats any selector.
+
+// Takes no accent: every bar is the one solid colour the stylesheet sets, and the
+// sections are told apart by their labels.
+function panelBar(label, trailing = "", extraClass = "") {
+  return `<div class="tmk-panel-bar${extraClass ? ` ${extraClass}` : ""}">
+    <span>${label}</span>${trailing}
+  </div>`;
+}
+
+function field(label, control, extraClass = "") {
+  return `<label class="tmk-field${extraClass ? ` ${extraClass}` : ""}"><span>${label}</span>${control}</label>`;
+}
+
+function textInput(cls, value) {
+  return `<input class="tmk-input ${cls}" type="text" value="${esc(value ?? "")}"/>`;
+}
+
+function numInput(cls, value, { min = 0, max = null, accent = LC.tertiary } = {}) {
+  const maxAttr = max == null ? "" : ` max="${max}"`;
+  return `<input class="tmk-input tmk-input--num ${cls}" type="number" min="${min}"${maxAttr} value="${value}" style="--tmk-a:${accent};"/>`;
+}
+
+function selectField(label, cls, optionsHtml, extraClass = "") {
+  return field(label, `<select class="tmk-select ${cls}">${optionsHtml}</select>`, extraClass);
+}
+
+function pillButton(cls, label, accent = LC.primary, attrs = "") {
+  return `<button type="button" class="tmk-btn ${cls}" style="--tmk-a:${accent};"${attrs}>${label}</button>`;
+}
+
+function clearKey(cls, title = "Clear") {
+  return `<button type="button" class="tmk-key ${cls}" title="${esc(title)}">&times;</button>`;
+}
 
 function esc(value) {
   return String(value ?? "")
@@ -193,54 +233,47 @@ export function buildOpposedPanelHtml(state) {
   }).join("");
 
   return `
-    <div class="tmk-opposed-panel" style="display:${state.mode === "opposed" ? "flex" : "none"};flex-direction:column;gap:10px;">
+    <div class="tmk-panel tmk-opposed-panel">
+      ${panelBar("Opposed Task")}
+      <div class="tmk-panel-body">
 
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <button type="button" class="op-reuse-last" ${lastSnap ? "" : "disabled"}
-          style="${pillStyle(LC.primary)}flex:0 0 auto;padding:5px 10px;">Reuse Last</button>
-        <select class="op-recent" ${recent.length ? "" : "disabled"} style="${selectStyle("padding:5px 10px;border-radius:999px;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;")}">
-          <option value="">Recent</option>
-          ${recentOpts}
-        </select>
-        <button type="button" class="op-clear-recent" ${recent.length ? "" : "disabled"}
-          style="${pillStyle(LC.secondary)}flex:0 0 auto;padding:5px 10px;">Clear Recent</button>
-      </div>
+        <div class="tmk-toolbar">
+          ${pillButton("op-reuse-last", "Reuse Last", LC.primary, lastSnap ? "" : " disabled")}
+          <select class="tmk-select op-recent" ${recent.length ? "" : "disabled"}>
+            <option value="">Recent</option>
+            ${recentOpts}
+          </select>
+          ${pillButton("op-clear-recent", "Clear Recent", LC.secondary, recent.length ? "" : " disabled")}
+        </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;">
-        ${complicationSliderHtml("defender", "Defender", defComp, LC.primary)}
-        ${complicationSliderHtml("attacker", "Attacker", atkComp, LC.secondary)}
-      </div>
+        <div class="tmk-grid tmk-grid--2" style="align-items:start;">
+          ${complicationSliderHtml("defender", "Defender", defComp, LC.primary)}
+          ${complicationSliderHtml("attacker", "Attacker", atkComp, LC.secondary)}
+        </div>
 
-      <div class="op-trait-panel" style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;display:grid;grid-template-columns:minmax(0,1.3fr) 90px minmax(0,1.4fr);gap:8px;align-items:end;">
-        <label style="${labelStyle()}">Trait Effect
-          <select class="op-trait-mode" style="${selectStyle()}">
+        <div class="tmk-well tmk-grid op-trait-panel op-trait-panel-grid">
+          ${selectField("Trait Effect", "op-trait-mode", `
             <option value="none" ${traitMod.traitModifierMode === "none" ? "selected" : ""}>No trait modifier</option>
             <option value="increase" ${traitMod.traitModifierMode === "increase" ? "selected" : ""}>Increase attacker Difficulty</option>
-            <option value="reduce" ${traitMod.traitModifierMode === "reduce" ? "selected" : ""}>Reduce attacker Difficulty</option>
-          </select>
-        </label>
-        <label style="${labelStyle()}">Potency
-          <input type="number" min="1" max="5" class="op-trait-potency" value="${traitMod.traitModifierPotency}"
-            style="${inputStyle(`text-align:center;font-weight:700;color:${LC.tertiary};`)}"/>
-        </label>
-        <label style="${labelStyle()}">Trait Name / Reason
-          <input type="text" class="op-trait-name" value="${esc(traitMod.traitModifierName)}" style="${inputStyle()}"/>
-        </label>
-      </div>
+            <option value="reduce" ${traitMod.traitModifierMode === "reduce" ? "selected" : ""}>Reduce attacker Difficulty</option>`)}
+          ${field("Potency", numInput("op-trait-potency", traitMod.traitModifierPotency, { min: 1, max: 5 }))}
+          ${field("Trait Name / Reason", textInput("op-trait-name", traitMod.traitModifierName))}
+        </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        ${buildOpposedSlotHtml("defender", opposed.defenderActorId, opposed.defenderTokenId)}
-        ${buildOpposedSlotHtml("attacker", opposed.attackerActorId, opposed.attackerTokenId)}
-      </div>
+        <div class="tmk-grid tmk-grid--2" style="align-items:start;">
+          ${buildOpposedSlotHtml("defender", opposed.defenderActorId, opposed.defenderTokenId)}
+          ${buildOpposedSlotHtml("attacker", opposed.attackerActorId, opposed.attackerTokenId)}
+        </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        ${sideSuggestionHtml("defender", opposed.defenderSuggestedAttr, opposed.defenderSuggestedDisc)}
-        ${sideSuggestionHtml("attacker", opposed.attackerSuggestedAttr, opposed.attackerSuggestedDisc)}
-      </div>
+        <div class="tmk-grid tmk-grid--2" style="align-items:start;">
+          ${sideSuggestionHtml("defender", opposed.defenderSuggestedAttr, opposed.defenderSuggestedDisc)}
+          ${sideSuggestionHtml("attacker", opposed.attackerSuggestedAttr, opposed.attackerSuggestedDisc)}
+        </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        ${buildOpposedShipRowHtml("defender", opposed)}
-        ${buildOpposedShipRowHtml("attacker", opposed)}
+        <div class="tmk-grid tmk-grid--2" style="align-items:start;">
+          ${buildOpposedShipRowHtml("defender", opposed)}
+          ${buildOpposedShipRowHtml("attacker", opposed)}
+        </div>
       </div>
     </div>
   `;
@@ -254,21 +287,18 @@ export function buildOpposedPanelHtml(state) {
 export function buildOpposedShipRowHtml(sideKey, opposed) {
   const accent = sideKey === "defender" ? LC.primary : LC.secondary;
   const wrap = body => `
-    <div class="op-ship-row" data-slot="${sideKey}"
-      style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
-      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
-        ${SLOT_TITLES[sideKey]} Ship Assist
-      </div>
+    <div class="tmk-well op-ship-row" data-slot="${sideKey}" style="--tmk-a:${accent};">
+      <div class="tmk-well-title">${SLOT_TITLES[sideKey]} Ship Assist</div>
       ${body}
     </div>`;
 
   const actorId = opposed[`${sideKey}ActorId`];
   const actor = actorId ? game.actors.get(actorId) : null;
   if (!actor) {
-    return wrap(`<div style="color:${LC.textDim};font-size:11px;line-height:1.5;">Assign an actor first.</div>`);
+    return wrap(`<div class="tmk-drop-hint">Assign an actor first.</div>`);
   }
   if (isShipActor(actor)) {
-    return wrap(`<div style="color:${LC.textDim};font-size:11px;line-height:1.5;">${esc(actor.name)} rolls its own System + Department in the roller's ship pool.</div>`);
+    return wrap(`<div class="tmk-drop-hint">${esc(actor.name)} rolls its own System + Department in the roller's ship pool.</div>`);
   }
 
   const assist = !!opposed[`${sideKey}ShipAssist`];
@@ -278,15 +308,15 @@ export function buildOpposedShipRowHtml(sideKey, opposed) {
   const shipOpts = ships.map(s => `<option value="${esc(s.actorId)}" ${s.actorId === shipActorId ? "selected" : ""}>${esc(s.label)}</option>`).join("");
 
   return wrap(`
-    <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:${LC.text};">
-      <input type="checkbox" class="op-${sideKey}-ship-assist" ${assist ? "checked" : ""} style="accent-color:${accent};"/>
+    <label class="tmk-check">
+      <input type="checkbox" class="op-${sideKey}-ship-assist" ${assist ? "checked" : ""}/>
       Ship assists this side
     </label>
-    <div class="op-${sideKey}-ship-fields" style="display:${assist ? "grid" : "none"};grid-template-columns:1fr;gap:8px;margin-top:8px;">
-      <label style="${labelStyle()}">Ship<select class="op-${sideKey}-ship" style="${selectStyle()}">${shipOpts || `<option value="">No ships found</option>`}</select></label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <label style="${labelStyle()}">System<select class="op-${sideKey}-ship-system" style="${selectStyle()}">${shipSystemOptions(selectedShip, opposed[`${sideKey}ShipSystemKey`])}</select></label>
-        <label style="${labelStyle()}">Department<select class="op-${sideKey}-ship-dept" style="${selectStyle()}">${shipDeptOptions(selectedShip, opposed[`${sideKey}ShipDeptKey`])}</select></label>
+    <div class="tmk-stack op-${sideKey}-ship-fields" ${assist ? "" : "hidden"} style="margin-top:8px;gap:8px;">
+      ${selectField("Ship", `op-${sideKey}-ship`, shipOpts || `<option value="">No ships found</option>`)}
+      <div class="tmk-grid tmk-grid--2">
+        ${selectField("System", `op-${sideKey}-ship-system`, shipSystemOptions(selectedShip, opposed[`${sideKey}ShipSystemKey`]))}
+        ${selectField("Department", `op-${sideKey}-ship-dept`, shipDeptOptions(selectedShip, opposed[`${sideKey}ShipDeptKey`]))}
       </div>
     </div>
   `);
@@ -294,18 +324,13 @@ export function buildOpposedShipRowHtml(sideKey, opposed) {
 
 function complicationSliderHtml(sideKey, label, value, accent) {
   return `
-    <div style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
-      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
-        ${label} Complication Range
+    <div class="tmk-well" style="--tmk-a:${accent};">
+      <div class="tmk-well-title">${label} Complication Range</div>
+      <div class="tmk-range">
+        <input type="range" min="1" max="5" value="${value}" class="op-${sideKey}-complication-range"/>
+        <span class="tmk-range-val op-${sideKey}-complication-range-val">${value}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <input type="range" min="1" max="5" value="${value}" class="op-${sideKey}-complication-range"
-          style="flex:1;accent-color:${accent};cursor:pointer;"/>
-        <span class="op-${sideKey}-complication-range-val" style="min-width:16px;text-align:right;font-size:12px;font-weight:700;color:${accent};">${value}</span>
-      </div>
-      <div class="op-${sideKey}-complication-desc" style="margin-top:4px;font-size:10px;color:${LC.textDim};">
-        ${complicationDesc(value)}
-      </div>
+      <div class="tmk-range-desc op-${sideKey}-complication-desc">${complicationDesc(value)}</div>
     </div>
   `;
 }
@@ -315,13 +340,11 @@ function sideSuggestionHtml(sideKey, attrKey, discKey) {
   const attrOpts = ATTR_OPTIONS.map(a => `<option value="${a.key}" ${a.key === attrKey ? "selected" : ""}>${a.label}</option>`).join("");
   const discOpts = DISC_OPTIONS.map(d => `<option value="${d.key}" ${d.key === discKey ? "selected" : ""}>${d.label}</option>`).join("");
   return `
-    <div style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
-      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
-        ${SLOT_TITLES[sideKey]} Roll Pair
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <label style="${labelStyle()}">Attribute<select class="op-${sideKey}-attr" style="${selectStyle()}">${attrOpts}</select></label>
-        <label style="${labelStyle()}">Discipline<select class="op-${sideKey}-disc" style="${selectStyle()}">${discOpts}</select></label>
+    <div class="tmk-well" style="--tmk-a:${accent};">
+      <div class="tmk-well-title">${SLOT_TITLES[sideKey]} Roll Pair</div>
+      <div class="tmk-grid tmk-grid--2">
+        ${selectField("Attribute", `op-${sideKey}-attr`, attrOpts)}
+        ${selectField("Discipline", `op-${sideKey}-disc`, discOpts)}
       </div>
     </div>
   `;
@@ -330,28 +353,27 @@ function sideSuggestionHtml(sideKey, attrKey, discKey) {
 export function buildOpposedSlotHtml(slotKey, actorId, tokenId = null) {
   const actor = actorId ? game.actors.get(actorId) : null;
   const accent = slotKey === "defender" ? LC.primary : LC.secondary;
+  const body = actor
+    ? `<div class="tmk-actor-row">
+         <img src="${esc(actor.img ?? "icons/svg/mystery-man.svg")}"/>
+         <div class="tmk-actor-text">
+           <div class="tmk-actor-name">${esc(actor.name)}</div>
+           <div class="tmk-actor-meta">${esc(opposedActorKindLabel(actor))}</div>
+         </div>
+         ${clearKey("op-slot-clear")}
+       </div>`
+    : `<div class="tmk-drop-hint">Drag an actor or token here</div>`;
   return `
-    <div class="op-slot" data-slot="${slotKey}" data-actor-id="${actorId ?? ""}" data-token-id="${tokenId ?? ""}"
-      style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;min-height:104px;">
-      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${accent};margin-bottom:6px;font-weight:700;">
-        ${SLOT_TITLES[slotKey]}
-      </div>
+    <div class="tmk-well tmk-dropzone op-slot" data-slot="${slotKey}" data-actor-id="${actorId ?? ""}" data-token-id="${tokenId ?? ""}"
+      style="--tmk-a:${accent};">
+      <div class="tmk-well-title">${SLOT_TITLES[slotKey]}</div>
       <div class="op-slot-body">
-        ${actor ? `
-          <div style="display:flex;gap:8px;align-items:center;">
-            <img src="${esc(actor.img ?? "icons/svg/mystery-man.svg")}" style="width:34px;height:34px;border:1px solid ${LC.border};border-radius:8px 2px 8px 2px;object-fit:cover;"/>
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(actor.name)}</div>
-              <div style="font-size:10px;color:${LC.textDim};">${esc(opposedActorKindLabel(actor))}</div>
-            </div>
-            <button type="button" class="op-slot-clear" title="Clear" style="background:transparent;border:none;color:${LC.textDim};cursor:pointer;font-size:14px;">X</button>
-          </div>` : `
-          <div style="color:${LC.textDim};font-size:11px;line-height:1.5;padding:8px 2px 4px;">Drag an actor or token here</div>`}
+        ${body}
       </div>
-      <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">
-        <button type="button" class="op-slot-pick" data-source="selected" style="${pillStyle(LC.primary)}">Selected</button>
-        <button type="button" class="op-slot-pick" data-source="targeted" style="${pillStyle(LC.secondary)}">Targeted</button>
-        <button type="button" class="op-slot-pick" data-source="list" style="${pillStyle(LC.tertiary)}">List...</button>
+      <div class="tmk-slot-actions">
+        ${pillButton("op-slot-pick", "Selected", LC.primary, ` data-source="selected"`)}
+        ${pillButton("op-slot-pick", "Targeted", LC.secondary, ` data-source="targeted"`)}
+        ${pillButton("op-slot-pick", "List...", LC.tertiary, ` data-source="list"`)}
       </div>
     </div>
   `;
@@ -451,7 +473,8 @@ function wireOpposedShipRow(root, state, side) {
   assist?.addEventListener("change", () => {
     state.opposed[`${side}ShipAssist`] = assist.checked;
     const fields = root.querySelector(`.op-${side}-ship-fields`);
-    if (fields) fields.style.display = assist.checked ? "grid" : "none";
+    if (fields) fields.hidden = !assist.checked;
+    state._app?.setPosition?.({ height: "auto" });
   });
   root.querySelector(`.op-${side}-ship`)?.addEventListener("change", event => {
     state.opposed[`${side}ShipActorId`] = event.target.value || null;
@@ -490,14 +513,17 @@ function applyOpposedSnapshot(root, state, snap, hooks = {}) {
 
 function wireOpposedSlot(root, state, slotEl) {
   if (!slotEl) return;
+  // A class, not an inline border-color write: an inline literal would outrank the
+  // stylesheet for good once dragleave restored it, freezing the colour to
+  // whatever theme was active at render time.
   slotEl.addEventListener("dragover", event => {
     event.preventDefault();
-    slotEl.style.borderColor = LC.primary;
+    slotEl.classList.add("is-dropping");
   });
-  slotEl.addEventListener("dragleave", () => { slotEl.style.borderColor = LC.border; });
+  slotEl.addEventListener("dragleave", () => slotEl.classList.remove("is-dropping"));
   slotEl.addEventListener("drop", async event => {
     event.preventDefault();
-    slotEl.style.borderColor = LC.border;
+    slotEl.classList.remove("is-dropping");
     const picked = await resolveDroppedActor(event);
     if (!picked?.actorId) {
       ui.notifications.warn("STA2e Toolkit: Drop an Actor or a Token.");
@@ -535,6 +561,10 @@ function assignOpposedSlot(root, state, slot, actorId, tokenId = null) {
     shipRowEl.outerHTML = buildOpposedShipRowHtml(slot, state.opposed);
     wireOpposedShipRow(root, state, slot);
   }
+  // Slotting an actor swaps a one-line hint for a portrait row and may open the
+  // ship-assist fields, so the window has to re-fit.  state._app is the Task
+  // Maker dialog, stashed by openTaskMakerSetup.
+  state._app?.setPosition?.({ height: "auto" });
 }
 
 /** @returns {?{actorId: string, tokenId: ?string}} */
@@ -588,15 +618,14 @@ function openOpposedActorPicker() {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     const html = `
-      <div style="display:flex;flex-direction:column;gap:6px;max-height:420px;">
-        <input type="text" class="op-pick-search" placeholder="Filter..." style="${inputStyle()}"/>
-        <div class="op-pick-list" style="overflow-y:auto;max-height:360px;border:1px solid ${LC.border};">
+      <div class="sta2e-tmk-picker" data-theme="${getActiveLcThemeKey()}" style="${getLcCssVars("tmk")}">
+        <input type="text" class="tmk-input op-pick-search" placeholder="Filter..."/>
+        <div class="tmk-pick-list op-pick-list">
           ${actors.map(a => `
-            <div class="op-pick-row" data-actor-id="${a.id}"
-              style="display:flex;gap:6px;align-items:center;padding:4px;cursor:pointer;border-bottom:1px solid ${LC.borderDim};color:${LC.text};">
-              <img src="${esc(a.img ?? "icons/svg/mystery-man.svg")}" style="width:22px;height:22px;border:1px solid ${LC.border};"/>
-              <span style="flex:1;">${esc(a.name)}</span>
-              <span style="font-size:10px;color:${LC.textDim};">${esc(opposedActorKindLabel(a))}</span>
+            <div class="tmk-pick-row op-pick-row" data-actor-id="${a.id}">
+              <img src="${esc(a.img ?? "icons/svg/mystery-man.svg")}"/>
+              <span class="tmk-pick-label">${esc(a.name)}</span>
+              <span class="tmk-pick-tag">${esc(opposedActorKindLabel(a))}</span>
             </div>`).join("")}
         </div>
       </div>`;

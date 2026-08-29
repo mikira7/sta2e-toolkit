@@ -5,6 +5,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { adjustPool, readPool } from "./pool-service.js";
 import { getCrewManifest } from "./crew-manifest.js";
 
@@ -1247,20 +1248,26 @@ export async function promptSpendCreateTrait({ actor = null, token = null, allow
 
 export async function postTraitCreatedCard(data, spend = null) {
   const actor = data.scope === "scene" ? null : await resolveActorReference(data);
-  await ChatMessage.create({
-    content: `
-      <div style="background:${LC.bg};border:1px solid ${LC.primary};border-left:4px solid ${LC.primary};
-        border-radius:3px;padding:8px 10px;font-family:${LC.font};">
-        <div style="font-size:9px;color:${LC.primary};font-weight:800;letter-spacing:0.1em;text-transform:uppercase;">
-          Trait Created
-        </div>
+  const body = `
         <div style="font-size:14px;color:${LC.text};font-weight:800;margin-top:4px;">${escapeHtml(data.name)}</div>
         <div style="font-size:10px;color:${LC.textDim};margin-top:4px;">
           ${escapeHtml(data.scope === "scene" ? canvas?.scene?.name ?? "Scene" : actor?.name ?? "Actor")}
           · Potency ${Number(data.quantity ?? 1) || 1}
           ${spend ? ` · Spent ${spend.amount} ${spend.pool === "threat" ? "Threat" : "Momentum"}` : ""}
-        </div>
+        </div>`;
+  await ChatMessage.create({
+    content: lcarsChatCard({
+      title: "Trait Created",
+      accent: LC.primary,
+      body,
+      legacy: () => `
+      <div style="background:${LC.bg};border:1px solid ${LC.primary};border-left:4px solid ${LC.primary};
+        border-radius:3px;padding:8px 10px;font-family:${LC.font};">
+        <div style="font-size:9px;color:${LC.primary};font-weight:800;letter-spacing:0.1em;text-transform:uppercase;">
+          Trait Created
+        </div>${body}
       </div>`,
+    }),
     speaker: { alias: "STA2e Toolkit" },
   });
 }

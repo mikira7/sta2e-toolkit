@@ -17,6 +17,7 @@
 
 import { getSceneZones, getZoneAtPoint, getZonePathWithCosts, rangeBandFor } from "./zone-data.js";
 import { getLcTokens } from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { PaymentPrompt } from "./payment-prompt.js";
 import { CombatHUD } from "./combat-hud.js";
 import { readPool, setPool } from "./pool-service.js";
@@ -197,12 +198,7 @@ export class ZoneMovementLog {
     </button>
   </div>` : "";
 
-    const content = `
-<div style="background:${LC.bg};border:2px solid ${LC.primary};border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:320px;">
-  <div style="background:${LC.primary};padding:5px 12px;display:flex;align-items:center;justify-content:space-between;">
-    <span style="color:#000;font-weight:700;font-size:0.7em;letter-spacing:2px;">ZONE MOVEMENT</span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;border-bottom:1px solid ${LC.borderDim};">
     <div style="color:${LC.textBright};font-size:0.9em;font-weight:700;">${tokenName}</div>
   </div>
@@ -224,8 +220,20 @@ export class ZoneMovementLog {
   ${costRow}
   <div style="background:${LC.panel};padding:4px 12px;">
     <span style="color:${LC.textDim};font-size:0.5em;letter-spacing:2px;">ZONE TRACKER</span>
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `ZONE MOVEMENT`,
+      accent: LC.primary,
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid ${LC.primary};border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:320px;">
+  <div style="background:${LC.primary};padding:5px 12px;display:flex;align-items:center;justify-content:space-between;">
+    <span style="color:#000;font-weight:700;font-size:0.7em;letter-spacing:2px;">ZONE MOVEMENT</span>
+  </div>${body}
+</div>`,
+    });
 
     // Serialise terrain hazard info for button handlers (stored in flags)
     const terrainPayloads = terrainHazards.map(h => ({

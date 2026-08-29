@@ -270,7 +270,9 @@ async function _onCloakToggle(token, { announce }) {
 function _buildItem({ icon, label, tooltip, danger = false }, onClick) {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "sta2e-ship-command-item";
+  // Row styling is shared with the Q palette — see token-hud-flyout.css. The
+  // feature class stays alongside it for anything aimed specifically at these.
+  btn.className = "sta2e-hud-item sta2e-ship-command-item";
   if (danger) btn.classList.add("danger");
   btn.dataset.tooltip = tooltip;
   btn.innerHTML = `<i class="${icon}"></i><span>${label}</span>`;

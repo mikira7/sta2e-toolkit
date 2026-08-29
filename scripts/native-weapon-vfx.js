@@ -24,6 +24,7 @@ import {
   scheduleShieldImpactVFX,
   shieldStopPoint,
 } from "./shield-impact-vfx.js";
+import { isSceneWeaponAutoRotateDisabled } from "./scene-warp.js";
 
 const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 920_000;
@@ -852,9 +853,17 @@ function _nativeAvailable(sourceToken, targets) {
     && targets.length > 0;
 }
 
+/**
+ * The VFX side of `isWeaponAutoRotateDisabled` in weapon-configs.js.
+ *
+ * **Must be kept in step with that one.** This picks the point the beam is drawn
+ * from; that one picks the emitter the rules card names. If they disagree the
+ * shot leaves from somewhere the rules did not choose.
+ */
 function _isWeaponAutoRotateDisabled(token) {
   const doc = token?.document ?? token;
-  return !!doc?.getFlag?.(MODULE, DISABLE_WEAPON_AUTO_ROTATE_FLAG);
+  if (doc?.getFlag?.(MODULE, DISABLE_WEAPON_AUTO_ROTATE_FLAG)) return true;
+  return isSceneWeaponAutoRotateDisabled(doc?.parent ?? canvas?.scene);
 }
 
 function _effectLayer() {

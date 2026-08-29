@@ -22,6 +22,7 @@
  */
 
 import { getLcTokens }                                from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { CombatHUD }                                  from "./combat-hud.js";
 import { getSceneZones, updateZone, pointInPolygon }  from "./zone-data.js";
 import { PaymentPrompt }                              from "./payment-prompt.js";
@@ -496,14 +497,7 @@ export class ZoneHazard {
       effects.deadly      ? "Deadly"                                : "",
     ].filter(Boolean).join(" · ");
 
-    const content = `
-<div style="background:${LC.bg};border:2px solid ${LC.yellow};border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:320px;">
-  <div style="background:${LC.yellow};padding:5px 12px;">
-    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">
-      IMMEDIATE HAZARD — AVOIDANCE TASK
-    </span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;border-bottom:1px solid ${LC.borderDim};">
     <div style="color:${LC.textBright};font-size:0.9em;">
       <strong>${actorName}</strong> · <em>${zoneName}</em>
@@ -537,8 +531,22 @@ export class ZoneHazard {
         border:1px solid ${LC.red};border-radius:3px;color:${LC.red};cursor:pointer;">
       💥 Take Damage (Task Failed)
     </button>
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `IMMEDIATE HAZARD — AVOIDANCE TASK`,
+      accent: LC.yellow,
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid ${LC.yellow};border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:320px;">
+  <div style="background:${LC.yellow};padding:5px 12px;">
+    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">
+      IMMEDIATE HAZARD — AVOIDANCE TASK
+    </span>
+  </div>${body}
+</div>`,
+    });
 
     await ChatMessage.create({
       content,
@@ -562,12 +570,7 @@ export class ZoneHazard {
   }
 
   static async _postSafeCard(actorName, zoneName, hazardLabel, reason = "avoided") {
-    const content = `
-<div style="background:${LC.bg};border:2px solid ${LC.primary};border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:300px;">
-  <div style="background:${LC.primary};padding:5px 12px;">
-    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">HAZARDOUS TERRAIN</span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;">
     <div style="color:${LC.textBright};font-size:0.85em;margin-bottom:4px;">
       <strong>${actorName}</strong> · <em>${zoneName}</em>
@@ -575,8 +578,20 @@ export class ZoneHazard {
     <div style="color:${LC.green ?? "#00cc66"};font-size:0.82em;">
       ✅ ${hazardLabel} — ${reason}
     </div>
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `HAZARDOUS TERRAIN`,
+      accent: LC.primary,
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid ${LC.primary};border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:300px;">
+  <div style="background:${LC.primary};padding:5px 12px;">
+    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">HAZARDOUS TERRAIN</span>
+  </div>${body}
+</div>`,
+    });
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Hazard" },
@@ -585,12 +600,7 @@ export class ZoneHazard {
   }
 
   static async _postDamageCard(actorName, zoneName, hazardLabel, damage, damageType, extra = "") {
-    const content = `
-<div style="background:${LC.bg};border:2px solid ${LC.red};border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:300px;">
-  <div style="background:${LC.red};padding:5px 12px;">
-    <span style="color:#fff;font-weight:700;font-size:0.65em;letter-spacing:2px;">HAZARDOUS TERRAIN</span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;">
     <div style="color:${LC.textBright};font-size:0.85em;margin-bottom:4px;">
       <strong>${actorName}</strong> · <em>${zoneName}</em>
@@ -600,8 +610,20 @@ export class ZoneHazard {
       🔥 Damage: <strong>${damage} ${damageType}</strong> applied
     </div>
     ${extra ? `<div style="color:${LC.secondary};font-size:0.78em;margin-top:2px;">${extra}</div>` : ""}
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `HAZARDOUS TERRAIN`,
+      accent: LC.red,
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid ${LC.red};border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:300px;">
+  <div style="background:${LC.red};padding:5px 12px;">
+    <span style="color:#fff;font-weight:700;font-size:0.65em;letter-spacing:2px;">HAZARDOUS TERRAIN</span>
+  </div>${body}
+</div>`,
+    });
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Hazard" },
@@ -610,12 +632,7 @@ export class ZoneHazard {
   }
 
   static async _postLingeringCard(actorName, zoneName, hazardLabel, damage, damageType) {
-    const content = `
-<div style="background:${LC.bg};border:2px solid #ff8800;border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:300px;">
-  <div style="background:#ff8800;padding:5px 12px;">
-    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">♻ LINGERING HAZARD</span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;">
     <div style="color:${LC.textBright};font-size:0.85em;margin-bottom:4px;">
       <strong>${actorName}</strong> · <em>${zoneName}</em>
@@ -624,8 +641,20 @@ export class ZoneHazard {
     <div style="color:${LC.red};font-size:0.82em;">
       🔥 Damage: <strong>${damage} ${damageType}</strong> applied
     </div>
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `♻ LINGERING HAZARD`,
+      accent: "#ff8800",
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid #ff8800;border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:300px;">
+  <div style="background:#ff8800;padding:5px 12px;">
+    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">♻ LINGERING HAZARD</span>
+  </div>${body}
+</div>`,
+    });
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Hazard" },
@@ -637,12 +666,7 @@ export class ZoneHazard {
   static async _postLingeringWarningCard(actorName, zoneName, hazard) {
     const damage     = hazard.establishedDamage ?? "?";
     const damageType = hazard.establishedDamageType ?? "";
-    const content = `
-<div style="background:${LC.bg};border:2px solid #ff8800;border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:300px;">
-  <div style="background:#ff8800;padding:5px 12px;">
-    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">♻ LINGERING HAZARD — ZONE ENTERED</span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;">
     <div style="color:${LC.textBright};font-size:0.85em;margin-bottom:4px;">
       <strong>${actorName}</strong> entered <em>${zoneName}</em>
@@ -651,8 +675,20 @@ export class ZoneHazard {
     <div style="color:${LC.secondary};font-size:0.78em;">
       Takes <strong>${damage} ${damageType}</strong> at the start of each round in this zone.
     </div>
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `♻ LINGERING HAZARD — ZONE ENTERED`,
+      accent: "#ff8800",
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid #ff8800;border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:300px;">
+  <div style="background:#ff8800;padding:5px 12px;">
+    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">♻ LINGERING HAZARD — ZONE ENTERED</span>
+  </div>${body}
+</div>`,
+    });
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Hazard" },
@@ -662,12 +698,7 @@ export class ZoneHazard {
 
   /** Posted when a lingering hazard is first established (Threat spent). */
   static async _postLingeringEstablishedCard(zoneName, hazard, damage, damageType, threatCost) {
-    const content = `
-<div style="background:${LC.bg};border:2px solid #ff8800;border-radius:8px;
-  font-family:${LC.font};overflow:hidden;max-width:300px;">
-  <div style="background:#ff8800;padding:5px 12px;">
-    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">♻ LINGERING HAZARD — ESTABLISHED</span>
-  </div>
+    const body = `
   <div style="padding:8px 12px;">
     <div style="color:${LC.textBright};font-size:0.85em;margin-bottom:4px;">
       <em>${zoneName}</em>
@@ -680,8 +711,20 @@ export class ZoneHazard {
       ${threatCost > 0 ? `${threatCost} Threat spent to establish.` : "Established (no Threat cost)."}
       Damage applies at the start of each combat round.
     </div>
-  </div>
-</div>`;
+  </div>`;
+
+    const content = lcarsChatCard({
+      title: `♻ LINGERING HAZARD — ESTABLISHED`,
+      accent: "#ff8800",
+      body,
+      legacy: () => `
+<div style="background:${LC.bg};border:2px solid #ff8800;border-radius:8px;
+  font-family:${LC.font};overflow:hidden;max-width:300px;">
+  <div style="background:#ff8800;padding:5px 12px;">
+    <span style="color:#000;font-weight:700;font-size:0.65em;letter-spacing:2px;">♻ LINGERING HAZARD — ESTABLISHED</span>
+  </div>${body}
+</div>`,
+    });
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Hazard" },

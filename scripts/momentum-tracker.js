@@ -16,6 +16,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { readPool, writePool, poolLimit } from "./momentum-spend.js";
 import { actorHasPlanOfActionTalent } from "./trait-service.js";
 
@@ -69,14 +70,7 @@ function buildTrackerCardHtml({ float, bonus, versatile = 0, pool, ownerActorNam
       ✍ Create Trait (2 Momentum)
     </button>`;
 
-  return `
-    <div class="sta2e-momentum-tracker" data-pool="${pool}"
-      style="background:${bg};border:2px solid ${headerColor};border-radius:3px;
-      overflow:hidden;font-family:${font};">
-      <div style="background:${headerColor};color:${bg};font-size:9px;font-weight:700;
-        letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;">
-        ${poolIcon} ${poolLabel} OVERFLOW — ${ownerActorName ?? ""}
-      </div>
+  const body = `
       <div style="padding:8px 10px;">
         <div style="display:flex;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
           ${chip("FLOAT", float, headerColor)}
@@ -91,8 +85,25 @@ function buildTrackerCardHtml({ float, bonus, versatile = 0, pool, ownerActorNam
         </div>
         ${createTraitBtnHtml}
         ${endBtnHtml}
-      </div>
-    </div>`;
+      </div>`;
+
+  const title = `${poolIcon} ${poolLabel} OVERFLOW — ${ownerActorName ?? ""}`;
+  return lcarsChatCard({
+    title,
+    accent: headerColor,
+    body,
+    rootClass: "sta2e-momentum-tracker",
+    attrs: `data-pool="${pool}"`,
+    legacy: () => `
+    <div class="sta2e-momentum-tracker" data-pool="${pool}"
+      style="background:${bg};border:2px solid ${headerColor};border-radius:3px;
+      overflow:hidden;font-family:${font};">
+      <div style="background:${headerColor};color:${bg};font-size:9px;font-weight:700;
+        letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;">
+        ${title}
+      </div>${body}
+    </div>`,
+  });
 }
 
 function escapeHtml(value) {
@@ -140,15 +151,7 @@ async function postTrackerTraitCard(message, tracker) {
     trackerOwnerActorId: tracker.ownerActorId ?? actor?.id ?? null,
   }));
 
-  await ChatMessage.create({
-    flags: { [MODULE]: { traitResultCard: true } },
-    speaker: ChatMessage.getSpeaker({ token: token ?? null, alias: actorName }),
-    content: `
-      <div style="background:${LC.bg ?? "#050607"};border:1px solid ${LC.primary ?? "#ff9900"};border-left:4px solid ${LC.primary ?? "#ff9900"};
-        border-radius:3px;padding:8px 10px;font-family:${LC.font ?? "var(--font-primary)"};">
-        <div style="font-size:9px;color:${LC.primary ?? "#ff9900"};font-weight:800;letter-spacing:0.1em;text-transform:uppercase;">
-          Create Trait — Momentum Spend
-        </div>
+  const promptBody = `
         <div style="font-size:12px;font-weight:700;color:${LC.tertiary ?? "#ffcc66"};margin:4px 0 6px;">
           ${escapeHtml(actorName)}
         </div>
@@ -227,8 +230,23 @@ async function postTrackerTraitCard(message, tracker) {
           border-radius:2px;color:${LC.primary ?? "#ff9900"};font-size:10px;font-weight:700;letter-spacing:0.08em;
           text-transform:uppercase;cursor:pointer;font-family:${LC.font ?? "var(--font-primary)"};">
           ✍ Apply Trait
-        </button>
+        </button>`;
+
+  await ChatMessage.create({
+    flags: { [MODULE]: { traitResultCard: true } },
+    speaker: ChatMessage.getSpeaker({ token: token ?? null, alias: actorName }),
+    content: lcarsChatCard({
+      title: "Create Trait — Momentum Spend",
+      accent: LC.primary ?? "#ff9900",
+      body: promptBody,
+      legacy: () => `
+      <div style="background:${LC.bg ?? "#050607"};border:1px solid ${LC.primary ?? "#ff9900"};border-left:4px solid ${LC.primary ?? "#ff9900"};
+        border-radius:3px;padding:8px 10px;font-family:${LC.font ?? "var(--font-primary)"};">
+        <div style="font-size:9px;color:${LC.primary ?? "#ff9900"};font-weight:800;letter-spacing:0.1em;text-transform:uppercase;">
+          Create Trait — Momentum Spend
+        </div>${promptBody}
       </div>`,
+    }),
   });
 }
 

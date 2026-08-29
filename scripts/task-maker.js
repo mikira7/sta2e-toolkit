@@ -5,7 +5,8 @@
 
 import { readOfficerStats } from "./crew-manifest.js";
 import { labelFromKey, orderedShipsForActor, serializeShipsForRoller, shipDeptOptions, shipSystemOptions, worldShips } from "./ship-pool.js";
-import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens, inputStyle, labelStyle, pillStyle, selectStyle } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { buildOpposedPanelHtml, defaultOpposedState, readOpposedPanelState, wireOpposedPanel } from "./opposed-panel.js";
 import { decrementTracker } from "./momentum-tracker.js";
 import { readTrackerState } from "./momentum-spend.js";
@@ -235,12 +236,6 @@ function spendPoolLabel(pool) {
   return "Momentum";
 }
 
-function spendPoolShortLabel(pool) {
-  if (pool === "threat") return "Threat";
-  if (pool === "alliedNpcMomentum") return "Allied";
-  return "Momentum";
-}
-
 function extendedTaskExtraWorkPool(actor, token = null) {
   return normalizeSpendPool(traitSpendPool(actor, token));
 }
@@ -415,6 +410,11 @@ export function openTaskMakerSetup(prefill = {}) {
     ],
     rejectClose: false,
   });
+  // Stashed so applyModeVisibility and the panel refreshes can re-fit the window.
+  // Safe on the state object: saveLastSettings and postTaskRequestCard both build
+  // explicit payloads rather than spreading state, and the Reuse button's
+  // Object.assign does not clear keys the restored state does not carry.
+  state._app = dialog;
   dialog.render({ force: true }).then(() => wireDialog(dialog.element, state));
 }
 
@@ -434,6 +434,50 @@ export function openOpposedTaskSetup(prefill = {}) {
   });
 }
 
+// ── Markup helpers ──────────────────────────────────────────────────────────
+// Shape lives in styles/task-maker.css and these emit colour only.  Nothing in
+// this file may write an inline `border-radius`: inline beats any selector, which
+// is precisely the trap chat-card-frame.js's unroundButtons() exists to undo.
+
+/**
+ * The LCARS elbow heading a panel.
+ *
+ * Takes no accent: every bar is the one solid colour the stylesheet sets, and the
+ * sections are told apart by their labels.  Passing a hue per section was tried
+ * and read as a muddle — the panels sit only a few pixels apart, so the bars are
+ * seen as one column rather than as separate headings.
+ */
+function panelBar(label, trailing = "", extraClass = "") {
+  return `<div class="tmk-panel-bar${extraClass ? ` ${extraClass}` : ""}">
+    <span>${label}</span>${trailing}
+  </div>`;
+}
+
+function field(label, control, extraClass = "") {
+  return `<label class="tmk-field${extraClass ? ` ${extraClass}` : ""}"><span>${label}</span>${control}</label>`;
+}
+
+function textInput(cls, value) {
+  return `<input class="tmk-input ${cls}" type="text" value="${esc(value ?? "")}"/>`;
+}
+
+function numInput(cls, value, { min = 0, max = null, accent = LC.tertiary } = {}) {
+  const maxAttr = max == null ? "" : ` max="${max}"`;
+  return `<input class="tmk-input tmk-input--num ${cls}" type="number" min="${min}"${maxAttr} value="${value}" style="--tmk-a:${accent};"/>`;
+}
+
+function selectField(label, cls, optionsHtml, extraClass = "") {
+  return field(label, `<select class="tmk-select ${cls}">${optionsHtml}</select>`, extraClass);
+}
+
+function pillButton(cls, label, accent = LC.primary, attrs = "") {
+  return `<button type="button" class="tmk-btn ${cls}" style="--tmk-a:${accent};"${attrs}>${label}</button>`;
+}
+
+function clearKey(cls, title = "Clear") {
+  return `<button type="button" class="tmk-key ${cls}" title="${esc(title)}">&times;</button>`;
+}
+
 function buildDialogHtml(state) {
   const theme = getActiveLcThemeKey();
   const template = getLcThemeTemplate(theme);
@@ -451,61 +495,61 @@ function buildDialogHtml(state) {
   const reuseChoices = reuseOptions();
   const reuseLabel = reuseChoices.length > 1 ? "Reuse Task..." : `Reuse ${esc(reuseEntryLabel(reuseChoices[0] ?? {}))}`;
   const reuseButton = reuseChoices.length
-    ? `<button type="button" class="tmk-reuse-last" title="Restore a recent posted task setup, including the character"
-        style="margin-top:8px;align-self:flex-start;background:${LC.bg};color:${LC.text};border:1px solid ${LC.tertiary};
-        padding:5px 10px;border-radius:999px;font-family:${LC.font};font-size:9px;font-weight:700;letter-spacing:0.08em;
-        text-transform:uppercase;cursor:pointer;">${reuseLabel}</button>`
+    ? pillButton("tmk-reuse-last", reuseLabel, LC.tertiary,
+        ` title="Restore a recent posted task setup, including the character"`)
     : "";
 
   return `
-    <div class="sta2e-task-maker" data-theme="${theme}" data-template="${template}" style="
-      ${themeVars}
-      display:flex;flex-direction:column;gap:10px;font-family:${LC.font};color:${LC.text};
-      background:${LC.bg};padding:10px;border:1px solid ${LC.border};border-left:8px solid ${LC.primary};
-      border-radius:18px 4px 18px 4px;max-height:72vh;overflow-y:auto;">
-      <div style="display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:stretch;">
-        <div style="background:${LC.primary};border-radius:18px 4px 4px 18px;min-height:76px;"></div>
-        <div style="background:${LC.panel};border:1px solid ${LC.border};border-radius:4px 18px 18px 4px;padding:10px 12px;display:flex;flex-direction:column;">
-          <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:${LC.primary};font-weight:700;">Task Maker</div>
-          <div style="font-size:11px;line-height:1.5;color:${LC.textDim};margin-top:4px;">Build a player-facing task card that opens the advanced roller with these defaults.</div>
+    <div class="sta2e-task-maker" data-theme="${theme}" data-template="${template}" data-mode="${state.mode}" style="${themeVars}">
+
+      <div class="tmk-panel">
+        ${panelBar("Task Maker", "", "tmk-head-bar")}
+        <div class="tmk-head-body">
+          <div class="tmk-head-sub">Build a player-facing task card that opens the advanced roller with these defaults.</div>
           ${reuseButton}
         </div>
       </div>
 
-      <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${LC.textDim};">
-        Task Name
-        <input class="tmk-task-name" type="text" value="${esc(state.taskName)}" style="${inputStyle()}"/>
-      </label>
-      <label style="display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${LC.textDim};">
-        Notes
-        <input class="tmk-flavor" type="text" value="${esc(state.flavor)}" style="${inputStyle()}"/>
-      </label>
+      <div class="tmk-panel">
+        ${panelBar("Task Detail")}
+        <div class="tmk-panel-body">
+          ${field("Task Name", textInput("tmk-task-name", state.taskName))}
+          ${field("Notes", textInput("tmk-flavor", state.flavor))}
+        </div>
+      </div>
 
       ${taskModeToggleHtml(state)}
 
       ${actorSlotHtml(actor, state)}
 
-      <div class="tmk-params-grid" style="display:grid;grid-template-columns:${state.mode === "extended" ? "1fr 1fr 1fr" : "1fr 1fr 100px 1fr"};gap:8px;">
-        <label style="${labelStyle()}">Attribute<select class="tmk-attr" style="${selectStyle()}">${attrOpts}</select></label>
-        <label style="${labelStyle()}">Department<select class="tmk-disc" style="${selectStyle()}">${discOpts}</select></label>
-        <label class="tmk-difficulty-cell" style="${labelStyle()}${state.mode === "extended" ? "display:none;" : ""}">Difficulty<input class="tmk-difficulty" type="number" min="0" max="99" value="${state.difficulty}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/></label>
-        <label style="${labelStyle()}">Complication Range
-          <div style="display:flex;gap:8px;align-items:center;background:${LC.panel};border:1px solid ${LC.border};border-radius:12px 3px 12px 3px;padding:6px 8px;">
-            <input class="tmk-complication" type="range" min="1" max="5" value="${state.complicationRange}" style="flex:1;accent-color:${LC.primary};"/>
-            <span class="tmk-complication-val" style="min-width:14px;text-align:right;color:${LC.primary};font-weight:700;">${state.complicationRange}</span>
+      <div class="tmk-panel tmk-params-panel">
+        ${panelBar("Task Parameters")}
+        <div class="tmk-panel-body">
+          <div class="tmk-grid tmk-params-grid">
+            ${selectField("Attribute", "tmk-attr", attrOpts)}
+            ${selectField("Department", "tmk-disc", discOpts)}
+            ${field("Difficulty", numInput("tmk-difficulty", state.difficulty, { max: 99 }), "tmk-difficulty-cell")}
+            ${field("Complication Range", `
+              <div class="tmk-range" style="--tmk-a:${LC.primary};">
+                <input class="tmk-complication" type="range" min="1" max="5" value="${state.complicationRange}"/>
+                <span class="tmk-complication-val tmk-range-val">${state.complicationRange}</span>
+              </div>`)}
           </div>
-        </label>
+        </div>
       </div>
 
-      <div class="tmk-ship-panel" style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
-        <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:${LC.text};">
-          <input type="checkbox" class="tmk-ship-assist" ${state.shipAssist ? "checked" : ""} style="accent-color:${LC.primary};"/>
-          Ship assists this task
-        </label>
-        <div class="tmk-ship-fields" style="display:${state.shipAssist ? "grid" : "none"};grid-template-columns:1.4fr 1fr 1fr;gap:8px;margin-top:8px;">
-          <label style="${labelStyle()}">Ship<select class="tmk-ship" style="${selectStyle()}">${shipOpts || `<option value="">No ships found</option>`}</select></label>
-          <label style="${labelStyle()}">System<select class="tmk-ship-system" style="${selectStyle()}">${shipSystemOptions(selectedShip, state.shipSystemKey)}</select></label>
-          <label style="${labelStyle()}">Department<select class="tmk-ship-dept" style="${selectStyle()}">${shipDeptOptions(selectedShip, state.shipDeptKey)}</select></label>
+      <div class="tmk-panel tmk-ship-panel">
+        ${panelBar("Ship Assist")}
+        <div class="tmk-panel-body">
+          <label class="tmk-check" style="--tmk-a:${LC.primary};">
+            <input type="checkbox" class="tmk-ship-assist" ${state.shipAssist ? "checked" : ""}/>
+            Ship assists this task
+          </label>
+          <div class="tmk-grid tmk-ship-fields" ${state.shipAssist ? "" : "hidden"}>
+            ${selectField("Ship", "tmk-ship", shipOpts || `<option value="">No ships found</option>`)}
+            ${selectField("System", "tmk-ship-system", shipSystemOptions(selectedShip, state.shipSystemKey))}
+            ${selectField("Department", "tmk-ship-dept", shipDeptOptions(selectedShip, state.shipDeptKey))}
+          </div>
         </div>
       </div>
 
@@ -517,52 +561,46 @@ function buildDialogHtml(state) {
 }
 
 function taskModeToggleHtml(state) {
-  const option = (mode, label) => {
-    const active = state.mode === mode;
-    const color = modeAccent(mode);
-    return `
-      <button type="button" class="tmk-mode-toggle" data-mode="${mode}"
-        style="flex:1;padding:7px 10px;background:${active ? color : LC.bg};color:${active ? LC.bg : LC.text};
-        border:1px solid ${color};border-radius:10px 3px 10px 3px;font-family:${LC.font};font-size:10px;
-        font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;">
-        ${label}
-      </button>`;
-  };
+  // The active state is a class, not an inline background — refreshModeToggleStyles
+  // only toggles it, so the stylesheet keeps ownership of both colours.  All three
+  // keys share the one accent (no inline --tmk-a, so the stylesheet's default
+  // applies): a hue per tab put a dim olive and a washed-out cream in a row of
+  // three, and which tab is selected is already carried by the filled state.
+  const option = (mode, label) => `
+    <button type="button" class="tmk-mode-toggle${state.mode === mode ? " is-active" : ""}"
+      data-mode="${mode}">${label}</button>`;
   return `
-    <div class="tmk-mode-panel" style="display:flex;gap:6px;border:1px solid ${LC.border};background:${LC.panel};padding:6px;border-radius:16px 3px 16px 3px;">
-      ${option("task", "Normal Task")}
-      ${option("extended", "Extended Task")}
-      ${option("opposed", "Opposed Task")}
+    <div class="tmk-panel">
+      ${panelBar("Task Type")}
+      <div class="tmk-mode-panel">
+        ${option("task", "Normal Task")}
+        ${option("extended", "Extended Task")}
+        ${option("opposed", "Opposed Task")}
+      </div>
     </div>`;
 }
 
-function modeAccent(mode) {
-  if (mode === "extended") return LC.secondary;
-  if (mode === "opposed") return LC.tertiary;
-  return LC.primary;
-}
-
 function actorSlotHtml(actor, state) {
+  const body = actor
+    ? `<div class="tmk-actor-row" style="--tmk-a:${LC.primary};">
+         <img src="${esc(actor.img ?? "icons/svg/mystery-man.svg")}"/>
+         <div class="tmk-actor-text">
+           <div class="tmk-actor-name">${esc(actor.name)}</div>
+           <div class="tmk-actor-meta">Drop a token or actor to replace</div>
+         </div>
+         ${clearKey("tmk-actor-clear")}
+       </div>`
+    : `<div class="tmk-drop-hint">Drag an actor or token here</div>`;
   return `
-    <div class="tmk-actor-slot" data-actor-id="${state.actorId ?? ""}" data-token-id="${state.tokenId ?? ""}"
-      style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;min-height:96px;">
-      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${LC.primary};margin-bottom:6px;font-weight:700;">Character</div>
-      <div class="tmk-actor-body">
-        ${actor ? `
-          <div style="display:flex;gap:8px;align-items:center;">
-            <img src="${esc(actor.img ?? "icons/svg/mystery-man.svg")}" style="width:34px;height:34px;border:1px solid ${LC.border};border-radius:8px 2px 8px 2px;object-fit:cover;"/>
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(actor.name)}</div>
-              <div style="font-size:10px;color:${LC.textDim};">Drop a token or actor to replace</div>
-            </div>
-            <button type="button" class="tmk-actor-clear" title="Clear" style="background:transparent;border:none;color:${LC.textDim};cursor:pointer;font-size:14px;">X</button>
-          </div>` : `
-          <div style="color:${LC.textDim};font-size:11px;line-height:1.5;padding:8px 2px 4px;">Drag an actor or token here</div>`}
-      </div>
-      <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">
-        <button type="button" class="tmk-actor-pick" data-source="controlled" style="${pillStyle(LC.primary)}">Controlled</button>
-        <button type="button" class="tmk-actor-pick" data-source="targeted" style="${pillStyle(LC.secondary)}">Targeted</button>
-        <button type="button" class="tmk-actor-pick" data-source="list" style="${pillStyle(LC.tertiary)}">List...</button>
+    <div class="tmk-panel tmk-actor-slot" data-actor-id="${state.actorId ?? ""}" data-token-id="${state.tokenId ?? ""}">
+      ${panelBar("Character")}
+      <div class="tmk-panel-body tmk-dropzone tmk-actor-dropzone" style="--tmk-a:${LC.primary};">
+        <div class="tmk-actor-body">${body}</div>
+        <div class="tmk-slot-actions">
+          ${pillButton("tmk-actor-pick", "Controlled", LC.primary, ` data-source="controlled"`)}
+          ${pillButton("tmk-actor-pick", "Targeted", LC.secondary, ` data-source="targeted"`)}
+          ${pillButton("tmk-actor-pick", "List...", LC.tertiary, ` data-source="list"`)}
+        </div>
       </div>
     </div>`;
 }
@@ -772,13 +810,12 @@ async function ensureExtendedTaskActor(config) {
 
 function traitPanelHtml(state) {
   return `
-    <div class="tmk-trait-panel" style="border:1px solid ${LC.border};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${LC.primary};font-weight:700;">Traits</div>
-        <button type="button" class="tmk-add-scene-trait" style="${pillStyle(LC.secondary)};flex:0 0 auto;">Scene Trait...</button>
+    <div class="tmk-panel tmk-trait-panel">
+      ${panelBar("Traits", pillButton("tmk-add-scene-trait", "Scene Trait...", LC.secondary))}
+      <div class="tmk-panel-body">
+        <div class="tmk-drop tmk-trait-drop" style="--tmk-a:${LC.primary};">Drop traits here from Trait Manager</div>
+        <div class="tmk-trait-list">${state.traits.map(traitRowHtml).join("")}</div>
       </div>
-      <div class="tmk-trait-drop" style="border:1px dashed ${LC.borderDim};padding:8px;border-radius:10px 3px 10px 3px;color:${LC.textDim};font-size:11px;">Drop traits here from Trait Manager</div>
-      <div class="tmk-trait-list" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">${state.traits.map(traitRowHtml).join("")}</div>
     </div>`;
 }
 
@@ -788,14 +825,13 @@ function traitRowHtml(trait) {
     .map(e => effectText(e, trait.quantity))
     .join(" / ") || "Context only";
   return `
-    <div class="tmk-trait-row" data-scope="${esc(trait.scope)}" data-trait-id="${esc(trait.id)}" data-actor-id="${esc(trait.actorId ?? "")}"
-      style="display:flex;gap:6px;align-items:center;padding:5px 6px;border:1px solid ${LC.borderDim};background:${LC.bg};border-radius:8px 2px 8px 2px;">
-      <img src="${esc(trait.img)}" style="width:24px;height:24px;object-fit:cover;border:1px solid ${LC.border};"/>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:11px;font-weight:700;color:${LC.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(trait.name)}</div>
-        <div style="font-size:9px;color:${LC.textDim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(details)}</div>
+    <div class="tmk-trait-row" data-scope="${esc(trait.scope)}" data-trait-id="${esc(trait.id)}" data-actor-id="${esc(trait.actorId ?? "")}">
+      <img src="${esc(trait.img)}"/>
+      <div class="tmk-actor-text">
+        <div class="tmk-trait-name">${esc(trait.name)}</div>
+        <div class="tmk-trait-detail">${esc(details)}</div>
       </div>
-      <button type="button" class="tmk-trait-remove" title="Remove trait" style="background:transparent;border:none;color:${LC.red ?? "#cc4444"};cursor:pointer;">X</button>
+      ${clearKey("tmk-trait-remove", "Remove trait")}
     </div>`;
 }
 
@@ -804,74 +840,61 @@ function extendedTaskPanelHtml(state) {
   const actor = cfg.actorId ? game.actors.get(cfg.actorId) : null;
   const taskActor = state.actorId ? game.actors.get(state.actorId) : null;
   const progress = actor ? extendedProgressSnapshot(actor, cfg) : null;
-  const visible = state.mode === "extended";
   const breakRows = defaultBreakthroughEffects(cfg.workMax, cfg.breakthroughMax, cfg.breakpoints)
     .map((bp, i) => breakthroughConfigRowHtml(bp, i, cfg.workMax))
     .join("");
+  const slotBody = actor
+    ? `<div class="tmk-actor-row" style="--tmk-a:${LC.secondary};">
+         <img src="${esc(actor.img ?? "icons/svg/mystery-man.svg")}"/>
+         <div class="tmk-actor-text">
+           <div class="tmk-actor-name">${esc(actor.name)}</div>
+           <div class="tmk-actor-meta">Progress ${progress?.workValue ?? 0}/${progress?.workMax ?? cfg.workMax} - Difficulty ${progress?.difficulty ?? cfg.difficulty} - Resistance ${progress?.resistance ?? cfg.resistance}</div>
+         </div>
+         ${clearKey("tmk-extended-clear", "Create new instead")}
+       </div>`
+    : `Drop an extended task actor here to continue it, or fill in the fields below to create one in the ${EXTENDED_TASK_FOLDER} folder.`;
   return `
-    <div class="tmk-extended-panel" style="display:${visible ? "flex" : "none"};flex-direction:column;gap:8px;border:1px solid ${LC.secondary};background:${LC.panel};padding:8px;border-radius:16px 3px 16px 3px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:${LC.secondary};font-weight:700;">Extended Task</div>
-        <button type="button" class="tmk-extended-pick" style="${pillStyle(LC.secondary)};flex:0 0 auto;">Pick Existing...</button>
+    <div class="tmk-panel tmk-extended-panel">
+      ${panelBar("Extended Task", pillButton("tmk-extended-pick", "Pick Existing...", LC.secondary))}
+      <div class="tmk-panel-body">
+        <div class="tmk-drop tmk-extended-slot" data-actor-id="${esc(cfg.actorId ?? "")}" style="--tmk-a:${LC.secondary};">
+          ${slotBody}
+        </div>
+        <div class="tmk-grid tmk-ext-core-grid">
+          ${field("Name", textInput("tmk-ext-name", cfg.name))}
+          ${field("Work Max", numInput("tmk-ext-work-max", cfg.workMax, { min: 1, max: 999 }))}
+          ${field("Difficulty", numInput("tmk-ext-difficulty", cfg.difficulty, { max: 99 }))}
+          ${field("Resistance", numInput("tmk-ext-resistance", cfg.resistance, { max: 99 }))}
+          ${field("Magnitude", numInput("tmk-ext-magnitude", cfg.magnitude, { max: 99 }))}
+        </div>
+        <div class="tmk-grid tmk-grid--3">
+          ${field("Breakthroughs", numInput("tmk-ext-breakthrough-max", cfg.breakthroughMax, { max: 9, accent: LC.secondary }))}
+        </div>
+        <div class="tmk-ext-breakthrough-list">
+          ${breakRows}
+        </div>
+        ${extendedIntervalsHtml(cfg)}
+        ${extendedTalentOptionsHtml(taskActor, cfg)}
       </div>
-      <div class="tmk-extended-slot" data-actor-id="${esc(cfg.actorId ?? "")}"
-        style="border:1px dashed ${LC.borderDim};background:${LC.bg};padding:8px;border-radius:10px 3px 10px 3px;min-height:54px;">
-        ${actor ? `
-          <div style="display:flex;gap:8px;align-items:center;">
-            <img src="${esc(actor.img ?? "icons/svg/mystery-man.svg")}" style="width:34px;height:34px;border:1px solid ${LC.secondary};object-fit:cover;"/>
-            <div style="flex:1;min-width:0;">
-              <div style="font-weight:700;font-size:12px;color:${LC.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(actor.name)}</div>
-              <div style="font-size:10px;color:${LC.textDim};">Progress ${progress?.workValue ?? 0}/${progress?.workMax ?? cfg.workMax} - Difficulty ${progress?.difficulty ?? cfg.difficulty} - Resistance ${progress?.resistance ?? cfg.resistance}</div>
-            </div>
-            <button type="button" class="tmk-extended-clear" title="Create new instead" style="background:transparent;border:none;color:${LC.textDim};cursor:pointer;font-size:14px;">X</button>
-          </div>` : `
-          <div style="font-size:11px;color:${LC.textDim};line-height:1.4;">Drop an extended task actor here to continue it, or fill in the fields below to create one in the ${EXTENDED_TASK_FOLDER} folder.</div>`}
-      </div>
-      <div style="display:grid;grid-template-columns:1.4fr 86px 86px 86px 86px;gap:8px;">
-        <label style="${labelStyle()}">Name<input class="tmk-ext-name" type="text" value="${esc(cfg.name)}" style="${inputStyle()}"/></label>
-        <label style="${labelStyle()}">Work Max<input class="tmk-ext-work-max" type="number" min="1" max="999" value="${cfg.workMax}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/></label>
-        <label style="${labelStyle()}">Difficulty<input class="tmk-ext-difficulty" type="number" min="0" max="99" value="${cfg.difficulty}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/></label>
-        <label style="${labelStyle()}">Resistance<input class="tmk-ext-resistance" type="number" min="0" max="99" value="${cfg.resistance}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/></label>
-        <label style="${labelStyle()}">Magnitude<input class="tmk-ext-magnitude" type="number" min="0" max="99" value="${cfg.magnitude}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/></label>
-      </div>
-      <label style="${labelStyle()}">Breakthroughs
-        <input class="tmk-ext-breakthrough-max" type="number" min="0" max="9" value="${cfg.breakthroughMax}" style="${inputStyle("width:96px;text-align:center;font-weight:700;color:" + LC.secondary + ";")}"/>
-      </label>
-      <div class="tmk-ext-breakthrough-list" style="display:flex;flex-direction:column;gap:5px;">
-        ${breakRows}
-      </div>
-      ${extendedIntervalsHtml(cfg)}
-      ${extendedTalentOptionsHtml(taskActor, cfg)}
     </div>`;
 }
 
 function extendedIntervalsHtml(cfg) {
   const intervals = normalizeIntervalsConfig(cfg.intervals ?? {});
   return `
-    <div class="tmk-ext-interval-panel" style="border:1px solid ${LC.borderDim};background:${LC.bg};padding:7px;border-radius:10px 3px 10px 3px;">
-      <label style="display:flex;align-items:center;gap:8px;font-size:10px;color:${LC.text};letter-spacing:0.08em;text-transform:uppercase;font-weight:700;">
-        <input class="tmk-ext-interval-enabled" type="checkbox" ${intervals.enabled ? "checked" : ""} style="accent-color:${LC.secondary};"/>
+    <div class="tmk-well tmk-ext-interval-panel">
+      <label class="tmk-check" style="--tmk-a:${LC.secondary};">
+        <input class="tmk-ext-interval-enabled" type="checkbox" ${intervals.enabled ? "checked" : ""}/>
         Intervals
       </label>
-      <div class="tmk-ext-interval-fields" style="display:${intervals.enabled ? "grid" : "none"};grid-template-columns:1fr 70px 70px 70px 84px;gap:8px;margin-top:7px;">
-        <label style="${labelStyle()}">Mode
-          <select class="tmk-ext-interval-mode" style="${selectStyle()}">
-            <option value="timed" ${intervals.mode === "timed" ? "selected" : ""}>Timed Challenge</option>
-            <option value="variable" ${intervals.mode === "variable" ? "selected" : ""}>Variable/Delay</option>
-          </select>
-        </label>
-        <label style="${labelStyle()}">Starting
-          <input class="tmk-ext-interval-start" type="number" min="0" value="${intervals.start}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/>
-        </label>
-        <label style="${labelStyle()}">Current Intervals
-          <input class="tmk-ext-interval-remaining" type="number" min="0" value="${intervals.remaining}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/>
-        </label>
-        <label style="${labelStyle()}">Ending
-          <input class="tmk-ext-interval-ending" type="number" min="0" value="${intervals.ending}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.secondary + ";")}"/>
-        </label>
-        <label style="${labelStyle()}">Attempt Cost
-          <input class="tmk-ext-interval-cost" type="number" min="1" value="${intervals.timedCost}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.secondary + ";")}"/>
-        </label>
+      <div class="tmk-grid tmk-ext-interval-fields" ${intervals.enabled ? "" : "hidden"} style="margin-top:7px;">
+        ${selectField("Mode", "tmk-ext-interval-mode", `
+          <option value="timed" ${intervals.mode === "timed" ? "selected" : ""}>Timed Challenge</option>
+          <option value="variable" ${intervals.mode === "variable" ? "selected" : ""}>Variable/Delay</option>`)}
+        ${field("Starting", numInput("tmk-ext-interval-start", intervals.start))}
+        ${field("Current Intervals", numInput("tmk-ext-interval-remaining", intervals.remaining))}
+        ${field("Ending", numInput("tmk-ext-interval-ending", intervals.ending, { accent: LC.secondary }))}
+        ${field("Attempt Cost", numInput("tmk-ext-interval-cost", intervals.timedCost, { min: 1, accent: LC.secondary }))}
       </div>
     </div>`;
 }
@@ -881,12 +904,12 @@ function extendedTalentOptionsHtml(actor, cfg) {
   if (!owned.length) return "";
   const selected = cfg.talentOptions ?? {};
   return `
-    <div class="tmk-ext-talent-panel" style="border:1px solid ${LC.borderDim};background:${LC.bg};padding:7px;border-radius:10px 3px 10px 3px;">
-      <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:${LC.secondary};font-weight:700;margin-bottom:5px;">Situational Talents</div>
-      <div style="display:flex;flex-direction:column;gap:5px;">
+    <div class="tmk-well tmk-ext-talent-panel" style="--tmk-a:${LC.secondary};">
+      <div class="tmk-well-title">Situational Talents</div>
+      <div class="tmk-stack">
         ${owned.map(t => `
-          <label style="display:flex;gap:8px;align-items:flex-start;font-size:10px;color:${LC.text};line-height:1.35;">
-            <input class="tmk-ext-talent" type="checkbox" data-talent="${t.key}" ${selected[t.key] ? "checked" : ""} style="margin-top:2px;accent-color:${LC.secondary};"/>
+          <label class="tmk-check tmk-check--top">
+            <input class="tmk-ext-talent" type="checkbox" data-talent="${t.key}" ${selected[t.key] ? "checked" : ""}/>
             <span><strong style="color:${LC.tertiary};">${esc(t.name)}</strong> - ${esc(t.text)}</span>
           </label>
         `).join("")}
@@ -906,24 +929,15 @@ function breakthroughConfigRowHtml(bp, index, workMax) {
     ["1", "Resistance +1"],
   ].map(([value, label]) => `<option value="${value}" ${String(bp.resistanceDelta ?? 0) === value ? "selected" : ""}>${label}</option>`).join("");
   return `
-    <div class="tmk-ext-breakthrough-row" data-index="${index}"
-      style="display:grid;grid-template-columns:72px 1fr 1fr 104px minmax(120px,1.4fr);gap:6px;align-items:end;padding:6px;border:1px solid ${LC.borderDim};background:${LC.bg};border-radius:10px 3px 10px 3px;">
-      <label style="${labelStyle()}">At Work
-        <input class="tmk-ext-bp-threshold" type="number" min="1" max="${Math.max(1, workMax)}" value="${bp.threshold}" style="${inputStyle("text-align:center;font-weight:700;color:" + LC.tertiary + ";")}"/>
-      </label>
-      <label style="${labelStyle()}">Difficulty
-        <select class="tmk-ext-bp-difficulty" style="${selectStyle()}">${diffOptions}</select>
-      </label>
-      <label style="${labelStyle()}">Resistance
-        <select class="tmk-ext-bp-resistance" style="${selectStyle()}">${resistOptions}</select>
-      </label>
-      <label style="display:flex;align-items:center;gap:7px;font-size:10px;color:${LC.text};padding-bottom:7px;">
-        <input class="tmk-ext-bp-next-impact" type="checkbox" ${clampInt(bp.nextImpactBonus, 0, 99, 0) > 0 ? "checked" : ""} style="accent-color:${LC.secondary};"/>
+    <div class="tmk-well tmk-grid tmk-ext-breakthrough-row" data-index="${index}">
+      ${field("At Work", numInput("tmk-ext-bp-threshold", bp.threshold, { min: 1, max: Math.max(1, workMax) }))}
+      ${selectField("Difficulty", "tmk-ext-bp-difficulty", diffOptions)}
+      ${selectField("Resistance", "tmk-ext-bp-resistance", resistOptions)}
+      <label class="tmk-check" style="--tmk-a:${LC.secondary};">
+        <input class="tmk-ext-bp-next-impact" type="checkbox" ${clampInt(bp.nextImpactBonus, 0, 99, 0) > 0 ? "checked" : ""}/>
         +2 Next
       </label>
-      <label style="${labelStyle()}">Notes / Event
-        <input class="tmk-ext-bp-note" type="text" value="${esc(bp.note)}" style="${inputStyle()}"/>
-      </label>
+      ${field("Notes / Event", textInput("tmk-ext-bp-note", bp.note))}
     </div>`;
 }
 
@@ -1047,13 +1061,13 @@ function openReuseHistoryPicker(choices = []) {
           progress = ` ${snap.workValue}/${snap.workMax}`;
         }
       }
-      return `<div class="tmk-reuse-row" data-index="${i}" style="display:flex;gap:8px;align-items:center;padding:6px;cursor:pointer;border-bottom:1px solid ${LC.borderDim};">
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${LC.text};">${esc(reuseEntryLabel(entry))}</span>
-        <span style="font-size:9px;color:${LC.textDim};white-space:nowrap;">${modeTag}${progress}</span>
+      return `<div class="tmk-pick-row tmk-reuse-row" data-index="${i}">
+        <span class="tmk-pick-label">${esc(reuseEntryLabel(entry))}</span>
+        <span class="tmk-pick-tag">${modeTag}${progress}</span>
       </div>`;
     }).join("");
-    const html = `<div style="display:flex;flex-direction:column;gap:6px;max-height:420px;">
-      <div class="tmk-pick-list" style="overflow-y:auto;max-height:380px;border:1px solid ${LC.border};">${rows}</div>
+    const html = `<div class="sta2e-tmk-picker" data-theme="${getActiveLcThemeKey()}" style="${getLcCssVars("tmk")}">
+      <div class="tmk-pick-list">${rows}</div>
     </div>`;
     const dlg = new foundry.applications.api.DialogV2({
       window: { title: "Reuse Task Setup" },
@@ -1074,38 +1088,44 @@ function openReuseHistoryPicker(choices = []) {
   });
 }
 
-// Which panels each tab shows, and the display value to restore them with.
-// Task Name and Notes are deliberately absent — they are shared by all tabs.
-const MODE_PANELS = [
-  [".tmk-actor-slot",      ["task", "extended"],  "block"],
-  [".tmk-params-grid",     ["task", "extended"],  "grid"],
-  [".tmk-difficulty-cell", ["task"],              "flex"],
-  [".tmk-ship-panel",      ["task", "extended"],  "block"],
-  [".tmk-trait-panel",     ["task", "extended"],  "block"],
-  [".tmk-extended-panel",  ["extended"],          "flex"],
-  [".tmk-opposed-panel",   ["opposed"],           "flex"],
-  // The Opposed tab carries its own Reuse Last / Recent toolbar.
-  [".tmk-reuse-last",      ["task", "extended"],  "inline-block"],
-];
+/**
+ * Re-fit the window to whatever the active tab now needs.
+ *
+ * The tabs differ enormously in height — Normal is short, Extended with nine
+ * breakthrough rows is not — and DialogV2 sizes itself once at render, so without
+ * this the window keeps the previous tab's height and the body just gains an inner
+ * scrollbar.  `state._app` is the dialog, stashed by openTaskMakerSetup; the
+ * setPosition({height:"auto"}) pattern is the same one main.js uses when it injects
+ * a fieldset into an existing sheet.
+ */
+function refitDialog(state) {
+  state?._app?.setPosition?.({ height: "auto" });
+}
 
+/**
+ * Tab switching is a CSS concern: the container carries data-mode and
+ * styles/task-maker.css owns both which panels are hidden and what column tracks
+ * the shared parameter grid uses.
+ *
+ * This replaces a table that stored a guessed display value per element ("block"
+ * for panels authored as default-block divs, "inline-block" for a flex item) and
+ * wrote it back on every switch — which silently broke whenever a panel's authored
+ * display changed, and left the grid's track list to a one-line special case.
+ */
 function applyModeVisibility(root, state) {
-  for (const [selector, modes, shown] of MODE_PANELS) {
-    const el = root.querySelector(selector);
-    if (el) el.style.display = modes.includes(state.mode) ? shown : "none";
-  }
-  const grid = root.querySelector(".tmk-params-grid");
-  if (grid) grid.style.gridTemplateColumns = state.mode === "extended" ? "1fr 1fr 1fr" : "1fr 1fr 100px 1fr";
+  const container = root.querySelector(".sta2e-task-maker");
+  if (container) container.dataset.mode = state.mode;
   refreshModeToggleStyles(root, state);
+  refitDialog(state);
 }
 
 // Kept alongside applyModeVisibility rather than in the click handler so the tab
 // bar stays in sync when refreshExtendedTaskPanel repaints the extended panel.
+// A class toggle, not an inline background write: the stylesheet owns both the
+// active and the resting colour, so a theme change reaches them.
 function refreshModeToggleStyles(root, state) {
   root.querySelectorAll(".tmk-mode-toggle").forEach(btn => {
-    const active = btn.dataset.mode === state.mode;
-    const color = modeAccent(btn.dataset.mode);
-    btn.style.background = active ? color : LC.bg;
-    btn.style.color = active ? LC.bg : LC.text;
+    btn.classList.toggle("is-active", btn.dataset.mode === state.mode);
   });
 }
 
@@ -1129,14 +1149,17 @@ function wireTaskMode(root, state) {
 function wireActorSlot(root, state) {
   const slot = root.querySelector(".tmk-actor-slot");
   if (!slot) return;
+  // The highlight is a class, not an inline border-color write — an inline colour
+  // would outrank the stylesheet permanently once dragleave restored a literal.
+  const zone = slot.querySelector(".tmk-actor-dropzone") ?? slot;
   slot.addEventListener("dragover", event => {
     event.preventDefault();
-    slot.style.borderColor = LC.primary;
+    zone.classList.add("is-dropping");
   });
-  slot.addEventListener("dragleave", () => { slot.style.borderColor = LC.border; });
+  slot.addEventListener("dragleave", () => zone.classList.remove("is-dropping"));
   slot.addEventListener("drop", async event => {
     event.preventDefault();
-    slot.style.borderColor = LC.border;
+    zone.classList.remove("is-dropping");
     const actor = await resolveDragActor(event);
     if (!isTaskActor(actor)) {
       ui.notifications.warn("STA2e Toolkit: Drop a character token or actor.");
@@ -1205,6 +1228,9 @@ function assignActor(root, state, actor, tokenId) {
   state.shipActorId = ships[0]?.actorId ?? null;
   refreshShipSelects(root, state);
   if (root.querySelector(".tmk-extended-panel")) refreshExtendedTaskPanel(root, state);
+  // Assigning swaps a one-line hint for a portrait row (and clearing does the
+  // reverse), so the slot's height changes either way.
+  refitDialog(state);
 }
 
 function wireExtendedTaskPanel(root, state) {
@@ -1213,12 +1239,12 @@ function wireExtendedTaskPanel(root, state) {
   const slot = panel.querySelector(".tmk-extended-slot");
   slot?.addEventListener("dragover", event => {
     event.preventDefault();
-    slot.style.borderColor = LC.secondary;
+    slot.classList.add("is-dropping");
   });
-  slot?.addEventListener("dragleave", () => { slot.style.borderColor = LC.borderDim; });
+  slot?.addEventListener("dragleave", () => slot.classList.remove("is-dropping"));
   slot?.addEventListener("drop", async event => {
     event.preventDefault();
-    slot.style.borderColor = LC.borderDim;
+    slot.classList.remove("is-dropping");
     const actor = await resolveDragActor(event);
     if (!isExtendedTaskActor(actor)) {
       ui.notifications.warn("STA2e Toolkit: Drop an extended task actor.");
@@ -1244,7 +1270,8 @@ function wireExtendedTaskPanel(root, state) {
   panel.querySelector(".tmk-ext-breakthrough-max")?.addEventListener("change", () => refreshBreakthroughRows(root, state));
   panel.querySelector(".tmk-ext-interval-enabled")?.addEventListener("change", event => {
     const fields = panel.querySelector(".tmk-ext-interval-fields");
-    if (fields) fields.style.display = event.currentTarget.checked ? "grid" : "none";
+    if (fields) fields.hidden = !event.currentTarget.checked;
+    refitDialog(state);
   });
 }
 
@@ -1277,18 +1304,21 @@ function refreshBreakthroughRows(root, state) {
       .map((bp, i) => breakthroughConfigRowHtml(bp, i, state.extendedTask.workMax))
       .join("");
   }
+  // Adding or removing rows changes the panel's height by a lot; this path never
+  // went through applyModeVisibility, so it needs its own re-fit.
+  refitDialog(state);
 }
 
 function openActorPicker() {
   return new Promise(resolve => {
     const actors = game.actors.contents.filter(isTaskActor).sort((a, b) => a.name.localeCompare(b.name));
     const html = `
-      <div style="display:flex;flex-direction:column;gap:6px;max-height:420px;">
-        <input type="text" class="tmk-pick-search" placeholder="Filter..." style="${inputStyle()}"/>
-        <div class="tmk-pick-list" style="overflow-y:auto;max-height:360px;border:1px solid ${LC.border};">
-          ${actors.map(a => `<div class="tmk-pick-row" data-actor-id="${a.id}" style="display:flex;gap:6px;align-items:center;padding:4px;cursor:pointer;border-bottom:1px solid ${LC.borderDim};">
-            <img src="${esc(a.img ?? "icons/svg/mystery-man.svg")}" style="width:22px;height:22px;border:1px solid ${LC.border};object-fit:cover;"/>
-            <span style="flex:1;">${esc(a.name)}</span>
+      <div class="sta2e-tmk-picker" data-theme="${getActiveLcThemeKey()}" style="${getLcCssVars("tmk")}">
+        <input type="text" class="tmk-input tmk-pick-search" placeholder="Filter..."/>
+        <div class="tmk-pick-list">
+          ${actors.map(a => `<div class="tmk-pick-row" data-actor-id="${a.id}">
+            <img src="${esc(a.img ?? "icons/svg/mystery-man.svg")}"/>
+            <span class="tmk-pick-label">${esc(a.name)}</span>
           </div>`).join("")}
         </div>
       </div>`;
@@ -1327,15 +1357,15 @@ function openExtendedTaskPicker() {
       return;
     }
     const html = `
-      <div style="display:flex;flex-direction:column;gap:6px;max-height:420px;">
-        <input type="text" class="tmk-pick-search" placeholder="Filter..." style="${inputStyle()}"/>
-        <div class="tmk-pick-list" style="overflow-y:auto;max-height:360px;border:1px solid ${LC.border};">
+      <div class="sta2e-tmk-picker" data-theme="${getActiveLcThemeKey()}" style="${getLcCssVars("tmk")}">
+        <input type="text" class="tmk-input tmk-pick-search" placeholder="Filter..."/>
+        <div class="tmk-pick-list">
           ${actors.map(a => {
             const snap = extendedProgressSnapshot(a);
-            return `<div class="tmk-pick-row" data-actor-id="${a.id}" style="display:flex;gap:6px;align-items:center;padding:4px;cursor:pointer;border-bottom:1px solid ${LC.borderDim};">
-              <img src="${esc(a.img ?? "icons/svg/mystery-man.svg")}" style="width:22px;height:22px;border:1px solid ${LC.border};object-fit:cover;"/>
-              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</span>
-              <span style="font-size:9px;color:${LC.textDim};white-space:nowrap;">${snap.workValue}/${snap.workMax}</span>
+            return `<div class="tmk-pick-row" data-actor-id="${a.id}">
+              <img src="${esc(a.img ?? "icons/svg/mystery-man.svg")}"/>
+              <span class="tmk-pick-label">${esc(a.name)}</span>
+              <span class="tmk-pick-tag">${snap.workValue}/${snap.workMax}</span>
             </div>`;
           }).join("")}
         </div>
@@ -1370,7 +1400,8 @@ function wireShipFields(root, state) {
   const assist = root.querySelector(".tmk-ship-assist");
   assist?.addEventListener("change", () => {
     const fields = root.querySelector(".tmk-ship-fields");
-    if (fields) fields.style.display = assist.checked ? "grid" : "none";
+    if (fields) fields.hidden = !assist.checked;
+    refitDialog(state);
   });
   root.querySelector(".tmk-ship")?.addEventListener("change", event => {
     state.shipActorId = event.target.value;
@@ -1398,12 +1429,12 @@ function wireTraitPanel(root, state) {
   const drop = root.querySelector(".tmk-trait-drop");
   drop?.addEventListener("dragover", event => {
     event.preventDefault();
-    drop.style.borderColor = LC.primary;
+    drop.classList.add("is-dropping");
   });
-  drop?.addEventListener("dragleave", () => { drop.style.borderColor = LC.borderDim; });
+  drop?.addEventListener("dragleave", () => drop.classList.remove("is-dropping"));
   drop?.addEventListener("drop", event => {
     event.preventDefault();
-    drop.style.borderColor = LC.borderDim;
+    drop.classList.remove("is-dropping");
     const trait = resolveDroppedTrait(event);
     if (!trait) {
       ui.notifications.warn("STA2e Toolkit: Drop a trait from Trait Manager.");
@@ -1452,6 +1483,7 @@ function renderTraitList(root, state) {
     list.innerHTML = state.traits.map(traitRowHtml).join("");
     wireTraitRows(root, state);
   }
+  refitDialog(state);
 }
 
 function openSceneTraitPicker() {
@@ -1462,11 +1494,13 @@ function openSceneTraitPicker() {
       resolve(null);
       return;
     }
-    const html = `<div style="display:flex;flex-direction:column;gap:4px;max-height:360px;overflow-y:auto;">
-      ${traits.map(t => `<button type="button" class="tmk-scene-trait-row" data-trait-id="${esc(t.id)}" style="display:flex;align-items:center;gap:6px;background:${LC.panel};color:${LC.text};border:1px solid ${LC.border};padding:6px;cursor:pointer;text-align:left;">
-        <img src="${esc(t.img)}" style="width:24px;height:24px;object-fit:cover;border:1px solid ${LC.border};"/>
-        <span>${esc(t.name)}</span>
-      </button>`).join("")}
+    const html = `<div class="sta2e-tmk-picker" data-theme="${getActiveLcThemeKey()}" style="${getLcCssVars("tmk")}">
+      <div class="tmk-pick-list">
+        ${traits.map(t => `<button type="button" class="tmk-pick-row tmk-scene-trait-row" data-trait-id="${esc(t.id)}">
+          <img src="${esc(t.img)}"/>
+          <span class="tmk-pick-label">${esc(t.name)}</span>
+        </button>`).join("")}
+      </div>
     </div>`;
     const dlg = new foundry.applications.api.DialogV2({
       window: { title: "Pick Scene Trait" },
@@ -1581,13 +1615,8 @@ function renderTaskCardHtml(data) {
   const extendedLine = data.mode === "extended" && data.extendedTask
     ? extendedTaskSummaryHtml(data.extendedTask)
     : "";
-  return `
-<div class="sta2e-task-card" data-task-id="${data.taskId}" data-theme="${theme}" data-template="${template}"
-  style="${themeVars}background:${LC.bg};border:1px solid ${LC.primary};border-radius:3px;font-family:${LC.font};color:${LC.text};max-width:560px;overflow:hidden;">
-  <div style="background:${LC.primary};color:${LC.bg};padding:6px 12px;display:flex;justify-content:space-between;align-items:center;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;">
-    <span style="font-size:11px;">${data.mode === "extended" ? "Extended Task" : "Task Request"}</span>
-    <span style="font-size:10px;opacity:0.9;">Difficulty ${data.difficulty}</span>
-  </div>
+  const requestTitle = `${data.mode === "extended" ? "Extended Task" : "Task Request"} — Difficulty ${data.difficulty}`;
+  const requestBody = `
   <div style="padding:9px 12px;">
     <div style="display:flex;gap:8px;align-items:flex-start;">
       <img src="${esc(data.actorImg)}" style="width:36px;height:36px;object-fit:cover;border:1px solid ${LC.primary};background:#000;"/>
@@ -1612,8 +1641,25 @@ function renderTaskCardHtml(data) {
       </button>
     </div>
   </div>
+`;
+
+  return lcarsChatCard({
+    title: requestTitle,
+    accent: LC.primary,
+    body: requestBody,
+    rootClass: "sta2e-task-request-card",
+    attrs: `data-task-id="${data.taskId}"`,
+    legacy: () => `
+<div class="sta2e-task-request-card" data-task-id="${data.taskId}" data-theme="${theme}" data-template="${template}"
+  style="${themeVars}background:${LC.bg};border:1px solid ${LC.primary};border-radius:3px;font-family:${LC.font};color:${LC.text};max-width:560px;overflow:hidden;">
+  <div style="background:${LC.primary};color:${LC.bg};padding:6px 12px;display:flex;justify-content:space-between;align-items:center;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;">
+    <span style="font-size:11px;">${data.mode === "extended" ? "Extended Task" : "Task Request"}</span>
+    <span style="font-size:10px;opacity:0.9;">Difficulty ${data.difficulty}</span>
+  </div>
+${requestBody}
   <div style="height:3px;background:${LC.primary};"></div>
-</div>`;
+</div>`,
+  });
 }
 
 function extendedTaskSummaryHtml(ext) {
@@ -2057,6 +2103,8 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
     consumePendingBonus: false,
     triggerBreakthroughs: true,
   });
+  // 0 rather than 1 when the task was already at its cap.
+  const workDelta = Math.max(0, (applied.after.workValue ?? 0) - (before.workValue ?? 0));
   const cardData = {
     taskName: progressData.taskName ?? "Extra Work",
     actorName: progressData.actorName ?? game.users.get(requesterUserId)?.name ?? `${spendPoolLabel(extraWorkPool)} Spend`,
@@ -2064,12 +2112,12 @@ export async function applyExtendedTaskExtraWork({ messageId = null, extendedTas
     successes: null,
     momentum: null,
     complications: null,
-    departmentScore: 0,
+    departmentScore: before.workValue ?? 0,          // Base — work before this spend
     pendingBonus: 0,
-    momentumWork: 1,
-    rawImpact: 1,
+    momentumWork: workDelta,                          // Extra — what this spend added
+    rawImpact: workDelta,
     resistance: 0,
-    workApplied: 1,
+    workApplied: applied.after.workValue ?? 0,        // Applied — the running total
     before,
     after: applied.after,
     triggered: applied.triggered,
@@ -2494,21 +2542,26 @@ function renderExtendedTaskResultCard(data, messageId = null) {
         ${(data.talentNotes ?? []).map(t => `<div style="font-size:10px;color:${LC.text};line-height:1.35;"><span style="color:${LC.tertiary};font-weight:700;">${esc(t.name)}</span> - ${esc(t.text)}</div>`).join("")}
       </div>`
     : "";
-  return `
-<div class="sta2e-extended-task-result" data-theme="${theme}" data-template="${template}"
-  style="${themeVars}background:${LC.bg};border:1px solid ${LC.secondary};border-radius:3px;font-family:${LC.font};color:${LC.text};max-width:560px;overflow:hidden;">
-  <div style="background:${LC.secondary};color:${LC.bg};padding:6px 12px;display:flex;justify-content:space-between;gap:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">
-    <span style="font-size:11px;">Extended Task Progress</span>
-    <span style="font-size:10px;">${cardLabel}</span>
-  </div>
+  // The cost is on the extra-work button right below, so it is not a stat cell.
+  const statCells = data.extraWorkOnly
+    ? [
+        ["Base", data.departmentScore, LC.tertiary],
+        ["Extra", data.momentumWork, LC.secondary],
+        ["Applied", data.workApplied, data.workApplied > 0 ? LC.green ?? LC.secondary : LC.textDim],
+      ]
+    : [
+        ["Impact", data.departmentScore, LC.tertiary],
+        ["Resist", data.resistance, LC.orange ?? LC.primary],
+        ["Talent", data.talentImpact ?? 0, LC.secondary],
+        ["Applied", data.workApplied, data.workApplied > 0 ? LC.green ?? LC.secondary : LC.textDim],
+      ];
+
+  const extBody = `
   <div style="padding:9px 12px;">
     <div style="font-size:14px;font-weight:700;color:${LC.secondary};">${esc(after.actorName)}</div>
     <div style="font-size:10px;color:${LC.textDim};margin-top:2px;">${esc(data.taskName ?? "Task")} - ${esc(data.actorName ?? "")}</div>
-    <div style="margin-top:8px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
-      ${statChip(data.extraWorkOnly ? "Base" : "Impact", data.departmentScore, LC.tertiary)}
-      ${statChip(data.extraWorkOnly ? "Cost" : "Resist", data.extraWorkOnly ? `${extraWorkCost} ${spendPoolShortLabel(extraWorkPool)}` : data.resistance, LC.orange ?? LC.primary)}
-      ${statChip(data.extraWorkOnly ? "Extra" : "Talent", data.extraWorkOnly ? data.momentumWork : data.talentImpact ?? 0, LC.secondary)}
-      ${statChip("Applied", data.workApplied, data.workApplied > 0 ? LC.green ?? LC.secondary : LC.textDim)}
+    <div style="margin-top:8px;display:grid;grid-template-columns:repeat(${statCells.length},1fr);gap:4px;">
+      ${statCells.map(([label, value, colour]) => statChip(label, value, colour)).join("")}
     </div>
     ${data.passed && data.pendingBonus ? `<div style="margin-top:5px;font-size:10px;color:${LC.tertiary};">Pending breakthrough bonus consumed: +${data.pendingBonus} Impact.</div>` : ""}
     ${data.passed && data.resistanceBefore > 0 && data.resistance === 0 ? `<div style="margin-top:5px;font-size:10px;color:${LC.secondary};">Resistance ${data.resistanceBefore} ignored.</div>` : ""}
@@ -2528,8 +2581,24 @@ function renderExtendedTaskResultCard(data, messageId = null) {
     ${after.nextImpactBonus ? `<div style="margin-top:6px;font-size:10px;color:${LC.tertiary};">Next successful task gains +${after.nextImpactBonus} Impact before Resistance.</div>` : ""}
     ${extraWorkButton}
   </div>
+`;
+
+  return lcarsChatCard({
+    title: `Extended Task Progress — ${cardLabel}`,
+    accent: LC.secondary,
+    body: extBody,
+    rootClass: "sta2e-extended-task-result",
+    legacy: () => `
+<div class="sta2e-extended-task-result" data-theme="${theme}" data-template="${template}"
+  style="${themeVars}background:${LC.bg};border:1px solid ${LC.secondary};border-radius:3px;font-family:${LC.font};color:${LC.text};max-width:560px;overflow:hidden;">
+  <div style="background:${LC.secondary};color:${LC.bg};padding:6px 12px;display:flex;justify-content:space-between;gap:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">
+    <span style="font-size:11px;">Extended Task Progress</span>
+    <span style="font-size:10px;">${cardLabel}</span>
+  </div>
+${extBody}
   <div style="height:3px;background:${LC.secondary};"></div>
-</div>`;
+</div>`,
+  });
 }
 
 function statChip(label, value, color) {

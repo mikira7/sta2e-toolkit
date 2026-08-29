@@ -12,16 +12,39 @@
  * are used when available; free-tier paths with .tint() are used otherwise.
  */
 
-import { getLcCssVars, getLcTokens } from "./lcars-theme.js";
+import {
+  swColumns, swPanel, swGrid, swField, swSelect, swInput, swKey,
+} from "./spawn-chrome.js";
 import {
   formatStardate, formatCalendarDate,
   formatKlingonDate, formatRomulanDate,
 } from "./stardate-calc.js";
 import { TransporterVFX } from "./transporter-vfx.js";
-import { SPAWN_PATTERNS, calcSpawnOffsets, scatterMaxRadius } from "./spawn-patterns.js";
-import { getWildcardImage } from "./token-spawn-utils.js";
+import { SPAWN_PATTERNS } from "./spawn-patterns.js";
+import { getWildcardImage, buildSpawnTokenData, protoHalfSize } from "./token-spawn-utils.js";
+import { centreToTopLeft, pickSpawnCentres } from "./spawn-picker.js";
+import { buildLocationOptions, parseLocation } from "./spawn-regions.js";
+import { registerSpawnTab, openSpawnWindow, getSpawnPref, setSpawnPref } from "./spawn-window.js";
+import {
+  addBufferGroup,
+  buildBufferHTML,
+  getBufferGroups,
+  makeBufferGroup,
+  removeBufferGroup,
+  wireBufferButtons,
+} from "./spawn-buffer.js";
+import { buildQueueHTML, renderQueue, wireQueue } from "./spawn-queue.js";
 
 const MODULE = "sta2e-toolkit";
+const TAB_ID = "transporter";
+
+/**
+ * Where the last beam-in was aimed, remembered across window opens. A GM running
+ * a ship with a fixed transporter room picks their pads once, not every session.
+ * A site that does not exist on the current scene falls back to Canvas Click,
+ * since the option simply is not in the rebuilt list.
+ */
+const BEAM_SITE_PREF = "transporterLocation";
 
 // ── Current date label ────────────────────────────────────────────────────────
 // Returns the appropriate date string for the active campaign era/theme,
@@ -53,547 +76,6 @@ function _getCurrentDateLabel() {
     if (campaign.calendarDate) return formatCalendarDate(campaign.calendarDate);
   } catch { /* fall through */ }
   return null;
-}
-
-// ── Theme detection ────────────────────────────────────────────────────────────
-
-function _getThemeKey() {
-  try {
-    const store    = game?.sta2eToolkit?.campaignStore;
-    const campaign = store?.getActiveCampaign?.();
-    if (campaign?.theme) return campaign.theme;
-    return game.settings.get(MODULE, "hudTheme") ?? "lcars-tng";
-  } catch { return "lcars-tng"; }
-}
-
-// ── Per-theme CSS injection ────────────────────────────────────────────────────
-// Each theme gets its own CSS variable overrides AND structural style
-// overrides applied to .sta2e-tp-dialog via a data-theme attribute.
-
-function _buildThemeVars() {
-  const LC    = getLcTokens();
-  const theme = _getThemeKey();
-  const arrow = encodeURIComponent(LC.primary);
-
-  // Base variables applied to all themes
-  const baseVars = `
-    .sta2e-tp-dialog {
-      ${getLcCssVars("tp", LC)}
-    }
-    .sta2e-tp-dialog .sta2e-tp-select {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='${arrow}'/%3E%3C/svg%3E") !important;
-    }`;
-
-  // Theme-specific structural overrides
-  const themeExtras = {
-
-    "tos-panel": `
-      /* TOS — squared metal panel, amber on dark, blinky indicator aesthetic */
-      .sta2e-tp-dialog[data-theme="tos-panel"] {
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        background: #1a1a1a;
-        border: 2px solid #111;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-header {
-        background: linear-gradient(180deg, #363636 0%, #2a2a2a 40%, #222 100%);
-        border-radius: 0;
-        border-bottom: 3px solid #111;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5);
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-header-pill {
-        background: #cc4400;
-        color: #fff;
-        border-radius: 2px;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        letter-spacing: 1px;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-header-title {
-        color: #e8c860;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        font-size: 11px;
-        letter-spacing: 4px;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-header-stardate {
-        color: #e8c860;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-sidebar {
-        background: linear-gradient(180deg, #333 0%, #222 100%);
-        border-right: 2px solid #111;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-sidebar-right {
-        background: linear-gradient(180deg, #222 0%, #1a1a1a 100%);
-        border-left: 2px solid #111;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-section-label {
-        color: #888;
-        border-bottom: 1px solid #444;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        font-size: 8px;
-        letter-spacing: 4px;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-label {
-        color: #e8c860;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        font-size: 9px;
-        letter-spacing: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-select,
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-input {
-        background: #111 !important;
-        border: 1px solid #555;
-        color: #e8c860;
-        border-radius: 2px;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-drop-zone {
-        border: 2px solid #555;
-        border-radius: 2px;
-        background: #0f0f0f;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-drop-zone.drag-over {
-        border-color: #e8c860;
-        background: #1a1800;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-drop-hint { color: #555; }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-token-item {
-        background: #111;
-        border-color: #555;
-        border-left-color: #e8c860;
-        border-radius: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-col-right {
-        border-left-color: #333;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-buffer-group {
-        background: #0f0f0f;
-        border-color: #555;
-        border-left-color: #e8c860;
-        border-radius: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-buffer-header {
-        background: #1a1a1a;
-        border-bottom-color: #333;
-      }
-      .sta2e-tp-dialog[data-theme="tos-panel"] .sta2e-tp-footer-bar {
-        background: linear-gradient(to right, #e8c860, #aa8800, #e8c860);
-      }`,
-
-    "tmp-console": `
-      /* TMP — sleek blue, oval pill buttons, left gradient stripe */
-      .sta2e-tp-dialog[data-theme="tmp-console"] {
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        background: #0d1016;
-        border: 1px solid #1e2838;
-        border-radius: 6px;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-header {
-        background: linear-gradient(180deg, #141820 0%, #0d1016 100%);
-        border-radius: 6px 6px 0 0;
-        border-bottom: 1px solid #1e2838;
-        padding-left: 38px; /* room for the stripe */
-        position: relative;
-        overflow: visible;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-header::before {
-        content: "";
-        position: absolute;
-        left: 0; top: 0; bottom: 0;
-        width: 30px;
-        background: linear-gradient(180deg, #3a6090 0%, #1e3a60 100%);
-        border-radius: 6px 0 0 0;
-        border-right: 1px solid #0a1828;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-header-pill {
-        background: #1a3060;
-        color: #b8d8f8;
-        border-radius: 10px;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        border: 1px solid #3a5a90;
-        font-size: 9px;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-header-title {
-        color: #7ab4e8;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        font-size: 11px;
-        letter-spacing: 4px;
-        font-weight: 400;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-header-stardate {
-        color: #3a5a80;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-sidebar {
-        background: linear-gradient(180deg, #1e3060 0%, #0a1828 100%);
-        border-right: 1px solid #0a1828;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-sidebar-right {
-        background: linear-gradient(180deg, #0d1828 0%, #080d14 100%);
-        border-left: 1px solid #1e2838;
-        border-radius: 0 0 6px 0;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-section-label {
-        color: #3a5a80;
-        border-bottom: 1px solid #1e2838;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        font-size: 7px;
-        letter-spacing: 4px;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-label {
-        color: #3a5a80;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-        font-size: 9px;
-        letter-spacing: 3px;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-select,
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-input {
-        background: #080d14 !important;
-        border: 1px solid #2a3a50;
-        border-radius: 8px;
-        color: #7ab4e8;
-        font-family: "Helvetica Neue", Arial, sans-serif;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-drop-zone {
-        border: 1px solid #1e2838;
-        border-radius: 8px;
-        background: #080d14;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-drop-zone.drag-over {
-        border-color: #7ab4e8;
-        background: #0d1828;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-drop-hint { color: #1e2838; }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-token-item {
-        background: #080d14;
-        border-color: #1e2838;
-        border-left-color: #3a6090;
-        border-radius: 6px;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-col-right {
-        border-left-color: #1e2838;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-buffer-group {
-        background: #080d14;
-        border-color: #1e2838;
-        border-left-color: #3a6090;
-        border-radius: 6px;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-buffer-header {
-        background: #0d1828;
-        border-bottom-color: #1e2838;
-      }
-      .sta2e-tp-dialog[data-theme="tmp-console"] .sta2e-tp-footer-bar {
-        background: linear-gradient(to right, #3a6090, #1e3060, #3a6090);
-        border-radius: 0 0 4px 4px;
-      }`,
-
-    "ent-panel": `
-      /* ENT — gunmetal industrial, subdued blue-grey, UESPA aesthetic */
-      .sta2e-tp-dialog[data-theme="ent-panel"] {
-        font-family: Arial, sans-serif;
-        background: #090c0f;
-        border: 1px solid #1e2a38;
-        border-radius: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-header {
-        background: #111820;
-        border-radius: 0;
-        border-bottom: 2px solid #1e2a38;
-        padding: 5px 12px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-header-pill {
-        background: #0d1520;
-        color: #4a7a99;
-        border-radius: 2px;
-        font-family: Arial, sans-serif;
-        border: 1px solid #253040;
-        letter-spacing: 2px;
-        font-size: 9px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-header-title {
-        color: #4a7a99;
-        font-family: Arial, sans-serif;
-        font-size: 11px;
-        letter-spacing: 5px;
-        font-weight: 400;
-        text-transform: uppercase;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-header-stardate {
-        color: #3a5566;
-        font-family: "Courier New", monospace;
-        font-size: 10px;
-        letter-spacing: 1px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-sidebar {
-        background: #0d1520;
-        border-right: 1px solid #1e2a38;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-sidebar-right {
-        background: #0a1018;
-        border-left: 1px solid #1e2a38;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-sidebar::before,
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-sidebar::after {
-        background: #1e2a38;
-        width: 8px; height: 8px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-section-label {
-        color: #3a5566;
-        border-bottom: 1px solid #1e2a38;
-        font-family: Arial, sans-serif;
-        font-size: 8px;
-        letter-spacing: 3px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-label {
-        color: #3a5566;
-        font-family: Arial, sans-serif;
-        font-size: 9px;
-        letter-spacing: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-select,
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-input {
-        background: #0d1520 !important;
-        border: 1px solid #253040;
-        border-radius: 1px;
-        color: #4a7a99;
-        font-family: Arial, sans-serif;
-        font-size: 11px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-drop-zone {
-        border: 1px solid #1e2a38;
-        border-radius: 1px;
-        background: #080c12;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-drop-zone.drag-over {
-        border-color: #4a7a99;
-        background: #0d1828;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-drop-hint { color: #1e2a38; font-family: Arial, sans-serif; }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-token-item {
-        background: #0d1520;
-        border-color: #1e2a38;
-        border-left-color: #4a7a99;
-        border-radius: 1px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-col-right { border-left-color: #1e2a38; }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-buffer-group {
-        background: #0a1018;
-        border-color: #1e2a38;
-        border-left-color: #4a7a99;
-        border-radius: 1px;
-      }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-buffer-header { background: #0d1520; border-bottom-color: #1e2a38; }
-      .sta2e-tp-dialog[data-theme="ent-panel"] .sta2e-tp-footer-bar {
-        background: linear-gradient(to right, #253040, #1e2a38, #253040);
-      }`,
-
-    "klingon": `
-      /* Klingon — harsh, zero curves, blood red on black */
-      .sta2e-tp-dialog[data-theme="klingon"] {
-        font-family: "Arial Narrow", Arial, sans-serif;
-        background: #0f0000;
-        border: 2px solid #661100;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-header {
-        background: #1a0000;
-        border-radius: 0;
-        border-bottom: 2px solid #881100;
-        padding: 6px 12px;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-header-pill {
-        background: #330000;
-        color: #cc1111;
-        border-radius: 0;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        border: 1px solid #661100;
-        letter-spacing: 3px;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-header-title {
-        color: #cc1111;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        font-size: 14px;
-        letter-spacing: 6px;
-        font-weight: 700;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-header-stardate {
-        color: #661100;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        font-size: 10px;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-sidebar {
-        background: #1a0000;
-        border-right: 2px solid #661100;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-sidebar-right {
-        background: #140000;
-        border-left: 2px solid #440900;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-sidebar::before,
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-sidebar::after {
-        background: #661100;
-        border-radius: 0;
-        width: 8px; height: 3px; /* angular, not round */
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-section-label {
-        color: #661100;
-        border-bottom: 1px solid #661100;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        letter-spacing: 4px;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-label {
-        color: #883300;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        letter-spacing: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-select,
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-input {
-        background: #0f0000 !important;
-        border: 1px solid #661100;
-        border-radius: 0;
-        color: #cc3300;
-        font-family: "Arial Narrow", Arial, sans-serif;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-drop-zone {
-        border: 2px solid #441100;
-        border-radius: 0;
-        background: #0a0000;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-drop-zone.drag-over {
-        border-color: #cc1111;
-        background: #1a0000;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-drop-hint { color: #440900; font-family: "Arial Narrow", Arial, sans-serif; }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-token-item {
-        background: #0f0000;
-        border-color: #661100;
-        border-left-color: #cc1111;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-col-right { border-left-color: #330000; }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-buffer-group {
-        background: #0a0000;
-        border-color: #661100;
-        border-left-color: #cc1111;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-buffer-header { background: #140000; border-bottom-color: #330000; }
-      .sta2e-tp-dialog[data-theme="klingon"] .sta2e-tp-footer-bar {
-        background: linear-gradient(to right, #cc1111, #661100, #cc1111);
-        border-radius: 0;
-      }`,
-
-    "romulan": `
-      /* Romulan — cold precise green, left accent stripe, clinical */
-      .sta2e-tp-dialog[data-theme="romulan"] {
-        font-family: "Arial Narrow", Arial, sans-serif;
-        background: #000a00;
-        border: 1px solid #1a5533;
-        border-radius: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-header {
-        background: #001200;
-        border-radius: 0;
-        border-bottom: 1px solid #1a5533;
-        padding: 6px 12px 6px 16px;
-        position: relative;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-header::before {
-        content: "";
-        position: absolute;
-        left: 0; top: 0; bottom: 0;
-        width: 6px;
-        background: #22aa44;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-header-pill {
-        background: #001a00;
-        color: #22aa44;
-        border-radius: 2px;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        border: 1px solid #1a5533;
-        letter-spacing: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-header-title {
-        color: #22aa44;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        font-size: 12px;
-        letter-spacing: 5px;
-        font-weight: 400;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-header-stardate {
-        color: #1a5533;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        font-size: 10px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-sidebar {
-        background: #001a00;
-        border-right: 1px solid #1a5533;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-sidebar::before,
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-sidebar::after {
-        background: #1a5533;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-sidebar-right {
-        background: #00140a;
-        border-left: 1px solid #0d3322;
-        border-radius: 0;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-section-label {
-        color: #1a5533;
-        border-bottom: 1px solid #1a5533;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        letter-spacing: 4px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-label {
-        color: #226633;
-        font-family: "Arial Narrow", Arial, sans-serif;
-        letter-spacing: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-select,
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-input {
-        background: #001200 !important;
-        border: 1px solid #1a5533;
-        border-radius: 2px;
-        color: #22aa44;
-        font-family: "Arial Narrow", Arial, sans-serif;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-drop-zone {
-        border: 1px solid #0d3322;
-        border-radius: 2px;
-        background: #000a00;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-drop-zone.drag-over {
-        border-color: #22aa44;
-        background: #001a00;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-drop-hint { color: #0d3322; font-family: "Arial Narrow", Arial, sans-serif; }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-token-item {
-        background: #001200;
-        border-color: #1a5533;
-        border-left-color: #22aa44;
-        border-radius: 1px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-col-right { border-left-color: #0d3322; }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-buffer-group {
-        background: #000a00;
-        border-color: #1a5533;
-        border-left-color: #22aa44;
-        border-radius: 2px;
-      }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-buffer-header { background: #001a00; border-bottom-color: #0d3322; }
-      .sta2e-tp-dialog[data-theme="romulan"] .sta2e-tp-footer-bar {
-        background: linear-gradient(to right, #22aa44, #1a5533, #22aa44);
-      }`,
-  };
-
-  const extra = themeExtras[theme] ?? "";
-  return `<style>${baseVars}${extra}</style>`;
 }
 
 // ── Sound helper ─────────────────────────────────────────────────────────────
@@ -890,26 +372,10 @@ function _removeTransporterMagic(token) {
 
 const BUFFER_SETTING = "transporterBeamBuffer";
 
-async function _getBeamGroups() {
-  try {
-    const raw = game.settings.get(MODULE, BUFFER_SETTING);
-    return Array.isArray(raw) ? raw : [];
-  } catch { return []; }
-}
-
-async function _setBeamGroups(groups) {
-  await game.settings.set(MODULE, BUFFER_SETTING, groups);
-}
-
-async function _clearBeamGroups() {
-  await game.settings.set(MODULE, BUFFER_SETTING, []);
-}
-
-async function _removeBeamGroup(groupId) {
-  const groups  = await _getBeamGroups();
-  const updated = groups.filter(g => g.groupId !== groupId);
-  await _setBeamGroups(updated);
-}
+// Storage, markup and wiring are shared with the Q tab's hold buffer — see
+// spawn-buffer.js. Only the setting key and what a group is called differ.
+const _getBeamGroups   = () => getBufferGroups(BUFFER_SETTING);
+const _removeBeamGroup = groupId => removeBufferGroup(BUFFER_SETTING, groupId);
 
 // Wildcard image resolution lives in token-spawn-utils.js — shared with the
 // ship spawner, which builds tokens from prototypes the same way.
@@ -943,15 +409,10 @@ async function _beamOutSelected(transporterType, effects) {
 
   if (entries.length) {
     const effectName = effects[transporterType]?.name ?? transporterType;
-    const newGroup   = {
-      groupId:         `grp_${Date.now()}`,
-      label:           effectName.toUpperCase(),
-      transporterType,
-      timestamp:       Date.now(),
-      entries,
-    };
-    const existing = await _getBeamGroups();
-    await _setBeamGroups([...existing, newGroup]);
+    // transporterType rides along so a restore replays the emitter it left on,
+    // whatever the panel is set to now.
+    const newGroup = makeBufferGroup(effectName, entries, { transporterType });
+    await addBufferGroup(BUFFER_SETTING, newGroup);
     ui.notifications.info(`Transporter buffer: "${newGroup.label}" — ${entries.length} pattern${entries.length > 1 ? "s" : ""} held.`);
   }
 
@@ -973,426 +434,88 @@ async function _beamOutSelected(transporterType, effects) {
   }
 }
 
-// ── Beam in (from dialog queue) ───────────────────────────────────────────────
-
-// ── Beam-in cursor indicator ──────────────────────────────────────────────────
-
-/**
- * Draw a dashed circle arc sequence.
- * Uses 10 evenly-spaced dashes with a 4:1 dash-to-gap ratio — matching the
- * SVG's stroke-dasharray:120 30 on r=240, but scaled correctly at any radius.
- * Caller sets lineStyle first.
- */
-function _drawDashedCircle(g, cx, cy, radius) {
-  if (radius <= 0) return;
-  const DASHES  = 10;
-  const period  = (2 * Math.PI) / DASHES;   // 36° per slot
-  const dashArc = period * (120 / 150);      // 4/5 of slot = dash, 1/5 = gap
-  for (let i = 0; i < DASHES; i++) {
-    const startAngle = i * period;
-    const endAngle   = startAngle + dashArc;
-    g.moveTo(cx + radius * Math.cos(startAngle), cy + radius * Math.sin(startAngle));
-    g.arc(cx, cy, radius, startAngle, endAngle);
-  }
-}
+// ── Beam in ───────────────────────────────────────────────────────────────────
+//
+// A beam-in and a buffer restore are the same operation with a different source
+// of names, so they share one pair of steps: work out where everyone lands, then
+// materialise them. The canvas picking itself lives in spawn-picker.js, shared
+// with the ship spawner.
 
 /**
- * Top-left spawn position for each token under the chosen pattern.
- * cx/cy is the canvas point the user clicked (= the orbit / layout centre).
+ * One person to materialise.
  *
- * Geometry lives in spawn-patterns.js, shared with the ship spawner. No heading
- * is passed: beamed-in personnel have no formation facing, so the aligned
- * patterns render in their unrotated local frame here.
+ * `radius` is only for the placement preview; `halfW`/`halfH` are what turn a
+ * centre point into the top-left a TokenDocument wants. Reading the footprint
+ * from the prototype means a mounted or large actor no longer lands half a cell
+ * off the pattern the GM saw.
  */
-function _calcSpawnPositions(pattern, total, cx, cy, spacing) {
-  return calcSpawnOffsets(pattern, total, spacing)
-    .map(o => ({ x: cx + o.x, y: cy + o.y }));
+function _beamItem({ actor, displayName, isWildcard, wildcardPath, resolvedImg }) {
+  const { halfW, halfH } = protoHalfSize(actor);
+  return {
+    actor, displayName, isWildcard, wildcardPath, resolvedImg,
+    halfW, halfH,
+    radius: Math.max(Math.max(halfW, halfH) * 0.9, 25),
+  };
 }
 
 /**
- * Draw one dashed-circle indicator per token at its exact spawn position,
- * matching what _beamInQueue / _spawnGroupEntries will actually place.
+ * Where the beam lands, as centre points — one per item, in queue order.
+ *
+ * All of the actual work is pickSpawnCentres in spawn-picker.js, shared with
+ * the Ships and Q tabs; this only dresses its messages in transporter language.
  */
-function _drawTokenPositions(g, cx, cy, total, spacing, colorHex, pattern = "circle") {
-  if (total <= 0) return;
-  const gridSize    = canvas.grid?.size ?? 100;
-  const tokenRadius = Math.max(gridSize * 0.45, 25);
-  const half        = gridSize / 2;
-
-  const positions = _calcSpawnPositions(pattern, total, cx, cy, spacing);
-
-  g.lineStyle(2, colorHex, 0.85);
-  for (const p of positions) {
-    _drawDashedCircle(g, p.x + half, p.y + half, tokenRadius);
-  }
-  // Center crosshair at cursor
-  g.lineStyle(1, colorHex, 0.4);
-  g.moveTo(cx - 8, cy); g.lineTo(cx + 8, cy);
-  g.moveTo(cx, cy - 8); g.lineTo(cx, cy + 8);
+function _pickBeamCentres(items, { pattern, spacing, location, indicatorColor, verb }) {
+  return pickSpawnCentres(items, {
+    pattern, spacing, location,
+    color: indicatorColor,
+    verb,
+    noun: "pattern",
+    padNoun: "pad",
+    errorPrefix: "Transporter Malfunction — ",
+    abortMsg: "Transport aborted.",
+  });
 }
-
-function _createBeamIndicator() {
-  const g = new PIXI.Graphics();
-  canvas.interface.addChild(g);
-  return g;
-}
-
-function _destroyBeamIndicator(g) {
-  g.clear();
-  canvas.interface.removeChild(g);
-  g.destroy();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Prompt the GM to individually place each name in `names[]`.
- * `initGhosts` contains top-left positions already confirmed (shown as dim rings).
- * Returns an array of top-left { x, y } positions, or null if the user aborted.
+ * Create the tokens and run the arrival effect on each.
+ *
+ * `snap` is on only when filling a Region, where landing on grid spaces is the
+ * whole point. A free canvas click and a pad marker are both deliberate
+ * placements — the GM put the cursor or drew the marker where they meant it, and
+ * a marker that was drawn off-grid was drawn off-grid on purpose.
  */
-async function _runIndividualPlacements(names, initGhosts, indicatorColor, half, tokenRadius) {
-  const totalCount = initGhosts.length + names.length;
-  const ghosts     = [...initGhosts];
-  const positions  = [];
+async function _materializeItems(items, centres, effectType, effects, { snap = false } = {}) {
+  const config = effects[effectType];
+  _playSound(config?.sound);
+  canvas.animatePan({ x: centres[0]?.x ?? 0, y: centres[0]?.y ?? 0, duration: 1000 });
 
-  for (let i = 0; i < names.length; i++) {
-    const ind = _createBeamIndicator();
-    const pos = await new Promise(resolve => {
-      function onMove() {
-        const p = canvas.mousePosition;
-        ind.clear();
-        ind.lineStyle(2, indicatorColor, 0.55);
-        for (const gh of ghosts) {
-          _drawDashedCircle(ind, gh.x + half, gh.y + half, tokenRadius);
-          ind.beginFill(indicatorColor, 0.4);
-          ind.drawCircle(gh.x + half, gh.y + half, 5);
-          ind.endFill();
-        }
-        ind.lineStyle(2, indicatorColor, 0.85);
-        _drawDashedCircle(ind, p.x, p.y, tokenRadius);
-        ind.lineStyle(1, indicatorColor, 0.4);
-        ind.moveTo(p.x - 8, p.y); ind.lineTo(p.x + 8, p.y);
-        ind.moveTo(p.x, p.y - 8); ind.lineTo(p.x, p.y + 8);
-      }
-      function cleanup() {
-        canvas.stage.off("mousemove", onMove);
-        canvas.stage.off("mousedown", onClick);
-        canvas.stage.off("rightdown", onAbort);
-        document.removeEventListener("keydown", onKey);
-        _destroyBeamIndicator(ind);
-      }
-      function onAbort() { cleanup(); ui.notifications.warn("Transport aborted."); resolve(null); }
-      function onKey(ev) { if (ev.key === "Escape") onAbort(); }
-      function onClick(ev) {
-        if (ev.button !== 0) return;
-        cleanup();
-        const p = canvas.mousePosition;
-        resolve({ x: p.x - half, y: p.y - half });
-      }
-      canvas.stage.on("mousemove", onMove);
-      canvas.stage.on("mousedown", onClick);
-      canvas.stage.on("rightdown", onAbort);
-      document.addEventListener("keydown", onKey);
-      ui.notifications.info(
-        `Place: ${names[i]} (${ghosts.length + 1} of ${totalCount}) · [RMB/Esc] abort`
-      );
-    });
-
-    if (!pos) return null;
-    ghosts.push(pos);
-    positions.push(pos);
-  }
-  return positions;
-}
-
-async function _beamInQueue(selectedTokens, transporterType, spacing, effects, pattern = "circle") {
-  if (!selectedTokens.length) {
-    ui.notifications.warn("No tokens in the transport queue.");
-    return;
-  }
-  const total = selectedTokens.reduce((s, t) => s + (t.isLinked ? 1 : t.quantity), 0);
-  if (total > 6) {
-    ui.notifications.error(`Transporter Malfunction — ${total} patterns in queue. Starfleet limit is 6.`);
-    return;
-  }
-
-  const config         = effects[transporterType];
-  const indicatorColor = _TRANSPORTER_COLORS[transporterType] ?? 0x4488ff;
-
-  // ── Build flat spawn list up front (needed for individual mode label) ─────
-  let tokensToSpawn = [];
-  for (const td of selectedTokens) {
-    const count = td.isLinked ? 1 : td.quantity;
-    for (let i = 0; i < count; i++) {
-      tokensToSpawn.push({ ...td, displayName: count > 1 ? `${td.name} ${i + 1}` : td.name });
-    }
-  }
-
-  // ── Collect spawn positions ───────────────────────────────────────────────
-  const gridSize    = canvas.grid?.size ?? 100;
-  const tokenRadius = Math.max(gridSize * 0.45, 25);
-  const half        = gridSize / 2;
-  const names       = tokensToSpawn.map(t => t.displayName);
-
-  let spawnPositions = [];
-  let currentPattern = pattern; // may be cycled via [Q]
-
-  if (pattern === "individual") {
-    const placed = await _runIndividualPlacements(names, [], indicatorColor, half, tokenRadius);
-    if (!placed) return false;   // aborted — queue stays intact
-    spawnPositions = placed;
-  } else {
-    // Single first-click — [Q] cycles through all patterns incl. individual, [RMB/Esc] aborts
-    const CYCLE  = Object.keys(SPAWN_PATTERNS);
-    const LABELS = SPAWN_PATTERNS;
-
-    const indicator = _createBeamIndicator();
-    const firstClick = await new Promise(resolve => {
-      function onMove() {
-        const p = canvas.mousePosition;
-        indicator.clear();
-        if (currentPattern === "individual") {
-          // Preview single-token ring — first click places token 1
-          indicator.lineStyle(2, indicatorColor, 0.85);
-          _drawDashedCircle(indicator, p.x, p.y, tokenRadius);
-          indicator.lineStyle(1, indicatorColor, 0.4);
-          indicator.moveTo(p.x - 8, p.y); indicator.lineTo(p.x + 8, p.y);
-          indicator.moveTo(p.x, p.y - 8); indicator.lineTo(p.x, p.y + 8);
-        } else if (currentPattern === "scatter") {
-          const scatterRadius = scatterMaxRadius(total);
-          indicator.lineStyle(1, indicatorColor, 0.35);
-          _drawDashedCircle(indicator, p.x, p.y, scatterRadius);
-          indicator.lineStyle(1, indicatorColor, 0.4);
-          indicator.moveTo(p.x - 8, p.y); indicator.lineTo(p.x + 8, p.y);
-          indicator.moveTo(p.x, p.y - 8); indicator.lineTo(p.x, p.y + 8);
-        } else {
-          _drawTokenPositions(indicator, p.x, p.y, total, spacing, indicatorColor, currentPattern);
-        }
-      }
-      function cleanup() {
-        canvas.stage.off("mousemove", onMove);
-        canvas.stage.off("mousedown", onClick);
-        canvas.stage.off("rightdown", onAbort);
-        document.removeEventListener("keydown", onKey);
-        _destroyBeamIndicator(indicator);
-      }
-      function onAbort() { cleanup(); ui.notifications.warn("Transport aborted."); resolve(null); }
-      function onKey(ev) {
-        if (ev.key === "Escape") { onAbort(); return; }
-        if (ev.key === "q" || ev.key === "Q") {
-          const idx = CYCLE.indexOf(currentPattern);
-          currentPattern = CYCLE[(idx + 1) % CYCLE.length];
-          ui.notifications.info(`Pattern: ${LABELS[currentPattern]}`);
-          onMove();
-        }
-      }
-      function onClick(ev) {
-        if (ev.button !== 0) return;
-        cleanup();
-        resolve({ x: canvas.mousePosition.x, y: canvas.mousePosition.y });
-      }
-      canvas.stage.on("mousemove", onMove);
-      canvas.stage.on("mousedown", onClick);
-      canvas.stage.on("rightdown", onAbort);
-      document.addEventListener("keydown", onKey);
-      ui.notifications.info("Click to beam in · [Q] cycle pattern · [RMB/Esc] abort");
-    });
-
-    if (!firstClick) return false;   // aborted — queue stays intact
-
-    if (currentPattern === "individual") {
-      // First click placed token 1; prompt for the rest individually
-      const first = { x: firstClick.x - half, y: firstClick.y - half };
-      spawnPositions.push(first);
-      if (names.length > 1) {
-        const rest = await _runIndividualPlacements(names.slice(1), [first], indicatorColor, half, tokenRadius);
-        if (!rest) return false;
-        spawnPositions.push(...rest);
-      }
-    } else {
-      spawnPositions = _calcSpawnPositions(currentPattern, total, firstClick.x, firstClick.y, spacing);
-    }
-  }
-
-  // ── Spawn ─────────────────────────────────────────────────────────────────
-  _playSound(config.sound);
-  canvas.animatePan({ x: spawnPositions[0]?.x ?? 0, y: spawnPositions[0]?.y ?? 0, duration: 1000 });
-
-  for (let i = 0; i < tokensToSpawn.length; i++) {
-    const info        = tokensToSpawn[i];
-    const actor       = info.actor;
-    const { x, y }   = spawnPositions[i] ?? spawnPositions[0];
-
-    const proto = actor.prototypeToken;
-    let img     = proto.texture?.src ?? proto.img;
-    if (info.isWildcard) img = await getWildcardImage(info.wildcardPath);
-
-    let newTokenData = foundry.utils.mergeObject(proto.toObject(), {
-      name: info.displayName, x, y, alpha: 0, actorId: actor.id,
-    });
-    if (info.isWildcard || img !== (proto.texture?.src ?? proto.img)) {
-      newTokenData.texture = foundry.utils.mergeObject(newTokenData.texture ?? {}, { src: img });
-    }
+  for (let i = 0; i < items.length; i++) {
+    const item   = items[i];
+    const centre = centres[i] ?? centres[0];
+    const { x, y } = centreToTopLeft(centre, item.halfW, item.halfH, snap);
 
     try {
+      const newTokenData = await buildSpawnTokenData(item.actor, {
+        name: item.displayName, x, y, alpha: 0,
+      });
+
+      // A restored pattern comes back wearing the image it left with, rather
+      // than a fresh wildcard roll — the same person rematerialises.
+      const proto    = item.actor.prototypeToken;
+      const protoImg = proto?.texture?.src ?? proto?.img;
+      let img = item.resolvedImg ?? null;
+      if (!img && item.isWildcard && item.wildcardPath) img = await getWildcardImage(item.wildcardPath);
+      if (img && img !== protoImg) {
+        newTokenData.texture = foundry.utils.mergeObject(newTokenData.texture ?? {}, { src: img });
+      }
+
       const [created] = await canvas.scene.createEmbeddedDocuments("Token", [newTokenData]);
       if (!created) throw new Error("Token creation returned nothing.");
+
       if (_isNativeVFX()) {
         // Native VFX: beamIn drives the full materialisation sequence —
         // mesh alpha, glow filters, and document sync are all handled internally.
         // A 50 ms yield ensures the canvas token is registered before we animate it.
-        setTimeout(() => {
-          const tk = canvas.tokens.get(created.id);
-          if (tk) TransporterVFX.beamIn(tk, transporterType);
-        }, 50);
-      } else {
-        setTimeout(async () => {
-          try {
-            const td = created.document ?? created;
-            // Apply sparkle rain right as the token begins to fade in so it's
-            // visible from the very first frame of materialisation.
-            const tk = canvas.tokens.get(created.id);
-            if (tk) _applyTransporterMagic(tk, transporterType);
-            await td.update({ alpha: 1 }, { animate: true, animation: { duration: 800 } });
-            // Let the effect shimmer briefly after fully materialising, then
-            // clean up.  (800 ms fade + ~1 s visible = 1800 ms)
-            setTimeout(() => {
-              const tk2 = canvas.tokens.get(created.id);
-              if (tk2) _removeTransporterMagic(tk2);
-            }, 1800);
-          } catch { /**/ }
-        }, 2000);
-        _playEffect(created, transporterType, effects);
-      }
-    } catch (e) {
-      console.error(`Transporter: error spawning ${info.displayName}:`, e);
-      ui.notifications.error(`Failed to spawn ${info.displayName}.`);
-    }
-  }
-  return true;  // beam-in completed — caller may clear queue
-}
-
-// ── Restore a buffered group ──────────────────────────────────────────────────
-
-async function _spawnGroupEntries(group, transporterType, spacing, effects, pattern = "circle") {
-  const { entries, transporterType: savedType, label } = group;
-  const effectType = savedType ?? transporterType;
-  const config     = effects[effectType];
-  const total      = entries.length;
-
-  const indicatorColor = _TRANSPORTER_COLORS[effectType] ?? 0x4488ff;
-
-  const gridSize    = canvas.grid?.size ?? 100;
-  const tokenRadius = Math.max(gridSize * 0.45, 25);
-  const half        = gridSize / 2;
-  const names       = entries.map(e => e.name);
-
-  let spawnPositions = [];
-  let panTarget;
-  let currentPattern = pattern;
-
-  if (pattern === "individual") {
-    const placed = await _runIndividualPlacements(names, [], indicatorColor, half, tokenRadius);
-    if (!placed) return false;   // aborted — buffer stays intact
-    spawnPositions = placed;
-    panTarget = placed[0];
-  } else {
-    const CYCLE  = Object.keys(SPAWN_PATTERNS);
-    const LABELS = SPAWN_PATTERNS;
-
-    const indicator = _createBeamIndicator();
-    const firstClick = await new Promise(resolve => {
-      function onMove() {
-        const p = canvas.mousePosition;
-        indicator.clear();
-        if (currentPattern === "individual") {
-          indicator.lineStyle(2, indicatorColor, 0.85);
-          _drawDashedCircle(indicator, p.x, p.y, tokenRadius);
-          indicator.lineStyle(1, indicatorColor, 0.4);
-          indicator.moveTo(p.x - 8, p.y); indicator.lineTo(p.x + 8, p.y);
-          indicator.moveTo(p.x, p.y - 8); indicator.lineTo(p.x, p.y + 8);
-        } else if (currentPattern === "scatter") {
-          const scatterRadius = scatterMaxRadius(total);
-          indicator.lineStyle(1, indicatorColor, 0.35);
-          _drawDashedCircle(indicator, p.x, p.y, scatterRadius);
-          indicator.lineStyle(1, indicatorColor, 0.4);
-          indicator.moveTo(p.x - 8, p.y); indicator.lineTo(p.x + 8, p.y);
-          indicator.moveTo(p.x, p.y - 8); indicator.lineTo(p.x, p.y + 8);
-        } else {
-          _drawTokenPositions(indicator, p.x, p.y, total, spacing, indicatorColor, currentPattern);
-        }
-      }
-      function cleanup() {
-        canvas.stage.off("mousemove", onMove);
-        canvas.stage.off("mousedown", onClick);
-        canvas.stage.off("rightdown", onAbort);
-        document.removeEventListener("keydown", onKey);
-        _destroyBeamIndicator(indicator);
-      }
-      function onAbort() { cleanup(); ui.notifications.warn("Transport aborted."); resolve(null); }
-      function onKey(ev) {
-        if (ev.key === "Escape") { onAbort(); return; }
-        if (ev.key === "q" || ev.key === "Q") {
-          const idx = CYCLE.indexOf(currentPattern);
-          currentPattern = CYCLE[(idx + 1) % CYCLE.length];
-          ui.notifications.info(`Pattern: ${LABELS[currentPattern]}`);
-          onMove();
-        }
-      }
-      function onClick(ev) {
-        if (ev.button !== 0) return;
-        cleanup();
-        resolve({ x: canvas.mousePosition.x, y: canvas.mousePosition.y });
-      }
-      canvas.stage.on("mousemove", onMove);
-      canvas.stage.on("mousedown", onClick);
-      canvas.stage.on("rightdown", onAbort);
-      document.addEventListener("keydown", onKey);
-      ui.notifications.info(`Click to materialize "${label}" · [Q] cycle pattern · [RMB/Esc] abort`);
-    });
-
-    if (!firstClick) return false;   // aborted — buffer stays intact
-
-    if (currentPattern === "individual") {
-      const first = { x: firstClick.x - half, y: firstClick.y - half };
-      spawnPositions.push(first);
-      if (names.length > 1) {
-        const rest = await _runIndividualPlacements(names.slice(1), [first], indicatorColor, half, tokenRadius);
-        if (!rest) return false;
-        spawnPositions.push(...rest);
-      }
-      panTarget = spawnPositions[0];
-    } else {
-      spawnPositions = _calcSpawnPositions(currentPattern, total, firstClick.x, firstClick.y, spacing);
-      panTarget = firstClick;
-    }
-  }
-
-  _playSound(config.sound);
-  canvas.animatePan({ x: panTarget.x, y: panTarget.y, duration: 1000 });
-
-  for (let i = 0; i < entries.length; i++) {
-    const entry      = entries[i];
-    const actor      = game.actors.get(entry.actorId);
-    if (!actor) { console.warn(`Transporter: actor ${entry.actorId} not found.`); continue; }
-
-    const { x, y } = spawnPositions[i] ?? spawnPositions[0];
-
-    const proto = actor.prototypeToken;
-    let img     = entry.resolvedImg ?? proto.texture?.src ?? proto.img;
-    if (entry.isWildcard && !entry.resolvedImg) img = await getWildcardImage(entry.wildcardPath);
-
-    let newTokenData = foundry.utils.mergeObject(proto.toObject(), {
-      name: entry.name, x, y, alpha: 0, actorId: actor.id,
-    });
-    if (entry.isWildcard || img !== (proto.texture?.src ?? proto.img)) {
-      newTokenData.texture = foundry.utils.mergeObject(newTokenData.texture ?? {}, { src: img });
-    }
-
-    try {
-      const [created] = await canvas.scene.createEmbeddedDocuments("Token", [newTokenData]);
-      if (!created) throw new Error("Token creation returned nothing.");
-      if (_isNativeVFX()) {
         setTimeout(() => {
           const tk = canvas.tokens.get(created.id);
           if (tk) TransporterVFX.beamIn(tk, effectType);
@@ -1417,528 +540,364 @@ async function _spawnGroupEntries(group, transporterType, spacing, effects, patt
         _playEffect(created, effectType, effects);
       }
     } catch (e) {
-      console.error(`Transporter: error restoring ${entry.name}:`, e);
-      ui.notifications.error(`Failed to restore ${entry.name}.`);
+      console.error(`Transporter: error spawning ${item.displayName}:`, e);
+      ui.notifications.error(`Failed to spawn ${item.displayName}.`);
     }
   }
+}
+
+// ── Beam in (from the panel queue) ────────────────────────────────────────────
+
+async function _beamInQueue(selectedTokens, transporterType, spacing, effects, pattern = "circle", location = "canvas") {
+  if (!selectedTokens.length) {
+    ui.notifications.warn("No tokens in the transport queue.");
+    return;
+  }
+  const total = selectedTokens.reduce((s, t) => s + (t.isLinked ? 1 : t.quantity), 0);
+  if (total > 6) {
+    ui.notifications.error(`Transporter Malfunction — ${total} patterns in queue. Starfleet limit is 6.`);
+    return;
+  }
+
+  const indicatorColor = _TRANSPORTER_COLORS[transporterType] ?? 0x4488ff;
+
+  const items = [];
+  for (const td of selectedTokens) {
+    const count = td.isLinked ? 1 : td.quantity;
+    for (let i = 0; i < count; i++) {
+      items.push(_beamItem({
+        actor:        td.actor,
+        displayName:  count > 1 ? `${td.name} ${i + 1}` : td.name,
+        isWildcard:   td.isWildcard,
+        wildcardPath: td.wildcardPath,
+      }));
+    }
+  }
+
+  const centres = await _pickBeamCentres(items, {
+    pattern, spacing, location, indicatorColor, verb: "BEAM-IN",
+  });
+  if (!centres) return false;   // aborted — queue stays intact
+
+  await _materializeItems(items, centres, transporterType, effects, {
+    snap: parseLocation(location).kind === "region",
+  });
+  return true;  // beam-in completed — caller may clear queue
+}
+
+// ── Restore a buffered group ──────────────────────────────────────────────────
+
+async function _spawnGroupEntries(group, transporterType, spacing, effects, pattern = "circle", location = "canvas") {
+  const { entries, transporterType: savedType, label } = group;
+  const effectType = savedType ?? transporterType;
+  const indicatorColor = _TRANSPORTER_COLORS[effectType] ?? 0x4488ff;
+
+  const items = [];
+  for (const entry of entries) {
+    const actor = game.actors.get(entry.actorId);
+    if (!actor) { console.warn(`Transporter: actor ${entry.actorId} not found.`); continue; }
+    items.push(_beamItem({
+      actor,
+      displayName:  entry.name,
+      isWildcard:   entry.isWildcard,
+      wildcardPath: entry.wildcardPath,
+      resolvedImg:  entry.resolvedImg,
+    }));
+  }
+  if (!items.length) {
+    ui.notifications.error(`No actors left for "${label}" — the patterns cannot be restored.`);
+    return false;
+  }
+
+  const centres = await _pickBeamCentres(items, {
+    pattern, spacing, location, indicatorColor, verb: `RESTORE · ${label}`,
+  });
+  if (!centres) return false;   // aborted — buffer stays intact
+
+  await _materializeItems(items, centres, effectType, effects, {
+    snap: parseLocation(location).kind === "region",
+  });
   return true;  // materialization completed — caller may remove the buffer entry
 }
 
 // ── Dialog HTML builders ──────────────────────────────────────────────────────
 
-function _buildBeamBufferHTML(groups) {
-  if (!groups.length) return '<div class="sta2e-tp-buffer-empty">— NO PATTERNS HELD —</div>';
+const _buildBeamBufferHTML = groups => buildBufferHTML(groups, {
+  title: "BUFFER",
+  empty: "— NO PATTERNS HELD —",
+  unit:  "PATTERN",
+  icon:  "⚡",
+});
 
-  const total     = groups.reduce((n, g) => n + g.entries.length, 0);
-  const plural    = groups.length > 1 ? "S" : "";
-  const groupRows = groups.map(g => {
-    const names   = g.entries.map(e => e.name).join(" · ");
-    const timeStr = new Date(g.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const ep      = g.entries.length > 1 ? "S" : "";
-    return `
-      <div class="sta2e-tp-buffer-group" data-group-id="${g.groupId}">
-        <div class="sta2e-tp-buffer-header">
-          <span class="sta2e-tp-buffer-icon">⚡</span>
-          <div class="sta2e-tp-buffer-title">${g.label} — ${g.entries.length} PATTERN${ep}</div>
-          <div class="sta2e-tp-buffer-meta">${timeStr}</div>
-        </div>
-        <div class="sta2e-tp-buffer-names">${names}</div>
-        <div class="sta2e-tp-buffer-actions">
-          <button class="sta2e-tp-group-btn sta2e-tp-group-restore" data-group-id="${g.groupId}">RESTORE</button>
-          <button class="sta2e-tp-group-btn sta2e-tp-group-purge"   data-group-id="${g.groupId}">PURGE</button>
-        </div>
-      </div>`;
-  }).join("");
+// Queue UI (drop zone, rows, quantity) is shared with the Q tab — spawn-queue.js.
 
-  return `
-    <div id="sta2e-tp-buffer-container">
-      <div class="sta2e-tp-buffer-summary">
-        <span>TRANSPORTER BUFFER — ${groups.length} GROUP${plural} / ${total} TOTAL PATTERNS</span>
-        <span class="sta2e-tp-purge-all" id="sta2e-tp-purge-all">PURGE ALL</span>
-      </div>
-      ${groupRows}
-    </div>`;
-}
-
-
-// ── Token item DOM builder ────────────────────────────────────────────────────
-
-function _buildTokenItem(tokenData, selectedTokens, container) {
-  const item = document.createElement("div");
-  item.className = "sta2e-tp-token-item";
-  item.dataset.id = tokenData.id;
-
-  const img = document.createElement("img");
-  img.src = tokenData.img;
-  item.appendChild(img);
-
-  const name = document.createElement("span");
-  name.className   = "sta2e-tp-token-name";
-  name.textContent = tokenData.name;
-  item.appendChild(name);
-
-  const badge = document.createElement("span");
-  badge.className = `sta2e-tp-token-badge ${tokenData.isLinked ? "linked" : "wildcard"}`;
-  badge.textContent = tokenData.isLinked ? "LINKED" : (tokenData.isWildcard ? "WILD" : "UNLINK");
-  item.appendChild(badge);
-
-  if (!tokenData.isLinked) {
-    const qCtrl = document.createElement("div");
-    qCtrl.className = "sta2e-tp-quantity-ctrl";
-    const minus = document.createElement("span");
-    minus.className   = "sta2e-tp-qty-btn";
-    minus.textContent = "−";
-    const display = document.createElement("span");
-    display.className   = "sta2e-tp-qty-display";
-    display.textContent = tokenData.quantity;
-    const plus = document.createElement("span");
-    plus.className   = "sta2e-tp-qty-btn";
-    plus.textContent = "+";
-    minus.addEventListener("click", () => {
-      const t = selectedTokens.find(t => t.id === tokenData.id);
-      if (t && t.quantity > 1) { t.quantity--; display.textContent = t.quantity; }
-    });
-    plus.addEventListener("click", () => {
-      const t = selectedTokens.find(t => t.id === tokenData.id);
-      if (t && t.quantity < 20) { t.quantity++; display.textContent = t.quantity; }
-      else ui.notifications.warn("Maximum 20 copies per token.");
-    });
-    qCtrl.append(minus, display, plus);
-    item.appendChild(qCtrl);
-  }
-
-  const remove = document.createElement("span");
-  remove.className   = "sta2e-tp-remove-btn";
-  remove.textContent = "✕";
-  remove.addEventListener("click", () => {
-    selectedTokens.splice(selectedTokens.findIndex(t => t.id === tokenData.id), 1);
-    item.remove();
-  });
-  item.appendChild(remove);
-  container.appendChild(item);
-}
-
-// ── Drop zone wiring ──────────────────────────────────────────────────────────
-
-function _wireDropZone(html, selectedTokens) {
-  const dropZone  = html.querySelector("#sta2e-tp-drop-zone");
-  const tokenList = html.querySelector("#sta2e-tp-token-list");
-  if (!dropZone || !tokenList) return;
-
-  dropZone.addEventListener("dragover", e => {
-    e.preventDefault();
-    dropZone.classList.add("drag-over");
-  });
-  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
-  dropZone.addEventListener("drop", async e => {
-    e.preventDefault();
-    dropZone.classList.remove("drag-over");
-
-    let data;
-    try { data = JSON.parse(e.dataTransfer.getData("text/plain")); } catch { return; }
-
-    let actor = null;
-    if (data.type === "Token") {
-      const token = canvas.tokens.get(data.tokenId) ?? canvas.tokens.get(data.id);
-      actor = token?.actor;
-    } else if (data.type === "Actor") {
-      actor = await fromUuid(data.uuid) ?? game.actors.get(data.id);
-    }
-    if (!actor) {
-      ui.notifications.warn("Could not resolve actor from drop.");
-      return;
-    }
-    if (selectedTokens.find(t => t.actorId === actor.id)) {
-      ui.notifications.warn(`${actor.name} is already in the queue.`);
-      return;
-    }
-
-    const proto    = actor.prototypeToken;
-    const isWild   = proto?.randomImg ?? false;
-    const tokenData = {
-      id:           `drop_${Date.now()}`,
-      actorId:      actor.id,
-      actor,
-      name:         actor.name,
-      img:          proto?.texture?.src ?? proto?.img ?? actor.img ?? "icons/svg/mystery-man.svg",
-      isLinked:     proto?.actorLink ?? false,
-      isWildcard:   isWild,
-      wildcardPath: isWild ? (proto?.texture?.src ?? proto?.img) : null,
-      quantity:     1,
-    };
-
-    selectedTokens.push(tokenData);
-    _buildTokenItem(tokenData, selectedTokens, tokenList);
-  });
-}
 
 // ── Buffer button wiring ──────────────────────────────────────────────────────
 
-function _wireBufferButtons(html, transporterEffects, refresh) {
-  const q = sel => html.querySelector(sel) ?? document.querySelector(`#sta2e-transporter-dialog ${sel}`);
-  const getType    = () => q("#sta2e-tp-type")?.value    ?? "tngFed";
-  const getSpacing = () => parseInt(q("#sta2e-tp-spacing")?.value ?? 350);
-  const getPattern = () => q("#sta2e-tp-pattern")?.value ?? "circle";
+/**
+ * @param {HTMLElement} html   Element holding the buffer buttons — the whole
+ *   panel on first wire, just the rebuilt buffer column afterwards.
+ * @param {object} transporterEffects
+ * @param {() => Promise<void>} refresh
+ * @param {HTMLElement} [panel] Where the placement controls live. Defaults to
+ *   `html`, which is right on the first wire and wrong after a rebuild.
+ * @param {object} [api]        Spawn-window API, for getting out of the way of
+ *   the canvas during placement.
+ */
+function _wireBufferButtons(html, transporterEffects, refresh, panel = html, api = null) {
+  const place = fn => (api?.hideWhile ? api.hideWhile(fn) : fn());
 
-  // Per-group restore
-  html.querySelectorAll(".sta2e-tp-group-restore").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      if (btn.disabled) return;
-      btn.disabled = true;
-      btn.style.opacity = "0.5";
-
-      const groupId = btn.dataset.groupId;
-      const groups  = await _getBeamGroups();
-      const group   = groups.find(g => g.groupId === groupId);
-      if (!group) { ui.notifications.warn("Group not found."); btn.disabled = false; btn.style.opacity = ""; return; }
-
-      const spawned = await _spawnGroupEntries(group, getType(), getSpacing(), transporterEffects, getPattern());
-      if (spawned) {
-        await _removeBeamGroup(groupId);
-        ui.notifications.info(`Group "${group.label}" materialized.`);
-        await refresh?.();
-      } else {
-        btn.disabled = false;
-        btn.style.opacity = "";
-      }
-    });
-  });
-
-  // Per-group purge
-  html.querySelectorAll(".sta2e-tp-group-purge").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      await _removeBeamGroup(btn.dataset.groupId);
-      ui.notifications.info("Transport group purged.");
-      await refresh?.();
-    });
-  });
-
-  // Purge all
-  html.querySelector("#sta2e-tp-purge-all")?.addEventListener("click", async () => {
-    await _clearBeamGroups();
-    ui.notifications.info("All transporter buffer groups purged.");
-    await refresh?.();
+  wireBufferButtons(html, {
+    settingKey: BUFFER_SETTING,
+    noun: "transport group",
+    refresh,
+    restore: group => {
+      const { type, spacing, pattern, location } = _readTpControls(panel);
+      return place(() => _spawnGroupEntries(group, type, spacing, transporterEffects, pattern, location));
+    },
   });
 }
 
-// ── Main entry point ──────────────────────────────────────────────────────────
+// ── Panel state ───────────────────────────────────────────────────────────────
 
-export async function openTransporter() {
-  if (!game.user.isGM) {
-    ui.notifications.warn("Only the GM can operate the transporter.");
-    return;
-  }
+/**
+ * The transport queue. Module-level, like the ship spawner's, so it survives a
+ * tab switch — the spawn window keeps both panels mounted and the GM should be
+ * able to assemble a landing party, go look at the fleet, and come back to it.
+ */
+let _tpQueue = [];
 
-  // Close any existing instance
-  document.getElementById("sta2e-transporter-dialog")?.remove();
+/**
+ * The buffer groups as last rendered. The footer only needs their count — it
+ * offers "Restore All (n)" when something is held — and caching them here keeps
+ * buildActions synchronous, which is what the window's tab switch needs.
+ */
+let _tpGroups = [];
 
-  const transporterEffects = _buildTransporterEffects();
-  const gridScaleFactor    = (canvas.grid?.size ?? 100) / 100;
-  const adjustedSpacing    = Math.round(350 * gridScaleFactor);
-  let   selectedTokens     = [];
-
-  // Shared state — current emitter type and spacing survive a refresh
-  let currentType    = "tngFed";
-  let currentSpacing = adjustedSpacing;
-
-  const LC = getLcTokens();
-
-  // ── Refresh helper ───────────────────────────────────────────────────────
-  // Rebuilds only the buffer panel (right column) and the button row,
-  // preserving the drop-zone queue and current select/input values.
-  async function _refresh() {
-    const app = document.getElementById("sta2e-transporter-dialog");
-    if (!app) return;
-
-    // Snapshot current control values before touching the DOM
-    const typeEl    = app.querySelector("#sta2e-tp-type");
-    const spacingEl = app.querySelector("#sta2e-tp-spacing");
-    if (typeEl)    currentType    = typeEl.value;
-    if (spacingEl) currentSpacing = parseInt(spacingEl.value) || currentSpacing;
-
-    const groups = await _getBeamGroups();
-
-    // Update buffer panel
-    const colRight = app.querySelector(".sta2e-tp-col-right");
-    if (colRight) {
-      colRight.innerHTML = `
-        <div class="sta2e-tp-section-label">Transporter Buffer</div>
-        ${_buildBeamBufferHTML(groups)}
-      `;
-      _wireBufferButtons(colRight, transporterEffects, _refresh);
-    }
-
-    // Rebuild button row
-    const oldBtnRow = app.querySelector("#sta2e-tp-btnrow");
-    if (oldBtnRow) {
-      const newBtnRow = _buildBtnRow(groups, transporterEffects, app, selectedTokens, _refresh, LC);
-      oldBtnRow.replaceWith(newBtnRow);
-    }
-  }
-
-  // ── Outer application window ─────────────────────────────────────────────
-  const app = document.createElement("div");
-  app.id = "sta2e-transporter-dialog";
-  app.style.cssText = `
-    position: fixed;
-    top: 80px; left: 50%;
-    transform: translateX(-50%);
-    width: 760px;
-    z-index: 9000;
-    background: ${LC.bg};
-    border: 1px solid ${LC.border};
-    border-radius: 4px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.7);
-    font-family: ${LC.font};
-    color: ${LC.text};
-    overflow: hidden;
-  `;
-
-  // ── Drag to reposition ───────────────────────────────────────────────────
-  let dragging = false, dragOffX = 0, dragOffY = 0;
-
-  const titleBar = document.createElement("div");
-  titleBar.style.cssText = `
-    display: flex; align-items: center;
-    background: ${LC.panel};
-    border-bottom: 1px solid ${LC.border};
-    padding: 4px 10px;
-    cursor: grab;
-    user-select: none;
-  `;
-  titleBar.innerHTML = `
-    <span style="font-size:10px;letter-spacing:2px;text-transform:uppercase;
-      color:${LC.primary};flex:1;">⚡ Transporter Control</span>
-    <span id="sta2e-tp-close" style="cursor:pointer;color:${LC.textDim};
-      font-size:14px;padding:0 4px;line-height:1;" title="Close">×</span>
-  `;
-
-  titleBar.addEventListener("mousedown", e => {
-    if (e.target.id === "sta2e-tp-close") return;
-    dragging = true;
-    dragOffX = e.clientX - app.getBoundingClientRect().left;
-    dragOffY = e.clientY - app.getBoundingClientRect().top;
-    titleBar.style.cursor = "grabbing";
-  });
-  document.addEventListener("mousemove", e => {
-    if (!dragging) return;
-    app.style.left      = (e.clientX - dragOffX) + "px";
-    app.style.top       = (e.clientY - dragOffY) + "px";
-    app.style.transform = "none";
-  });
-  document.addEventListener("mouseup", () => {
-    dragging = false;
-    titleBar.style.cursor = "grab";
-  });
-
-  // ── Content area ─────────────────────────────────────────────────────────
-  const existingGroups = await _getBeamGroups();
-  const contentDiv = document.createElement("div");
-  contentDiv.id = "sta2e-tp-content";
-  contentDiv.innerHTML = `
-    ${_buildThemeVars()}
-    ${_buildInnerHTML(existingGroups, transporterEffects, adjustedSpacing, gridScaleFactor)}
-  `;
-
-  // ── Button row ────────────────────────────────────────────────────────────
-  const btnRow = _buildBtnRow(existingGroups, transporterEffects, contentDiv, selectedTokens, _refresh, LC);
-
-  // ── Assemble ─────────────────────────────────────────────────────────────
-  app.appendChild(titleBar);
-  app.appendChild(contentDiv);
-  app.appendChild(btnRow);
-  document.body.appendChild(app);
-
-  app.querySelector("#sta2e-tp-close")?.addEventListener("click", () => app.remove());
-  _wireDropZone(contentDiv, selectedTokens);
-  _wireBufferButtons(contentDiv, transporterEffects, _refresh);
+/** Effect definitions are rebuilt per render so a settings change is picked up. */
+function _effects() {
+  return _buildTransporterEffects();
 }
 
-// ── Button row builder ────────────────────────────────────────────────────────
-// Extracted so _refresh() can rebuild it when the buffer changes.
+/** Grid-aware default spacing — 350px at a 100px grid. */
+function _defaultSpacing() {
+  return Math.round(350 * ((canvas.grid?.size ?? 100) / 100));
+}
 
-function _buildBtnRow(groups, transporterEffects, contentEl, selectedTokens, refresh, LC) {
-  const theme = _getThemeKey();
+// ── Rail keys ─────────────────────────────────────────────────────────────────
+// Rebuilt whenever the buffer changes, since Restore All only exists when there
+// is something held.
 
-  const row = document.createElement("div");
-  row.id = "sta2e-tp-btnrow";
-  row.style.cssText = `
-    display: flex; gap: 6px; flex-wrap: wrap;
-    padding: 6px 10px;
-    background: ${LC.bg};
-    border-top: 2px solid ${LC.border};
-  `;
+function _buildActions(groups, transporterEffects, contentEl, refresh, api) {
+  const cfg = () => _readTpControls(contentEl);
+  /** Placement happens on the canvas under this panel, so get out of the way. */
+  const place = fn => (api?.hideWhile ? api.hideWhile(fn) : fn());
 
-  // Theme-specific button shape overrides
-  const btnShape = {
-    "tos-panel":   { borderRadius: "2px",  clipPath: "none",  font: '"Helvetica Neue",Arial,sans-serif', letterSpacing: "1px" },
-    "tmp-console": { borderRadius: "10px", clipPath: "none",  font: '"Helvetica Neue",Arial,sans-serif', letterSpacing: "2px" },
-    "ent-panel":   { borderRadius: "1px",  clipPath: "none",  font: "Arial,sans-serif",                 letterSpacing: "3px" },
-    "klingon":     { borderRadius: "0",    clipPath: "none",  font: '"Arial Narrow",Arial,sans-serif',  letterSpacing: "3px" },
-    "romulan":     { borderRadius: "2px",  clipPath: "none",  font: '"Arial Narrow",Arial,sans-serif',  letterSpacing: "2px" },
-  }[theme] ?? { borderRadius: "0", clipPath: "polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)", font: LC.font, letterSpacing: "2px" };
+  const keys = [];
 
-  const mkBtn = (label, icon, color, flex = "1") => {
-    const b = document.createElement("button");
-    b.style.cssText = `
-      flex: ${flex};
-      background: ${LC.panel};
-      border: 1px solid ${color};
-      border-radius: ${btnShape.borderRadius};
-      color: ${color};
-      font-family: ${btnShape.font};
-      font-size: 11px;
-      letter-spacing: ${btnShape.letterSpacing};
-      text-transform: uppercase;
-      padding: 6px 10px;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
-      clip-path: ${btnShape.clipPath};
-      display: flex; align-items: center; justify-content: center; gap: 6px;
-    `;
-    if (icon) { const i = document.createElement("i"); i.className = icon; b.appendChild(i); }
-    const t = document.createElement("span"); t.textContent = label; b.appendChild(t);
-    b.addEventListener("mouseenter", () => { b.style.background = color; b.style.color = LC.bg; });
-    b.addEventListener("mouseleave", () => { b.style.background = LC.panel; b.style.color = color; });
-    return b;
-  };
-
-  const getEl      = id => contentEl.querySelector(id) ?? document.querySelector(`#sta2e-transporter-dialog ${id}`);
-  const getType    = () => getEl("#sta2e-tp-type")?.value    ?? "tngFed";
-  const getSpacing = () => parseInt(getEl("#sta2e-tp-spacing")?.value ?? 350);
-  const getPattern = () => getEl("#sta2e-tp-pattern")?.value ?? "circle";
-
-  const beamOutBtn = mkBtn("Beam Out + Hold", "fas fa-sign-out-alt", LC.primary);
+  const beamOutBtn = swKey("Beam Out", {
+    icon: "fas fa-sign-out-alt",
+    accent: "var(--sw-secondary)",
+    title: "Beam the selected tokens out and hold them in the pattern buffer",
+  });
   beamOutBtn.addEventListener("click", async () => {
     if (beamOutBtn.disabled) return;
     beamOutBtn.disabled = true;
-    beamOutBtn.style.opacity = "0.5";
-    await _beamOutSelected(getType(), transporterEffects);
+    await _beamOutSelected(cfg().type, transporterEffects);
     await refresh();
-    // refresh() rebuilds the button row — no need to re-enable
+    // refresh() rebuilds the rail — no need to re-enable
   });
+  keys.push(beamOutBtn);
 
-  const beamInBtn = mkBtn("Beam In", "fas fa-check", LC.green);
+  const beamInBtn = swKey("Beam In", { icon: "fas fa-check" });
   beamInBtn.addEventListener("click", async () => {
     if (beamInBtn.disabled) return;
     beamInBtn.disabled = true;
-    beamInBtn.style.opacity = "0.5";
-    const beamed = await _beamInQueue(selectedTokens, getType(), getSpacing(), transporterEffects, getPattern());
+    const { type, spacing, pattern, location } = cfg();
+    const beamed = await place(() =>
+      _beamInQueue(_tpQueue, type, spacing, transporterEffects, pattern, location));
     if (beamed) {
-      selectedTokens.splice(0, selectedTokens.length);
-      const tokenList = getEl("#sta2e-tp-token-list");
-      if (tokenList) tokenList.innerHTML = "";
+      _tpQueue.splice(0, _tpQueue.length);
+      _renderTpQueue(contentEl);
     }
     beamInBtn.disabled = false;
-    beamInBtn.style.opacity = "1";
   });
-
-  row.appendChild(beamOutBtn);
-  row.appendChild(beamInBtn);
+  keys.push(beamInBtn);
 
   if (groups.length) {
     const total = groups.reduce((n, g) => n + g.entries.length, 0);
-    const restoreBtn = mkBtn(`Restore All (${total})`, "fas fa-history", LC.tertiary);
+    const restoreBtn = swKey(`Restore ${total}`, {
+      icon: "fas fa-history",
+      accent: "var(--sw-tertiary)",
+      title: `Materialize every held pattern (${total})`,
+    });
     restoreBtn.addEventListener("click", async () => {
       if (restoreBtn.disabled) return;
       restoreBtn.disabled = true;
-      restoreBtn.style.opacity = "0.5";
 
-      const type    = getType();
-      const spacing = getSpacing();
-      const latest  = await _getBeamGroups();
-      let allSpawned = true;
-      for (const group of latest) {
-        const spawned = await _spawnGroupEntries(group, type, spacing, transporterEffects);
-        if (!spawned) { allSpawned = false; break; }
-        await _removeBeamGroup(group.groupId);
-      }
+      const { type, spacing, pattern, location } = cfg();
+      const latest = await _getBeamGroups();
+      const allSpawned = await place(async () => {
+        for (const group of latest) {
+          const spawned = await _spawnGroupEntries(group, type, spacing, transporterEffects, pattern, location);
+          if (!spawned) return false;
+          await _removeBeamGroup(group.groupId);
+        }
+        return true;
+      });
       if (allSpawned) ui.notifications.info("All transporter buffer groups materialized.");
       await refresh();
     });
-    row.appendChild(restoreBtn);
+    keys.push(restoreBtn);
   }
 
-  const cancelBtn = mkBtn("Cancel", "fas fa-times", LC.red, "0 0 auto");
-  cancelBtn.addEventListener("click", () => document.getElementById("sta2e-transporter-dialog")?.remove());
-  row.appendChild(cancelBtn);
-
-  return row;
+  return keys;
 }
 
-// ── Inner HTML builder (no outer wrapper — used by custom dialog) ─────────────
+// ── Panel HTML builders ───────────────────────────────────────────────────────
+
+/** The buffer column's contents — rebuilt on its own whenever the buffer changes. */
+function _buildBufferColumn(groups) {
+  return swPanel("Transporter Buffer", _buildBeamBufferHTML(groups));
+}
 
 function _buildInnerHTML(groups, transporterEffects, adjustedSpacing, gridScaleFactor) {
   const typeOptions = Object.entries(transporterEffects)
     .map(([k, v]) => `<option value="${k}">${v.name}</option>`)
     .join("");
 
-  const gridSize = Math.round((canvas.grid?.size ?? 100));
+  const gridSize = Math.round(canvas.grid?.size ?? 100);
   const gridNote = gridScaleFactor !== 1
-    ? `<div class="sta2e-tp-grid-note">AUTO-ADJ ${gridSize}px GRID (${gridScaleFactor.toFixed(1)}×)</div>`
-    : "";
+    ? `AUTO-ADJ ${gridSize}px GRID (${gridScaleFactor.toFixed(1)}×)`
+    : null;
 
-  const theme    = _getThemeKey();
-  const dateLabel = _getCurrentDateLabel() ?? `STARDATE ${(49000 + Math.floor(Math.random() * 999)).toFixed(1)}`;
+  const config = swGrid([
+    swField("Emitter Type", swSelect({ id: "sta2e-tp-type", options: typeOptions })),
+    swField("Token Spacing",
+      swInput({ id: "sta2e-tp-spacing", value: adjustedSpacing }),
+      { note: gridNote }),
+    swField("Beam-In Pattern", swSelect({
+      id: "sta2e-tp-pattern",
+      options: Object.entries(SPAWN_PATTERNS)
+        .map(([key, label]) => `<option value="${key}">${label}</option>`)
+        .join(""),
+    })),
+    swField("Beam Site",
+      swSelect({
+        id: "sta2e-tp-location",
+        options: buildLocationOptions(getSpawnPref(BEAM_SITE_PREF, "canvas")),
+      }),
+      { noteId: "sta2e-tp-location-note" }),
+  ].join(""), 2);
 
-  return `
-    <div class="sta2e-tp-dialog" data-theme="${theme}">
-      <div class="sta2e-tp-header">
-        <div class="sta2e-tp-header-pill">SYS</div>
-        <div class="sta2e-tp-header-title">Transporter Control</div>
-        <div class="sta2e-tp-header-stardate">${dateLabel}</div>
-      </div>
+  const left = [
+    swPanel("Transporter Configuration", config),
+    swPanel("Transport Queue", buildQueueHTML(), { meta: "drag tokens / actors here" }),
+  ].join("");
 
-      <div class="sta2e-tp-body">
-        <div class="sta2e-tp-sidebar"></div>
+  return swColumns(left, _buildBufferColumn(groups));
+}
 
-        <div class="sta2e-tp-content">
+/** Read the four placement controls back out of the panel. */
+function _readTpControls(root) {
+  const q = sel => root?.querySelector(sel);
+  return {
+    type:     q("#sta2e-tp-type")?.value     ?? "tngFed",
+    spacing:  parseInt(q("#sta2e-tp-spacing")?.value ?? _defaultSpacing()) || _defaultSpacing(),
+    pattern:  q("#sta2e-tp-pattern")?.value  ?? "circle",
+    location: q("#sta2e-tp-location")?.value || "canvas",
+  };
+}
 
-          <div class="sta2e-tp-col-left">
-            <div>
-              <div class="sta2e-tp-section-label">Transporter Configuration</div>
-              <div class="sta2e-tp-controls">
-                <div>
-                  <div class="sta2e-tp-label">Emitter Type</div>
-                  <select id="sta2e-tp-type" class="sta2e-tp-select">${typeOptions}</select>
-                </div>
-                <div>
-                  <div class="sta2e-tp-label">Token Spacing</div>
-                  <input type="number" id="sta2e-tp-spacing" class="sta2e-tp-input" value="${adjustedSpacing}">
-                  ${gridNote}
-                </div>
-                <div>
-                  <div class="sta2e-tp-label">Beam-In Pattern</div>
-                  <select id="sta2e-tp-pattern" class="sta2e-tp-select">
-                    ${Object.entries(SPAWN_PATTERNS)
-                      .map(([key, label]) => `<option value="${key}">${label}</option>`)
-                      .join("")}
-                  </select>
-                </div>
-              </div>
-            </div>
+const _renderTpQueue = root => renderQueue(root, _tpQueue);
 
-            <div>
-              <div class="sta2e-tp-section-label">Transport Queue — Drag Tokens / Actors Here</div>
-              <div class="sta2e-tp-drop-zone" id="sta2e-tp-drop-zone">
-                <div class="sta2e-tp-drop-hint">⟡ Drag tokens or actors from sidebar ⟡</div>
-                <div class="sta2e-tp-token-list" id="sta2e-tp-token-list"></div>
-              </div>
-            </div>
+/**
+ * Re-read the panel against the current scene. Runs on every activation, since
+ * the scene's Regions can change while the Ships tab is in front — and the
+ * pattern control has nothing to say once a Region defines the layout.
+ */
+function _refreshTpPanel(root) {
+  const select = root?.querySelector("#sta2e-tp-location");
+  if (select) {
+    select.innerHTML = buildLocationOptions(select.value);
+    if (!select.value) select.value = "canvas";
+  }
 
-            <div class="sta2e-tp-footer-bar"></div>
-          </div>
+  // Neither Region mode has anything for the formation controls to say — the
+  // pads or the grid spaces define the layout.
+  const site    = parseLocation(select?.value);
+  const onCanvas = site.kind === "canvas";
+  const pattern  = root?.querySelector("#sta2e-tp-pattern");
+  const spacing  = root?.querySelector("#sta2e-tp-spacing");
+  if (pattern) pattern.disabled = !onCanvas;
+  if (spacing) spacing.disabled = !onCanvas;
 
-          <div class="sta2e-tp-col-right">
-            <div class="sta2e-tp-section-label">Transporter Buffer</div>
-            ${_buildBeamBufferHTML(groups)}
-          </div>
+  const note = root?.querySelector("#sta2e-tp-location-note");
+  if (note) {
+    note.textContent = site.kind === "pads" ? "ONE PATTERN PER PAD MARKER"
+                     : site.kind === "region" ? "ONE PATTERN PER GRID SPACE"
+                     : "";
+  }
+}
 
-        </div>
+// ── Tab registration ──────────────────────────────────────────────────────────
 
-        <div class="sta2e-tp-sidebar sta2e-tp-sidebar-right"></div>
-      </div>
-    </div>`;
+registerSpawnTab({
+  id:    TAB_ID,
+  label: "Transporter",
+  icon:  "fas fa-person-booth",
+  meta:  () => _getCurrentDateLabel() ?? "",
+  buildHTML: async () => {
+    _tpGroups = await _getBeamGroups();
+    return _buildInnerHTML(_tpGroups, _effects(), _defaultSpacing(), (canvas.grid?.size ?? 100) / 100);
+  },
+
+  wire: (panel, api) => {
+    const transporterEffects = _effects();
+
+    // Rebuilds the buffer column and the rail keys — the queue, the emitter
+    // type and the spacing the GM has already set are left alone.
+    const refresh = async () => {
+      _tpGroups = await _getBeamGroups();
+      const colRight = panel.querySelector(".sw-col--right");
+      if (colRight) {
+        colRight.innerHTML = _buildBufferColumn(_tpGroups);
+        _wireBufferButtons(colRight, transporterEffects, refresh, panel, api);
+      }
+      api.refreshActions();
+    };
+    panel._sta2eRefresh = refresh;
+
+    wireQueue(panel, _tpQueue);
+    _wireBufferButtons(panel, transporterEffects, refresh, panel, api);
+    // Persisted only on a real choice, never on a refresh: moving to a scene
+    // without those pads should not erase the pads you normally use.
+    panel.querySelector("#sta2e-tp-location")?.addEventListener("change", ev => {
+      setSpawnPref(BEAM_SITE_PREF, ev.currentTarget.value);
+      _refreshTpPanel(panel);
+    });
+
+    _renderTpQueue(panel);   // re-hydrate from the surviving module state
+    _refreshTpPanel(panel);
+  },
+
+  onActivate: panel => {
+    _renderTpQueue(panel);
+    _refreshTpPanel(panel);
+  },
+
+  buildActions: (panel, api) =>
+    _buildActions(_tpGroups, _effects(), panel, panel._sta2eRefresh ?? (async () => {}), api),
+});
+
+// ── Main entry point ──────────────────────────────────────────────────────────
+
+/**
+ * Open the spawn window on the Transporter tab. GM only.
+ * Exposed as `game.sta2eToolkit.openTransporter()` and called by the Combat HUD.
+ */
+export async function openTransporter() {
+  return openSpawnWindow({ tab: TAB_ID });
 }
 
 // ── Settings registration helper (called from settings.js) ───────────────────

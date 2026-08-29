@@ -27,8 +27,13 @@ import {
 } from "./combat/initiative-order.js";
 import { registerInitiativeTrackerUI } from "./combat/initiative-tracker-ui.js";
 import { registerShipTurnMarker } from "./combat/initiative-turn-marker.js";
+// Importing these registers their tabs on the shared spawn window, in strip
+// order — transporter, ships, Q.
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { openShipSpawner } from "./ship-spawner.js";
+import { openQSpawner } from "./q-spawner.js";
+import { openSpawnWindow } from "./spawn-window.js";
+import { playNativeQSceneFlash } from "./q-vfx.js";
 import { ToolkitWidget } from "./toolkit-widget.js";
 import { SfxWidget } from "./sfx-widget.js";
 import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
@@ -43,9 +48,29 @@ import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
+import { registerRegionPadConfig } from "./region-pad-config.js";
+import { registerWarpViewscreenBehavior } from "./warp-viewscreen-behavior.js";
+import { WarpViewscreenPanel } from "./warp-viewscreen-panel.js";
+import { SceneWarpPanel } from "./scene-warp-panel.js";
+import {
+  syncSceneWarp,
+  detachSceneWarp,
+  rebuildSceneWarpFrame,
+  registerSceneWarpDiceCoordination,
+} from "./scene-warp-vfx.js";
+import {
+  isSceneHeadingLocked,
+  isSceneAtFullWarp,
+  isShipToken,
+  sceneShipTokens,
+  registerSceneWarpCache,
+} from "./scene-warp.js";
+import { registerStarfieldSettingsCache } from "./starfield-common.js";
+import { registerQHud } from "./q-hud.js";
 import { registerShipCommandHud } from "./ship-command-hud.js";
 import { registerTokenWeaponHud } from "./token-weapon-hud.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
+import { playWarpStretch, stopWarpStretch, registerWarpStretch } from "./warp-stretch-vfx.js";
 import { shipHasWarpEffectChoice } from "./warp-effect-styles.js";
 import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
 import { GROUND_PHASER_VFX_ACTION, playGroundPhaserVfxFromSocket } from "./ground-phaser-vfx.js";
@@ -311,7 +336,15 @@ Hooks.once("init", () => {
   registerMomentumSpend();
   registerMomentumTracker();
   registerZoneTokenConfig();
+  // Memoise the per-frame settings reads both star renderers make, and thin the
+  // scene field while Dice So Nice has a second WebGL context on screen.
+  registerStarfieldSettingsCache();
+  registerSceneWarpCache();
+  registerSceneWarpDiceCoordination();
+  registerRegionPadConfig();
+  registerWarpViewscreenBehavior();
   registerShipCommandHud();
+  registerQHud();
   registerTokenWeaponHud();
   registerHullDecals();
   registerTraitItemSheetFields();
@@ -331,11 +364,12 @@ Hooks.once("init", () => {
     restricted: false,
   });
 
+  // Opens on whichever tab was last in front — Transporter or Ship Spawner.
   game.keybindings.register("sta2e-toolkit", "openTransporter", {
     name:       "STA2E.Keybinding.OpenTransporter.Name",
     hint:       "STA2E.Keybinding.OpenTransporter.Hint",
     editable:   [{ key: "KeyB", modifiers: ["Shift"] }],
-    onDown:     () => { if (game.user.isGM) openTransporter(); },
+    onDown:     () => { if (game.user.isGM) openSpawnWindow(); },
     restricted: true,
   });
 
@@ -352,6 +386,14 @@ Hooks.once("init", () => {
     hint:       "STA2E.Keybinding.OpenTaskMaker.Hint",
     editable:   [{ key: "KeyM", modifiers: ["Shift"] }],
     onDown:     () => { if (game.user.isGM) openTaskMakerSetup(); },
+    restricted: true,
+  });
+
+  game.keybindings.register("sta2e-toolkit", "toggleSceneWarp", {
+    name:       "STA2E.Keybinding.ToggleSceneWarp.Name",
+    hint:       "STA2E.Keybinding.ToggleSceneWarp.Hint",
+    editable:   [{ key: "KeyW", modifiers: ["Shift"] }],
+    onDown:     () => { if (game.user.isGM) game.sta2eToolkit?.sceneWarpPanel?.toggle(); },
     restricted: true,
   });
 
@@ -681,6 +723,8 @@ Hooks.once("ready", async () => {
   const alertHud        = new AlertHUD();
   const combatHud       = new CombatHUD();
   const toolkitWidget   = new ToolkitWidget();
+  const warpViewscreenPanel = new WarpViewscreenPanel();
+  const sceneWarpPanel  = new SceneWarpPanel();
   const sfxWidget       = new SfxWidget();
   const poolTracker     = new ToolkitPoolTracker();
   const traitManager    = new TraitManager();
@@ -808,9 +852,15 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.resolveReactorAction     = payload => CombatHUD.resolveReactorAction(payload);
   game.sta2eToolkit.checkOpposedTaskForTokens = checkOpposedTaskForTokens; // standalone opposed-task check (used by npc-roller side-panel path)
   game.sta2eToolkit.EffectConfigMenu = EffectConfigMenu; // class ref for external access
-  game.sta2eToolkit.openTransporter = openTransporter;
-  game.sta2eToolkit.openShipSpawner = openShipSpawner;
+  game.sta2eToolkit.openTransporter = openTransporter;   // spawn window, Transporter tab
+  game.sta2eToolkit.openShipSpawner = openShipSpawner;   // spawn window, Ships tab
+  game.sta2eToolkit.openQSpawner    = openQSpawner;      // spawn window, Q tab
+  game.sta2eToolkit.openSpawnWindow = openSpawnWindow;   // last-used tab
   game.sta2eToolkit.toolkitWidget   = toolkitWidget;
+  game.sta2eToolkit.warpViewscreenPanel     = warpViewscreenPanel;
+  game.sta2eToolkit.openWarpViewscreenPanel = () => warpViewscreenPanel.toggle();
+  game.sta2eToolkit.sceneWarpPanel     = sceneWarpPanel;
+  game.sta2eToolkit.openSceneWarpPanel = () => sceneWarpPanel.toggle();
   game.sta2eToolkit.sfxWidget       = sfxWidget;
   game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.traitManager    = traitManager;
@@ -1155,6 +1205,14 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // Q's white wash. Client-local PIXI like the warp flash, and the spawner
+    // runs only on the GM, so everyone else needs telling. Scene-guarded: a
+    // client looking at somewhere else should not be flashed.
+    if (msg.action === "qSceneFlashVfx") {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) playNativeQSceneFlash();
+      return;
+    }
+
     // Pre-warp nacelle glow — each client samples the ship's warp splines
     // locally, so the payload is just the token and timing. The stop message
     // lands the pop-fade on the depart flash; the glow also self-expires in
@@ -1172,6 +1230,33 @@ Hooks.once("ready", async () => {
     }
     if (msg.action === "stopWarpChargeVfx") {
       stopWarpChargeGlow(msg.tokenId);
+      return;
+    }
+
+    // The hull smear at either end of a jump. Deforming a token's sprite is not
+    // a document change, so unlike position/rotation/alpha Foundry replicates
+    // nothing here — same broadcast as the charge glow above, scene-guarded and
+    // ungated because it is purely cosmetic. Each client runs its own tween off
+    // the same parameters.
+    if (msg.action === "warpStretchVfx") {
+      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+        const stretchTok = canvas?.tokens?.get(msg.tokenId);
+        if (stretchTok) {
+          playWarpStretch(stretchTok, {
+            from: msg.from, to: msg.to,
+            holdMs: msg.holdMs, durationMs: msg.durationMs,
+            easing: msg.easing, squeeze: msg.squeeze,
+            // Which end of the hull holds still, and the canvas-space direction
+            // of travel it is measured against. Absent from an older client's
+            // payload, which degrades to the symmetric smear.
+            anchor: msg.anchor, dirX: msg.dirX, dirY: msg.dirY,
+          });
+        }
+      }
+      return;
+    }
+    if (msg.action === "stopWarpStretchVfx") {
+      stopWarpStretch(msg.tokenId);
       return;
     }
 
@@ -2227,6 +2312,10 @@ Hooks.once("setup", () => {
   // Patch Token._refreshBorder and wire the silhouette selection glow.
   registerTokenSelectGlow();
 
+  // Patch Token._refreshSize/_refreshMesh so the warp hull smear survives core's
+  // own rewrites of mesh.scale.
+  registerWarpStretch();
+
   // Patch Token._onDragLeftStart and _onDragLeftDrop to feed the ZoneDragRuler
   const TokenClass = foundry.canvas?.placeables?.Token ?? Token;
   if (!TokenClass?.prototype) return;
@@ -2544,6 +2633,123 @@ Hooks.on("canvasReady", () => {
       y: token.document.y + th / 2,
     });
   }
+});
+
+// ── Scene Warp ───────────────────────────────────────────────────────────────
+// The whole scene at warp: the streak field, the formation heading lock, and the
+// nacelle glow held lit while it runs. State is a scene flag (scene-warp.js), so
+// **nothing here broadcasts** — every client receives the Scene update from
+// Foundry and reacts locally, which is also what gives a player who joins
+// mid-warp the right picture.
+
+/** tokenId → { glow, startedAt } for this client's own nacelle glows. */
+const _sceneWarpGlows = new Map();
+let _sceneWarpGlowTimer = null;
+
+// The glow self-expires at `sweepMs + peakHoldMs` as a guard against a stuck
+// effect. That guard was written for a *broadcast* glow, where a client could
+// miss the stop; here the same client that starts one also owns stopping it, so
+// the hold can be long. It is not infinite: a heartbeat re-arms an expired glow,
+// and an interval well short of the hold means that re-arm — which visibly
+// restarts the brightness ramp — effectively never fires during a session.
+const SCENE_WARP_GLOW_HOLD_MS  = 600_000;
+const SCENE_WARP_GLOW_CHECK_MS = 5_000;
+
+function _stopSceneWarpGlow(tokenId) {
+  const entry = _sceneWarpGlows.get(tokenId);
+  if (!entry) return;
+  _sceneWarpGlows.delete(tokenId);
+  try { entry.glow?.stop?.(); } catch { /* already gone */ }
+}
+
+function _stopAllSceneWarpGlows() {
+  for (const tokenId of [..._sceneWarpGlows.keys()]) _stopSceneWarpGlow(tokenId);
+}
+
+/**
+ * Bring this client's nacelle glows in line with the scene.
+ *
+ * Reconciles rather than toggles, so a ship dropped onto the map mid-warp lights
+ * up on its own and a deleted one is cleaned up. Local only — `playWarpChargeGlow`
+ * rather than `broadcastWarpChargeGlow`, because every client runs this for
+ * itself off the same flag.
+ */
+function _syncSceneWarpGlow() {
+  if (!canvas?.ready || !isSceneAtFullWarp()) {
+    _stopAllSceneWarpGlows();
+    return;
+  }
+  const live = new Set();
+  for (const token of sceneShipTokens()) {
+    const id = token.document?.id;
+    if (!id) continue;
+    live.add(id);
+    const entry = _sceneWarpGlows.get(id);
+    if (entry && (performance.now() - entry.startedAt) < SCENE_WARP_GLOW_HOLD_MS) continue;
+    if (entry) _stopSceneWarpGlow(id);
+    // sweepMs of 1: the fore-to-aft sweep is the *jump's* power-up beat. A ship
+    // already at warp has its nacelles lit, so it starts fully lit instead.
+    const glow = playWarpChargeGlow(token, { sweepMs: 1, peakHoldMs: SCENE_WARP_GLOW_HOLD_MS });
+    _sceneWarpGlows.set(id, { glow, startedAt: performance.now() });
+  }
+  for (const id of [..._sceneWarpGlows.keys()]) {
+    if (!live.has(id)) _stopSceneWarpGlow(id);
+  }
+}
+
+function _startSceneWarpGlowHeartbeat() {
+  if (_sceneWarpGlowTimer) return;
+  _sceneWarpGlowTimer = setInterval(_syncSceneWarpGlow, SCENE_WARP_GLOW_CHECK_MS);
+}
+
+Hooks.on("canvasReady", () => {
+  _stopAllSceneWarpGlows();   // the previous scene's glows belong to its tokens
+  syncSceneWarp();
+  _syncSceneWarpGlow();
+  _startSceneWarpGlowHeartbeat();
+});
+
+// The field's containers and the glows both hold PIXI objects parented into the
+// token layer, which the teardown is about to destroy under them.
+Hooks.on("canvasTearDown", () => {
+  detachSceneWarp();
+  _stopAllSceneWarpGlows();
+});
+
+Hooks.on("updateScene", (scene, changes) => {
+  if (scene.id !== canvas?.scene?.id) return;
+  const warpChanged = foundry.utils.hasProperty(changes, "flags.sta2e-toolkit.sceneWarp");
+  // Scene dimensions move the mask and the field span, so those need the full
+  // rebuild rather than the cheap reconcile.
+  const sizeChanged = ["width", "height", "padding", "grid"].some(k => k in changes);
+  if (!warpChanged && !sizeChanged) return;
+  if (sizeChanged) rebuildSceneWarpFrame();
+  else syncSceneWarp();
+  _syncSceneWarpGlow();
+});
+
+/**
+ * The formation heading lock.
+ *
+ * Absolute, as the panel's tooltip says: ships translate bow-forward and never
+ * turn. The GM keeps a per-token override — turning one ship by hand is honoured
+ * and simply becomes that ship's heading; it deliberately does NOT re-aim the
+ * fleet, which would let one nudge cascade into every ship on the map.
+ *
+ * The module's own scripted movement is let through untouched: those runners
+ * already drop the rotation themselves under a lock (`_moveUpdate` in
+ * ship-card-movement.js), and stripping it a second time here would differ
+ * between a GM and a player running the same action.
+ */
+Hooks.on("preUpdateToken", (tokenDoc, changes, options) => {
+  if (!("rotation" in changes)) return;
+  if (game.user.isGM) return;                    // per-token GM override
+  if (options?.sta2eSceneWarpAlign) return;      // the lock's own align pass
+  if (options?.sta2eScriptedMove) return;        // scripted impulse/warp waypoint
+  if (options?.sta2eWeaponReposition) return;    // cinematic firing nudge
+  if (!isSceneHeadingLocked(tokenDoc.parent)) return;
+  if (!isShipToken(tokenDoc)) return;
+  delete changes.rotation;
 });
 
 Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {

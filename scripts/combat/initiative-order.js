@@ -37,6 +37,7 @@
 
 import { adjustPool, readPool } from "../pool-service.js";
 import { getLcTokens } from "../lcars-theme.js";
+import { lcarsChatCard } from "../chat-card-frame.js";
 import { getCrewManifest, STATION_SLOTS } from "../crew-manifest.js";
 import { hasGroundTalent } from "./ground-talents.js";
 
@@ -918,20 +919,29 @@ function _officerCombatantForStation(combat, shipActor, stationId) {
  *
  * Resolution order:
  *   1. the actor's own combatant, unless it is standing by
- *   2. the officer manning `stationId` on that ship (precise: a Tactical action
+ *   2. `actingActorId` — the character the caller knows took this action (the
+ *      action ring passes the character that was clicked). Command seats two
+ *      officers, so without this a First Officer's action spends the Captain's turn.
+ *   3. the officer manning `stationId` on that ship (precise: a Tactical action
  *      is the Tactical officer's, whoever the tracker happens to have selected)
- *   3. whichever combatant is currently acting
+ *   4. whichever combatant is currently acting
  *
- * Step 2 matters because step 3 only works once a row has been clicked. A GM
+ * Step 3 matters because step 4 only works once a row has been clicked. A GM
  * driving the fight from the ✓ control never sets a selection, and every action
  * would have been charged to the standing-by ship — which renders no action pips
  * at all, so nothing appeared to happen.
  */
-export function resolveTurnCombatant(actor, combat = game.combat, { stationId = null } = {}) {
+export function resolveTurnCombatant(actor, combat = game.combat,
+                                     { stationId = null, actingActorId = null } = {}) {
   if (!combat?.started) return null;
 
   const direct = findCombatantForActor(actor, combat);
   if (direct && !isStandingBy(combat, direct)) return direct;
+
+  if (actingActorId) {
+    const acting = combat.combatants.find(c => c.actorId === actingActorId);
+    if (acting && !isStandingBy(combat, acting)) return acting;
+  }
 
   const officer = _officerCombatantForStation(combat, actor, stationId);
   if (officer) return officer;
@@ -1135,15 +1145,7 @@ async function _postSpendCard({ kind, combatant, payment, side, userName }) {
        </div>`
     : "";
 
-  const content = `
-    <div style="font-family:${LC.font};background:${LC.bg};border-left:4px solid ${accent};
-                border-radius:2px;padding:8px 10px;color:${LC.text};">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-        <span style="font-size:14px;">${icon}</span>
-        <span style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accent};">
-          ${SPEND_LABEL[kind] ?? "Turn Order"}
-        </span>
-      </div>
+  const spendBody = `
       <div style="font-size:11px;color:${LC.textDim};margin-bottom:6px;">
         ${who}${by}
       </div>
@@ -1157,8 +1159,23 @@ async function _postSpendCard({ kind, combatant, payment, side, userName }) {
       ${talentNote}
       ${(gave && cost > 0) ? `<div style="margin-top:6px;font-size:10px;color:${LC.textDim};font-style:italic;">
         Paid by adding Threat to the pool instead of spending Momentum.
-      </div>` : ""}
-    </div>`;
+      </div>` : ""}`;
+
+  const content = lcarsChatCard({
+    title: `${icon} ${SPEND_LABEL[kind] ?? "Turn Order"}`,
+    accent,
+    body: spendBody,
+    legacy: () => `
+    <div style="font-family:${LC.font};background:${LC.bg};border-left:4px solid ${accent};
+                border-radius:2px;padding:8px 10px;color:${LC.text};">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <span style="font-size:14px;">${icon}</span>
+        <span style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accent};">
+          ${SPEND_LABEL[kind] ?? "Turn Order"}
+        </span>
+      </div>${spendBody}
+    </div>`,
+  });
 
   try {
     await ChatMessage.create({ content, speaker: { alias: "Turn Order" } });

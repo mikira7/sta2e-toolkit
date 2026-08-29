@@ -1,0 +1,99 @@
+/*
+ * sta2e-toolkit | chat-card.css
+ *
+ * Geometry for the TNG frame shared by the module's chat cards
+ * (scripts/chat-card-frame.js). A bar across the top carrying the title, a bar
+ * across the bottom, all four corners rounded, no spine — the sibling of the
+ * working task card's frame in styles/task-card.css, which has the spine instead.
+ *
+ * Colours come from the --cc-* custom properties the helper stamps on the root
+ * via getLcCssVars("cc"), plus --ccf-c: the accent the card already codes with
+ * (hit orange, miss dim, injury red, hazard yellow). The frame changes a card's
+ * shape and leaves its colour meaning alone.
+ *
+ * ── Two hard rules, the same ones the other card stylesheets carry ───────────
+ * 1. NO `!important` anywhere in this file. Card bodies are inline-styled, and
+ *    _armCardSelection() in combat/combat-hud-core.js round-trips buttons through
+ *    `style.cssText` and paints dice via el.style.*. A rule that outranked those
+ *    would leave buttons stuck armed and dice stuck highlighted.
+ * 2. Never set background / border-color / color / opacity on
+ *    .sta2e-player-reroll or .sta2e-make-own-luck — combat-hud-core.js owns those
+ *    four while an ability is armed. Some of these cards host reroll buttons.
+ */
+
+.sta2e-chat-card {
+  /* The card's own corners are square; the bars keep their own radius, which is
+     why these are two variables and not one. */
+  --ccf-radius: 0;
+  --ccf-bar-radius: 16px;
+  --ccf-bar-h: 16px;
+  --ccf-bar-inset: 5px;
+  --ccf-btn-radius: 16px;
+  overflow: hidden;
+  border-radius: var(--ccf-radius);
+  background: var(--cc-bg);
+  font-family: var(--cc-font);
+  color: var(--cc-text);
+}
+
+/* ── Bars ─────────────────────────────────────────────────────────────────── */
+/* Each bar is rounded on all four corners and inset from the card's edges, so it
+   reads as a bar laid on the card rather than a band clipped by it. Relying on
+   the root's radius plus overflow:hidden instead only rounds the two outer
+   corners and leaves the inner two square.
+
+   line-height is pinned rather than left at normal so both bars are exactly
+   --ccf-bar-h tall whatever font a theme's stack resolves to, the same reason the
+   task card's bar pins it. */
+.sta2e-chat-card .ccf-bar {
+  min-height: var(--ccf-bar-h);
+  margin: var(--ccf-bar-inset);
+  padding: 3px 12px;
+  border-radius: var(--ccf-bar-radius);
+  background: var(--ccf-c, var(--cc-primary));
+  color: var(--cc-bg);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sta2e-chat-card .ccf-bar--bottom {
+  height: var(--ccf-bar-h);
+  padding: 0;
+}
+
+/* Buttons match the task card's keys. The helper strips the inline radius the
+   bodies carry (unroundButtons in chat-card-frame.js) — without that this rule
+   loses to the inline declaration and the buttons stay square. */
+.sta2e-chat-card .ccf-body button {
+  border-radius: var(--ccf-btn-radius);
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+/* Padding matches what lcarsCard used to apply inline, so converted cards keep
+   their spacing. */
+.sta2e-chat-card .ccf-body {
+  padding: 4px 10px 6px;
+}
+
+/* ── Hover ────────────────────────────────────────────────────────────────── */
+/* filter, not a colour swap, and not by preference: card bodies write their
+   buttons' background and colour inline, and an inline declaration beats any rule
+   here, so a :hover that set background would never show. filter composites over
+   whatever colour the button ended up with and needs to know none of them. It is
+   also the only option that stays clear of the four properties named in rule 2. */
+.sta2e-chat-card button:hover:not(:disabled) {
+  filter: brightness(1.28) saturate(0.92);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.28);
+}
+
+.sta2e-chat-card button:active:not(:disabled) {
+  filter: brightness(0.88);
+  box-shadow: none;
+}
+
+.sta2e-chat-card button {
+  transition: filter 0.11s ease-out, box-shadow 0.11s ease-out;
+}

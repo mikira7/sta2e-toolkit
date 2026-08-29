@@ -48,6 +48,43 @@ function jb2aHint(patronPath, freePath) {
   return _isPatron() ? `Default (Patron): ${patronPath}` : `Default (Free): ${freePath}`;
 }
 
+// ── Sound preview ────────────────────────────────────────────────────────────
+
+/**
+ * Wire the ▶ buttons inside `scope` to audition the sound beside them.
+ *
+ * Plays whatever is currently *typed* rather than what is saved, so a path can
+ * be tried before committing to it. Local only — the second argument to
+ * AudioHelper.play is the broadcast flag, and nobody else in the world wants to
+ * hear a GM working through their sound library.
+ *
+ * Called for the whole sheet on render, and again for each custom row added
+ * afterwards, since those are built after that pass.
+ */
+function _wireSoundPreview(scope) {
+  scope?.querySelectorAll(".ec-play-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      // Custom rows: button and input share one <td class="ec-pair">.
+      // Main rows:   the buttons sit alone in <td class="ec-btn-cell">.
+      const cell  = btn.closest("td");
+      const input = cell?.querySelector("input[type='text']")
+        ?? cell?.previousElementSibling?.querySelector("input");
+      const src = input?.value?.trim();
+      if (!src) {
+        ui.notifications.warn("No sound file set here yet — browse for one first.");
+        return;
+      }
+      try {
+        const AudioHelper = foundry.audio?.AudioHelper ?? globalThis.AudioHelper;
+        AudioHelper?.play({ src, volume: 0.8, autoplay: true, loop: false }, false);
+      } catch (err) {
+        console.warn("STA2e Toolkit | sound preview failed:", err);
+        ui.notifications.error("Could not play that file — check the path.");
+      }
+    });
+  });
+}
+
 // Shared default path fragments (avoids repeating long strings)
 const _FREE = "modules/JB2A_DnD5e/Library/Generic";
 const _PAT  = "modules/jb2a_patreon/Library/Generic";
@@ -353,6 +390,9 @@ function buildTabDefs() {
         { label: "Warp — Flash Size",      slot: "", sndKey: null,                 animKey: null,
           delayKey: "warpFlashScale", unit: "%", step: 5,
           defaultHint: "Default: 100% — scales the Warp-Flash animation at both ends of the jump. The Temporal Rift has its own size below." },
+        { label: "Warp — Token Stretch",   slot: "", sndKey: null,                 animKey: null,
+          delayKey: "warpTokenStretch", unit: "%", step: 5,
+          defaultHint: "Default: 100% — how far the ship's own hull elongates along its heading as it enters and leaves warp. 0% turns the stretch off. Rift effects never stretch, since the ship flies through the aperture rather than accelerating away." },
         { label: "Warp — Temporal Rift Size", slot: "", sndKey: null, animKey: null,
           delayKey: "warpRiftScale", unit: "%", step: 5,
           defaultHint: "Default: 100% — scales the Temporal Rift animation, independently of the warp flash above." },
@@ -407,6 +447,57 @@ function buildTabDefs() {
         { label: "Romulan",               slot: "", sndKey: "sndTransporterRomulan",   animKey: null },
         { label: "Ferengi",               slot: "", sndKey: "sndTransporterFerengi",   animKey: null },
         { label: "Borg",                  slot: "", sndKey: "sndTransporterBorg",      animKey: null },
+      ],
+    },
+    {
+      id:    "qSpawner",
+      label: "Q",
+      customKey: null,
+      rows: [
+        { label: "Q — Arrive Sound", slot: "", sndKey: "sndQFlashIn", animKey: null,
+          defaultHint: "Played when Q brings someone into the scene. Blank is silent." },
+        { label: "Q — Depart Sound", slot: "", sndKey: "sndQFlashOut", animKey: null,
+          defaultHint: "Played when Q removes someone. Blank is silent." },
+        { label: "Q — Flash Size", slot: "", sndKey: null, animKey: null,
+          delayKey: "qFlashScale", unit: "%", step: 5,
+          defaultHint: "Default: 100% — scales the Q flash at each token. Independent of the warp flash size on the Ship Tasks tab, which uses the same clip." },
+        { label: "Q — Flash Peak", slot: "ms", sndKey: null, animKey: null,
+          delayKey: "qFlashPeakMs", step: 50,
+          defaultHint: "Default: 450 ms — the moment a token appears or vanishes. Lower is snappier. Keep it shorter than the clip." },
+        { label: "Q — Screen Flash", slot: "", sndKey: null, animKey: null,
+          delayKey: "qScreenFlashIntensity", unit: "%", step: 5,
+          defaultHint: "Default: 75% — how white the whole board goes on every Q action. Set to 0 to switch the screen flash off and keep only the per-token flashes." },
+        { label: "Q — Screen Flash Length", slot: "ms", sndKey: null, animKey: null,
+          delayKey: "qScreenFlashMs", step: 50,
+          defaultHint: "Default: 500 ms — total rise, hold and fade of the board-wide flash." },
+        { label: "Q — Kick Flight", slot: "ms", sndKey: null, animKey: null,
+          delayKey: "qKickMs", step: 100,
+          defaultHint: "Default: 2600 ms — how long Q Flash Kick takes from the flash to the landing. Most of the distance goes in the first quarter; the rest is the tumble." },
+        { label: "Q — Kick Spins", slot: "turns", sndKey: null, animKey: null,
+          delayKey: "qKickSpins", unit: "turns", step: 1,
+          defaultHint: "Default: 3 — full rotations on the way out. Clamped against the flight length, so asking for more than the time allows just spins as fast as it can." },
+      ],
+    },
+    {
+      id:    "warpViewscreen",
+      label: "Viewscreen",
+      customKey: null,
+      rows: [
+        { label: "Viewscreen — Enter Warp Sound", slot: "", sndKey: "sndWarpViewscreenEnter", animKey: null,
+          defaultHint: "Played when the viewscreen jumps to warp. Blank is silent." },
+        { label: "Viewscreen — Drop Out Sound", slot: "", sndKey: "sndWarpViewscreenExit", animKey: null,
+          defaultHint: "Played when the viewscreen falls back to sublight. Blank is silent." },
+        { label: "Viewscreen — Warp Loop", slot: "", sndKey: "sndWarpViewscreenLoop", animKey: null,
+          defaultHint: "Looping rumble held for as long as the viewscreen is at warp. Blank is silent. Each client plays its own copy, so it is never doubled." },
+        { label: "Viewscreen — Enter Ramp", slot: "ms", sndKey: null, animKey: null,
+          delayKey: "warpViewscreenEnterMs", step: 100,
+          defaultHint: "Default: 2000 ms — how long the stars take to stretch from sublight to full warp. A client joining mid-ramp picks up at the right point." },
+        { label: "Viewscreen — Exit Ramp", slot: "ms", sndKey: null, animKey: null,
+          delayKey: "warpViewscreenExitMs", step: 100,
+          defaultHint: "Default: 1600 ms — how long the stars take to settle back to sublight." },
+        { label: "Viewscreen — Star Speed", slot: "", sndKey: null, animKey: null,
+          delayKey: "warpViewscreenStarSpeed", unit: "%", step: 5,
+          defaultHint: "Default: 100% — a trim on the whole field, sublight drift included. Raise it if warp reads too sedate on a large viewscreen." },
       ],
     },
   ];
@@ -941,6 +1032,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       });
     });
 
+    _wireSoundPreview(el);
+
     // ── Torpedo count sliders — live value readout ────────────────────────────
     el.querySelectorAll(".ec-slider input[type='range']").forEach(range => {
       const valEl = range.parentElement?.querySelector(".ec-slider-val");
@@ -1140,10 +1233,12 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       <td class="ec-pair">
         <input type="text" data-field="soundHit" placeholder="path/to/hit.ogg" />
         <button type="button" class="ec-browse-btn" data-fp-type="audio" title="Browse audio">📁</button>
+        <button type="button" class="ec-play-btn" title="Play this sound (you only)">▶</button>
       </td>
       <td class="ec-pair">
         <input type="text" data-field="soundMiss" placeholder="path/to/miss.ogg" />
         <button type="button" class="ec-browse-btn" data-fp-type="audio" title="Browse audio">📁</button>
+        <button type="button" class="ec-play-btn" title="Play this sound (you only)">▶</button>
       </td>
       <td class="ec-pair">
         <input type="text" data-field="animHit" placeholder="jb2a.* or path/to/hit.webm" />
@@ -1168,6 +1263,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
           callback: p => { input.value = p; } }).render(true);
       });
     });
+    // The render pass has already been and gone, so this row needs its own.
+    _wireSoundPreview(row);
   }
 
   static _onDeleteCustomRow(_event, btn) {

@@ -1,0 +1,899 @@
+/* ============================================================================
+   sta2e-toolkit | spawn-window.css
+
+   Shape for the spawn window (Shift+B) and its three tabs — Transporter, Ships
+   and Q. One LCARS console: a gold bar across the top and the bottom, a central
+   control rail rising between them carrying the tab keys and the action keys,
+   and a content column either side.
+
+   Two rules this file lives by, the same two written into task-card.css and
+   task-maker.css:
+
+   - No `!important`, anywhere.
+   - Colour arrives from JS as custom properties and nothing else. The renderers
+     stamp getLcCssVars("sw") on the root and set --sw-a for a per-key accent.
+     They emit NO inline `border-radius` and NO inline `display` — inline beats
+     any selector, which would put the element permanently out of reach of the
+     per-theme radius blocks at the bottom of this file.
+
+   The frame itself is NOT drawn in CSS. The top band and the bottom bar are
+   artwork (assets/spawn-frame-top.svg / -bottom.svg), worn as a mask with
+   var(--sw-primary) painted through it — so the silhouette is drawn against
+   the mockup by hand and the colour still comes from the era's tokens.
+   Reconstructing those curves in border-radius was the wrong tool: every
+   correction meant re-deriving geometry from a picture.
+
+   Those files are Inkscape documents wrapping a transparent PNG, so they hold
+   no path to give a fill and no amount of editing would make `currentColor`
+   work on them. That does not matter here and is the reason to mask rather
+   than to place the art: a mask reads the alpha channel and ignores colour
+   entirely, so the export is used exactly as it comes out of Inkscape.
+
+   What that costs, and what to watch:
+   - The art is drawn against fixed column positions. See the comment above
+     .sta2e-sw-panel before changing --sw-col-left, --sw-rail-w, --sw-side-w
+     or --sw-gap.
+   - A mask clips the element's children too. That is why the two bands wear
+     theirs on ::before instead of on the band itself — see that rule.
+   - The art is raster inside, drawn 1:1 for a 900px window. Changing
+     --sw-width will scale rather than redraw it.
+
+   Selectors are doubled where they could tie with another sheet, so this file's
+   position in module.json's styles array never matters.
+   ============================================================================ */
+
+.sta2e-sw {
+  /* -- Geometry tokens ---------------------------------------------------- */
+  --sw-width: 900px;
+  --sw-max-h: 78vh;
+
+  /* -- Measured off the frame artwork ------------------------------------
+     Every number below was read out of assets/spawn-frame-top.svg rather than
+     guessed, so the rail of keys lands inside the rail the art draws. At the
+     900px width the art was drawn for, the columns resolve to:
+
+         left column     0 .. 421     (--sw-col-left)
+         seam          422 .. 425
+         rail          426 .. 495     (--sw-rail-w)
+         seam          496 .. 499
+         side column   500 .. 532     (--sw-side-w)
+         seam          533 .. 536
+         right column  537 .. 899     (whatever is left)
+
+     Re-export the art and these have to be re-measured with it. */
+  --sw-col-left: 422px;
+  --sw-rail-w: 70px;
+  --sw-side-w: 33px;
+  --sw-gap: 4px;
+  --sw-rail-total: calc(var(--sw-rail-w) + var(--sw-gap) + var(--sw-side-w));
+
+  --sw-frame-top:    url("../assets/spawn-frame-top.svg");
+  --sw-frame-bottom: url("../assets/spawn-frame-bottom.svg");
+  --sw-header-h: 20px;
+  --sw-top-h: 84px;           /* both files' viewBox height */
+  --sw-bottom-h: 84px;
+
+  /* The title cap is the one gap the art deliberately leaves in the top bar
+     (x 730..880, rows 4..23) for a CSS element to fill. */
+  --sw-cap-right: 19px;
+  --sw-cap-w: 151px;
+  --sw-cap-top: 4px;
+  --sw-cap-h: 20px;
+  --sw-meta-right: 179px;     /* the stardate, ending just inside the arm */
+
+  --sw-key-h: 22px;
+  --sw-panel-radius: 12px;
+  --sw-field-radius: 6px;
+
+  /* Decorative block colours. Overridden for the two TNG themes below with the
+     classic LCARS lilac and plum; every other era stays on its own palette. */
+  --sw-deco-a: var(--sw-secondary);
+  --sw-deco-b: var(--sw-tertiary);
+  --sw-deco-c: var(--sw-border);
+
+  position: fixed;
+  z-index: 9000;
+  width: var(--sw-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sw-gap);
+  box-sizing: border-box;
+  padding: 0;
+  /* No border and no radius on the root: the frame IS the chrome, and an
+     outline round it would draw a second one outside the LCARS elbows. */
+  border: 0;
+  background: var(--sw-bg);
+  font-family: var(--sw-font);
+  color: var(--sw-text);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+}
+
+.sta2e-sw *,
+.sta2e-sw *::before,
+.sta2e-sw *::after {
+  box-sizing: border-box;
+}
+
+.sta2e-sw .sw-styles {
+  display: none;
+}
+
+/* -- The body's column track list -----------------------------------------
+   The two frame bands are masked images and no longer grids, but the panel
+   still uses these tracks — and at the default 900px width they resolve to
+   exactly the x positions the artwork is drawn against (rail 426..495, side
+   column 500..532). That is what keeps the frame's rail aligned with the rail
+   of keys below it, so do not change --sw-col-left, --sw-rail-w, --sw-side-w
+   or --sw-gap without re-measuring the art. */
+
+.sta2e-sw .sta2e-sw-panel {
+  display: grid;
+  /* The left column is a fixed width, not a 1fr twin of the right one: the
+     artwork's rail is not centred (the config side is wider than the buffer
+     side, as the mockup has it), so two equal fractions would put the keys
+     30px off the painted rail. Only the right column flexes. */
+  grid-template-columns: var(--sw-col-left) var(--sw-rail-total) minmax(0, 1fr);
+  gap: var(--sw-gap);
+  min-width: 0;
+}
+
+/* -- The two frame bands --------------------------------------------------
+   The frame is artwork. Each band paints var(--sw-primary) through the file in
+   assets/ as a mask — the same trick lcars-action-ring.js uses for the bridge
+   station glyphs, and what lets hand-drawn chrome still recolour per era
+   instead of needing one export per theme.
+
+   Those files are Inkscape SVGs wrapping a transparent PNG, so there is no
+   path to give a fill and `currentColor` could never have worked on them. It
+   does not need to: a mask reads alpha and ignores colour entirely, so the art
+   is used exactly as exported.
+
+   THE MASK IS ON ::before, NOT ON THE BAND. A mask clips an element's children
+   too, and the top band's children — the title label and the stardate — sit in
+   the gap the artwork deliberately leaves in the bar, where the mask is
+   transparent. Masking the band itself would erase them. */
+
+.sta2e-sw .sw-top,
+.sta2e-sw .sw-bottom {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.sta2e-sw .sw-top::before,
+.sta2e-sw .sw-bottom::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--sw-primary);
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+          mask-size: 100% 100%;
+}
+
+.sta2e-sw .sw-top {
+  height: var(--sw-top-h);
+  cursor: grab;
+  user-select: none;
+}
+
+.sta2e-sw .sw-top::before {
+  -webkit-mask-image: var(--sw-frame-top);
+          mask-image: var(--sw-frame-top);
+}
+
+/* -- Window header --------------------------------------------------------
+   The module's usual floating-panel strip, as scene-warp-panel.js and the
+   others build it: filled primary, black uppercase title, close button.
+
+   It names the window; the artwork's title cap names the active tab. Both are
+   drag handles, and the grabbing cursor is flagged on the root so whichever
+   one you took hold of shows it. */
+
+.sta2e-sw .sw-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--sw-header-h);
+  padding: 3px 10px;
+  background: var(--sw-primary);
+  color: var(--sw-bg);
+  cursor: grab;
+  user-select: none;
+}
+
+.sta2e-sw .sw-header-title {
+  min-width: 0;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sta2e-sw .sw-header-close {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--sw-bg);
+  font-family: var(--sw-font);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.sta2e-sw .sw-header-close:hover {
+  opacity: 1;
+}
+
+.sta2e-sw.is-dragging .sw-header,
+.sta2e-sw.is-dragging .sw-top {
+  cursor: grabbing;
+}
+
+.sta2e-sw .sw-bottom {
+  height: var(--sw-bottom-h);
+}
+
+.sta2e-sw .sw-bottom::before {
+  -webkit-mask-image: var(--sw-frame-bottom);
+          mask-image: var(--sw-frame-bottom);
+}
+
+/* The title cap fills the slot the artwork leaves open in the top bar, between
+   the arm's flat end and the little end nub. */
+.sta2e-sw .sw-title-cap {
+  position: absolute;
+  top: var(--sw-cap-top);
+  right: var(--sw-cap-right);
+  width: var(--sw-cap-w);
+  height: var(--sw-cap-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  background: var(--sw-primary);
+  color: var(--sw-bg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* The stardate, right-aligned in the arm just short of its end. */
+.sta2e-sw .sw-top-meta {
+  position: absolute;
+  top: var(--sw-cap-top);
+  right: var(--sw-meta-right);
+  height: var(--sw-cap-h);
+  display: flex;
+  align-items: center;
+  max-width: 40%;
+  color: var(--sw-bg);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* -- Body -----------------------------------------------------------------
+   The height cap lives here and the scrolling lives strictly inside .sw-col.
+   Never put overflow on .sw-body or on the panel: the rail is a grid sibling
+   of the columns, so it stretches to full body height for free, and an
+   overflow here would scroll it away with the content. */
+
+.sta2e-sw .sw-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: var(--sw-max-h);
+}
+
+.sta2e-sw .sta2e-sw-panel {
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.sta2e-sw.sta2e-sw .sta2e-sw-panel[hidden] {
+  display: none;
+}
+
+.sta2e-sw .sw-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 0 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  container-type: inline-size;
+}
+
+.sta2e-sw .sw-col--left {
+  padding-left: 14px;
+}
+
+.sta2e-sw .sw-col--right {
+  padding-right: 14px;
+}
+
+/* -- The rail -------------------------------------------------------------- */
+
+.sta2e-sw .sw-rail {
+  display: flex;
+  gap: var(--sw-gap);
+  min-width: 0;
+}
+
+.sta2e-sw .sw-rail-stack {
+  flex: 0 0 var(--sw-rail-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sw-gap);
+  /* Both of these need min-width too. A flex item defaults to min-width:auto,
+     so the longest unbreakable label ("TRANSPORTER") propped the stack open
+     past --sw-rail-w and pushed the side column off the painted rail. */
+  min-width: 0;
+  min-height: 0;
+}
+
+.sta2e-sw .sw-rail-side {
+  flex: 0 0 var(--sw-side-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sw-gap);
+  min-width: 0;
+  min-height: 0;
+}
+
+.sta2e-sw .sw-rail-tabs,
+.sta2e-sw .sw-rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sw-gap);
+}
+
+/* The filler that runs to the bottom of the rail. */
+.sta2e-sw .sw-rail-deco {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sw-gap);
+  min-height: 12px;
+}
+
+.sta2e-sw .sw-deco {
+  flex: 0 0 auto;
+  background: var(--sw-a, var(--sw-deco-a));
+  border-radius: 0;
+}
+
+/* Sizes are classes rather than inline heights, so an era can retune them and
+   so the renderers keep their promise of emitting no inline layout. */
+.sta2e-sw .sw-deco--xs { height: 10px; }
+.sta2e-sw .sw-deco--sm { height: 18px; }
+.sta2e-sw .sw-deco--md { height: 30px; }
+.sta2e-sw .sw-deco--lg { height: 44px; }
+
+/* The tail block absorbs whatever height is left. */
+.sta2e-sw .sw-deco--fill {
+  flex: 1 1 auto;
+  min-height: 10px;
+}
+
+/* -- Keys -----------------------------------------------------------------
+   Every key is a filled LCARS block: square, black label, no border. The frame
+   carries all the curves, so a rounded key here fights it. */
+
+.sta2e-sw .sw-key {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--sw-key-h);
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--sw-a, var(--sw-primary));
+  color: var(--sw-bg);
+  font-family: var(--sw-font);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  transition: filter 0.12s, opacity 0.12s;
+}
+
+.sta2e-sw .sw-key:hover {
+  filter: brightness(1.25);
+}
+
+.sta2e-sw .sw-key:disabled,
+.sta2e-sw .sw-key.is-busy {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+
+.sta2e-sw .sw-key i {
+  font-size: 9px;
+  opacity: 0.85;
+}
+
+/* An unselected tab reads as a dim outline; the active one is a lit key. That
+   way the rail always shows all three tabs and which one you are on. */
+.sta2e-sw .sw-key--tab {
+  background: transparent;
+  color: var(--sw-a, var(--sw-tertiary));
+  box-shadow: inset 0 0 0 1px var(--sw-a, var(--sw-tertiary));
+}
+
+.sta2e-sw .sw-key--tab.is-active {
+  background: var(--sw-a, var(--sw-tertiary));
+  color: var(--sw-bg);
+  box-shadow: none;
+}
+
+.sta2e-sw .sw-key--close {
+  --sw-a: var(--sw-red);
+}
+
+/* -- Content panels -------------------------------------------------------
+   A label over a rule, not a filled bar — the frame is already doing the
+   heavy LCARS work and a second row of filled bars inside it reads as noise. */
+
+.sta2e-sw .sw-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.sta2e-sw .sw-panel-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--sw-a, var(--sw-border));
+  color: var(--sw-a, var(--sw-border));
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.sta2e-sw .sw-panel-bar .sw-panel-meta {
+  flex: 0 0 auto;
+  letter-spacing: 0.12em;
+  font-weight: 400;
+  color: var(--sw-text-dim);
+}
+
+.sta2e-sw .sw-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* -- Fields ---------------------------------------------------------------
+   Every track carries a minmax(0, ...) floor and every control min-width: 0.
+   A bare 1fr is minmax(auto, 1fr), so a <select> takes its widest option as a
+   min-content floor and the track grows rather than shrinking — which is what
+   made the task-maker grid jump before the same fix went in there. */
+
+.sta2e-sw .sw-grid {
+  display: grid;
+  column-gap: 10px;
+  /* Small, because every field reserves an empty note line under its control
+     and that is what separates one row of fields from the next. */
+  row-gap: 4px;
+  min-width: 0;
+  /* start, not end. Bottom-aligning cells of unequal height pushed the shorter
+     field's control down to meet the taller one's note, which is what threw
+     Beam-In Pattern and Beam Site out of line with each other. Every field is
+     now the same height anyway, so this only keeps it that way. */
+  align-items: start;
+}
+
+.sta2e-sw .sw-grid > * {
+  min-width: 0;
+}
+
+.sta2e-sw .sw-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sta2e-sw .sw-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.sta2e-sw .sw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sta2e-sw .sw-field--wide {
+  grid-column: 1 / -1;
+}
+
+.sta2e-sw .sw-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sw-tertiary);
+}
+
+.sta2e-sw .sw-select,
+.sta2e-sw .sw-input {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--sw-primary);
+  border-radius: var(--sw-field-radius);
+  background: var(--sw-panel);
+  color: var(--sw-primary);
+  font-family: var(--sw-font);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.sta2e-sw .sw-select {
+  padding-right: 22px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sta2e-sw .sw-select option {
+  background: var(--sw-panel);
+  color: var(--sw-primary);
+}
+
+.sta2e-sw .sw-select:focus,
+.sta2e-sw .sw-input:focus {
+  outline: none;
+  border-color: var(--sw-tertiary);
+}
+
+.sta2e-sw .sw-select:disabled,
+.sta2e-sw .sw-input:disabled {
+  opacity: 0.4;
+}
+
+/* Always present, usually empty. line-height is pinned rather than left at
+   normal so the reserved slot is the same height whatever font the theme
+   resolves to — the same reasoning as the .tcf-bar pin in task-card.css. */
+.sta2e-sw .sw-note {
+  font-size: 9px;
+  line-height: 12px;
+  min-height: 12px;
+  letter-spacing: 0.08em;
+  color: var(--sw-text-dim);
+}
+
+/* A checkbox row has no label above it, so it would ride up to the top of its
+   cell. The padding drops it onto the same line as the controls beside it:
+   one 9px label line plus the field's own 3px gap. */
+.sta2e-sw .sw-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  padding-top: 13px;
+}
+
+.sta2e-sw .sw-check input {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--sw-primary);
+}
+
+/* -- Drop zone and queue --------------------------------------------------- */
+
+.sta2e-sw .sw-drop-zone {
+  padding: 12px;
+  min-height: 104px;
+  border: 2px dashed var(--sw-border);
+  border-radius: var(--sw-panel-radius);
+  background: var(--sw-panel);
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.sta2e-sw .sw-drop-zone.drag-over {
+  border-color: var(--sw-tertiary);
+  background: color-mix(in srgb, var(--sw-primary) 8%, var(--sw-panel));
+}
+
+.sta2e-sw .sw-drop-hint {
+  margin: 4px 0 8px;
+  color: var(--sw-text-dim);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.sta2e-sw .sw-token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+}
+
+.sta2e-sw .sw-token-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 7px;
+  background: var(--sw-bg);
+  border-left: 4px solid var(--sw-primary);
+  border-radius: 0 var(--sw-field-radius) var(--sw-field-radius) 0;
+}
+
+.sta2e-sw .sw-token-item img {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border: 1px solid var(--sw-border);
+  border-radius: 3px;
+}
+
+.sta2e-sw .sw-token-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--sw-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sta2e-sw .sw-token-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sw-text-dim);
+  background: color-mix(in srgb, var(--sw-text-dim) 18%, transparent);
+}
+
+.sta2e-sw .sw-token-badge.linked   { color: var(--sw-green); }
+.sta2e-sw .sw-token-badge.wildcard { color: var(--sw-yellow); }
+
+.sta2e-sw .sw-quantity-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding-left: 7px;
+  border-left: 1px solid var(--sw-border-dim);
+}
+
+.sta2e-sw .sw-qty-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--sw-border);
+  border-radius: 3px;
+  color: var(--sw-primary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sta2e-sw .sw-qty-btn:hover {
+  background: var(--sw-primary);
+  color: var(--sw-bg);
+}
+
+.sta2e-sw .sw-qty-display {
+  min-width: 20px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sw-primary);
+}
+
+.sta2e-sw .sw-remove-btn {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  color: var(--sw-red);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sta2e-sw .sw-remove-btn:hover {
+  opacity: 0.7;
+}
+
+/* -- Buffer panel ---------------------------------------------------------- */
+
+.sta2e-sw .sw-buffer-empty {
+  padding-top: 18px;
+  text-align: center;
+  color: var(--sw-border-dim);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sta2e-sw .sw-buffer-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  color: var(--sw-border);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sta2e-sw .sw-purge-all {
+  margin-left: auto;
+  padding: 2px 7px;
+  border: 1px solid var(--sw-red);
+  border-radius: 3px;
+  color: var(--sw-red);
+  cursor: pointer;
+}
+
+.sta2e-sw .sw-purge-all:hover {
+  background: color-mix(in srgb, var(--sw-red) 15%, transparent);
+}
+
+.sta2e-sw .sw-buffer-group {
+  margin-bottom: 5px;
+  overflow: hidden;
+  background: var(--sw-panel);
+  border-left: 4px solid var(--sw-tertiary);
+  border-radius: 0 var(--sw-field-radius) var(--sw-field-radius) 0;
+}
+
+.sta2e-sw .sw-buffer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--sw-primary) 8%, var(--sw-panel));
+  border-bottom: 1px solid var(--sw-border-dim);
+}
+
+.sta2e-sw .sw-buffer-icon  { flex: 0 0 auto; font-size: 13px; }
+
+.sta2e-sw .sw-buffer-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sw-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sta2e-sw .sw-buffer-meta  { flex: 0 0 auto; font-size: 9px; letter-spacing: 0.08em; color: var(--sw-text-dim); }
+.sta2e-sw .sw-buffer-names { padding: 4px 9px 5px; font-size: 10px; letter-spacing: 0.04em; color: var(--sw-text); }
+
+.sta2e-sw .sw-buffer-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 9px 7px;
+}
+
+.sta2e-sw .sw-group-btn {
+  padding: 3px 9px;
+  border: 1px solid;
+  border-radius: 3px;
+  background: transparent;
+  font-family: var(--sw-font);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.sta2e-sw .sw-group-restore       { color: var(--sw-green); border-color: var(--sw-green); }
+.sta2e-sw .sw-group-restore:hover { background: color-mix(in srgb, var(--sw-green) 12%, transparent); }
+.sta2e-sw .sw-group-purge         { color: var(--sw-red);   border-color: var(--sw-red); }
+.sta2e-sw .sw-group-purge:hover   { background: color-mix(in srgb, var(--sw-red) 12%, transparent); }
+
+/* -- Status readout -------------------------------------------------------- */
+
+.sta2e-sw .sw-status {
+  padding: 6px 9px;
+  background: var(--sw-panel);
+  border-left: 4px solid var(--sw-orange);
+  border-radius: 0 var(--sw-field-radius) var(--sw-field-radius) 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--sw-text);
+}
+
+.sta2e-sw .sw-status.has-target {
+  border-left-color: var(--sw-green);
+}
+
+/* -- Narrow reflow --------------------------------------------------------
+   The window is a fixed width today, but the columns are fluid and a future
+   resize handle should just work. @container, not @media: the viewport width
+   is the wrong signal for a floating panel. */
+
+@container (max-width: 300px) {
+  .sta2e-sw .sw-grid--2,
+  .sta2e-sw .sw-grid--3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* -- Per-theme tuning -----------------------------------------------------
+   Content radii and the two decorative colours only.
+
+   The frame's own shape is no longer tunable here: it comes from the two SVG
+   masks, and every era shares one silhouette. If a theme ever wants a different
+   frame it overrides --sw-frame-top / --sw-frame-bottom with its own file,
+   rather than this file growing a set of radius variables again. */
+
+/* lcars-tng / lcars-tng-blue are the reference look — geometry untouched.
+   They take the classic LCARS lilac and plum for the decorative blocks, which
+   no era's token set carries. */
+.sta2e-sw[data-theme="lcars-tng"],
+.sta2e-sw[data-theme="lcars-tng-blue"] {
+  --sw-deco-a: #cc99cc;
+  --sw-deco-b: #cc6699;
+  --sw-deco-c: var(--sw-tertiary);
+}
+
+.sta2e-sw[data-theme="blue"] {
+  --sw-panel-radius: 8px;
+  --sw-field-radius: 4px;
+}
+
+.sta2e-sw[data-theme="tmp-console"] {
+  --sw-panel-radius: 10px;
+  --sw-field-radius: 5px;
+}
+
+.sta2e-sw[data-theme="ent-panel"] {
+  --sw-panel-radius: 3px;
+  --sw-field-radius: 1px;
+}
+
+.sta2e-sw[data-theme="tos-panel"],
+.sta2e-sw[data-theme="klingon"],
+.sta2e-sw[data-theme="romulan"] {
+  --sw-panel-radius: 0px;
+  --sw-field-radius: 0px;
+}
