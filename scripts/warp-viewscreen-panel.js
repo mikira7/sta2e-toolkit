@@ -23,6 +23,11 @@ import {
   effectivePhase,
   isAtWarp,
   pickVanishingPoint,
+  IMAGE_FIT_CHOICES,
+  IMAGE_ENTRY_FIELDS,
+  IMAGE_FRAMING_FIELDS,
+  IMAGE_ENTRY_DEFAULTS,
+  imageEntryLabel,
 } from "./warp-viewscreen-behavior.js";
 import { numOrNull } from "./warp-viewscreen-vfx.js";
 import {
@@ -30,11 +35,42 @@ import {
   environmentsForSurface,
   environmentFieldLabel,
   environmentDefaults,
+  isEnvironmentId,
   DEFAULT_ENVIRONMENT,
 } from "./viewscreen-environments.js";
+import {
+  presetsForEnvironment,
+  defaultPresetFor,
+  getViewscreenPreset,
+  presetLabel,
+  pickPresetLook,
+  resolveEnvironmentLook,
+  saveViewscreenPreset,
+  updateViewscreenPreset,
+  deleteViewscreenPreset,
+  setDefaultViewscreenPreset,
+  VIEWSCREEN_PRESET_SETTING,
+} from "./viewscreen-presets.js";
 
 const PANEL_ID = "sta2e-warp-viewscreen-panel";
+
+/**
+ * Two columns of the panel's original width, plus the gap, the rule between
+ * them and the body's own padding. Fixed rather than fitted to content, so the
+ * panel never resizes under the pointer when a control appears or goes away.
+ */
+const COL_W     = 240;
+const COL_GAP   = 8;
+const PANEL_W   = COL_W * 2 + COL_GAP * 3 + 1 + 8;
+/** Caps the panel so a long column scrolls rather than running off the screen. */
+const COL_MAX_H = "76vh";
 const POS_KEY  = "sta2e-toolkit.warpViewscreenPanelPos";
+
+/** Entry labels are GM-typed text going into an attribute in the name prompt. */
+function _escAttr(v) {
+  return String(v ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+                        .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 /** How the current phase reads in the status strip. */
 const PHASE_TEXT = {
@@ -102,7 +138,7 @@ export class WarpViewscreenPanel {
     const el = document.createElement("div");
     el.id = PANEL_ID;
     el.style.cssText = `
-      position: fixed; z-index: 9998; display: flex; flex-direction: column; width: 240px;
+      position: fixed; z-index: 9998; display: flex; flex-direction: column; width: ${PANEL_W}px;
       background: ${LC.bg}; border: 1px solid ${LC.border}; border-left: 4px solid ${LC.primary};
       border-radius: 2px; box-shadow: 0 4px 20px rgba(0,0,0,0.85), 0 0 10px rgba(102,187,255,0.12);
       font-family: ${LC.font}; color: ${LC.text}; user-select: none; overflow: hidden;
@@ -138,15 +174,44 @@ export class WarpViewscreenPanel {
     header.append(title, closeBtn);
     el.appendChild(header);
 
-    // ── Body — rebuilt wholesale by render() ──────────────────────────────────
+    // ── Body — two columns, both rebuilt wholesale by render() ────────────────
+    //
+    // The panel used to be one 240px column, and adding the backdrop-image block
+    // made it tall enough to run off the bottom of the screen with no way to
+    // reach the controls down there. The columns scroll *independently* rather
+    // than the body scrolling as a whole: they differ enormously in height, and
+    // one shared scrollbar would drag the short one out of view along with the
+    // long one. The header and footer sit outside, so neither can scroll away.
     const body = document.createElement("div");
     body.dataset.role = "body";
     body.style.cssText = `
-      display: flex; flex-direction: column; gap: 4px;
+      display: flex; align-items: flex-start; gap: ${COL_GAP}px;
       padding: 6px 8px 8px; background: ${LC.panel};
     `;
+
+    const colStyle = `
+      box-sizing: border-box; min-width: 0;
+      display: flex; flex-direction: column; gap: 4px;
+      max-height: ${COL_MAX_H}; overflow-y: auto; overscroll-behavior: contain;
+      scrollbar-width: thin;
+    `;
+
+    const main = document.createElement("div");
+    main.dataset.role = "main";
+    main.style.cssText = colStyle + `flex: 0 0 ${COL_W}px; width: ${COL_W}px;`;
+
+    const side = document.createElement("div");
+    side.dataset.role = "side";
+    // The rule down the middle is what makes the two read as columns rather than
+    // as one long wrapped list.
+    side.style.cssText = colStyle
+      + `flex: 0 0 ${COL_W + COL_GAP + 1}px; width: ${COL_W + COL_GAP + 1}px;`
+      + `border-left: 1px solid ${LC.borderDim}; padding-left: ${COL_GAP}px;`;
+
+    body.append(main, side);
     el.appendChild(body);
-    this._body = body;
+    this._body = main;
+    this._side = side;
 
     const footer = document.createElement("div");
     footer.style.cssText =
@@ -164,6 +229,18 @@ export class WarpViewscreenPanel {
       () => this._el,
       pos2 => this._savePos(pos2.x, pos2.y),
     );
+  }
+
+  /**
+   * Show or collapse the second column.
+   *
+   * Sets `display` rather than `hidden`: every style in this panel is inline, and
+   * an inline `display: flex` outranks the UA stylesheet's `[hidden]` rule. The
+   * shell keeps its width either way, so the panel does not jump.
+   */
+  _showSide(on) {
+    if (!this._side) return;
+    this._side.style.display = on ? "flex" : "none";
   }
 
   // ── Small LCARS parts ────────────────────────────────────────────────────────
@@ -317,6 +394,88 @@ export class WarpViewscreenPanel {
     return row;
   }
 
+  /**
+   * A file path with a browse button.
+   *
+   * The module-wide FilePicker idiom (star-system-images.js, effect-config.js,
+   * character-creator.js all spell it this way). Typing a path by hand commits on
+   * `change`, so a pasted URL works as well as a browsed one.
+   */
+  _mkFilePick(labelText, value, onPick) {
+    const LC   = getLcTokens();
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display: flex; flex-direction: column; gap: 2px;";
+    wrap.appendChild(this._mkLabel(labelText));
+
+    const row = document.createElement("div");
+    row.style.cssText = "display: flex; gap: 4px; align-items: center;";
+
+    const input = document.createElement("input");
+    input.type        = "text";
+    input.value       = value ?? "";
+    input.placeholder = "path/to/image.webp";
+    input.style.cssText = `
+      flex: 1; min-width: 0; background: ${LC.bg}; color: ${LC.text};
+      font-family: ${LC.font}; font-size: 10px; border: 1px solid ${LC.borderDim};
+      border-radius: 2px; padding: 3px 4px;
+    `;
+    input.addEventListener("change", () => onPick(input.value.trim() || null));
+
+    const browse = document.createElement("button");
+    browse.type  = "button";
+    browse.title = "Browse for an image or video";
+    browse.style.cssText = `
+      flex: 0 0 auto; padding: 3px 7px; background: transparent;
+      border: 1px solid ${LC.borderDim}; border-radius: 2px;
+      color: ${LC.textDim}; font-size: 10px; cursor: pointer;
+    `;
+    const icon = document.createElement("i");
+    icon.className = "fa-solid fa-folder-open";
+    browse.appendChild(icon);
+    browse.addEventListener("click", () => {
+      const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
+      if (typeof FP !== "function") return;
+      new FP({
+        type: "imagevideo",
+        current: input.value || "",
+        callback: path => {
+          input.value = path ?? "";
+          onPick(String(path ?? "").trim() || null);
+        },
+      }).render(true);
+    });
+
+    row.append(input, browse);
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  /** A one-field name prompt, for the backdrop library. Null if dismissed. */
+  async _promptName(title, initial = "") {
+    const data = await foundry.applications.api.DialogV2.prompt({
+      window: { title },
+      position: { width: 320 },
+      rejectClose: false,
+      content: `
+        <form style="padding:8px 4px;">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" name="label" value="${_escAttr(initial)}"
+              placeholder="e.g. Earth from orbit" autofocus />
+          </div>
+        </form>`,
+      ok: {
+        label: "Save",
+        callback: (_event, _button, dialog) => {
+          const form = dialog.element.querySelector("form");
+          return form ? new foundry.applications.ux.FormDataExtended(form).object : null;
+        },
+      },
+    });
+    const name = String(data?.label ?? "").trim();
+    return name || null;
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   render() {
@@ -324,6 +483,7 @@ export class WarpViewscreenPanel {
     const LC   = getLcTokens();
     const body = this._body;
     body.replaceChildren();
+    this._side?.replaceChildren();
 
     const all = listViewscreenBehaviors();
 
@@ -336,8 +496,11 @@ export class WarpViewscreenPanel {
         "No warp viewscreen on this scene. Draw a Region over the viewscreen, "
         + "open its config, and add the Warp Viewscreen behavior.";
       body.appendChild(empty);
+      this._showSide(false);
       return;
     }
+
+    this._showSide(true);
 
     const behavior = this.behavior;
     this._selectedUuid = behavior.uuid;
@@ -403,7 +566,14 @@ export class WarpViewscreenPanel {
       // The defaults ride along in the same update, so picking an environment
       // gives a tuned look rather than the previous one's numbers wearing new
       // labels. The behavior sheet's own dropdown deliberately does not do this.
-      id => this._apply({ environment: id, ...environmentDefaults(id) }),
+      // `resolveEnvironmentLook` is the built-in tuning with the GM's default
+      // preset for that environment laid over it — which is the whole point of
+      // saving one: pick slipstream and it comes up the way you like it.
+      id => this._apply({
+        environment: id,
+        lookPreset: defaultPresetFor(id)?.id ?? "",
+        ...resolveEnvironmentLook(id),
+      }),
     ));
 
     // ── The primary beat ──────────────────────────────────────────────────────
@@ -572,14 +742,230 @@ export class WarpViewscreenPanel {
       ));
     }
 
-    if (!isWarp) {
+    const myDefault = defaultPresetFor(envId);
+    // Warp hid this button because resetting to the built-in warp tuning was a
+    // no-op. A saved default for warp makes it meaningful again.
+    if (!isWarp || myDefault) {
       body.appendChild(this._mkBtn(
-        "fas fa-rotate-left", "Reset to Environment Defaults",
-        `Put every look setting back to the tuned starting point for ${env.label}`,
+        "fas fa-rotate-left",
+        myDefault ? `Reset to “${presetLabel(myDefault)}”` : "Reset to Environment Defaults",
+        myDefault
+          ? `Put every look setting back to your saved default for ${env.label}`
+          : `Put every look setting back to the tuned starting point for ${env.label}`,
         LC.textDim,
-        () => this._apply(environmentDefaults(envId)),
+        () => this._apply({
+          lookPreset: myDefault?.id ?? "",
+          ...resolveEnvironmentLook(envId),
+        }),
       ));
     }
+
+    // The two library features share the second column, presets first: a look is
+    // chosen before the picture that sits in it.
+    if (this._side) this._renderPresetSection(this._side, sys, LC, env, envId);
+
+    // The backdrop image takes the rest of the second column. It is the one block here
+    // that is about *what the screen shows* rather than about flying, and on its
+    // own it is nearly as tall as everything above — which is what pushed the
+    // single-column panel off the bottom of the screen.
+    if (this._side) this._renderImageSection(this._side, sys, LC);
+  }
+
+
+  /**
+   * The saved-look preset block.
+   *
+   * Unlike the backdrop-image library there is **no write-through here**: moving
+   * a slider must not quietly rewrite the saved preset, or a GM could never try
+   * something without losing the look they were starting from. Presets are
+   * applied and updated explicitly, which is why this block has an Update button
+   * and the image block deliberately does not.
+   */
+  _renderPresetSection(body, sys, LC, env, envId) {
+    const list      = presetsForEnvironment(envId);
+    const fallback  = defaultPresetFor(envId);
+    const appliedId = String(sys.lookPreset ?? "");
+    // A preset filed under a *different* environment is not this screen's, and
+    // one the GM deleted from another client is simply gone.
+    const applied   = list.find(p => p.id === appliedId) ?? null;
+
+    body.appendChild(this._mkLabel(`Look Presets — ${env.label}`));
+
+    body.appendChild(this._mkSelect(
+      [
+        {
+          value: "",
+          label: "— Built-in defaults —",
+          title: `Put every look setting back to the tuned starting point for ${env.label}`,
+        },
+        ...list.map(p => ({
+          value: p.id,
+          label: (p.isDefault ? "★ " : "") + presetLabel(p),
+          title: p.isDefault
+            ? "Applied automatically whenever you pick this environment"
+            : presetLabel(p),
+        })),
+      ],
+      applied ? applied.id : "",
+      id => this._applyPreset(id),
+    ));
+
+    body.appendChild(this._mkBtn(
+      "fas fa-bookmark", "Save Current Look…",
+      `Keep every look setting on this screen as a reusable ${env.label} preset`,
+      LC.textDim,
+      () => this._savePreset(),
+    ));
+
+    if (!applied) {
+      if (fallback) {
+        const note = document.createElement("div");
+        note.style.cssText = `font-size: 9px; line-height: 1.4; color: ${LC.textDim}; padding: 1px 2px 2px;`;
+        note.textContent = `“${presetLabel(fallback)}” is applied automatically when you pick ${env.label}.`;
+        body.appendChild(note);
+      }
+      return;
+    }
+
+    body.appendChild(this._mkBtn(
+      "fas fa-arrows-rotate", "Update From Current Look",
+      `Overwrite “${presetLabel(applied)}” with what is on screen now`,
+      LC.textDim,
+      () => this._updatePreset(),
+    ));
+
+    body.appendChild(this._mkBtn(
+      applied.isDefault ? "fas fa-star" : "far fa-star",
+      applied.isDefault ? `Default for ${env.label}` : `Make Default for ${env.label}`,
+      applied.isDefault
+        ? "Applied automatically when you pick this environment. Click to stop."
+        : "Apply this automatically whenever you pick this environment, on any region or scene",
+      LC.textDim,
+      () => this._toggleDefaultPreset(),
+    ));
+
+    body.appendChild(this._mkBtn(
+      "fas fa-pen", "Rename Preset",
+      `Rename “${presetLabel(applied)}”`,
+      LC.textDim,
+      () => this._renamePreset(),
+    ));
+
+    body.appendChild(this._mkBtn(
+      "fas fa-trash", "Delete Preset",
+      `Remove “${presetLabel(applied)}” from the library on every scene`,
+      LC.textDim,
+      () => this._deletePreset(),
+    ));
+  }
+
+  /**
+   * The backdrop image block.
+   *
+   * There is deliberately no "Update Entry" button: `_apply` mirrors every live
+   * image field back into the active library entry as it is changed, so a saved
+   * backdrop cannot silently drift from what is on screen and there is no dirty
+   * state to explain.
+   */
+  _renderImageSection(body, sys, LC) {
+    const entries = Array.isArray(sys.images) ? sys.images : [];
+    const active  = String(sys.activeImage ?? "");
+    const entry   = entries.find(e => String(e?.id ?? "") === active) ?? null;
+    const src     = sys.imageSrc ? String(sys.imageSrc) : "";
+
+    body.appendChild(this._mkLabel("Backdrop Image"));
+
+    if (entries.length) {
+      body.appendChild(this._mkSelect(
+        [
+          { value: "", label: "— Not from the library —" },
+          ...entries.map(e => ({
+            value: String(e?.id ?? ""),
+            label: imageEntryLabel(e),
+            title: String(e?.src ?? ""),
+          })),
+        ],
+        entry ? active : "",
+        id => this._selectImageEntry(id),
+      ));
+    }
+
+    body.appendChild(this._mkFilePick(
+      "File", src,
+      // Detaches from the library: a new file is a different backdrop, not a
+      // retuning of the saved one, and the select drops to "Not from the
+      // library" until it is saved under its own name.
+      path => this._apply({ imageSrc: path, activeImage: "" }),
+    ));
+
+    if (!src) return;
+
+    body.appendChild(this._mkLabel("Fit"));
+    body.appendChild(this._mkSelect(
+      Object.entries(IMAGE_FIT_CHOICES).map(([value, label]) => ({ value, label })),
+      String(sys.imageFit ?? "cover"),
+      fit => this._apply({ imageFit: fit }),
+    ));
+
+    body.appendChild(this._mkSlider("Image Scale", {
+      min: 10, max: 400, step: 5, value: Number(sys.imageScale ?? 100),
+      format: v => `${v}%`,
+      onCommit: v => this._apply({ imageScale: v }),
+    }));
+    body.appendChild(this._mkSlider("Image Offset X", {
+      min: -100, max: 100, step: 1, value: Number(sys.imageOffsetX ?? 0),
+      format: v => `${v}%`,
+      onCommit: v => this._apply({ imageOffsetX: v }),
+    }));
+    body.appendChild(this._mkSlider("Image Offset Y", {
+      min: -100, max: 100, step: 1, value: Number(sys.imageOffsetY ?? 0),
+      format: v => `${v}%`,
+      onCommit: v => this._apply({ imageOffsetY: v }),
+    }));
+    body.appendChild(this._mkSlider("Image Opacity", {
+      min: 0, max: 100, step: 5, value: Number(sys.imageAlpha ?? 100),
+      format: v => (v === 0 ? "off" : `${v}%`),
+      onCommit: v => this._apply({ imageAlpha: v }),
+    }));
+
+    body.appendChild(this._mkBtn(
+      sys.imageAbove ? "fas fa-image" : "fas fa-images",
+      sys.imageAbove ? "Image Above Stars" : "Image Behind Stars",
+      "Behind suits a planet you are flying past. Above suits a star chart, "
+      + "tactical display or hail that should cover the field.",
+      LC.textDim,
+      () => this._apply({ imageAbove: !sys.imageAbove }),
+    ));
+
+    body.appendChild(this._mkBtn(
+      "fas fa-floppy-disk",
+      entry ? "Save as a New Backdrop" : "Save to Library",
+      "Keep this picture and its framing under a name you can flip back to",
+      LC.textDim,
+      () => this._saveImageEntry(),
+    ));
+
+    if (entry) {
+      body.appendChild(this._mkBtn(
+        "fas fa-pen", "Rename Backdrop",
+        "Rename the saved backdrop showing now",
+        LC.textDim,
+        () => this._renameImageEntry(),
+      ));
+      body.appendChild(this._mkBtn(
+        "fas fa-trash", "Remove From Library",
+        "Delete the saved backdrop showing now. The picture itself is untouched.",
+        LC.textDim,
+        () => this._removeImageEntry(),
+      ));
+    }
+
+    body.appendChild(this._mkBtn(
+      "fas fa-xmark", "Clear Image",
+      "Stop showing a picture — the starfield alone",
+      LC.textDim,
+      () => this._apply({ imageSrc: null, activeImage: "" }),
+    ));
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────────
@@ -589,12 +975,245 @@ export class WarpViewscreenPanel {
     const behavior = this.behavior;
     if (!behavior) return;
     try {
-      await behavior.update({ system: patch });
+      await behavior.update({ system: this._withImageWriteThrough(behavior, patch) });
     } catch (err) {
       console.error("STA2e Toolkit | warp viewscreen: update failed:", err);
       ui.notifications.error("Could not update the viewscreen — see the console.");
     }
     this.render();
+  }
+
+  // ── Saved look presets ───────────────────────────────────────────────────────
+
+  /** The current environment id, defended the way the renderer defends it. */
+  _envId(sys) {
+    const id = String(sys?.environment ?? "");
+    return isEnvironmentId(id) ? id : DEFAULT_ENVIRONMENT;
+  }
+
+  /**
+   * Apply a saved preset, or the built-in tuning when the id is blank.
+   *
+   * Writes the look *and* the pointer in one update, so a reload still knows
+   * which preset is showing and can offer Update and Rename against it.
+   */
+  _applyPreset(id) {
+    const sys   = this.behavior?.system ?? {};
+    const envId = this._envId(sys);
+    const preset = id ? getViewscreenPreset(id) : null;
+    if (id && !preset) return this._apply({ lookPreset: "" });
+    return this._apply(preset
+      ? { lookPreset: preset.id, ...preset.look }
+      : { lookPreset: "", ...environmentDefaults(envId) });
+  }
+
+  async _savePreset() {
+    const behavior = this.behavior;
+    if (!behavior) return;
+    const sys   = behavior.system ?? {};
+    const envId = this._envId(sys);
+    const name  = await this._promptName("Save Look Preset");
+    if (!name) return;
+
+    let id;
+    try {
+      id = await saveViewscreenPreset({
+        label: name, environment: envId, look: pickPresetLook(sys),
+      });
+    } catch (err) {
+      console.error("STA2e Toolkit | viewscreen presets: save failed:", err);
+      ui.notifications.error("Could not save the preset — see the console.");
+      return;
+    }
+    // Point this viewscreen at what was just saved, so Update and Rename work
+    // straight away rather than after a round trip through the dropdown.
+    await this._apply({ lookPreset: id });
+  }
+
+  async _updatePreset() {
+    const sys = this.behavior?.system ?? {};
+    const id  = String(sys.lookPreset ?? "");
+    if (!id) return;
+    await this._runPresetWrite(
+      () => updateViewscreenPreset(id, { look: pickPresetLook(sys) }),
+      "Could not update the preset",
+    );
+  }
+
+  async _renamePreset() {
+    const sys     = this.behavior?.system ?? {};
+    const id      = String(sys.lookPreset ?? "");
+    const current = getViewscreenPreset(id);
+    if (!current) return;
+    const name = await this._promptName("Rename Look Preset", presetLabel(current));
+    if (!name) return;
+    await this._runPresetWrite(
+      () => updateViewscreenPreset(id, { label: name }),
+      "Could not rename the preset",
+    );
+  }
+
+  async _toggleDefaultPreset() {
+    const sys     = this.behavior?.system ?? {};
+    const id      = String(sys.lookPreset ?? "");
+    const current = getViewscreenPreset(id);
+    if (!current) return;
+    await this._runPresetWrite(
+      () => setDefaultViewscreenPreset(id, !current.isDefault),
+      "Could not change the default preset",
+    );
+  }
+
+  async _deletePreset() {
+    const sys     = this.behavior?.system ?? {};
+    const id      = String(sys.lookPreset ?? "");
+    const current = getViewscreenPreset(id);
+    if (!current) return;
+
+    const ok = await foundry.applications.api.DialogV2.confirm({
+      window: { title: "Delete Look Preset" },
+      content: `<p style="padding:4px 2px;">Delete the preset
+        <strong>${_escAttr(presetLabel(current))}</strong>? It goes from every
+        scene. The look on screen now is left exactly as it is.</p>`,
+      rejectClose: false,
+      modal: true,
+    });
+    if (!ok) return;
+
+    await this._runPresetWrite(
+      () => deleteViewscreenPreset(id),
+      "Could not delete the preset",
+    );
+    // The pointer would otherwise dangle at an id nothing answers to.
+    await this._apply({ lookPreset: "" });
+  }
+
+  /**
+   * Run one library write.
+   *
+   * Preset writes are a world *setting*, not a document update, so they do not
+   * come back through `_apply` and have to re-render the panel themselves.
+   */
+  async _runPresetWrite(fn, failure) {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`STA2e Toolkit | viewscreen presets: ${failure}:`, err);
+      ui.notifications.error(`${failure} — see the console.`);
+    }
+    this.render();
+  }
+
+  // ── The backdrop-image library ─────────────────────────────
+
+  /** The seven live image fields, in the shape one library entry stores. */
+  _imageSnapshot(sys) {
+    return {
+      src:     sys.imageSrc ?? null,
+      fit:     String(sys.imageFit ?? "cover"),
+      scale:   Number(sys.imageScale ?? 100),
+      offsetX: Number(sys.imageOffsetX ?? 0),
+      offsetY: Number(sys.imageOffsetY ?? 0),
+      alpha:   Number(sys.imageAlpha ?? 100),
+      above:   !!sys.imageAbove,
+    };
+  }
+
+  /** The stored library as plain data, safe to mutate before writing it back. */
+  _imageEntries(behavior) {
+    const source = behavior?.system?.toObject?.() ?? behavior?.system ?? {};
+    const list = Array.isArray(source.images) ? source.images : [];
+    return foundry.utils.deepClone(list);
+  }
+
+  /**
+   * Show a saved backdrop.
+   *
+   * Copies the entry's values into the live fields in one update, which is the
+   * exact shape the Environment select uses for `environmentDefaults`.
+   */
+  _selectImageEntry(id) {
+    const sys   = this.behavior?.system ?? {};
+    const list  = Array.isArray(sys.images) ? sys.images : [];
+    const entry = list.find(e => String(e?.id ?? "") === String(id));
+    if (!entry) return this._apply({ activeImage: "" });
+
+    const patch = { activeImage: String(entry.id) };
+    for (const [key, name] of Object.entries(IMAGE_ENTRY_FIELDS)) {
+      // `??`, not `||` — an offset of 0 and `above: false` are real values.
+      patch[name] = entry[key] ?? IMAGE_ENTRY_DEFAULTS[key];
+    }
+    return this._apply(patch);
+  }
+
+  async _saveImageEntry() {
+    const behavior = this.behavior;
+    if (!behavior) return;
+    const name = await this._promptName("Save Backdrop");
+    if (!name) return;
+
+    const sys = behavior.system ?? {};
+    const id  = foundry.utils.randomID();
+    const images = [...this._imageEntries(behavior),
+                    { id, label: name, ...this._imageSnapshot(sys) }];
+    await this._apply({ images, activeImage: id });
+  }
+
+  async _renameImageEntry() {
+    const behavior = this.behavior;
+    if (!behavior) return;
+    const active = String(behavior.system?.activeImage ?? "");
+    const images = this._imageEntries(behavior);
+    const idx    = images.findIndex(e => String(e?.id ?? "") === active);
+    if (idx < 0) return;
+
+    const name = await this._promptName("Rename Backdrop", images[idx].label ?? "");
+    if (!name) return;
+    images[idx].label = name;
+    await this._apply({ images });
+  }
+
+  async _removeImageEntry() {
+    const behavior = this.behavior;
+    if (!behavior) return;
+    const active = String(behavior.system?.activeImage ?? "");
+    const images = this._imageEntries(behavior).filter(e => String(e?.id ?? "") !== active);
+    // The picture keeps showing — only its place in the library goes, so the GM
+    // can tidy the list without the viewscreen blinking.
+    await this._apply({ images, activeImage: "" });
+  }
+
+  /**
+   * Mirror the live image fields back into the active library entry.
+   *
+   * A slider nudged while a saved backdrop is showing has to stick to that
+   * backdrop rather than silently diverging from it, so the mirror rides in the
+   * *same* update — which is what removes any need for a Save button or a dirty
+   * state. A caller already rewriting `images` owns the list outright.
+   *
+   * **`src` is deliberately excluded** (`IMAGE_FRAMING_FIELDS`, not
+   * `IMAGE_ENTRY_FIELDS`). It is the backdrop's identity rather than its framing,
+   * and mirroring it meant browsing for a second picture rewrote the first
+   * entry's file before that one had even been saved — leaving every entry
+   * pointing at the most recently chosen image. Changing the file detaches from
+   * the library at the call site instead.
+   */
+  _withImageWriteThrough(behavior, patch) {
+    if ("images" in patch) return patch;
+
+    const sys      = behavior.system ?? {};
+    const activeId = String("activeImage" in patch ? patch.activeImage : (sys.activeImage ?? ""));
+    if (!activeId) return patch;
+    if (!Object.values(IMAGE_FRAMING_FIELDS).some(name => name in patch)) return patch;
+
+    const images = this._imageEntries(behavior);
+    const idx    = images.findIndex(e => String(e?.id ?? "") === activeId);
+    if (idx < 0) return patch;
+
+    for (const [key, name] of Object.entries(IMAGE_FRAMING_FIELDS)) {
+      if (name in patch) images[idx][key] = patch[name];
+    }
+    return { ...patch, images };
   }
 
   async _run(fn) {
@@ -633,6 +1252,12 @@ export class WarpViewscreenPanel {
       ["updateRegionBehavior", Hooks.on("updateRegionBehavior", rerender)],
       ["createRegionBehavior", Hooks.on("createRegionBehavior", rerender)],
       ["deleteRegionBehavior", Hooks.on("deleteRegionBehavior", rerender)],
+      ["updateSetting",        Hooks.on("updateSetting", setting => {
+        // The preset library is a world setting, so nothing else here notices a
+        // co-GM saving one.
+        if (!String(setting?.key ?? "").endsWith(VIEWSCREEN_PRESET_SETTING)) return;
+        if (this._visible) this.render();
+      })],
       ["canvasReady",          Hooks.on("canvasReady", () => {
         // New scene, new set of viewscreens.
         this._selectedUuid = null;

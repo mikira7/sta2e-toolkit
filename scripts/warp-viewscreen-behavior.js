@@ -76,6 +76,57 @@ const PHASE_CHOICES = {
   exiting:  "Dropping out of warp",
 };
 
+/**
+ * How a backdrop image is sized into the region.
+ *
+ * Exported so the GM panel builds its dropdown from the same table the schema
+ * validates against, the way `PHASE_CHOICES` is used above.
+ */
+export const IMAGE_FIT_CHOICES = {
+  cover:   "Cover — fill and crop",
+  contain: "Contain — fit inside",
+  stretch: "Stretch — distort to fit",
+  native:  "Native size",
+};
+
+/** The live image fields one library entry stores, and the key it stores under. */
+export const IMAGE_ENTRY_FIELDS = {
+  src:     "imageSrc",
+  fit:     "imageFit",
+  scale:   "imageScale",
+  offsetX: "imageOffsetX",
+  offsetY: "imageOffsetY",
+  alpha:   "imageAlpha",
+  above:   "imageAbove",
+};
+
+/**
+ * The same list without `src` — the fields that describe how a backdrop is
+ * *framed* rather than which backdrop it is.
+ *
+ * The distinction is load-bearing. The panel mirrors live edits back into the
+ * active library entry so a nudged slider sticks to the saved backdrop, and when
+ * `src` rode along in that mirror, browsing for a second picture rewrote the
+ * *first* entry's file before it was ever saved — so every entry ended up
+ * pointing at the most recently chosen image. A file is the backdrop's identity;
+ * changing it means you are no longer showing that saved entry, which is why the
+ * panel detaches from the library instead of writing through.
+ */
+export const IMAGE_FRAMING_FIELDS = Object.fromEntries(
+  Object.entries(IMAGE_ENTRY_FIELDS).filter(([key]) => key !== "src"),
+);
+
+/**
+ * What one entry means when a key is absent.
+ *
+ * Selecting an entry has to settle *every* live field: Foundry drops `undefined`
+ * from an update payload, so a missing key would silently leave the previous
+ * backdrop's value in place rather than resetting it.
+ */
+export const IMAGE_ENTRY_DEFAULTS = Object.freeze({
+  src: null, fit: "cover", scale: 100, offsetX: 0, offsetY: 0, alpha: 100, above: false,
+});
+
 // ── The data model ───────────────────────────────────────────────────────────
 
 export class WarpViewscreenBehaviorType
@@ -118,6 +169,16 @@ export class WarpViewscreenBehaviorType
             + "count in an asteroid field. The Warp Viewscreen panel retunes "
             + "every one of them for you when you switch there — changing it "
             + "here swaps the environment and leaves your look settings alone.",
+      }),
+      // Which saved look preset was last applied here. The library itself is a
+      // world setting (viewscreen-presets.js) rather than region data — this is
+      // only the pointer, so the panel can offer Update and Rename against the
+      // right entry after a reload. Hidden from this sheet by
+      // `_hideLookPresetField`: it is a panel-owned id, and a raw id in a text
+      // box is worse than nothing.
+      lookPreset: new f.StringField({
+        required: false, blank: true, initial: "",
+        label: "Look Preset",
       }),
       intensity: new f.NumberField({
         required: true, initial: 100, min: 0, max: 100, step: 5, nullable: false,
@@ -242,6 +303,83 @@ export class WarpViewscreenBehaviorType
         label: "Backdrop Opacity (%)",
         hint: "Paints space behind the stars, clipped to the region. Set to 0 if "
             + "the map art already draws a black screen underneath.",
+      }),
+
+      // ── Backdrop image ────────────────────────────────────────────────────
+      //
+      // Two halves. The seven `image*` fields below are the *live* backdrop and
+      // are what the renderer reads — flat, so the render path never looks an
+      // entry up by id. `images` is a saved library the GM builds from the
+      // panel; picking one *copies* its values into these fields, exactly as the
+      // Environment select writes `{environment, ...environmentDefaults(id)}`.
+      //
+      // The library is an ArrayField, and that is load-bearing: core's
+      // RegionBehaviorConfig only emits fields whose class has `hasFormSupport`,
+      // which ArrayField does not, so it is skipped by the auto-sheet silently
+      // rather than rendering a broken control. FilePathField *does* have it and
+      // renders a real <file-picker>, so the live row costs no injection at all.
+      images: new f.ArrayField(new f.SchemaField({
+        id:      new f.StringField({ required: true, blank: false,
+                                     initial: () => foundry.utils.randomID() }),
+        label:   new f.StringField({ required: true, blank: true, initial: "" }),
+        src:     new f.FilePathField({ categories: ["IMAGE", "VIDEO"],
+                                       nullable: true, initial: null }),
+        fit:     new f.StringField({ required: true, blank: false, initial: "cover",
+                                     choices: IMAGE_FIT_CHOICES }),
+        scale:   new f.NumberField({ initial: 100, min: 10,   max: 400, step: 5, nullable: false }),
+        offsetX: new f.NumberField({ initial: 0,   min: -100, max: 100, step: 1, nullable: false }),
+        offsetY: new f.NumberField({ initial: 0,   min: -100, max: 100, step: 1, nullable: false }),
+        alpha:   new f.NumberField({ initial: 100, min: 0,    max: 100, step: 5, nullable: false }),
+        above:   new f.BooleanField({ initial: false }),
+      }), { initial: [] }),
+      activeImage: new f.StringField({
+        required: false, blank: true, initial: "",
+        label: "Saved Backdrop",
+        hint: "Which saved backdrop is showing. Entries are added and removed "
+            + "from the Warp Viewscreen panel; this only picks between them.",
+      }),
+      imageSrc: new f.FilePathField({
+        categories: ["IMAGE", "VIDEO"], nullable: true, initial: null,
+        label: "Backdrop Image",
+        hint: "An image or looping video drawn inside the region outline — a "
+            + "planet, a starbase, a star chart. Clipped to the region like "
+            + "everything else here, so anything hanging over the edge is "
+            + "trimmed rather than spilling onto the map.",
+      }),
+      imageFit: new f.StringField({
+        required: true, blank: false, initial: "cover", choices: IMAGE_FIT_CHOICES,
+        label: "Image Fit",
+        hint: "Cover fills the region and crops the overhang; Contain fits the "
+            + "whole picture inside it and leaves the backdrop colour showing; "
+            + "Stretch distorts to fit exactly; Native size draws it at its own "
+            + "pixel size.",
+      }),
+      imageScale: new f.NumberField({
+        required: true, initial: 100, min: 10, max: 400, step: 5, nullable: false,
+        label: "Image Scale (%)",
+        hint: "Multiplies whatever the fit mode worked out. 100% is the fit.",
+      }),
+      imageOffsetX: new f.NumberField({
+        required: true, initial: 0, min: -100, max: 100, step: 1, nullable: false,
+        label: "Image Offset X (%)",
+        hint: "Shifts the image sideways, as a percentage of the region's own "
+            + "width — so a saved backdrop keeps its framing if the region is "
+            + "later moved or reshaped.",
+      }),
+      imageOffsetY: new f.NumberField({
+        required: true, initial: 0, min: -100, max: 100, step: 1, nullable: false,
+        label: "Image Offset Y (%)",
+      }),
+      imageAlpha: new f.NumberField({
+        required: true, initial: 100, min: 0, max: 100, step: 5, nullable: false,
+        label: "Image Opacity (%)",
+      }),
+      imageAbove: new f.BooleanField({
+        initial: false,
+        label: "Draw image above the starfield",
+        hint: "Off by default, so the picture sits behind the stars — a planet "
+            + "you are flying past. Turn on for a tactical display, star chart "
+            + "or hail that should cover the field.",
       }),
       nebula: new f.BooleanField({
         initial: true,
@@ -691,6 +829,126 @@ function _injectVanishingPointButton(app, html) {
   });
 }
 
+// ── The backdrop-image library picker in the sheet ───────────────────────────
+
+/** A readable name for one library entry — its label, else the file's basename. */
+export function imageEntryLabel(entry) {
+  const own = String(entry?.label ?? "").trim();
+  if (own) return own;
+  const src = String(entry?.src ?? "").trim();
+  if (!src) return "Untitled";
+  try {
+    return decodeURIComponent(src.split("?")[0].split("/").pop() || "Untitled");
+  } catch {
+    return src.split("?")[0].split("/").pop() || "Untitled";
+  }
+}
+
+/**
+ * Write a value into one of core's own rendered inputs.
+ *
+ * Deliberately does *not* dispatch an event: this sheet does not submit on
+ * change, and the values are picked up by ordinary form submission when the GM
+ * saves. A `<file-picker>` is a custom element wrapping its own text input, so
+ * both are written.
+ */
+function _setSheetValue(root, name, value) {
+  const el = root.querySelector(`[name="${name}"]`);
+  if (!el) return;
+  if (el.type === "checkbox") { el.checked = !!value; return; }
+  try { el.value = value ?? ""; } catch { /**/ }
+  const inner = el.querySelector?.("input");
+  if (inner && inner !== el) inner.value = value ?? "";
+}
+
+/**
+ * Take the look-preset pointer off the sheet entirely.
+ *
+ * It is a world-library id owned by the panel, and core renders a bare
+ * `StringField` as a text box — a random id in one is worse than nothing.
+ * Removing the whole form group also removes it from the form, so ordinary
+ * submission leaves the stored value untouched rather than blanking it, which is
+ * exactly what is wanted: the sheet has no business repointing it.
+ */
+function _hideLookPresetField(app, html) {
+  const doc = app?.document ?? app?.object ?? null;
+  if (doc?.type !== VIEWSCREEN_TYPE) return;
+  const root = html instanceof HTMLElement ? html : html?.[0];
+  root?.querySelector('[name="system.lookPreset"]')?.closest(".form-group")?.remove();
+}
+
+/**
+ * Injected into the rendered behavior sheet.
+ *
+ * `activeImage` holds an entry id, which core renders as a bare text box — a
+ * random id in a text field is useless to a GM, so it is swapped for a dropdown
+ * carrying the same `name`. Picking one copies that entry's values into the
+ * sibling `system.image*` inputs core already rendered and lets ordinary form
+ * submission persist them, exactly as the vanishing-point button does. The
+ * library itself is built from the panel; the sheet only picks and tunes.
+ */
+function _injectImageLibrarySelect(app, html) {
+  const doc = app?.document ?? app?.object ?? null;
+  if (doc?.type !== VIEWSCREEN_TYPE) return;
+
+  const root = html instanceof HTMLElement ? html : html?.[0];
+  if (!root) return;
+  if (root.querySelector(".sta2e-viewscreen-images")) return;   // idempotency guard
+
+  const current = root.querySelector('[name="system.activeImage"]');
+  if (!current) return;
+
+  const entries = Array.isArray(doc.system?.images) ? doc.system.images : [];
+  const active  = String(doc.system?.activeImage ?? "");
+
+  const sel = document.createElement("select");
+  sel.name = "system.activeImage";
+  sel.className = "sta2e-viewscreen-images";
+
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = entries.length ? "— Not from the library —" : "— None saved —";
+  sel.appendChild(none);
+
+  for (const entry of entries) {
+    const opt = document.createElement("option");
+    opt.value = String(entry?.id ?? "");
+    // Entry labels are user data — never innerHTML.
+    opt.textContent = imageEntryLabel(entry);
+    sel.appendChild(opt);
+  }
+  sel.value = entries.some(e => String(e?.id) === active) ? active : "";
+
+  current.replaceWith(sel);
+
+  const group = sel.closest(".form-group");
+  if (group && !group.querySelector(".sta2e-viewscreen-images-hint")) {
+    const hint = document.createElement("p");
+    hint.className = "hint sta2e-viewscreen-images-hint";
+    hint.textContent = "Saved backdrops are added, renamed and removed from the "
+                     + "Warp Viewscreen panel. Choosing one here fills in the "
+                     + "image settings below; save the behavior to apply it.";
+    group.appendChild(hint);
+  }
+
+  sel.addEventListener("change", () => {
+    const entry = entries.find(e => String(e?.id) === sel.value);
+    if (!entry) return;
+    for (const [key, name] of Object.entries(IMAGE_ENTRY_FIELDS)) {
+      // `??`, not `||` — an offset of 0 and `above: false` are real values, and
+      // a key the entry never stored has to reset rather than stay sticky.
+      _setSheetValue(root, `system.${name}`, entry[key] ?? IMAGE_ENTRY_DEFAULTS[key]);
+    }
+  });
+
+  // Browsing a different file means this is no longer the saved backdrop the
+  // select names, so the select goes back to "not from the library" — the same
+  // rule the panel follows, and what keeps the two surfaces telling one story.
+  // The library array is not in this form, so the entry itself is never touched.
+  const srcInput = root.querySelector('[name="system.imageSrc"]');
+  srcInput?.addEventListener("change", () => { sel.value = ""; });
+}
+
 // ── Registration ─────────────────────────────────────────────────────────────
 
 export function registerWarpViewscreenBehavior() {
@@ -716,6 +974,8 @@ export function registerWarpViewscreenBehavior() {
   } catch { /* diagnostic only — never block init */ }
 
   Hooks.on("renderRegionBehaviorConfig", _injectVanishingPointButton);
+  Hooks.on("renderRegionBehaviorConfig", _injectImageLibrarySelect);
+  Hooks.on("renderRegionBehaviorConfig", _hideLookPresetField);
   Hooks.on("updateRegionBehavior", _onBehaviorUpdate);
   Hooks.on("deleteRegionBehavior", _onBehaviorDelete);
   Hooks.on("canvasReady", _onCanvasReady);

@@ -211,6 +211,16 @@ function _readConfig(behavior) {
     flash:         s.flash === true,
     sublightDrift: s.sublightDrift !== false,
     aboveTokens:   !!s.aboveTokens,
+    // The backdrop image. `imageSrc` is read as a plain string so an entry the
+    // library no longer has cannot crash a ticker; an unknown fit falls back to
+    // cover for the same reason `environment` falls back to warp above.
+    imageSrc:      _imagePath(s.imageSrc),
+    imageFit:      IMAGE_FITS.includes(s.imageFit) ? s.imageFit : "cover",
+    imageScale:    Math.min(400, Math.max(10, num(s.imageScale, 100))) / 100,
+    imageOffsetX:  Math.min(100, Math.max(-100, num(s.imageOffsetX, 0))) / 100,
+    imageOffsetY:  Math.min(100, Math.max(-100, num(s.imageOffsetY, 0))) / 100,
+    imageAlpha:    Math.min(100, Math.max(0, num(s.imageAlpha, 100))) / 100,
+    imageAbove:    !!s.imageAbove,
   };
 }
 
@@ -500,6 +510,209 @@ function _syncBackdrop(inst, cfg) {
   _gFillRect(g, b.x - 8, b.y - 8, b.width + 16, b.height + 16, cfg.backdrop, cfg.backdropAlpha);
 }
 
+// ── Backdrop images ──────────────────────────────────────────────────────────
+
+/** The fit modes the schema offers. Duplicated rather than imported from
+ *  warp-viewscreen-behavior.js, which imports *this* module — that would close
+ *  a cycle. Four strings are a cheaper price than the cycle. */
+const IMAGE_FITS = ["cover", "contain", "stretch", "native"];
+
+/** A trimmed path, or null. `FilePathField` stores null when cleared. */
+function _imagePath(v) {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s : null;
+}
+
+/**
+ * Is this path a video?
+ *
+ * A local three-line test rather than `_isVideoTextureSrc` from
+ * ship-vfx-anchors.js: that module is far too heavy to pull into this one's
+ * import graph for an extension check.
+ */
+function _isVideoPath(src) {
+  const ext = String(src ?? "").split("?")[0].split("#")[0].split(".").pop()?.toLowerCase() ?? "";
+  const known = CONST?.VIDEO_FILE_EXTENSIONS;
+  if (known) return ext in known || Object.values(known).includes(ext);
+  return /^(webm|mp4|m4v|ogv|ogg|mov)$/.test(ext);
+}
+
+/**
+ * Path to texture, with the three-tier fallback and the negative cache from
+ * hull-decals.js — a 404 is resolved once and never re-fetched.
+ *
+ * **Video is deliberately not cached.** A texture backed by a `<video>` carries
+ * one playhead, so two regions sharing a cached one would share their playback;
+ * each instance loads and owns its own, and destroys it on teardown.
+ */
+const _imageTextureCache = new Map();
+
+async function _loadImageTexture(src) {
+  const cacheable = !_isVideoPath(src);
+  if (cacheable && _imageTextureCache.has(src)) return _imageTextureCache.get(src);
+
+  let tex = null;
+  try {
+    if (foundry?.canvas?.loadTexture) tex = await foundry.canvas.loadTexture(src);
+    else if (typeof loadTexture === "function") tex = await loadTexture(src);
+  } catch { tex = null; }
+  if (!tex && globalThis.PIXI?.Assets?.load) {
+    try { tex = await PIXI.Assets.load(src); } catch { tex = null; }
+  }
+  if (cacheable) _imageTextureCache.set(src, tex || null);
+  return tex || null;
+}
+
+/**
+ * The GM's backdrop picture, drawn inside the region outline.
+ *
+ * Sized against `inst.frame.bounds` like every other fixed layer, and clipped by
+ * the container's region mask for free — which is what makes `cover` plus an
+ * off-centre offset a framing tool rather than a mess. Offsets are fractions of
+ * the region's own bounds, so a saved backdrop keeps its framing when the GM
+ * later moves or reshapes the region.
+ *
+ * Async, so it is guarded the way every deferred path here has to be: after the
+ * await, the instance may be gone or the GM may have picked a different file.
+ */
+function _syncImage(inst, cfg) {
+  // Called from three sync paths and never awaited, so an unhandled rejection is
+  // the one failure mode that could escape into the console every frame.
+  _syncImageAsync(inst, cfg).catch(err => {
+    console.warn("STA2e Toolkit | warp viewscreen: backdrop image failed:", err);
+  });
+}
+
+async function _syncImageAsync(inst, cfg) {
+  const below = inst.imgBelow;
+  const above = inst.imgAbove;
+  if (!below || !above) return;
+
+  if (!cfg.imageSrc) {
+    _releaseImage(inst);
+    below.visible = above.visible = false;
+    return;
+  }
+
+  if (cfg.imageSrc !== inst.imgSrcLoaded) {
+    const src = cfg.imageSrc;
+    inst.imgSrcLoaded = src;                 // claim it before awaiting
+    const tex = await _loadImageTexture(src);
+    // The instance may have been torn down, or the GM may have moved on to a
+    // different file, while that was in flight.
+    if (inst.finished || inst.imgSrcLoaded !== src) return;
+    if (!tex) {
+      _releaseImage(inst);
+      below.visible = above.visible = false;
+      return;
+    }
+    _releaseImage(inst, { keepSrc: true });
+    const sp = new PIXI.Sprite(tex);
+    sp.anchor.set(0.5);
+    inst.imgSprite = sp;
+    inst.imgTexture = tex;
+    inst.imgOwnsTexture = _isVideoPath(src);
+    below.addChild(sp);
+    if (inst.imgOwnsTexture) {
+      try {
+        const source = game?.video?.getVideoSource?.(sp);
+        if (source) game.video.play(source, { loop: true, volume: 0 });
+      } catch { /**/ }
+    }
+    // The document may have moved on between the read and the load landing.
+    cfg = _readConfig(inst.behavior);
+  }
+
+  const sp = inst.imgSprite;
+  if (!sp || sp.destroyed) return;
+
+  // One sprite, two possible parents — `addChild` reparents, so the toggle costs
+  // no reload and no child-index maths that differs across PIXI majors.
+  const want = cfg.imageAbove ? above : below;
+  if (sp.parent !== want) want.addChild(sp);
+  below.visible = !cfg.imageAbove;
+  above.visible = !!cfg.imageAbove;
+
+  const b  = inst.frame.bounds;
+  const tw = Math.max(1, sp.texture?.width  || 1);
+  const th = Math.max(1, sp.texture?.height || 1);
+  const sx = b.width / tw;
+  const sy = b.height / th;
+  const s  = cfg.imageFit === "cover"   ? Math.max(sx, sy)
+           : cfg.imageFit === "contain" ? Math.min(sx, sy)
+           : cfg.imageFit === "stretch" ? null
+           : 1;
+  sp.width  = (s === null ? b.width  : tw * s) * cfg.imageScale;
+  sp.height = (s === null ? b.height : th * s) * cfg.imageScale;
+  sp.position.set(b.x + b.width  / 2 + b.width  * cfg.imageOffsetX,
+                  b.y + b.height / 2 + b.height * cfg.imageOffsetY);
+  sp.alpha = cfg.imageAlpha;
+}
+
+/**
+ * Drop the current image sprite.
+ *
+ * A *cached* texture is shared with every other viewscreen on the same file and
+ * must survive — only a video texture, which this instance owns outright, is
+ * paused and destroyed.
+ */
+function _releaseImage(inst, { keepSrc = false } = {}) {
+  const sp = inst.imgSprite;
+  if (sp) {
+    if (inst.imgOwnsTexture) {
+      try { game?.video?.getVideoSource?.(sp)?.pause?.(); } catch { /**/ }
+    }
+    try { sp.destroy({ texture: !!inst.imgOwnsTexture, baseTexture: !!inst.imgOwnsTexture }); }
+    catch { /**/ }
+  }
+  inst.imgSprite = null;
+  inst.imgTexture = null;
+  inst.imgOwnsTexture = false;
+  if (!keepSrc) inst.imgSrcLoaded = null;
+}
+
+/**
+ * Turn the *animated* layers off or on without touching the container.
+ *
+ * The dark gate used to hide the whole container, which is no longer an option:
+ * a backdrop image has to keep showing through it.
+ *
+ * **Every layer switched off here must have an owner that switches it back on**,
+ * or the `false` is permanent and the effect never returns. That is not a
+ * guideline — it is the bug this function shipped with: nothing owned
+ * `envLayer.visible`, so turning off "Drift When Idle" once emptied the
+ * environment pool for good, which for a tunnel is the entire effect. The owners:
+ *
+ *   starLayer   this function                  envLayer    _syncEnvLayer
+ *   hazeLayer   _syncHaze                      grainLayer  _syncGrain
+ *   wash        _syncWash                      coreLayer   _tickCore, per frame
+ *   bloom       flashViewscreen  (transient)   boltLayer   _strikeBolts (transient)
+ *
+ * The four `_sync*` owners are re-run on the way back rather than second-guessed;
+ * they are idempotent, which is what `refreshViewscreen` already relies on. The
+ * two transient layers are deliberately left off — a burst and a lightning bolt
+ * should reappear when something fires them, not because the lights came back.
+ *
+ * The backdrop colour and the two image layers are deliberately not touched.
+ */
+function _setFieldVisible(inst, on, cfg, env) {
+  if (inst.starLayer) inst.starLayer.visible = on;
+  if (on) {
+    _syncEnvLayer(inst, env);
+    _syncHaze(inst, cfg, env);
+    _syncWash(inst, cfg, env);
+    _syncGrain(inst, cfg, env);
+    return;
+  }
+  if (inst.envLayer)   inst.envLayer.visible   = false;
+  if (inst.hazeLayer)  inst.hazeLayer.visible  = false;
+  if (inst.coreLayer)  inst.coreLayer.visible  = false;
+  if (inst.grainLayer) inst.grainLayer.visible = false;
+  if (inst.wash)       inst.wash.visible       = false;
+  if (inst.bloom)      inst.bloom.visible      = false;
+  if (inst.boltLayer)  inst.boltLayer.visible  = false;
+}
+
 /**
  * Soft coloured haze in the accent hue, anchored away from the vanishing point
  * so it sits behind the oncoming flow rather than washing out the point the
@@ -659,7 +872,11 @@ function _syncGrain(inst, cfg, env) {
  * without any re-append ever reordering anything. The order below is the whole
  * z-story:
  *
- *   backdrop → haze → stars → environment → wash → grain → bloom
+ *   backdrop → image → haze → stars → environment → wash → image → grain → bloom
+ *
+ * The image appears twice because it is one sprite with two possible parents:
+ * `imageAbove` reparents it between them, so a picture can sit behind the stars
+ * or cover them without anything else in the tree being reordered.
  *
  * The wash is above both pools because that is the only place it can actually
  * tint them, and the bloom is above everything because a flash is the brightest
@@ -668,6 +885,12 @@ function _syncGrain(inst, cfg, env) {
 function _buildLayers(inst) {
   inst.backdrop = new PIXI.Graphics();
   inst.container.addChild(inst.backdrop);
+
+  // The GM's backdrop picture, on the backdrop colour and under everything that
+  // moves — a planet you are flying past. Its twin is below the wash.
+  inst.imgBelow = _passThrough(new PIXI.Container());
+  inst.imgBelow.visible = false;
+  inst.container.addChild(inst.imgBelow);
 
   inst.radialTex = _buildRadialTexture();
 
@@ -689,6 +912,15 @@ function _buildLayers(inst) {
   inst.wash = new PIXI.Graphics();
   inst.wash.visible = false;
   inst.container.addChild(inst.wash);
+
+  // The other half of the backdrop-image pair, above the wash so an image drawn
+  // over the field is not tinted by it, but below the grain and the bloom — a
+  // screen breaking up should break up *over* the picture, and a flash is the
+  // brightest thing on screen by definition. Both containers exist from the
+  // start and never move; `imageAbove` reparents the one sprite between them.
+  inst.imgAbove = _passThrough(new PIXI.Container());
+  inst.imgAbove.visible = false;
+  inst.container.addChild(inst.imgAbove);
 
   inst.grainLayer = _passThrough(new PIXI.Container());
   inst.grainLayer.visible = false;
@@ -836,6 +1068,15 @@ function _applyGlow(layer, strength, color) {
 function _syncEnvLayer(inst, env) {
   const layer = inst.envLayer;
   if (!layer) return;
+  // **This function owns `envLayer.visible`**, exactly as `_syncHaze`,
+  // `_syncWash` and `_syncGrain` own theirs. It has to: the dark gate switches
+  // the animated layers off individually now that a backdrop image can outlive
+  // it, and it puts them back by re-running each layer's own sync. While nothing
+  // here claimed `visible`, that `false` was never undone — so turning off
+  // "Drift When Idle" permanently emptied the environment pool, which for a
+  // tunnel is the entire effect. Always true: an environment with no pool leaves
+  // the container empty, and an empty container costs nothing.
+  layer.visible = true;
   if (env.particle?.shape === "tube") {
     const vp = inst.frame.vp;
     layer.pivot.set(vp.x, vp.y);
@@ -979,6 +1220,15 @@ export function attachViewscreen(model) {
     aboveTokens: cfg.aboveTokens,
     last:        performance.now(),
     dark:        false,
+    imgBelow:       null,
+    imgAbove:       null,
+    imgSprite:      null,
+    imgTexture:     null,
+    imgSrcLoaded:   null,
+    // True only for a video, which this instance owns outright. An image texture
+    // comes from the shared cache and must outlive the instance.
+    imgOwnsTexture: false,
+    darkKeepsImage: false,
     finished:    false,
     tick:        null,
     // Ambient state. All of it decays or advances on its own; none of it is
@@ -1011,6 +1261,7 @@ export function attachViewscreen(model) {
 
   _syncEnvLayer(inst, env);
   _syncBackdrop(inst, cfg);
+  _syncImage(inst, cfg);
   _resizeHaze(inst, env);
   _syncHaze(inst, cfg, env);
   _syncWash(inst, cfg, env);
@@ -1036,6 +1287,10 @@ function _destroyInstance(inst) {
   if (inst.finished) return;
   inst.finished = true;
   try { canvas?.app?.ticker?.remove(inst.tick); } catch { /**/ }
+  // Before the container goes: a video texture is this instance's own and has to
+  // be paused and released, while an *image* texture is shared through
+  // `_imageTextureCache` and must outlive it.
+  _releaseImage(inst);
   try { inst.container.mask = null; } catch { /**/ }
   // Filters survive destroy({children:true}) — they have to go explicitly, and
   // there is now one per particle layer rather than one on the root.
@@ -1071,6 +1326,7 @@ export function rebuildMask(model) {
   const env = getEnvironment(cfg.environment);
   _syncEnvLayer(inst, env);
   _syncBackdrop(inst, cfg);
+  _syncImage(inst, cfg);
   _syncHaze(inst, cfg, env);
   _syncWash(inst, cfg, env);
   // The scanline texture is baked at the region's height, so a reshape needs a
@@ -1083,6 +1339,10 @@ export function rebuildMask(model) {
     try { old?.destroy?.(true); } catch { /**/ }
   }
   _syncGrain(inst, cfg, env);
+  // Every sync above sets its own layer's visibility, which would quietly undo
+  // the dark gate for a viewscreen only still alive because it is showing a
+  // backdrop image. Re-assert it.
+  if (inst.dark) _setFieldVisible(inst, false, cfg, env);
 }
 
 function _refreshFrame(inst) {
@@ -1128,6 +1388,7 @@ export function refreshViewscreen(behavior) {
 
   _syncEnvLayer(inst, env);
   _syncBackdrop(inst, cfg);
+  _syncImage(inst, cfg);
   _resizeHaze(inst, env);
   _syncHaze(inst, cfg, env);
   _syncWash(inst, cfg, env);
@@ -1145,6 +1406,11 @@ export function refreshViewscreen(behavior) {
     const ef = inst.envLayer.filters?.[0];
     if (ef && "color" in ef) ef.color = cfg.accentTint;
   } catch { /**/ }
+
+  // Every sync above sets its own layer's visibility, which would quietly undo
+  // the dark gate for a viewscreen only still alive because it is showing a
+  // backdrop image. Re-assert it.
+  if (inst.dark) _setFieldVisible(inst, false, cfg, env);
 }
 
 /** Drop every instance — used on canvasReady so nothing survives a scene swap. */
@@ -1588,9 +1854,17 @@ function _tick(inst) {
   // it break, not to see it switched off because the ship happens to be parked.
   const dark = !cfg.sublightDrift && ramp <= 0
             && !env.restAmbient && cfg.interference <= 0;
-  if (dark !== inst.dark) {
+  // A backdrop image is the one thing that survives going dark: a GM who has set
+  // the viewscreen to show a planet with drift switched off wants to see the
+  // planet, not a black rectangle. The field still stops — only the image and
+  // the backdrop colour behind it stay lit, so the container cannot simply be
+  // hidden and the animated layers go off individually instead.
+  const keepImage = dark && !!cfg.imageSrc;
+  if (dark !== inst.dark || keepImage !== inst.darkKeepsImage) {
     inst.dark = dark;
-    inst.container.visible = !dark;
+    inst.darkKeepsImage = keepImage;
+    inst.container.visible = !dark || keepImage;
+    _setFieldVisible(inst, !dark, cfg, env);
     // Coming back from dark, drop the stale previous projections — otherwise
     // every star draws one clamped full-length streak on the first frame.
     if (!dark) {

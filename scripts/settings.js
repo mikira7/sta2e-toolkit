@@ -26,6 +26,7 @@ import {
 } from "./star-system-images.js";
 import { SFX_SETTING, SfxBoardConfig } from "./sfx-board.js";
 import { environmentSoundKeys } from "./viewscreen-environments.js";
+import { VIEWSCREEN_PRESET_SETTING } from "./viewscreen-presets.js";
 
 export function registerSettings() {
 
@@ -1519,6 +1520,17 @@ export function registerSettings() {
     name: "Warp Viewscreen — Warp Loop",
     hint: "Looping rumble held for as long as the viewscreen is at warp. Blank is silent.",
     scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  // The GM's saved look presets, managed entirely from the viewscreen panel:
+  // { entries: [ { id, label, environment, isDefault, look: {...} } ] }.
+  // World-scoped so one library serves every region on every scene and a co-GM
+  // sees the same presets. Normalized on every read by viewscreen-presets.js,
+  // which is what lets the default here be a bare empty list.
+  game.settings.register("sta2e-toolkit", VIEWSCREEN_PRESET_SETTING, {
+    name:   "Warp Viewscreen — Look Presets",
+    hint:   "Saved appearance presets per travel environment. Managed from the Warp Viewscreen panel.",
+    scope:  "world", config: false, type: Object, default: { entries: [] },
   });
 
   game.settings.register("sta2e-toolkit", "warpViewscreenEnterMs", {

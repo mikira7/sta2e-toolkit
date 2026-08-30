@@ -451,7 +451,7 @@ a GM asks for persistence.
 A starfield that plays **inside a Region's outline**, so a viewscreen or window painted into a bridge map can show warp. The GM drives the three beats — enter warp, stars streaming by, drop out — from a floating panel. It also draws the other travel environments above; the type id stays `sta2e-toolkit.warpViewscreen` (changing it would orphan every existing behavior), only the display label in `lang/en.json` broadened to "Viewscreen".
 
 **The layers are sub-containers, and the two particle pools have one each.**
-Bottom to top: `backdrop → haze → stars → environment → wash → grain → bloom`.
+Bottom to top: `backdrop → image → haze → stars → environment → wash → image → grain → bloom`. The image appears twice because it is one sprite with two possible parents (see **Backdrop images** below).
 Before that, star sprites were appended straight onto the root and only landed
 above the fixed layers by accident of call order; with a container each, a pool
 resizes without any re-append reordering anything — which is the create-once,
@@ -537,6 +537,139 @@ Four traps worth keeping in mind:
 - With `sublightDrift` off the container is **hidden**, not merely stopped, or the viewscreen shows a frozen starfield instead of going dark. Coming back from hidden clears every star's `px`/`py`, or the first lit frame draws a full set of clamped streaks.
 - The backdrop and nebula are built once and toggled with `visible` — **never created and destroyed on option changes**, which would re-append them above the stars and need child-index juggling that differs across PIXI majors.
 - `variety` scales the accent wash on *non*-accent stars too, so 0 is genuinely the base hue rather than faintly contaminated by it. Brightness still varies at 0 — that is depth, not decoration.
+
+**Look presets.** Every environment ships a tuned `defaults` block and picking
+one writes it — a starting point, not a destination, so a GM who had dialled a
+slipstream to taste redid the same dozen sliders on every region and every scene.
+[viewscreen-presets.js](scripts/viewscreen-presets.js) saves that work: named
+presets **filed under an environment**, in one world setting shared by every
+region, every scene and a co-GM.
+
+**`resolveEnvironmentLook(id)` is the single answer to "what does this
+environment look like"** — the built-in tuning with the GM's *default* preset for
+that environment laid over it. Anything that used to call `environmentDefaults`
+to seed a look should call this instead; `environmentDefaults` remains the way to
+ask for the shipped tuning specifically, which is what the panel's
+"Built-in defaults" row does. One preset per environment may be the default, and
+that invariant is enforced in `setDefaultViewscreenPreset` **and** re-enforced in
+`normalizeViewscreenPresets`, because a hand-edited setting or two clients racing
+must not be able to leave two.
+
+Four things it rests on:
+
+- **A preset stores the look and nothing else** (`PRESET_FIELDS`). Not `phase`,
+  not `warpFactor`, and deliberately not `vanishX`/`vanishY`/`inbound`/
+  `aboveTokens` or the backdrop image — those describe *this region*, and
+  carrying them between regions would aim one viewscreen at another's vanishing
+  point. `environment` is the key a preset is filed under, not a field it holds.
+- **There is no write-through here, unlike the image library.** Moving a slider
+  must not quietly rewrite the saved preset, or a GM could never try something
+  without losing what they started from — so presets carry an explicit Update
+  button where the image block deliberately has none. That asymmetry is the
+  point, not an oversight.
+- **`lookPreset` on the behavior is only a pointer** into a world-level library,
+  which is why `_hideLookPresetField` takes it off the config sheet entirely
+  rather than injecting a select over it. Removing the whole form group also
+  removes it from the form, so ordinary submission leaves the stored value alone
+  instead of blanking it.
+- **The panel needs an `updateSetting` hook.** Presets are a setting, not a
+  document, so none of the `*RegionBehavior` hooks fire when a co-GM saves one
+  and the panel would show a stale list. Preset writes also do not come back
+  through `_apply`, so `_runPresetWrite` re-renders itself.
+
+Deliberately **not** shared with Scene Warp: the two surfaces share most look
+field names but not all of them, and a half-applying preset is worse than none.
+
+**Backdrop images.** A viewscreen can *show* something — a planet, a starbase, a
+star chart, a tactical display — as a sprite drawn inside the region outline and
+clipped by the same mask as everything else. The GM keeps a **named library per
+region** and flips between entries from the panel mid-scene.
+
+The data model is split in two, and the split is what makes the config sheet work
+for free:
+
+- **The live backdrop is seven flat schema fields** (`imageSrc`, `imageFit`,
+  `imageScale`, `imageOffsetX/Y`, `imageAlpha`, `imageAbove`). The renderer reads
+  those directly and never looks an entry up by id.
+- **`images` is an `ArrayField` of saved presets**, and `activeImage` names one.
+  Picking an entry **copies** its values into the live fields in one update —
+  exactly the shape the Environment select already uses for
+  `{ environment, ...environmentDefaults(id) }`.
+
+**Core's auto-sheet is what forces that split, and it does it silently.**
+`RegionBehaviorConfig#_getFields` only emits schema fields whose class has
+`hasFormSupport`, which is defined as "overrides `_toInput`". `ArrayField` does
+not, so the library is skipped with no error and no broken control — while
+`FilePathField` *does*, and renders a native `<file-picker>`. So the live row
+costs no injection at all, and the only hand-built control is the `<select>` that
+replaces `activeImage`'s bare id textbox (`_injectImageLibrarySelect`, a sibling
+of the vanishing-point button on the same `renderRegionBehaviorConfig` hook). It
+writes the chosen entry into core's own rendered inputs and lets ordinary form
+submission persist them — the same native-form-path trick, so the sheet still
+never calls `document.update()`.
+
+Five things the implementation rests on:
+
+- **One sprite, two parents.** `imgBelow` sits on the backdrop colour under
+  everything that moves; `imgAbove` sits over the wash (so it is not tinted) but
+  under the grain and bloom — a screen breaking up should break up *over* the
+  picture. Both containers are built in `_buildLayers` and never move;
+  `imageAbove` `addChild`s the one sprite into the other, which reparents with no
+  texture reload and no child-index maths that differs across PIXI majors.
+- **Any layer the dark gate switches off must have an owner that switches it back
+  on.** `_setFieldVisible` hides the animated layers individually, and a layer
+  nobody claims stays hidden for good — which is exactly what happened to
+  `envLayer`: nothing set it `visible`, so turning off "Drift When Idle" once
+  emptied the environment pool permanently, invisible on plain warp (which has no
+  pool) and total on a tunnel (where the pool *is* the effect). `_syncEnvLayer`
+  now owns it, alongside `_syncHaze` / `_syncWash` / `_syncGrain`; the function's
+  docblock carries the full ownership table.
+- **The dark gate can no longer hide the container.** A GM showing a still planet
+  with drift off must see the planet, not a black rectangle — the same argument
+  `interference` already wins. `_setFieldVisible` turns the *animated* layers off
+  individually instead, and comes back on by re-running the syncs that already own
+  their own visibility rather than second-guessing them. `refreshViewscreen` and
+  `rebuildMask` must **re-assert it after their sync pass**, or a slider nudged
+  while dark quietly relights the haze and the wash.
+- **Offsets are fractions of the region's own bounds, not pixels**, so a saved
+  backdrop keeps its framing when the region is later moved or reshaped.
+- **The texture cache is shared and must survive teardown.** `_loadImageTexture`
+  is the `hull-decals.js` three-tier loader with its negative cache (a 404 is
+  resolved once). `_destroyInstance` therefore destroys the sprite but **not** its
+  texture — *except* for a video, which the instance owns outright because a
+  `<video>` carries one playhead and two regions on one file would share it. That
+  is the whole reason `imgOwnsTexture` exists.
+- **The panel is two columns, and they scroll separately.** The image block is
+  the whole right-hand one. Both columns are a fixed `COL_W` and the shell a
+  fixed `PANEL_W`, so the panel never resizes under the pointer as controls
+  appear and go away; `COL_MAX_H` caps the height so a long column scrolls
+  instead of running off the bottom of the screen, which is what the
+  single-column panel did once the image block was added. A *shared* scrollbar
+  on the body would have dragged the short column out of view with the long one.
+  `_showSide` collapses the second column with `style.display` rather than
+  `hidden`, since every style here is inline and an inline `display: flex`
+  outranks the UA stylesheet's `[hidden]` rule.
+- **A backdrop's file is its identity; everything else is its framing, and the
+  two must not be treated alike.** `_apply` mirrors live edits back into the
+  active library entry so a nudged slider sticks to the saved backdrop — but it
+  mirrors `IMAGE_FRAMING_FIELDS`, **not** `IMAGE_ENTRY_FIELDS`. With `src` in
+  that mirror, browsing for a second picture rewrote the *first* entry's file
+  before the second had even been saved, so every entry ended up pointing at the
+  most recently chosen image and the library looked broken. Changing the file
+  therefore **detaches** (`activeImage: ""`) on both surfaces rather than writing
+  through, and the select drops to "Not from the library" until it is saved under
+  its own name.
+- **Selecting an entry must settle every live field**, falling back to
+  `IMAGE_ENTRY_DEFAULTS` for any key it never stored. Foundry drops `undefined`
+  from an update payload, so a missing key silently leaves the *previous*
+  backdrop's value in place — the same class of sticky-state bug, one step
+  removed. The fallback uses `??`, since an offset of 0 and `above: false` are
+  real values.
+- **`_syncImage` is fire-and-forget and must never reject.** It is called from the
+  three sync paths (`attachViewscreen`, `rebuildMask`, `refreshViewscreen`) and
+  awaited by none of them, so the async half is wrapped. After the await it
+  re-checks both `inst.finished` and that `imgSrcLoaded` is still the file it
+  started loading — the GM can pick a different one mid-flight.
 
 Sounds and ramp timings live in **Settings → Sounds & Animations → Viewscreen** ([effect-config.js](scripts/effect-config.js) `warpViewscreen` tab). Unrelated to `warp-jump-vfx.js`, which is the ship's own jump on the map.
 
@@ -1010,7 +1143,7 @@ through `lcarsChatCard`.
 | [scripts/spawn-picker.js](scripts/spawn-picker.js) | Shared canvas pickers, `pickSpawnCentres`, PIXI shims, `centreToTopLeft` |
 | [scripts/spawn-queue.js](scripts/spawn-queue.js) | The drag-actors-in queue widget shared by the LCARS tabs |
 | [scripts/spawn-buffer.js](scripts/spawn-buffer.js) | Hold/restore group buffer, keyed by setting |
-| [scripts/spawn-regions.js](scripts/spawn-regions.js) | Region spawn destinations — pad-marker discovery/order, grid fill, `parseLocation`, `buildLocationOptions` |
+| [scripts/spawn-regions.js](scripts/spawn-regions.js) | Region spawn destinations — pad-marker discovery/order, grid fill, `parseLocation`, `buildLocationOptions`, and the shared region geometry (`regionPolygons`, `regionBounds`, `regionCentre`, `regionContainsPoint`). **Geometry comes off the RegionDocument, never the placeable** — `Region#polygons` and `Region#testPoint` are deprecated since v13 and log on every call. `regionBounds` is the exception: `Region#bounds` is not deprecated and gives the *animated* bounds, which is what canvas drawing wants |
 | [scripts/region-pad-config.js](scripts/region-pad-config.js) | Injects the spawn-marker checkbox + Pad Group field into Region Config |
 | [scripts/region-spline-tool.js](scripts/region-spline-tool.js) | The Regions-toolbar **Curve** tool — the scene-control descriptor, the two `RegionLayer` patches, the control-point stamp, and the Region Config rebuild panel |
 | [scripts/spline-geometry.js](scripts/spline-geometry.js) | Closed centripetal Catmull-Rom over flat `[x,y,…]` arrays — adaptive sampling, the tangent overshoot clamp, and the centroid-tolerant outline match. A leaf with **no imports** |
@@ -1018,10 +1151,11 @@ through `lcarsChatCard`.
 | [scripts/scene-warp-vfx.js](scripts/scene-warp-vfx.js) | The top-down parallax streak field — nested masked/rotated containers, depth bands, the over-tokens band |
 | [scripts/scene-warp-panel.js](scripts/scene-warp-panel.js) | Floating GM-only LCARS panel driving engage/drop out, warp factor, course, the two rules switches and the look |
 | [scripts/starfield-common.js](scripts/starfield-common.js) | Star and environment *material* shared by both renderers — streak/radial/cloud/storm-cloud/wisp/rock/mote/grain/scanline textures, fBm noise, lightning geometry, palette construction, colour maths, PIXI v7/v8 shims. Knows nothing about either camera |
+| [scripts/viewscreen-presets.js](scripts/viewscreen-presets.js) | The GM's saved look presets — one world setting, filed per environment, one markable default each. `resolveEnvironmentLook` is what picking an environment should write. Imports only the environment registry |
 | [scripts/viewscreen-environments.js](scripts/viewscreen-environments.js) | The travel environment registry — four volumes (warp, nebula, ion storm, asteroid), four tunnels (transwarp conduit, slipstream, wormhole, subspace vortex) and signal loss. A leaf with **no imports**, so the panels and `scene-warp.js` can read it; textures named by string key, every particle number a multiplier |
-| [scripts/warp-viewscreen-behavior.js](scripts/warp-viewscreen-behavior.js) | The `sta2e-toolkit.warpViewscreen` RegionBehaviorType — schema, phase writes, environment-resolved sounds, the vanishing-point picker |
-| [scripts/warp-viewscreen-vfx.js](scripts/warp-viewscreen-vfx.js) | The masked star-streak renderer — projection, star pool, ramp, bloom, teardown |
-| [scripts/warp-viewscreen-panel.js](scripts/warp-viewscreen-panel.js) | Floating GM-only LCARS panel driving enter/exit warp, warp factor, aim and look |
+| [scripts/warp-viewscreen-behavior.js](scripts/warp-viewscreen-behavior.js) | The `sta2e-toolkit.warpViewscreen` RegionBehaviorType — schema, phase writes, environment-resolved sounds, the vanishing-point picker, and the backdrop-image library `<select>` injected over `activeImage` |
+| [scripts/warp-viewscreen-vfx.js](scripts/warp-viewscreen-vfx.js) | The masked star-streak renderer — projection, star pool, ramp, bloom, teardown, and the backdrop-image sprite. Its texture cache is shared and caches negatives; video is deliberately uncached and owned per instance |
+| [scripts/warp-viewscreen-panel.js](scripts/warp-viewscreen-panel.js) | Floating GM-only LCARS panel driving enter/exit warp, warp factor, aim, look, and the backdrop-image library. Two independently scrolling columns — flight and look on the left, the image on the right. `_apply` mirrors the *framing* fields back into the active entry in the same update, which is why there is no Save button; `src` is excluded and changing it detaches |
 | [scripts/warp-stretch-vfx.js](scripts/warp-stretch-vfx.js) | The hull smear at both ends of a warp jump — the only place the module deforms a token sprite. Owns the `Token#_refreshSize` / `#_refreshMesh` patch that keeps it applied |
 | [scripts/warp-calc.js](scripts/warp-calc.js) | Warp travel calculator dialog |
 | [scripts/warp-effect-styles.js](scripts/warp-effect-styles.js) | Warp flash style registry (clip, scale, peak, corridor) + the trait and faction gates. `standard`, `temporalRift`, `cardassianTemporalRift`; the rifts are timeships only. Styles sharing a `family` are faction variants: a variant with a `faction` key replaces the family's generic one for ships of that faction, substituted by `resolveFactionVariantId` on the initiating client so the resolved id is what travels the socket. Must not import `ship-vfx-anchors.js` — that would close an import cycle; faction detection is imported from `actor-faction.js` instead |

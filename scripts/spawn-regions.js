@@ -199,15 +199,37 @@ export function parseLocation(location) {
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
 /**
+ * A RegionDocument, given either one or its placeable.
+ *
+ * A placeable sets `this.document` in its constructor and a document has no
+ * such property, so this resolves both without touching anything deprecated —
+ * which matters, because the checks have to happen in that order. Reading
+ * `placeable.polygons` to find out what it is would itself log the warning.
+ */
+function regionDoc(region) {
+  return region?.document ?? region ?? null;
+}
+
+/**
  * The region's outline as arrays of `{x, y}` vertices.
  *
- * `region.object.polygons` is the drawn, already-clipped shape set, so a region
- * built from several overlapping shapes comes back as the union Foundry actually
- * renders. Returns an empty array when the placeable is not on the canvas.
+ * The already-clipped shape set, so a region built from several overlapping
+ * shapes comes back as the union Foundry actually renders.
+ *
+ * **Read off the RegionDocument, not the placeable.** `Region#polygons` is
+ * deprecated since v13 (it forwards to exactly this and logs a warning), and
+ * this is called on attach, on every reshape and on every behavior update — so
+ * the placeable route filled the console. The document also carries its
+ * outlines whether or not the placeable is drawn, so this now answers correctly
+ * on a scene that is not being viewed, where it used to return nothing.
  */
 export function regionPolygons(region) {
   try {
-    const polys = region?.object?.polygons;
+    // Only fall through when the property is absent altogether — an *empty*
+    // array is a real answer from a region with no shapes, and retrying on the
+    // placeable would log the deprecation this exists to avoid.
+    let polys = regionDoc(region)?.polygons;
+    if (!Array.isArray(polys)) polys = region?.object?.polygons;
     if (!Array.isArray(polys)) return [];
     return polys.map(poly => {
       // PIXI.Polygon carries a flat [x, y, x, y, …] points array.
@@ -226,11 +248,22 @@ export function regionPolygons(region) {
   }
 }
 
-/** The region's bounding box, from the placeable or from the polygons. */
+/**
+ * The region's bounding box.
+ *
+ * The placeable first and deliberately: `Region#bounds` is *not* deprecated and
+ * returns the **animated** bounds, which is what anything drawing on the canvas
+ * wants while a region is being reshaped. `RegionDocument#bounds` is the static
+ * answer, used when the placeable is not drawn.
+ */
 export function regionBounds(region) {
   const b = region?.object?.bounds;
   if (b && Number.isFinite(b.x) && Number.isFinite(b.width) && b.width > 0) {
     return { x: b.x, y: b.y, width: b.width, height: b.height };
+  }
+  const db = regionDoc(region)?.bounds;
+  if (db && Number.isFinite(db.x) && Number.isFinite(db.width) && db.width > 0) {
+    return { x: db.x, y: db.y, width: db.width, height: db.height };
   }
   const polys = regionPolygons(region);
   if (!polys.length) return null;
@@ -259,11 +292,17 @@ export function regionContainsPoint(region, { x, y }) {
     return crossings % 2 === 1;
   }
 
-  // Placeable not drawn — fall back to the document's own test, then bounds.
+  // No outlines at all — fall back to the document's own test, then bounds.
+  // `RegionDocument#testPoint` takes one elevated point; the placeable's
+  // two-argument form is deprecated since v13, so it is only the last resort.
   try {
-    const elevation = region?.elevation?.bottom ?? 0;
+    const doc = regionDoc(region);
+    const elevation = doc?.elevation?.bottom ?? region?.elevation?.bottom ?? 0;
+    if (typeof doc?.testPoint === "function") {
+      return !!doc.testPoint({ x, y, elevation });
+    }
     if (typeof region?.object?.testPoint === "function") {
-      return !!region.object.testPoint({ x, y, elevation });
+      return !!region.object.testPoint({ x, y }, elevation);
     }
   } catch { /* signature differs across Foundry builds — fall through */ }
 
