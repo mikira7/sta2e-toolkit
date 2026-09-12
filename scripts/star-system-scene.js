@@ -6,11 +6,13 @@
  * name to any user mousing over a system-map tile.
  */
 
-import { getStarSystemData, ensureOrbitalDistances } from "./star-system-sheet.js";
+import { getStarSystemData, ensureOrbitalDistances, STAR_SYSTEM_FLAG } from "./star-system-sheet.js";
 import { pickStarSystemImage, getStarSystemBackgrounds, starTypeKey } from "./star-system-images.js";
+import { normalizePlanetRecipe, saveProceduralPlanetImage, planetSeedHash, isProceduralPlanet, proceduralSceneImageIsCurrent, planetSceneImage, planetSceneBodyScale } from "./planet-generator.js";
 
 const MODULE_ID = "sta2e-toolkit";
 export const SCENE_ACTOR_FLAG = "starSystemSceneActor";
+export const SCENE_WORLD_FLAG = "starSystemSceneWorld";
 const BODY_FLAG = "systemBody";
 
 // Layout constants (pixels). The scene is gridless with a 100px grid size.
@@ -25,9 +27,6 @@ const AU_SPAN_RADIUS_PER_DECADE = 1500;
 const BODY_WALL_SEGMENTS = 16;
 const STAR_WALL_RADIUS_SCALE = 0.75;
 const PLANET_WALL_RADIUS_SCALE = 0.9;
-// Keep this in sync with star-system-images.js, where ringed composites scale
-// the planet body to 68% of the full tile to make room for the ring artwork.
-const RINGED_PLANET_BODY_SCALE = 0.68;
 const BODY_CLEARANCE = 50;
 const MOON_TILE_SIZE = 80;
 const MOON_BODY_GAP = 60;
@@ -42,10 +41,6 @@ function worldClassOf(value) {
 
 function isGasGiantClass(cls) {
   return ["I", "J", "S", "T"].includes(cls);
-}
-
-function hasPlanetaryRings(world) {
-  return String(world?.rings ?? "").trim().toLowerCase() === "yes";
 }
 
 function displayName(world, fallback = "Unknown body") {
@@ -262,28 +257,26 @@ export async function createStarSystemMapScene(actor) {
     return null;
   }
 
-  const existing = (game.scenes ?? []).filter(scene => scene.getFlag(MODULE_ID, SCENE_ACTOR_FLAG) === actor.id);
+  const existing = (game.scenes ?? []).filter(scene => scene.getFlag(MODULE_ID, SCENE_ACTOR_FLAG) === actor.id && !scene.getFlag(MODULE_ID, SCENE_WORLD_FLAG));
   const choice = await promptSceneOptions(data, existing);
   if (!choice) return null;
 
-  if (choice.replace && existing.length) {
-    await Scene.deleteDocuments(existing.map(scene => scene.id));
-  }
-
+  await prepareProceduralSceneArt(actor, data, null, choice.artwork);
   const scene = await buildScene(actor, data, choice.background);
   if (!scene) return null;
+  if (choice.replace && existing.length) await Scene.deleteDocuments(existing.map(scene => scene.id));
   ui.notifications.info(`STA2e Toolkit: Scene map "${scene.name}" created.`);
   await scene.view();
   return scene;
 }
 
-async function promptSceneOptions(data, existingScenes) {
+async function promptSceneOptions(data, existingScenes, planet = null) {
   const backgrounds = getStarSystemBackgrounds();
   const backgroundRows = [
     `<label class="sta2e-ss-scene-bg-option">
        <input type="radio" name="background" value="__random" checked />
        <span class="sta2e-ss-scene-bg-random"><i class="fas fa-dice"></i></span>
-       <span>Random${backgrounds.length ? "" : " (no backgrounds configured — plain starfield)"}</span>
+       <span>Random${backgrounds.length ? "" : " (no backgrounds configured — black background)"}</span>
      </label>`,
     ...backgrounds.map(path => `
       <label class="sta2e-ss-scene-bg-option">
@@ -295,22 +288,28 @@ async function promptSceneOptions(data, existingScenes) {
 
   const replaceSection = existingScenes.length ? `
     <hr />
-    <p>A scene map for this system already exists (<strong>${escapeHtml(existingScenes[0].name)}</strong>).</p>
-    <label class="sta2e-ss-scene-bg-option"><input type="radio" name="mode" value="replace" checked /><span>Replace the existing scene</span></label>
-    <label class="sta2e-ss-scene-bg-option"><input type="radio" name="mode" value="new" /><span>Create an additional scene</span></label>` : "";
+    <p>A scene map for this ${planet ? "planet" : "system"} already exists (<strong>${escapeHtml(existingScenes[0].name)}</strong>).</p>
+    <label class="sta2e-ss-scene-bg-option"><input type="radio" name="mode" value="replace" /><span>Replace the existing scene${existingScenes.length > 1 ? "s" : ""} (${existingScenes.length})</span></label>
+    <label class="sta2e-ss-scene-bg-option"><input type="radio" name="mode" value="new" checked /><span>Create an additional scene</span></label>` : "";
 
   const content = `
-    <form class="sta2e-ss-scene-dialog">
-      <p>Create a scene map for <strong>${escapeHtml(data.designation || "this system")}</strong>
-      with ${data.worlds.length} orbital bod${data.worlds.length === 1 ? "y" : "ies"}.</p>
+    <div class="sta2e-ss-scene-dialog">
+      <p>Create a scene map for <strong>${escapeHtml(planet?.name || data.designation || "this system")}</strong>
+      with ${planet ? `${planet.moonRecords?.length ?? 0} moons. Orbital spacing is schematic, not a distance scale.` : `${data.worlds.length} orbital bodies.`}</p>
+      <label>Body artwork <select name="artwork">
+        <option value="missing" selected>Generate procedural art where images are missing</option>
+        <option value="all">Generate procedural art for ${planet ? "this planet and its moons" : "all stars, planets, moons, and asteroids"}</option>
+        <option value="existing">Use existing images only</option>
+      </select></label>
+      <p>Procedural planets use a polar view with their saved axial tilt. Missing polar views are prepared automatically; information portraits keep their side view.</p>
       <h4>Background</h4>
       <div class="sta2e-ss-scene-bg-list">${backgroundRows}</div>
       ${replaceSection}
-    </form>`;
+    </div>`;
 
   let result = null;
   const outcome = await foundry.applications.api.DialogV2.wait({
-    window: { title: "Create Star System Scene" },
+    window: { title: planet ? "Create Planetary Space Overview" : "Create Star System Scene" },
     position: { width: 480 },
     content,
     buttons: [
@@ -322,10 +321,11 @@ async function promptSceneOptions(data, existingScenes) {
         callback: (_event, _button, dialog) => {
           const root = dialog.element;
           const background = root.querySelector('input[name="background"]:checked')?.value ?? "__random";
-          const mode = root.querySelector('input[name="mode"]:checked')?.value ?? "replace";
+          const mode = root.querySelector('input[name="mode"]:checked')?.value ?? "new";
           result = {
             background: background === "__random" ? (backgrounds.length ? backgrounds[Math.floor(Math.random() * backgrounds.length)] : "") : background,
             replace: existingScenes.length > 0 && mode === "replace",
+            artwork: root.querySelector('select[name="artwork"]')?.value ?? "missing",
           };
           return "create";
         },
@@ -334,6 +334,109 @@ async function promptSceneOptions(data, existingScenes) {
     ],
   });
   return outcome === "create" ? result : null;
+}
+
+async function prepareProceduralSceneArt(actor, data, worldId = null, mode = "missing") {
+  const worlds = data.worlds.filter(world => !worldId || world.id === worldId);
+  const bodies = [...(worldId ? [] : data.stars), ...worlds.flatMap(world => [world, ...(world.moonRecords ?? [])])];
+  const needsPair = body => mode === "all" || (mode === "missing" && !String(body.image ?? "").trim());
+  const pending = bodies.filter(body => needsPair(body) || (isProceduralPlanet(body) && !proceduralSceneImageIsCurrent(body)));
+  if (!pending.length) return;
+  ui.notifications.info(`STA2e Toolkit: Preparing procedural artwork and scene views for ${pending.length} bodies…`);
+  for (const body of pending) {
+    const recipe = normalizePlanetRecipe(body.procedural || { seed: `${actor.id}-${body.id}` }, body);
+    const art = await saveProceduralPlanetImage(body, actor.id, recipe, { sceneOnly: !needsPair(body) });
+    Object.assign(body, art);
+    if (art.image) body.imageLayers = { base: art.image, polarCap: "", cloud: "", ring: "" };
+    // Let the browser paint progress between large textures.
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  await actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, data);
+}
+
+/** A separate scene family per planet, so replacing a system never deletes overviews. */
+export async function createPlanetaryOverviewScene(actor, worldId) {
+  if (!game.user?.isGM) {
+    ui.notifications.warn("STA2e Toolkit: Only the GM can create planetary scenes.");
+    return null;
+  }
+  const data = getStarSystemData(actor);
+  const world = data.worlds.find(row => row.id === worldId);
+  if (!data.isStarSystem || !world) return null;
+  if (worldClassOf(world.type) === "Belt") {
+    ui.notifications.warn("STA2e Toolkit: Select a planet for a planetary overview.");
+    return null;
+  }
+  const existing = (game.scenes ?? []).filter(scene => scene.getFlag(MODULE_ID, SCENE_ACTOR_FLAG) === actor.id && scene.getFlag(MODULE_ID, SCENE_WORLD_FLAG) === world.id);
+  const choice = await promptSceneOptions(data, existing, world);
+  if (!choice) return null;
+  await prepareProceduralSceneArt(actor, data, world.id, choice.artwork);
+  const scene = await buildPlanetaryOverviewScene(actor, data, world, choice.background);
+  if (!scene) return null;
+  if (choice.replace && existing.length) await Scene.deleteDocuments(existing.map(scene => scene.id));
+  ui.notifications.info(`STA2e Toolkit: Planetary overview "${scene.name}" created.`);
+  await scene.view();
+  return scene;
+}
+
+export async function buildPlanetaryOverviewScene(actor, data, world, background = "") {
+  const moons = world.moonRecords ?? [];
+  const size = Math.min(30000, Math.max(6000, 3800 + moons.length * 680));
+  const center = size / 2;
+  const planetSize = 1800;
+  const name = displayName(world, "Planet");
+  const sceneData = {
+    name: `${data.designation || actor.name} — ${name} Orbit`, width: size, height: size, padding: 0,
+    grid: { type: CONST.GRID_TYPES.GRIDLESS, size: GRID, distance: 1, units: "" },
+    tokenVision: true, fog: { exploration: false }, environment: { globalLight: { enabled: true } },
+    flags: { [MODULE_ID]: { [SCENE_ACTOR_FLAG]: actor.id, [SCENE_WORLD_FLAG]: world.id, starSystemGeneratedAt: Date.now() } },
+  };
+  if ((game.release?.generation ?? 13) >= 14) {
+    sceneData.levels = [{ _id: "defaultLevel0000", name: "Level", background: { color: "#000000", src: background || null } }];
+  } else {
+    sceneData.backgroundColor = "#000000";
+    if (background) sceneData.background = { src: background };
+  }
+  const tiles = [], drawings = [], walls = [];
+  const label = (text, x, y, width = 1000, fontSize = 42) => drawings.push({
+    x: Math.round(x - width / 2), y: Math.round(y), shape: { type: "r", width, height: 120 },
+    fillType: CONST.DRAWING_FILL_TYPES.NONE, strokeWidth: 0, text, fontSize, textColor: "#aaccff",
+  });
+  const addBody = (body, x, y, bodySize, kind) => {
+    const src = planetSceneImage(body) || pickStarSystemImage("planet", worldClassOf(body.type));
+    const bodyName = displayName(body, kind);
+    if (src) tiles.push(tileData({ src, cx: x, cy: y, size: bodySize, sort: kind === "planet" ? 200 : 300, name: bodyName, kind, type: body.type }));
+    else drawings.push({
+      x: x - bodySize / 2, y: y - bodySize / 2, shape: { type: "e", width: bodySize, height: bodySize },
+      fillType: CONST.DRAWING_FILL_TYPES.SOLID, fillColor: "#8899aa", fillAlpha: 1, strokeWidth: 0,
+      flags: bodyFlag(bodyName, kind, body.type),
+    });
+    walls.push(...terrainWallLoop({ cx: x, cy: y, radius: bodySize / 2 * PLANET_WALL_RADIUS_SCALE * (src ? planetSceneBodyScale(body) : 1), name: bodyName, kind, type: body.type }));
+    label(bodyName, x, y + bodySize / 2 + 40, kind === "planet" ? 1400 : 700);
+  };
+  addBody(world, center, center, planetSize, "planet");
+  label(`${name} • ${world.type || "Unclassified"} • Orbital overview (schematic)`, center, 150, size - 400, 48);
+  const occupied = [{ x: center, y: center, radius: planetSize / 2 }];
+  moons.forEach((moon, index) => {
+    const radius = 1550 + (index + 1) / Math.max(1, moons.length) * (center - 2250);
+    drawings.push({ x: center - radius, y: center - radius, shape: { type: "e", width: radius * 2, height: radius * 2 },
+      fillType: CONST.DRAWING_FILL_TYPES.NONE, strokeWidth: 2, strokeColor: "#557799", strokeAlpha: .35 });
+    const angle = planetSeedHash(`${world.id}-${moon.id}`) / 4294967296 * Math.PI * 2;
+    const pos = findClearOrbitalPosition({ cx: center, cy: center, orbitRadius: radius, bodyRadius: 220, preferredAngle: angle, occupied });
+    addBody(moon, pos.x, pos.y, 280, "moon");
+    occupied.push({ x: pos.x, y: pos.y, radius: 220 });
+  });
+  const scene = await Scene.create(sceneData);
+  if (!scene) return null;
+  try {
+    if (tiles.length) await scene.createEmbeddedDocuments("Tile", tiles);
+    if (drawings.length) await scene.createEmbeddedDocuments("Drawing", drawings);
+    if (walls.length) await scene.createEmbeddedDocuments("Wall", walls);
+    return scene;
+  } catch (error) {
+    await scene.delete();
+    throw error;
+  }
 }
 
 async function buildScene(actor, data, background) {
@@ -433,9 +536,6 @@ async function buildScene(actor, data, background) {
     if (background) sceneData.background = { src: background };
   }
 
-  const scene = await Scene.create(sceneData);
-  if (!scene) return null;
-
   const tiles = [];
   const drawings = [];
   const walls = [];
@@ -444,13 +544,14 @@ async function buildScene(actor, data, background) {
   nodes.filter(node => node.type === "star").forEach((node, i) => {
     const star = data.stars.find(row => row.id === node.starId) ?? { role: node.label, spectralType: "G", classification: node.label };
     const pos = positions.get(node.id) ?? { x: 0, y: 0 };
-    const src = String(star.image ?? "").trim() || pickStarSystemImage("star", starTypeKeyOf(star));
+    const src = planetSceneImage(star) || pickStarSystemImage("star", starTypeKeyOf(star));
     const label = star.classification || data.primaryStar || "Star";
     const size = starTileSize(star, node);
     const sx = pos.x + offsetX;
     const sy = pos.y + offsetY;
     const name = `${displayName({ name: data.designation }, "System")} - ${nodeLabel(node, data)} - ${label}`;
-    walls.push(...terrainWallLoop({ cx: sx, cy: sy, radius: (size / 2) * STAR_WALL_RADIUS_SCALE, name, kind: "star", type: label }));
+    const starWallScale = isProceduralPlanet(star) ? planetSceneBodyScale(star) * .95 : STAR_WALL_RADIUS_SCALE;
+    walls.push(...terrainWallLoop({ cx: sx, cy: sy, radius: (size / 2) * starWallScale, name, kind: "star", type: label }));
     if (src) {
       tiles.push(tileData({
         src,
@@ -515,15 +616,17 @@ async function buildScene(actor, data, background) {
     if (isBelt) {
       const rocks = 24;
       for (let k = 0; k < rocks; k += 1) {
-        const angle = (k / rocks) * Math.PI * 2 + Math.random() * 0.2;
-        const r = radius + (Math.random() * 2 - 1) * 120;
-        const src = String(world.image ?? "").trim() || pickStarSystemImage("planet", "Belt");
+        const random = salt => planetSeedHash(`${world.id}-${k}-${salt}`) / 4294967295;
+        const angle = (k / rocks) * Math.PI * 2 + random("angle") * 0.2;
+        const r = radius + (random("radius") * 2 - 1) * 120;
+        const src = planetSceneImage(world) || pickStarSystemImage("planet", "Belt");
         if (!src) break;
         tiles.push(tileData({
           src,
           cx: pcx + Math.cos(angle) * r,
           cy: pcy + Math.sin(angle) * r,
-          size: 55 + Math.random() * 50,
+          size: 55 + random("size") * 50,
+          rotation: random("rotation") * 360,
           sort: 150,
           name: `${name} (asteroid belt)`,
           kind: "belt",
@@ -537,11 +640,9 @@ async function buildScene(actor, data, background) {
     const px = pcx + Math.cos(angle) * radius;
     const py = pcy + Math.sin(angle) * radius;
     const psize = planetTileSize(cls);
-    const src = String(world.image ?? "").trim() || pickStarSystemImage("planet", cls);
+    const src = planetSceneImage(world) || pickStarSystemImage("planet", cls);
     const rotation = shadowRotationAwayFrom(pcx, pcy, px, py);
-    const wallRadiusScale = hasPlanetaryRings(world)
-      ? PLANET_WALL_RADIUS_SCALE * RINGED_PLANET_BODY_SCALE
-      : PLANET_WALL_RADIUS_SCALE;
+    const wallRadiusScale = PLANET_WALL_RADIUS_SCALE * (src ? planetSceneBodyScale(world) : 1);
     walls.push(...terrainWallLoop({ cx: px, cy: py, radius: (psize / 2) * wallRadiusScale, name, kind: "planet", type: world.type }));
     if (src) {
       tiles.push(tileData({
@@ -574,7 +675,7 @@ async function buildScene(actor, data, background) {
     moons.forEach((moon, k) => {
       const moonAngle = angle + (k - (moons.length - 1) / 2) * 0.45;
       const moonRadius = psize / 2 + MOON_TILE_SIZE / 2 + MOON_BODY_GAP + k * (MOON_TILE_SIZE + MOON_SEPARATION);
-      const moonSrc = String(moon.image ?? "").trim() || pickStarSystemImage("planet", worldClassOf(moon.type));
+      const moonSrc = planetSceneImage(moon) || pickStarSystemImage("planet", worldClassOf(moon.type));
       if (!moonSrc) return;
       const moonPlacement = findClearOrbitalPosition({
         cx: px - offsetX,
@@ -604,11 +705,17 @@ async function buildScene(actor, data, background) {
     });
   });
 
-  if (tiles.length) await scene.createEmbeddedDocuments("Tile", tiles);
-  if (drawings.length) await scene.createEmbeddedDocuments("Drawing", drawings);
-  if (walls.length) await scene.createEmbeddedDocuments("Wall", walls);
-
-  return scene;
+  const scene = await Scene.create(sceneData);
+  if (!scene) return null;
+  try {
+    if (tiles.length) await scene.createEmbeddedDocuments("Tile", tiles);
+    if (drawings.length) await scene.createEmbeddedDocuments("Drawing", drawings);
+    if (walls.length) await scene.createEmbeddedDocuments("Wall", walls);
+    return scene;
+  } catch (error) {
+    await scene.delete();
+    throw error;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

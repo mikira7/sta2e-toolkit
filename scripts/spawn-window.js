@@ -60,6 +60,8 @@ const PREF_DEFAULTS = { activeTab: "transporter", pos: null, transporterLocation
  *   Once, when the window is built.
  * @property {(panel: HTMLElement, api: SpawnWindowApi) => void} [onActivate]
  *   Every time this tab comes to the front — the scene may have changed under it.
+ * @property {(panel: HTMLElement, api: SpawnWindowApi) => void} [onSceneChange]
+ *   Refresh scene-dependent controls when the canvas or its Regions change.
  * @property {(panel: HTMLElement, api: SpawnWindowApi) => HTMLElement[]} [buildActions]
  *   The tab's rail keys, top to bottom. It must NOT emit a Close key: the
  *   chrome appends one to every rail itself.
@@ -314,10 +316,13 @@ export async function openSpawnWindow({ tab } = {}) {
     pos => setPrefs({ pos }),
   );
 
+  const sceneHooks = [];
   app._sta2eCleanup = () => {
     document.removeEventListener("mousemove", onMouseMove);
     document.removeEventListener("mouseup", onMouseUp);
     stopResizeWatch?.();
+    for (const [event, id] of sceneHooks) Hooks.off(event, id);
+    sceneHooks.length = 0;
   };
 
   // ── API handed to each tab ─────────────────────────────────────────────────
@@ -410,6 +415,27 @@ export async function openSpawnWindow({ tab } = {}) {
 
   app._sta2eActivate = activate;
   activate(wanted);
+
+  // Refresh only scene-dependent controls, including on hidden tabs, so queues
+  // and in-progress form choices survive a scene switch or a pad edit.
+  const refreshScene = () => {
+    if (!app.isConnected) return;
+    for (const tabDef of order) {
+      const panel = panelFor(tabDef.id);
+      if (!panel) continue;
+      try { tabDef.onSceneChange?.(panel, api); }
+      catch (err) { console.error(`STA2e Toolkit | spawn tab "${tabDef.id}" scene refresh failed:`, err); }
+    }
+  };
+  const refreshRegion = region => {
+    if (region.parent?.id === canvas.scene?.id) refreshScene();
+  };
+  if (app.isConnected) {
+    sceneHooks.push(["canvasReady", Hooks.on("canvasReady", refreshScene)]);
+    for (const event of ["createRegion", "updateRegion", "deleteRegion"]) {
+      sceneHooks.push([event, Hooks.on(event, refreshRegion)]);
+    }
+  }
 
   // Resolve the position to explicit pixels either way: the opening `left: 50%`
   // is only a starting point, and the resize clamp reads style.left as a number.

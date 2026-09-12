@@ -745,6 +745,19 @@ export function registerSettings() {
     onChange: () => refreshAllTokenSelectGlow(),
   });
 
+  // ── VFX diagnostics ──────────────────────────────────────────────────────
+
+  // Client-scoped on purpose: this is for chasing down "I didn't see the
+  // animation" on ONE machine, and a world setting would spam every console.
+  game.settings.register("sta2e-toolkit", "vfxDebugLogging", {
+    name:    "STA2E.Settings.VfxDebugLogging.Name",
+    hint:    "STA2E.Settings.VfxDebugLogging.Hint",
+    scope:   "client",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
+
   // ── JB2A Tier ────────────────────────────────────────────────────────────
 
   game.settings.register("sta2e-toolkit", "jb2aTier", {
@@ -1500,6 +1513,34 @@ export function registerSettings() {
     scope: "world", config: false, type: String, default: "", filePicker: "audio"
   });
 
+  // ── Deflector dish ──────────────────────────────────────────────────────────
+  // Sounds only. Every deflector TIMING is a per-ship dial in the Ship VFX
+  // Anchor editor, where the GM tunes the look with live Preview — a second copy
+  // here would be a stale second source of truth for the same number.
+  game.settings.register("sta2e-toolkit", "sndDeflectorCharge", {
+    name: "Deflector — Charge Glow Sound",
+    hint: "Audio file played when the deflector dish begins to charge. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndDeflectorPulse", {
+    name: "Deflector — Pulse Sound",
+    hint: "Audio file played as the energy wave leaves the dish. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndDeflectorBeam", {
+    name: "Deflector — Lance Sound",
+    hint: "Audio file played for the sustained deflector lance. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
+  game.settings.register("sta2e-toolkit", "sndDeflectorStream", {
+    name: "Deflector — Stream Sound",
+    hint: "Audio file played for the forward particle wash. Blank is silent.",
+    scope: "world", config: false, type: String, default: "", filePicker: "audio"
+  });
+
   // ── Warp Viewscreen ──────────────────────────────────────────────────────
   // The Region behavior that renders a warp starfield inside a viewscreen or
   // window drawn into the map art. Sounds play locally on every client from the
@@ -1657,13 +1698,14 @@ export function registerSettings() {
 
   game.settings.register("sta2e-toolkit", TRACTOR_BEAM_RENDERER_SETTING, {
     name: "Tractor Beam Animation Renderer",
-    hint: "Choose the persistent live tractor-beam visual. JB2A uses the configured Sequencer asset; PIXI draws a native beam from the host emitter to the target's facing hull edge.",
+    hint: "Choose the persistent live tractor-beam visual. Cinematic Shader adapts its contact to the broad hull facing the emitter, with a full-hull lock glow masked by the artwork's transparency. Contact eases as the target moves or rotates, with a soft grab fallback while artwork loads. Native PIXI follows the target's facing hull edge. The shader falls back to native graphics if unavailable. JB2A uses the configured Sequencer asset.",
     scope: "world",
     config: true,
     type: String,
     choices: {
       jb2a: "JB2A / Sequencer",
       pixi: "Native PIXI",
+      shader: "Cinematic Shader (WebGL)",
     },
     default: "jb2a",
   });

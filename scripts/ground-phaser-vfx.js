@@ -25,6 +25,8 @@
  * destroyed by hand because `container.destroy()` does not take them.
  */
 
+import { vfxDrop } from "./vfx-diagnostics.js";
+import { createFanField } from "./fan-field-shader.js";
 import {
   applyNativeVfxGlow,
   fadeNativeVfxContainer,
@@ -34,6 +36,7 @@ import {
   playNativeBeamBetweenPoints,
   playNativeVfxSound,
   shouldUseNativeWeaponVFX,
+  shouldShadeNativeWeaponVFX,
 } from "./native-weapon-vfx.js";
 
 const MODULE = "sta2e-toolkit";
@@ -47,6 +50,10 @@ const FALLBACK_CORE = "#fff2c0";
 
 // Gap between successive beams when one shot resolves against several targets.
 const MULTI_TARGET_GAP_MS = 120;
+const activeCones = new Set();
+globalThis.Hooks?.on("canvasTearDown", () => {
+  for (const dispose of [...activeCones]) dispose();
+});
 
 /** Is the native ground phaser renderer switched on in this world? */
 export function usingNativeGroundPhaser() {
@@ -81,6 +88,7 @@ export async function fireGroundPhaserVFX(config, isHit, sourceToken, targets, o
     targetPoints: points,
     hit: !!isHit,
     style,
+    sceneId: sourceToken?.document?.parent?.id ?? null,
   });
 
   for (let i = 0; i < points.length; i++) {
@@ -123,6 +131,7 @@ export function playGroundPhaserCone(attackerToken, targetTokens, { config = nul
     targetPoints: points,
     hit: !!hit,
     style,
+    sceneId: attackerToken?.document?.parent?.id ?? null,
   });
 
   _cone(apex, points, hit, style, {
@@ -138,12 +147,21 @@ export function playGroundPhaserCone(attackerToken, targetTokens, { config = nul
  * would double it.
  */
 export function playGroundPhaserVfxFromSocket(msg = {}) {
-  if (!globalThis.PIXI || !canvas?.ready) return;
-  if (msg.sceneId && msg.sceneId !== canvas?.scene?.id) return;
+  if (!globalThis.PIXI || !canvas?.ready) {
+    vfxDrop(GROUND_PHASER_VFX_ACTION, "canvas-not-ready", { hasPIXI: !!globalThis.PIXI, ready: !!canvas?.ready });
+    return;
+  }
+  if (msg.sceneId && msg.sceneId !== canvas?.scene?.id) {
+    vfxDrop(GROUND_PHASER_VFX_ACTION, "scene-mismatch", { sent: msg.sceneId, viewing: canvas?.scene?.id ?? null });
+    return;
+  }
 
   const apex = _point(msg.sourcePoint);
   const points = (msg.targetPoints ?? []).map(_point).filter(Boolean);
-  if (!apex || !points.length) return;
+  if (!apex || !points.length) {
+    vfxDrop(GROUND_PHASER_VFX_ACTION, "bad-coords", { apex, targets: points.length });
+    return;
+  }
 
   const style = _normalizeStyle(msg.style);
   const hit = msg.hit !== false;
@@ -257,6 +275,10 @@ function _beam(source, target, isHit, style, opts = {}) {
     coreColor: style.core,
     duration: shape.hitDuration,
     shape: { ...shape, muzzleFillRadius: 0, muzzleRingRadius: 0, muzzleRingWidth: 0 },
+    // `shape` is what makes this a hand phaser rather than a ship bank, so the
+    // beam draw cannot work the mode out for itself. Each client resolves it
+    // from the same world setting, so a socket replay shades identically.
+    weaponKey: GROUND_PHASER_VFX_KEY,
   });
   _muzzleFlash(source, style, shape);
   if (!isHit) return;
@@ -393,16 +415,12 @@ function _cone(apex, points, isHit, style, opts = {}) {
 
   container.x = apex.x;
   container.y = apex.y;
-  applyNativeVfxGlow(container, _hexNumber(style.color), style.shared);
 
   const g = style.group;
   const geom = _coneGeometry(apex, points, g, style.scale);
   const blend = nativeVfxBlendMode(style.blend);
 
-  // One wedge and one ray fan, in separate Graphics: the wedge only changes
-  // while it is opening, the rays are repainted every frame for the whole
-  // lifetime. A second wedge stacked on this one — however hot or narrow —
-  // reads as two cones rather than as one cone with a bright centre.
+  // The Graphics pair remains the fallback for native mode or a failed shader.
   const wedge = new PIXI.Graphics();
   const rays = new PIXI.Graphics();
   for (const child of [wedge, rays]) child.blendMode = blend;
@@ -411,6 +429,14 @@ function _cone(apex, points, isHit, style, opts = {}) {
   const wedgeColor = _hexNumber(style.color);
   const coneAlpha = _num(g.coneAlpha, 0.34);
   const rayCfg = _coneRayConfig(style);
+  const field = shouldShadeNativeWeaponVFX(GROUND_PHASER_VFX_KEY) ? createFanField(container, {
+    color: wedgeColor, core: _hexNumber(style.core), opacity: coneAlpha, blend,
+    rayCount: rayCfg.count, rayWidth: rayCfg.width, rayAlpha: rayCfg.alpha,
+    rayFeather: rayCfg.feather, raySpeed: rayCfg.speed, pulseSpeed: .8,
+  }) : null;
+  if (!field) applyNativeVfxGlow(container, wedgeColor, style.shared);
+  const contour = Array.from({ length: 65 }, () => ({ x: 0, y: 0 }));
+  const origin = { x: 0, y: 0 };
   // Per-ray length factors, seeded once: varied depths so the tips do not all
   // land on the same arc, but fixed for the effect's lifetime so they do not
   // twitch from frame to frame.
@@ -429,15 +455,26 @@ function _cone(apex, points, isHit, style, opts = {}) {
   let prevNow = performance.now();
   let faded = false;
   let stopped = false;
+  let fadeTimer = null;
+  let stopTimer = null;
 
   const paintWedge = progress => {
+    if (field) return;
     wedge.clear();
-    _gWedge(wedge, _coneRadius(geom, progress),
-      geom.center - (geom.halfAngle * progress), geom.center + (geom.halfAngle * progress),
-      wedgeColor, coneAlpha);
+    _softConeWedge(wedge, geom, progress, wedgeColor, coneAlpha);
   };
 
   const paintRays = (progress, elapsedSec) => {
+    if (field) {
+      const radius = _coneRadius(geom, progress);
+      for (let i = 0; i < contour.length; i++) {
+        const angle = geom.center + geom.halfAngle * progress * (i / 32 - 1);
+        contour[i].x = Math.cos(angle) * radius;
+        contour[i].y = Math.sin(angle) * radius;
+      }
+      field.update(origin, contour, elapsedSec);
+      return;
+    }
     rays.clear();
     _coneRays(rays, geom, progress, elapsedSec, style, rayCfg, reaches);
   };
@@ -445,8 +482,10 @@ function _cone(apex, points, isHit, style, opts = {}) {
   // The wedge is done animating and the impacts land; the rays keep flickering
   // over the fade, so this deliberately does NOT stop the ticker.
   const startFade = () => {
-    if (faded) return;
+    if (faded || stopped || container.destroyed) return;
     faded = true;
+    elapsed = Math.max(elapsed, openMs);
+    clearTimeout(fadeTimer);
     paintWedge(1);
     if (isHit) {
       // Each caught target gets the same glowed flare and the same JB2A impact
@@ -464,13 +503,24 @@ function _cone(apex, points, isHit, style, opts = {}) {
   const stopTicker = () => {
     if (stopped) return;
     stopped = true;
+    clearTimeout(fadeTimer);
+    clearTimeout(stopTimer);
+    activeCones.delete(dispose);
     try { canvas.app?.ticker?.remove(tick); } catch { /* already gone */ }
+  };
+  const dispose = () => {
+    stopTicker();
+    if (!container.destroyed) {
+      for (const filter of container.filters ?? []) filter.destroy?.();
+      container.filters = null;
+      container.destroy({ children: true });
+    }
   };
 
   const tick = () => {
     // The container is destroyed at the end of the fade; drawing into a dead
     // Graphics after that throws every frame.
-    if (wedge.destroyed || rays.destroyed) { stopTicker(); return; }
+    if (container.destroyed || wedge.destroyed || rays.destroyed) { stopTicker(); return; }
 
     const now = performance.now();
     // Clamped: a backgrounded tab pauses rAF, and an unclamped catch-up frame
@@ -493,14 +543,36 @@ function _cone(apex, points, isHit, style, opts = {}) {
 
   paintWedge(0.001);
   paintRays(0.001, 0);
+  activeCones.add(dispose);
   try {
     canvas.app.ticker.add(tick);
     // Backstops: if the ticker is torn down mid-effect (scene change), the
     // container still fades and cleans itself up.
-    setTimeout(startFade, openMs + 200);
-    setTimeout(stopTicker, openMs + holdMs + 200);
+    fadeTimer = setTimeout(startFade, openMs + 200);
+    stopTimer = setTimeout(stopTicker, openMs + holdMs + 200);
   } catch {
     startFade();
+    stopTicker();
+  }
+}
+
+/** A single tiled volume, with dim outer cells instead of a hard sector outline.
+ * Non-overlapping cells avoid additive brightness steps from nested wedges.
+ */
+function _softConeWedge(g, geom, progress, color, alpha) {
+  const radius = _coneRadius(geom, progress), half = geom.halfAngle * progress;
+  const rings = 14, slices = 32;
+  const point = (r, a) => [Math.cos(a) * r, Math.sin(a) * r];
+  for (let row = 0; row < rings; row++) for (let col = 0; col < slices; col++) {
+    const r0 = radius * row / rings, r1 = radius * (row + 1) / rings;
+    const a0 = geom.center - half + 2 * half * col / slices, a1 = a0 + 2 * half / slices;
+    const radial = (row + .5) / rings, lateral = (col + .5) / slices;
+    const edge = Math.min(1, Math.min(lateral, 1 - lateral) * 12);
+    const tail = Math.min(1, (1 - radial) / .24);
+    const density = alpha * edge * tail * (.64 - radial * .22);
+    const vertices = [...point(r0, a0), ...point(r1, a0), ...point(r1, a1), ...point(r0, a1)];
+    if (g.beginFill) { g.beginFill(color, density); g.drawPolygon(vertices); g.endFill(); }
+    else g.poly(vertices).fill({ color, alpha: density });
   }
 }
 
@@ -519,9 +591,8 @@ function _coneRayConfig(style) {
 /**
  * Straight rays fanning out from the emitter to the wedge's arc, the way the
  * tractor beam's emitter fan reads (`_drawEmitterRays` in tractor-beam-vfx.js).
- * Each ray breathes on its own phase offset, so the fan shimmers instead of
- * blinking in unison — that flicker is the whole point of the cone now that it
- * is a single flat wedge.
+ * Each ray breathes on its own phase offset with flowing brightness and a soft
+ * tip, keeping the fallback legible when the shader is unavailable.
  *
  * Drawn in the container's own space, whose origin is already the apex.
  */
@@ -539,15 +610,20 @@ function _coneRays(g, geom, progress, elapsedSec, style, cfg, reaches) {
     const u = (i + 1) / (cfg.count + 1);
     const angle = geom.center - half + (2 * half * u);
     const phase = (elapsedSec * cfg.speed) - (i / cfg.count);
-    const breath = 0.30 + (0.70 * (0.5 + (0.5 * Math.sin(phase * Math.PI * 2))));
+    const breath = 0.72 + (0.28 * Math.sin(phase * Math.PI * 2));
     const alpha = cfg.alpha * breath;
     if (alpha <= 0.002) continue;
 
     const reach = radius * (reaches[i] ?? 1);
-    const x = Math.cos(angle) * reach;
-    const y = Math.sin(angle) * reach;
     for (const pass of passes) {
-      _gLine(g, 0, 0, x, y, cfg.width * pass.widthMul, color, alpha * pass.alphaMul);
+      for (let j = 0; j < 18; j++) {
+        const t0 = j / 18, t1 = (j + 1) / 18, t = (t0 + t1) / 2;
+        const fade = Math.min(1, t * 12) * Math.min(1, (1 - t) * 5);
+        const flow = .82 + .18 * Math.sin(t * 12 - elapsedSec * cfg.speed * 4);
+        _gLine(g, Math.cos(angle) * reach * t0, Math.sin(angle) * reach * t0,
+          Math.cos(angle) * reach * t1, Math.sin(angle) * reach * t1,
+          cfg.width * pass.widthMul, color, alpha * pass.alphaMul * fade * flow);
+      }
     }
   }
 }
@@ -635,21 +711,11 @@ function _coneGeometry(apex, points, group, scale = 1) {
 // v7 wants beginFill() BEFORE the shape and endFill() after; v8 wants fill()
 // AFTER it. Getting this backwards draws nothing at all, silently.
 
-function _gWedge(g, radius, startAngle, endAngle, color, alpha) {
-  if (radius <= 0 || alpha <= 0) return;
-  const v7 = typeof g.beginFill === "function";
-  if (v7) g.beginFill(color, alpha);
-  g.moveTo(0, 0);
-  g.arc(0, 0, radius, startAngle, endAngle);
-  g.lineTo(0, 0);
-  if (v7) g.endFill();
-  else g.fill({ color, alpha });
-}
-
 function _gLine(g, x1, y1, x2, y2, width, color, alpha) {
   if (width <= 0 || alpha <= 0) return;
   if (typeof g.lineStyle === "function") {
-    g.lineStyle({ width, color, alpha, cap: "round" });
+    // Segments meet flush; overlapping round caps create bright beads under ADD.
+    g.lineStyle({ width, color, alpha, cap: "butt" });
     g.moveTo(x1, y1);
     g.lineTo(x2, y2);
     g.lineStyle(0);
@@ -657,7 +723,7 @@ function _gLine(g, x1, y1, x2, y2, width, color, alpha) {
   }
   g.moveTo(x1, y1);
   g.lineTo(x2, y2);
-  g.stroke({ width, color, alpha, cap: "round" });
+  g.stroke({ width, color, alpha, cap: "butt" });
 }
 
 function _gFillCircle(g, cx, cy, radius, color, alpha) {
@@ -693,11 +759,14 @@ function _gStrokeCircle(g, cx, cy, radius, width, color, alpha) {
  * and then emits. The payload carries no sound path: AudioHelper already
  * broadcast the audio itself.
  */
-function _broadcast({ mode, sourcePoint, targetPoints, hit, style }) {
+function _broadcast({ mode, sourcePoint, targetPoints, hit, style, sceneId = null }) {
   try {
     game.socket?.emit?.(SOCKET, {
       action: GROUND_PHASER_VFX_ACTION,
-      sceneId: canvas?.scene?.id ?? null,
+      // The FIRING TOKEN'S scene where the caller knows it; the viewed scene is
+      // only a fallback. See the note on _broadcastShipBeam in
+      // native-weapon-vfx.js for what the fallback alone costs.
+      sceneId: sceneId ?? canvas?.scene?.id ?? null,
       mode,
       sourcePoint: { x: sourcePoint.x, y: sourcePoint.y },
       targetPoints: targetPoints.map(p => ({ x: p.x, y: p.y })),

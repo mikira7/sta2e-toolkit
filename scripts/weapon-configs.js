@@ -165,7 +165,14 @@ const BUNDLED_TORPEDO_SPRITES = Object.freeze([
 // photon sprite.
 const TORPEDO_SPRITE_FILES = new Set(BUNDLED_TORPEDO_SPRITES.map(f => f.toLowerCase()));
 // On-canvas size of the moving sprite, as a fraction of one grid square.
-const SHIP_TORPEDO_SPRITE_GRID_FRACTION = 0.66;
+const SHIP_TORPEDO_SPRITE_GRID_FRACTION = 0.825;
+// The basis the native glow escort sizes itself from, deliberately NOT the
+// sprite fraction above. Every `torpedoGlow` dial is a multiple of this, so
+// sharing one number would mean any change to the torpedo's own size silently
+// rescaled the escort with it — and the escort's sizes were measured against
+// the sprite art to keep it from washing the animation out. Held at the sprite's
+// original 0.66 for exactly that reason; raise it to grow the glow.
+const SHIP_TORPEDO_GLOW_GRID_FRACTION = 0.66;
 const SHIP_WEAPON_FACING_DURATION_SCALE = 3.5;
 // Beat held after the hull has finished coming about, before the weapon fires.
 // Only a beat: the turn itself is now awaited properly, where this used to be
@@ -497,7 +504,7 @@ function phaserWeaponKind(weapon, config) {
   // Ground phasers resolve their own era in resolveGroundWeaponConfig and must
   // not fall through to the ship-side swap: they carry a `family`, which the
   // signal below would otherwise hand straight back.
-  if (config?.family === "ground-phaser" || config?.family === "ground-phaser-bolt") return null;
+  if (config?.type === "ground-beam" || config?.type === "grenade") return null;
   const name = String(weapon?.name ?? config?.name ?? "").toLowerCase();
   const img = String(weapon?.img ?? "").split("/").pop().replace(/\.(svg|webp|png|jpg)$/i, "").toLowerCase();
   const energyType = energyTypeForWeapon(weapon);
@@ -827,7 +834,14 @@ export function groundPhaserType(item) {
 }
 
 function isGroundPhaserName(lowerName) {
-  return lowerName.includes("phaser") || lowerName.includes("phase");
+  return lowerName.includes("phaser");
+}
+
+/** Disruptor shape is an item choice, independent of the world's renderer. */
+export function groundDisruptorFireMode(item) {
+  const mode = item?.getFlag?.("sta2e-toolkit", "groundFireMode")
+    ?? item?.flags?.["sta2e-toolkit"]?.groundFireMode;
+  return mode === "beam" ? "beam" : "bolt";
 }
 
 function normalizeGroundPhaserType(type) {
@@ -1036,6 +1050,7 @@ export function resolveGroundWeaponConfig(item) {
   if (name.includes("grenade")) {
     return {
       name: item.name, type: "grenade", color: "orange",
+      ...(name.includes("pulse") ? { family: "ground-pulse", groundEnergyProfile: "pulse" } : {}),
       get sound()     { return snd("sndGroundGrenade"); },
       get explosion() { return animOverride("groundWeapons", "grenade", "animExplosion") ?? explosionEffect("orange"); },
     };
@@ -1075,6 +1090,9 @@ export function resolveGroundWeaponConfig(item) {
     if (name.includes("disruptor")) {
       return {
         name: item.name, type: "ground-beam", color: "green",
+        family: "ground-energy", groundEnergyProfile: "disruptor",
+        groundFireMode: groundDisruptorFireMode(item),
+        groundEnergyScale: hands === 2 || name.includes("rifle") ? 1.35 : 1,
         get effect()    { return groundBeamEffect("green"); },
         get impact()    { return animOverride("groundWeapons", "disruptor", "animImpact") ?? impactEffect("green"); },
         get sound()     { return snd("sndGroundDisruptorHit"); },
@@ -1084,15 +1102,33 @@ export function resolveGroundWeaponConfig(item) {
     if (name.includes("plasma") || name.includes("particle") || name.includes("proton")) {
       return {
         name: item.name, type: "ground-beam", color: "purple",
+        family: "ground-energy",
+        groundEnergyProfile: name.includes("andorian") ? "andorian" : name.includes("plasma") ? "plasma" : "particle",
+        groundFireMode: name.includes("plasma") ? "bolt" : "beam",
+        groundEnergyScale: hands === 2 || name.includes("rifle") ? 1.35 : 1,
         get effect()    { return groundBeamEffect("purple"); },
         get impact()    { return animOverride("groundWeapons", "plasma", "animImpact") ?? impactEffect("purple"); },
         get sound()     { return snd("sndGroundPlasmaHit"); },
         get missSound() { return snd("sndGroundPlasmaHit"); },
       };
     }
+    if (/\bphase(?:[-\s]|$)/.test(name)) {
+      return {
+        name: item.name, type: "ground-beam", color: "orange",
+        family: "ground-energy", groundEnergyProfile: "phase", groundFireMode: "beam",
+        groundEnergyScale: hands === 2 || name.includes("rifle") ? 1.35 : 1,
+        get effect() { return groundPhaserBeamEffect("ent"); },
+        get impact() { return impactEffect("orange"); },
+        get sound() { return groundPhaserSound("type2", "ent", true); },
+        get missSound() { return groundPhaserSound("type2", "ent", false); },
+      };
+    }
     // Generic fallback ranged (rifles, projectile weapons, etc.)
     return {
       name: item.name, type: "ground-beam", color: "blue",
+      ...(/\b(?:polaron|tetryon|graviton|ionic|ion|laser|energy|electron)\b/.test(name)
+        ? { family: "ground-energy", groundEnergyProfile: "particle", groundFireMode: "beam",
+          groundEnergyScale: hands === 2 || name.includes("rifle") ? 1.35 : 1 } : {}),
       get effect()    { return groundBeamEffect("blue"); },
       get impact()    { return animOverride("groundWeapons", "generic", "animImpact") ?? impactEffect("blue"); },
       get sound()     { return snd("sndGroundGenericHit"); },
@@ -1730,9 +1766,18 @@ function buildTorpedoTravelPlan(config, source, target, { missed = false, finalD
   return {
     file: config.effect,
     px: Math.max(8, Math.round(gridSize * SHIP_TORPEDO_SPRITE_GRID_FRACTION)),
+    // Separate from `px` so the sprite can be resized without dragging the glow
+    // escort's tuning with it. See SHIP_TORPEDO_GLOW_GRID_FRACTION.
+    glowPx: Math.max(8, Math.round(gridSize * SHIP_TORPEDO_GLOW_GRID_FRACTION)),
     travelMs: torpedoTravelMs(config),
     launch,
     layer: source?.layer ?? null,
+    // Colour for the native glow escort, resolved HERE on the firing client
+    // like every other field in this plan, so receivers never look a config up.
+    // `_hexColorForWeaponConfig` is the same map the native array charge
+    // already uses — photon red, quantum blue, plasma green, gravimetric
+    // purple — rather than a second table keyed by torpedo type.
+    glowColor: _hexColorForWeaponConfig(config, 0xff3333),
     arcX: arc ? arc.x : null,
     arcY: arc ? arc.y : null,
     fallbackTarget,
@@ -3596,8 +3641,8 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
     case "ground-beam":
       // Bolt Fire is a per-item alternative fire mode on Type-3 phasers, so it
       // wins over whichever ground renderer the world is using.
-      if (config.groundFireMode === "jb2a") await fireGroundPhaserBoltJb2a(config, isHit, token, targets);
-      else if (config.groundFireMode === "bolt") await fireGroundPhaserBolt(config, isHit, token, targets);
+      if (config.family === "ground-phaser-bolt" && config.groundFireMode === "jb2a") await fireGroundPhaserBoltJb2a(config, isHit, token, targets);
+      else if (config.family === "ground-phaser-bolt" && config.groundFireMode === "bolt") await fireGroundPhaserBolt(config, isHit, token, targets);
       else await fireGroundBeam(config, isHit, token, targets);
       break;
     case "melee-blade":

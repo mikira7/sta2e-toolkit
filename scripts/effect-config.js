@@ -29,6 +29,7 @@ import {
   ARRAY_AREA_SHOT_CAP_DEFAULT,
 } from "./weapon-configs.js";
 import { environmentSoundKeys } from "./viewscreen-environments.js";
+import { transporterShaderForm, saveTransporterShaderForm, wireTransporterShaderForm } from "./transporter-shader-ui.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const MODULE = "sta2e-toolkit";
@@ -170,7 +171,7 @@ function buildGroundPhaserEraSoundRows() {
 
 // The ground phaser mode toggle belongs on the Ground Weapons tab, not with the
 // ship families it happens to be registered alongside.
-const GROUND_NATIVE_MODE_KEYS = new Set(["weapon-ground-phaser"]);
+const GROUND_NATIVE_MODE_KEYS = new Set(["weapon-ground-phaser", "weapon-ground-energy", "weapon-ground-pulse"]);
 
 const SHIP_NATIVE_MODE_HINTS = Object.freeze([
   "Choose which ship weapon families use the Foundry canvas renderer instead of the current "
@@ -183,6 +184,9 @@ const SHIP_NATIVE_MODE_HINTS = Object.freeze([
 ]);
 
 const GROUND_NATIVE_MODE_HINTS = Object.freeze([
+  "Ground Energy Weapons and Pulse Grenades default to Shader Energy. Disruptors have a Beam/Bolt "
+    + "choice on their item sheets; plasma rifles fire bolts, particle rifles and phase pistols fire beams. "
+    + "Current restores the configured Sequencer/JB2A assets. Ground energy sizing follows Beam VFX → Ground Phasers.",
   "Draw hand phasers with the Foundry canvas renderer instead of the current Sequencer/JB2A ground "
     + "beam. Nothing is replaced until you switch this over, and switching back restores today's "
     + "animation exactly. If native VFX cannot run, the current animation is used automatically.",
@@ -442,6 +446,8 @@ function buildTabDefs() {
         { label: "Voyager / Federation", slot: "", sndKey: "sndTransporterVoyFed",    animKey: null },
         { label: "TNG Federation",        slot: "", sndKey: "sndTransporterTngFed",    animKey: null },
         { label: "TOS Federation",        slot: "", sndKey: "sndTransporterTosFed",    animKey: null },
+        { label: "Enterprise Era",        slot: "", sndKey: "sndTransporterEntFed",    animKey: null },
+        { label: "Dominion",              slot: "", sndKey: "sndTransporterDominion",  animKey: null },
         { label: "TMP / Films",           slot: "", sndKey: "sndTransporterTmpFed",    animKey: null },
         { label: "Klingon",               slot: "", sndKey: "sndTransporterKlingon",   animKey: null },
         { label: "Cardassian",            slot: "", sndKey: "sndTransporterCardassian",animKey: null },
@@ -477,6 +483,25 @@ function buildTabDefs() {
         { label: "Q — Kick Spins", slot: "turns", sndKey: null, animKey: null,
           delayKey: "qKickSpins", unit: "turns", step: 1,
           defaultHint: "Default: 3 — full rotations on the way out. Clamped against the flight length, so asking for more than the time allows just spins as fast as it can." },
+      ],
+    },
+    // Sounds only. Every deflector look and timing dial is per-ship, in the Ship
+    // VFX Anchor editor's Deflector tab, where it can be tuned against a live
+    // Preview; duplicating a duration here would just be a second source of
+    // truth for the same number.
+    {
+      id:    "deflector",
+      label: "Deflector",
+      customKey: null,
+      rows: [
+        { label: "Deflector — Charge Glow Sound", slot: "", sndKey: "sndDeflectorCharge", animKey: null,
+          defaultHint: "Played when the dish begins to charge. Blank is silent." },
+        { label: "Deflector — Pulse Sound", slot: "", sndKey: "sndDeflectorPulse", animKey: null,
+          defaultHint: "Played as the energy wave leaves the dish. Blank is silent." },
+        { label: "Deflector — Lance Sound", slot: "", sndKey: "sndDeflectorBeam", animKey: null,
+          defaultHint: "Played for the sustained energy lance. Blank is silent." },
+        { label: "Deflector — Stream Sound", slot: "", sndKey: "sndDeflectorStream", animKey: null,
+          defaultHint: "Played for the forward particle wash. Blank is silent." },
       ],
     },
     {
@@ -694,6 +719,125 @@ const GROUND_PHASER_FIELDS = Object.freeze([
     hint: "How far past the furthest target the wedge reaches, so it does not stop at their feet." },
 ]);
 
+// The Shader Beam group. Ranges here must agree with BEAM_SHADER_RANGES in
+// beam-shader.js — that table is what actually clamps a saved value, this one
+// only bounds the slider.
+const SHADER_FIELDS = Object.freeze([
+  { key: "widthScale", label: "Beam width", kind: "range", min: 0.5, max: 6, step: 0.1, unit: "x",
+    hint: "Multiplies the family's own widest stroke to size the shaded quad. The shader draws its "
+      + "halo INSIDE that quad, so it needs more room than the line it replaces." },
+  { key: "coreSharpness", label: "Core sharpness", kind: "range", min: 0.5, max: 8, step: 0.1,
+    hint: "How abruptly the hot centre falls off. Higher is a tighter, harder core." },
+  { key: "haloSoftness", label: "Sheath softness", kind: "range", min: 0.5, max: 8, step: 0.1,
+    hint: "Falloff across the glow around the core. Higher is a tighter sheath." },
+  { key: "noiseAmount", label: "Turbulence", kind: "range", min: 0, max: 1, step: 0.05,
+    hint: "How hard the sheath boils. 0 gives a clean gradient beam — the honest \"shader off\" look. "
+      + "The turbulence rides the sheath and never the core, so the beam stays coherent." },
+  { key: "noiseScale", label: "Turbulence scale", kind: "range", min: 0.2, max: 20, step: 0.1, unit: "/100px",
+    hint: "Cells per 100 canvas pixels — measured in PIXELS, not along the beam, so a point-blank "
+      + "shot and a cross-map shot boil at the same visual size." },
+  { key: "noiseSpeed", label: "Turbulence speed", kind: "range", min: 0, max: 12, step: 0.1, unit: "cell/s",
+    hint: "How fast the boil scrolls toward the target." },
+  { key: "surgeCount", label: "Surges in flight", kind: "range", min: 0, max: 12, step: 1,
+    hint: "Bright pulses travelling the beam at once. 0 means a single surge per shot instead of a "
+      + "repeating train — better for a short bank burst than for a held array beam." },
+  { key: "surgeSpeed", label: "Surge speed", kind: "range", min: 0, max: 12, step: 0.1 },
+  { key: "surgeWidth", label: "Surge width", kind: "range", min: 0.01, max: 0.5, step: 0.01,
+    hint: "How much of the beam's length each pulse covers." },
+  { key: "surgeStrength", label: "Surge brightness", kind: "range", min: 0, max: 2, step: 0.05 },
+  { key: "flicker", label: "Flicker", kind: "range", min: 0, max: 1, step: 0.05,
+    hint: "Instability in the beam's overall brightness. Stepped rather than smooth, so it reads as "
+      + "arcing rather than as a screen artefact." },
+  { key: "flickerRate", label: "Flicker rate", kind: "range", min: 1, max: 90, step: 1, unit: "Hz" },
+  { key: "endTaper", label: "End taper", kind: "range", min: 0, max: 0.5, step: 0.01,
+    hint: "Softens both ends, as a fraction of the beam's length. This replaces the round line cap "
+      + "the stroked beam had — at 0 the beam is cut square at the emitter and at the hull." },
+  { key: "boltTail", label: "Bolt tail taper", kind: "range", min: 0.05, max: 4, step: 0.05,
+    hint: "Travelling bolts only (cannons, and TMP-era tracer banks). Higher draws the tail out to "
+      + "a finer point. Together with the nose below it sets where the bolt is widest — at "
+      + "tail / (tail + nose) along its length — so the shipped 0.9 and 0.28 put the mass about "
+      + "three quarters of the way forward, which is what makes it read as a round rather than a "
+      + "capsule. Equal values give a symmetric lens." },
+  { key: "boltNose", label: "Bolt nose bluntness", kind: "range", min: 0.05, max: 4, step: 0.05,
+    hint: "Lower is a blunter, rounder nose. Raising it past the tail taper moves the widest point "
+      + "behind centre, which reads as a bolt flying backwards." },
+  { key: "bloom", label: "Brightness", kind: "range", min: 0, max: 3, step: 0.05,
+    hint: "Overall additive gain on the whole beam." },
+  { key: "glowSize", label: "Extra glow size", kind: "range", min: 0, max: 40, step: 1, unit: "px",
+    hint: "An optional GlowFilter pass over the shaded beam, off by default — the shader is already "
+      + "its own glow, and a second pass costs a full extra render. Raise it only to make the bloom "
+      + "bleed past the quad." },
+]);
+
+// The Torpedo Glow group. Radii are multiples of the torpedo sprite's own
+// on-canvas size, so the glow stays in proportion at any grid scale. Bounds
+// must agree with TORPEDO_GLOW_RANGES in torpedo-glow-vfx.js.
+const TORPEDO_GLOW_FIELDS = Object.freeze([
+  { key: "intensity", label: "Glow intensity", kind: "range", min: 0, max: 2, step: 0.05,
+    hint: "Master opacity for the whole escort. 0 switches it off entirely and the torpedo flies "
+      + "as its bare sprite." },
+  { key: "coreRadius", label: "Core radius", kind: "range", min: 0, max: 3, step: 0.05, unit: "x",
+    hint: "As a multiple of the glow's own basis — two thirds of a grid square, held separate "
+      + "from the torpedo art's size so resizing the sprite does not rescale the glow. Keep it "
+      + "well under 1: the core is meant to add heat to the torpedo's centre, and once it "
+      + "reaches the sprite's own width it covers the animation instead." },
+  { key: "coreAlpha", label: "Core opacity", kind: "range", min: 0, max: 1, step: 0.05 },
+  { key: "pulseRate", label: "Core pulse rate", kind: "range", min: 0, max: 20, step: 0.5, unit: "Hz",
+    hint: "How fast the core breathes. 0 holds it steady." },
+  { key: "pulseDepth", label: "Core pulse depth", kind: "range", min: 0, max: 1, step: 0.05,
+    hint: "How far the pulse swings. The corona breathes against it rather than with it, so the "
+      + "two do not read as one blob." },
+  { key: "coronaRadius", label: "Corona radius", kind: "range", min: 0, max: 5, step: 0.05, unit: "x",
+    hint: "The soft halo around the torpedo, on the same basis as the core radius above. Past "
+      + "roughly the sprite's own width it starts to wash the art out; the opacity below matters "
+      + "even more than the size." },
+  { key: "coronaAlpha", label: "Corona opacity", kind: "range", min: 0, max: 1, step: 0.05 },
+  { key: "coreWhiten", label: "Core whiteness", kind: "range", min: 0, max: 1, step: 0.05,
+    hint: "How far the core is lifted toward white from the torpedo's own colour, so the centre "
+      + "reads hotter than the halo. Only used when the plan carries no explicit core colour." },
+  { key: "trailCount", label: "Trail length", kind: "range", min: 0, max: 40, step: 1,
+    hint: "Sprites in the ion trail. 0 flies the head alone." },
+  { key: "trailSpanMs", label: "Trail reach", kind: "range", min: 20, max: 1200, step: 10, unit: "ms",
+    hint: "How far back along the flight path the tail reaches. It is sampled from the path rather "
+      + "than recorded, so the shape is the same on a slow client as a fast one." },
+  { key: "trailRadius", label: "Trail radius", kind: "range", min: 0, max: 3, step: 0.05, unit: "x",
+    hint: "Size at the head; each sprite behind it is smaller and fainter." },
+  { key: "trailAlpha", label: "Trail opacity", kind: "range", min: 0, max: 1, step: 0.05 },
+  { key: "launchFlashRadius", label: "Launch flash radius", kind: "range", min: 0, max: 6, step: 0.1, unit: "x",
+    hint: "The burst left at the tube as the torpedo leaves. 0 skips it." },
+  { key: "launchFlashMs", label: "Launch flash duration", kind: "range", min: 0, max: 1200, step: 10, unit: "ms" },
+  { key: "fadeMs", label: "Arrival fade", kind: "range", min: 0, max: 1000, step: 10, unit: "ms",
+    hint: "How long the glow takes to die after the torpedo lands, so it hands off into the impact "
+      + "explosion instead of popping out." },
+]);
+
+// The Bolt Glow group. Radii are multiples of the group's own grid-fraction
+// basis, NOT of the bolt's stroke width — see bolt-glow-vfx.js. Bounds must
+// agree with BOLT_GLOW_RANGES there.
+const BOLT_GLOW_FIELDS = Object.freeze([
+  { key: "intensity", label: "Glow intensity", kind: "range", min: 0, max: 2, step: 0.05,
+    hint: "Master opacity for the whole escort. 0 leaves the shaded bolt on its own." },
+  { key: "gridFraction", label: "Glow size", kind: "range", min: 0.02, max: 2, step: 0.01, unit: "sq",
+    hint: "The basis every radius below is a multiple of, as a fraction of one grid square. This "
+      + "is the control that keeps a cannon round reading smaller than a torpedo — the torpedo "
+      + "escort sits at 0.66, so raising this toward that value makes the two converge." },
+  { key: "coreRadius", label: "Core radius", kind: "range", min: 0, max: 3, step: 0.05, unit: "x" },
+  { key: "coreAlpha", label: "Core opacity", kind: "range", min: 0, max: 1, step: 0.05 },
+  { key: "coronaRadius", label: "Corona radius", kind: "range", min: 0, max: 5, step: 0.05, unit: "x" },
+  { key: "coronaAlpha", label: "Corona opacity", kind: "range", min: 0, max: 1, step: 0.05 },
+  { key: "coreWhiten", label: "Core whiteness", kind: "range", min: 0, max: 1, step: 0.05,
+    hint: "How far the core is lifted toward white from the weapon's own colour, so the centre "
+      + "reads hotter than the halo." },
+  { key: "trailCount", label: "Trail length", kind: "range", min: 0, max: 24, step: 1,
+    hint: "Puffs behind each bolt. Short by design: a cannon leaves a spark trail where a torpedo "
+      + "drags a long ion wake. 0 flies the head alone." },
+  { key: "trailReach", label: "Trail reach", kind: "range", min: 0, max: 8, step: 0.1, unit: "x",
+    hint: "How far back the trail extends, as a multiple of the bolt's OWN length — so the tail "
+      + "stays in proportion whether the shot crosses one square or twenty." },
+  { key: "trailRadius", label: "Trail radius", kind: "range", min: 0, max: 3, step: 0.05, unit: "x" },
+  { key: "trailAlpha", label: "Trail opacity", kind: "range", min: 0, max: 1, step: 0.05 },
+]);
+
 // Two swatches per energy type, in the order the types are matched.
 const ENERGY_COLOR_FIELDS = Object.freeze(ENERGY_VFX_TYPES.flatMap(({ id, label }) => [
   { key: `${id}Color`, label: `${label} — primary`, kind: "color" },
@@ -736,7 +880,8 @@ const BEAM_VFX_FIELD_GROUPS = Object.freeze([
     hint: "Hand phasers, drawn with the Energy Bank beam at person scale. Colour comes from the "
       + "Phaser Era Colours below, not from Energy Weapon Colours — a hand phaser and a ship "
       + "phaser of the same era match. The cone dials apply only to an Area attack, which draws "
-      + "one wedge across every target it caught instead of a beam each.",
+      + "one cone across the targets it caught. Shader Beam mode adds a soft energy volume "
+      + "with flowing rays; Experimental Native uses feathered graphics. Starship Area attacks use their own animation.",
     fields: GROUND_PHASER_FIELDS,
   },
   {
@@ -771,6 +916,37 @@ const BEAM_VFX_FIELD_GROUPS = Object.freeze([
           + "heading, so this is not the shot angle. 90 for art drawn pointing up (the bundled "
           + "bolts, and the default), -90 for art pointing down, 0 for art already pointing right." },
     ],
+  },
+  {
+    group: "boltGlow",
+    label: "Bolt Glow",
+    hint: "The glow and trail carried by each travelling energy bolt — cannons, and the TMP-era "
+      + "phaser banks that fire tracers. Shader Beam mode only: Experimental Native draws the "
+      + "bolts exactly as it always has. Deliberately smaller and harder than the Torpedo Glow "
+      + "below, with no pulse and no launch flash, so a burst of cannon fire cannot be mistaken "
+      + "for a stream of small torpedoes. Set Glow intensity to 0 to switch it off.",
+    fields: BOLT_GLOW_FIELDS,
+  },
+  {
+    group: "torpedoGlow",
+    label: "Torpedo Glow",
+    hint: "A native glow flown alongside the module's own torpedo sprites — a pulsing core, a "
+      + "corona and a tapering ion trail, tinted to the torpedo's colour. It is decoration, not a "
+      + "light source: it never illuminates the map. Needs the toolkit's own torpedo sprites; a "
+      + "JB2A strip is stretched from launcher to target rather than flown, so it gets no glow. "
+      + "Set Glow intensity to 0 to switch it off.",
+    fields: TORPEDO_GLOW_FIELDS,
+  },
+  {
+    group: "shader",
+    label: "Shader Beam",
+    hint: "Applies to any family set to Shader Beam (WebGL) under Ship Weapons / Ground Weapons. "
+      + "The beam BODY is drawn by a fragment shader instead of stroked: a hot core inside a "
+      + "boiling sheath, with a surge running toward the target. The per-family widths above still "
+      + "size it, so a family you have already tuned keeps its proportions. Tick \"Preview with "
+      + "shader\" to judge these before switching a family over. Muzzle flares and impact sparks "
+      + "are unaffected — they keep the Shared glow below.",
+    fields: SHADER_FIELDS,
   },
   {
     group: "shared",
@@ -1024,6 +1200,7 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       beamPreviewEras: tab.beamVfx ? BEAM_VFX_PREVIEW_ERAS : null,
       beamPreviewTypes: tab.beamVfx ? BEAM_VFX_PREVIEW_TYPES : null,
       beamPreviewFamilies: tab.beamVfx ? BEAM_VFX_PREVIEW_FAMILIES : null,
+      transporterShader: tab.id === "transporter" ? transporterShaderForm() : null,
     }));
 
     return { tabs, activeTab: tabs[0]?.id ?? "" };
@@ -1034,6 +1211,8 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
   _onRender(context, options) {
     super._onRender(context, options);
     const el = this.element;
+    this._stopTransporterPreviews?.();
+    this._stopTransporterPreviews = wireTransporterShaderForm(el);
 
     // ── Tab switching ───────────────────────────────────────────────────────
     el.querySelectorAll(".ec-tab-btn").forEach(btn => {
@@ -1202,12 +1381,24 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       catch(e) { console.warn("STA2e Toolkit | Could not save beamVfxAppearance:", e); }
     }
 
+    try { await saveTransporterShaderForm(el); }
+    catch (error) {
+      console.error("STA2e Toolkit | Transporter settings could not be saved", error);
+      ui.notifications.error("Could not save transporter settings. The window remains open so you can retry.");
+      return;
+    }
+
     ui.notifications.info("STA2e Toolkit | Sounds & Animations saved.");
     this.close();
   }
 
   static _onCancel(_event, _target) {
     this.close();
+  }
+
+  async close(options = {}) {
+    this._stopTransporterPreviews?.();
+    return super.close(options);
   }
 
   /** Fire one beam between the controlled token and the first target, using the
@@ -1228,6 +1419,11 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       energyType: this.element.querySelector("[data-beam-preview-type]")?.value ?? "",
       beamSettings: readBeamVfxForm(this.element),
       era: this.element.querySelector("[data-beam-preview-era]")?.value ?? "",
+      // The beam settings preview live; the shader/Graphics choice does not,
+      // because that comes from a weapon family's animation mode rather than
+      // from this form. Without this the Shader Beam group could only be judged
+      // after switching a family over.
+      shaded: this.element.querySelector("[data-beam-preview-shader]")?.checked === true,
     });
   }
 

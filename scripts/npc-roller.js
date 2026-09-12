@@ -19,6 +19,7 @@ import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
 import { adjustPool, readPool } from "./pool-service.js";
+import { isDestructible, getDestructibleConfig } from "./destructible-objects.js";
 import {
   applyTraitSelectionsToState,
   consumeSingleTaskTraits,
@@ -1299,6 +1300,7 @@ function _combatAttackerShipActor(state) {
  */
 function _smallCraftDifficultyMod(state) {
   if (state.groundMode || !state.weaponContext) return 0;
+  if (isDestructible(_selectedCombatTargetToken(state))) return 0;
   return smallCraftDifficultyPenalty(
     _combatAttackerShipActor(state),
     _selectedCombatTargetToken(state)?.actor,
@@ -4783,7 +4785,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     difficulty: (() => {
       const base = startDifficulty !== null ? startDifficulty
         : opposedDifficulty !== null ? opposedDifficulty
-          : (weaponContext?.isTorpedo ? 3 : 2) + (weaponContext?.cumbersome ? 1 : 0);
+          : (weaponContext && isDestructible(_selectedCombatTargetToken({ weaponContext, groundMode, combatTaskContext }))
+            ? getDestructibleConfig(_selectedCombatTargetToken({ weaponContext, groundMode, combatTaskContext })).difficulty
+            : weaponContext?.isTorpedo ? 3 : 2) + (weaponContext?.cumbersome ? 1 : 0);
       // Opposed rolls carry their own small-craft term through the opposed
       // pipeline's `smallCraftPenalty` option (see opposed-task.js), so adding
       // it again here would double-count it.
@@ -7200,7 +7204,11 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         }
         const base = Number(state._combatTaskDifficultyBase);
         if (!Number.isFinite(base)) return;
-        const finalDifficulty = Math.max(0, base + smallCraftMod - _attackPatternDifficultyReduction(state));
+        const target = _selectedCombatTargetToken(state);
+        const objectBase = state.weaponContext && isDestructible(target)
+          ? getDestructibleConfig(target).difficulty + (!state.groundMode && state.weaponContext.cumbersome ? 1 : 0)
+          : base;
+        const finalDifficulty = Math.max(0, objectBase + smallCraftMod - _attackPatternDifficultyReduction(state));
         diffInput.value = finalDifficulty;
         state.difficulty = finalDifficulty;
       };

@@ -13,6 +13,7 @@ import {
   isMultiZoneToken as _isMultiZoneToken,
 } from "./zone-data.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { previewTransporterShader } from "./transporter-shader.js";
 import { refreshTurnMarkerSizes as _refreshTurnMarkerSizes } from "./combat/initiative-turn-marker.js";
 import {
   getTurnOrder as _getTurnOrder,
@@ -485,13 +486,18 @@ export class ToolkitAPI {
    *   game.sta2eToolkit.testVFX("tngFed")          // beam-out (default)
    *   game.sta2eToolkit.testVFX("klingon", "in")   // beam-in
    *
-   * Valid types: voyFed tngFed tmpFed tosFed klingon cardassian romulan ferengi borg
+   * Valid types: voyFed tngFed tmpFed tosFed entFed klingon cardassian romulan ferengi borg dominion
    *
    * @param {string}        type   Faction key
    * @param {"out"|"in"}    phase  "out" or "in"
    */
   testVFX(type = "tngFed", phase = "out") {
     TransporterVFX.test(type, phase);
+  }
+
+  /** Local, document-free preview. Returned handles can be stopped individually. */
+  testTransporterShader(type = "tngFed", phase = "out", options = {}) {
+    return previewTransporterShader(type, phase, options);
   }
 
   // ---------------------------------------------------------------------------

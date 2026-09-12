@@ -14,6 +14,7 @@
  * arrives.
  */
 
+import { isDestructible } from "./destructible-objects.js";
 const MODULE = "sta2e-toolkit";
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,7 @@ export const COMBAT_CONDITIONS = {
 
 /** Get the active defense mode for a token ("evasive-action" | "defensive-fire" | null) */
 export function getDefenseMode(token) {
+  if (isDestructible(token)) return null;
   return doc(token).getFlag(MODULE, "defenseMode") ?? null;
 }
 

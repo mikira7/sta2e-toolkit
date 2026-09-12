@@ -16,7 +16,7 @@
  * so a selector there would promise something that does nothing.
  */
 
-import { autoGroundPhaserEra, groundPhaserType } from "./weapon-configs.js";
+import { autoGroundPhaserEra, groundPhaserType, groundDisruptorFireMode } from "./weapon-configs.js";
 import { GROUND_PHASER_ERA_ROWS, GROUND_PHASER_TYPE_ROWS } from "./native-weapon-vfx.js";
 
 const FLAG_SCOPE = "sta2e-toolkit";
@@ -47,7 +47,7 @@ function _isGroundPhaser(item) {
   if (item?.type !== "characterweapon2e") return false;
   if (item?.system?.range !== "ranged") return false;
   const name = String(item?.name ?? "").toLowerCase();
-  return name.includes("phaser") || name.includes("phase");
+  return name.includes("phaser");
 }
 
 function _panelHtml(item) {
@@ -126,7 +126,9 @@ function _fireModeHtml(item, detectedType) {
 
 function _injectPhaserEraField(app, html) {
   const item = app?.item ?? app?.document;
-  if (!item || item.documentName !== "Item" || !_isGroundPhaser(item)) return;
+  const disruptor = item?.type === "characterweapon2e" && item?.system?.range === "ranged"
+    && String(item?.name ?? "").toLowerCase().includes("disruptor");
+  if (!item || item.documentName !== "Item" || (!disruptor && !_isGroundPhaser(item))) return;
 
   const root = _rootElement(html);
   if (!root) return;
@@ -134,9 +136,18 @@ function _injectPhaserEraField(app, html) {
   // description editor is the last thing inside it, so appending lands below.
   const sheet = root.querySelector(".item-sheet") ?? root.querySelector("form") ?? root;
   if (!sheet) return;
-  if (root.querySelector(`select[name="${PHASER_ERA_FORM_PATH}"]`)) return;
+  if (root.querySelector(`.${PANEL_CLASS}`)) return;
 
-  sheet.insertAdjacentHTML("beforeend", _panelHtml(item));
+  sheet.insertAdjacentHTML("beforeend", disruptor ? `
+    <div class="form-group ${PANEL_CLASS}">
+      <label>Fire Mode <span style="opacity:0.65;">(STA Toolkit)</span></label>
+      <div class="form-fields"><select name="${GROUND_FIRE_MODE_FORM_PATH}">
+        <option value="bolt" ${groundDisruptorFireMode(item) === "bolt" ? "selected" : ""}>Bolt</option>
+        <option value="beam" ${groundDisruptorFireMode(item) === "beam" ? "selected" : ""}>Beam</option>
+      </select></div>
+      <p class="hint">A compact travelling disruptor shot or a sustained green beam.
+        Uses the Ground Energy Weapons renderer in Configure Effects → Ground Weapons.</p>
+    </div>` : _panelHtml(item));
 }
 
 /**

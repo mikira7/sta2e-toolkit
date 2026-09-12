@@ -26,11 +26,16 @@
 
 // A travel plan is pure JSON — it crosses the socket, so it holds no tokens and
 // no documents:
-//   { file, px, travelMs, launch: {x, y}, layer,
+//   { file, px, glowPx, travelMs, launch: {x, y}, layer,   // px sizes the sprite,
+//                                                          // glowPx the escort
 //     arcX: number[]|null, arcY: number[]|null,   // canvas-space offsets from launch
 //     fallbackTarget: {x, y}|null,                // used when arcX/arcY are null
 //     missed: boolean,
+//     glowColor: number,                          // native glow escort tint
 //     scaleFrom: number|null, scaleTo: number|null }
+
+import { startTorpedoGlow } from "./torpedo-glow-vfx.js";
+import { vfxDrop } from "./vfx-diagnostics.js";
 
 function applyLayer(effect, layer) {
   if (!effect || !layer) return effect;
@@ -41,9 +46,31 @@ function applyLayer(effect, layer) {
 
 // Builds and plays the travel sprite on THIS client only. Never broadcasts.
 export function playTorpedoTravelLocal(plan) {
-  if (!plan?.file || !window.Sequence) return;
+  if (!plan?.file || !window.Sequence) {
+    // See the note in bolt-travel-vfx.js: Sequencer is optional, and losing it
+    // takes torpedoes and bolts while leaving native beams working.
+    vfxDrop("torpedoTravelVfx", plan?.file ? "sequencer-missing" : "no-plan-file");
+    return;
+  }
   const launch = plan.launch;
-  if (!Number.isFinite(launch?.x) || !Number.isFinite(launch?.y)) return;
+  if (!Number.isFinite(launch?.x) || !Number.isFinite(launch?.y)) {
+    vfxDrop("torpedoTravelVfx", "bad-coords", { launch });
+    return;
+  }
+
+  // The native glow escort. It rides this function rather than the socket:
+  // every client already reaches here — the firing one through
+  // broadcastTorpedoTravel, the rest through main.js's torpedoTravelVfx
+  // handler — so the glow needs no action of its own. Fire-and-forget: it
+  // never throws back into here.
+  //
+  // The name is how the glow FINDS this sprite. It cannot run on its own clock:
+  // Sequencer takes a variable moment to load the file and build the effect, so
+  // a glow that started timing at this line ran visibly ahead of the torpedo.
+  // It follows `spriteContainer` instead. Unique per shot so a salvo's escorts
+  // do not all latch onto the first torpedo.
+  const trackName = `sta2e-torp-${foundry.utils.randomID()}`;
+  startTorpedoGlow(plan, trackName);
 
   try {
     const travelMs = Math.max(1, Number(plan.travelMs) || 1000);
@@ -54,6 +81,9 @@ export function playTorpedoTravelLocal(plan) {
     let effect = s.effect()
       .file(plan.file)
       .locally()
+      // Names this effect so the glow escort can find its live sprite. See the
+      // note above `trackName`.
+      .name(trackName)
       .atLocation({ x: launch.x, y: launch.y })
       .size(Math.max(8, Number(plan.px) || 66))
       .duration(travelMs);

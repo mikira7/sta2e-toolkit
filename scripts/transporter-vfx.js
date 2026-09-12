@@ -42,6 +42,8 @@ const VFX_COLORS = {
   tngFed:     { primary: 0x4488FF, bright: 0x99BBFF, hex: "#4488ff" },
   tmpFed:     { primary: 0xCCDDFF, bright: 0xEEF4FF, hex: "#ccdeff" }, // cool silver-white
   tosFed:     { primary: 0xFFD700, bright: 0xFFEE99, hex: "#ffd700" }, // gold
+  entFed:     { primary: 0xC4E5FF, bright: 0xF5FBFF, hex: "#c4e5ff" }, // pale blue-white
+  dominion:   { primary: 0xC4E5FF, bright: 0xFFFFFF, hex: "#d9dfff" },
   klingon:    { primary: 0xCC2200, bright: 0xFF7755, hex: "#cc2200" },
   cardassian: { primary: 0xCC7700, bright: 0xFFAA44, hex: "#cc7700" },
   romulan:    { primary: 0x00AA44, bright: 0x55EE88, hex: "#00aa44" },
@@ -59,6 +61,8 @@ const VFX_TIMING = {
   tngFed:     { total: 5600, beamFadeIn: 350, beamFadeOut: 900, scanSpeed: 850  },
   tmpFed:     { total: 5400, beamFadeIn: 250, beamFadeOut: 750, scanSpeed: 750  }, // crisp
   tosFed:     { total: 5800, beamFadeIn: 450, beamFadeOut: 1100, scanSpeed: 950 }, // leisurely
+  entFed:     { total: 5800, beamFadeIn: 450, beamFadeOut: 1100, scanSpeed: 950 }, // TOS timing
+  dominion:   { total: 6000, beamFadeIn: 500, beamFadeOut: 1100, scanSpeed: 850 },
   klingon:    { total: 4800, beamFadeIn: 180, beamFadeOut: 600, scanSpeed: 600  }, // violent/fast
   cardassian: { total: 5200, beamFadeIn: 300, beamFadeOut: 800, scanSpeed: 780  },
   romulan:    { total: 6000, beamFadeIn: 550, beamFadeOut: 1200, scanSpeed: 1050 }, // sinister/slow
@@ -1062,6 +1066,145 @@ function _animateScanBand(scanBand, fromY, toY, speed, passes, startDelay) {
 // ── Main effect engine ────────────────────────────────────────────────────────
 
 export class TransporterVFX {
+
+  /** Visual-only adapter for the cinematic controller; no timers or document writes.
+   * Reuses the native column builder with bounded rain, driven by the caller's timeline.
+   */
+  static visualFallback(token, transporterType, settings) {
+    const colors = {
+      primary: parseInt(settings.color.slice(1), 16),
+      bright: parseInt(settings.highlight.slice(1), 16), hex: settings.color,
+    };
+    const layer = _effectLayer();
+    const root = new PIXI.Container();
+    root.zIndex = Math.max(VFX_Z_BASE, (token.zIndex ?? 0) + 10000);
+    const beam = _createBeam(0, 0, token.w, token.h, colors, root.zIndex);
+    // This adapter uses a restrained column rather than the legacy scan-band sequence.
+    if (beam._scanBand) beam._scanBand.visible = false;
+    root.addChild(beam);
+    const motes = [];
+    let seed = (settings.seed | 0) || 1;
+    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    const count = Math.round(64 * settings.rainDensity * settings.rainGain);
+    for (let i = 0; i < count; i++) {
+      const g = new PIXI.Graphics();
+      const moteColor = settings.accent === "dominion"
+        ? [colors.primary,parseInt(settings.secondary.slice(1),16),colors.bright][i%3] : colors.bright;
+      _gFill(g, moteColor, .9);
+      _gEllipse(g, 0, 0, settings.particleSize*(.35+random()*.4), token.h*(.41+random()*.08));
+      _gEndFill(g);
+      g.blendMode = _addBlend();
+      root.addChild(g);
+      motes.push({ g, x: random(), y: random(), speed: .6 + random() });
+    }
+    const strands = Array.from({length:32}, () => ({x:random(),y:random(),angle:random()*Math.PI*2,phase:random()*Math.PI*2}));
+    const accents = new PIXI.Graphics();
+    accents.blendMode = _addBlend();
+    root.addChild(accents);
+    layer.addChild(root);
+    let stopped = false;
+    return {
+      setVisible(visible) { root.visible = visible; },
+      update(t, elapsed, frame = { orbs: [0,0,0,0], circle: 0, lines: [0,0,0] }) {
+        if (stopped || root.destroyed) return;
+        if (!token.destroyed) root.position.set(token.center.x, token.center.y);
+        root.alpha = t.energy;
+        beam.alpha = settings.glow * (settings.accent === "dominion" ? .32 : .12) * settings.rainGain;
+        accents.clear();
+        const unit = Math.max(1, Math.min(token.w, token.h) * .01);
+        if (frame.circle) {
+          _gLine(accents, unit*1.5, colors.primary, .65);
+          _gCircle(accents, 0, 0, Math.max(token.w,token.h)*.55);
+          _gLine(accents, 0, colors.primary, 0);
+        }
+        for (let pair = 0; pair < 2; pair++) {
+          const distance = frame.orbs[pair*2]*token.h*.5, alpha = frame.orbs[pair*2+1];
+          for (const direction of [-1,1]) {
+            _gFill(accents, colors.primary, alpha*.25);
+            _gCircle(accents, 0, distance*direction, unit*10);
+            _gEndFill(accents);
+            _gFill(accents, colors.bright, alpha);
+            _gCircle(accents, 0, distance*direction, unit*4);
+            _gEndFill(accents);
+          }
+        }
+        const [lineHeight, lineSpread, lineAlpha] = frame.lines;
+        if (lineAlpha > 0) {
+          for (const direction of [-1,1]) {
+            const widthScale = settings.swipeWidth/100;
+            const x = direction*Math.max(.055*widthScale,lineSpread*.6)*token.w;
+            const h = lineHeight*token.h*.5*settings.swipeHeight/100;
+            for (const [spread, opacity] of [[9,.06],[5,.12],[2.5,.24],[1,1]]) {
+              const w = unit*4*widthScale*spread;
+              const points = [x,-h, x+w*.62,-h*.5, x+w,0, x+w*.62,h*.5,
+                x,h, x-w*.62,h*.5, x-w,0, x-w*.62,-h*.5];
+              if (typeof accents.drawPolygon === "function") {
+                accents.beginFill(spread===1?colors.bright:colors.primary,lineAlpha*opacity).drawPolygon(points).endFill();
+              } else accents.poly(points).fill({ color: spread===1?colors.bright:colors.primary, alpha: lineAlpha*opacity });
+            }
+          }
+        }
+        if (settings.strandWidth > 0) {
+          const clock = elapsed/1000*settings.shimmerSpeed;
+          const strandCount = Math.max(6,Math.min(32,Math.round(settings.strandCount*2*settings.noiseScale/24)));
+          for (let i=0;i<strandCount;i++) {
+            const strand = strands[i];
+            const phase = strand.phase+clock*(.5+(i%7)*.19);
+            const angle = strand.angle+.3*Math.sin(clock*.4+strand.phase);
+            const centerX = (strand.x-.5)*token.w, centerY = (strand.y-.5)*token.h;
+            for (const [spread,opacity] of [[3,.13],[1,.65]]) {
+              _gLine(accents,unit*settings.strandWidth*settings.particleSize*spread,
+                spread===1?colors.bright:colors.primary,opacity*t.surfaceEnergy*settings.noiseStrength);
+              for (let j=0;j<=12;j++) {
+                const along = (j/12-.5)*token.h*settings.strandLength;
+                const bend = Math.sin(j/12*8+phase)*token.h*settings.strandLength*.09;
+                const x = centerX+bend*Math.cos(angle)-along*Math.sin(angle);
+                const y = centerY+bend*Math.sin(angle)+along*Math.cos(angle);
+                if (j===0) accents.moveTo(x,y); else accents.lineTo(x,y);
+              }
+              if (accents._sta2eStroke) {
+                accents.stroke(accents._sta2eStroke); delete accents._sta2eStroke;
+              }
+            }
+          }
+          _gLine(accents,0,colors.primary,0);
+        }
+        if (settings.accent === "romulan" && frame.scan) {
+          const [scanY,downAlpha,spread,pairAlpha] = frame.scan;
+          // Reduced-detail fallback field follows the same scan choreography.
+          for (const p of strands) {
+            if (p.y > scanY) continue;
+            const x = (p.x-.5)*token.w*.85, y = (p.y-.5)*token.h;
+            const strength = t.surfaceEnergy*settings.noiseStrength*(.05+.07*Math.sin(elapsed*.001*settings.shimmerSpeed+p.phase)**2);
+            _gFill(accents,colors.primary,strength);
+            _gEllipse(accents,x,y,token.w*.09,token.h*.045);
+            _gEndFill(accents);
+          }
+          for (const [size,alpha] of [[10,.12],[5,.3],[1,1]]) {
+            _gFill(accents,colors.bright,Math.min(1,downAlpha*alpha));
+            _gEllipse(accents,0,(scanY-.5)*token.h,token.w*.54,unit*size);
+            _gEndFill(accents);
+            for (const sign of [-1,1]) {
+              _gFill(accents,colors.bright,Math.min(1,pairAlpha*alpha));
+              _gEllipse(accents,sign*spread*token.w*.5,0,unit*size,token.h*.54);
+              _gEndFill(accents);
+            }
+          }
+        }
+        const height = token.h * (settings.framing === "portrait" ? 1.2 : 1.8);
+        for (const p of motes) {
+          const y = (p.y + elapsed / 1000 * settings.rainSpeed * p.speed) % 1;
+          p.g.position.set((p.x - .5) * token.w, (y - .6) * height);
+          p.g.alpha = Math.sin(y * Math.PI);
+        }
+      },
+      stop() {
+        if (stopped) return;
+        stopped = true;
+        if (!root.destroyed) root.destroy({ children: true, texture: true, baseTexture: true });
+      },
+    };
+  }
 
   /**
    * Beam-out visual effect.  Fire-and-forget.

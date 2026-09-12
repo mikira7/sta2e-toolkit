@@ -25,6 +25,20 @@ import {
   shieldStopPoint,
 } from "./shield-impact-vfx.js";
 import { isSceneWeaponAutoRotateDisabled } from "./scene-warp.js";
+import { vfxDrop } from "./vfx-diagnostics.js";
+import {
+  BEAM_SHADER_DEFAULTS,
+  BEAM_SHADER_RANGES,
+  beamShaderAvailable,
+  createBeamRibbon,
+  releaseBeamShaderCache,
+} from "./beam-shader.js";
+// Schema only. The glow reads these back out of the world flag itself rather
+// than through `getBeamVfxSettings`, so it stays a leaf the torpedo travel path
+// can import without inheriting this file's dependency chain.
+import { TORPEDO_GLOW_DEFAULTS, TORPEDO_GLOW_RANGES } from "./torpedo-glow-vfx.js";
+import { BOLT_GLOW_DEFAULTS, BOLT_GLOW_RANGES, createBoltGlow } from "./bolt-glow-vfx.js";
+import { createWeaponEnergyOrb, createWeaponEnergyTrail } from "./weapon-energy-shader.js";
 
 const MODULE = "sta2e-toolkit";
 const VFX_Z_BASE = 920_000;
@@ -45,6 +59,8 @@ export const NATIVE_VFX_KEY_BY_FAMILY = Object.freeze({
   // Person-scale, not ship-scale. Shares the bank's draw but has its own
   // appearance group and adds the area cone the ship families have no use for.
   "ground-phaser": "weapon-ground-phaser",
+  "ground-energy": "weapon-ground-energy",
+  "ground-pulse": "weapon-ground-pulse",
 });
 
 export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
@@ -53,6 +69,8 @@ export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
   "weapon-energy-lance": "current",
   "weapon-energy-cannon": "current",
   "weapon-ground-phaser": "current",
+  "weapon-ground-energy": "shader",
+  "weapon-ground-pulse": "shader",
 });
 
 /**
@@ -68,23 +86,27 @@ export const NATIVE_WEAPON_VFX_DEFAULT_MODES = Object.freeze({
 const WEAPON_ANIMATION_MODE_LABELS = Object.freeze({
   current: "Current Sequencer/JB2A",
   experimental: "Experimental Native Foundry",
+  shader: "Shader Beam (WebGL)",
   bolt: "Travelling Bolt Sprite",
 });
 
-const DEFAULT_WEAPON_ANIMATION_MODES = Object.freeze(["current", "experimental"]);
+const DEFAULT_WEAPON_ANIMATION_MODES = Object.freeze(["current", "experimental", "shader"]);
 
 export const WEAPON_ANIMATION_MODE_OPTIONS = Object.freeze({
   "weapon-phaser-bank": DEFAULT_WEAPON_ANIMATION_MODES,
   "weapon-phaser-array": DEFAULT_WEAPON_ANIMATION_MODES,
   "weapon-energy-lance": DEFAULT_WEAPON_ANIMATION_MODES,
-  "weapon-energy-cannon": Object.freeze(["current", "experimental", "bolt"]),
+  "weapon-energy-cannon": Object.freeze(["current", "experimental", "shader", "bolt"]),
   "weapon-ground-phaser": DEFAULT_WEAPON_ANIMATION_MODES,
+  "weapon-ground-energy": DEFAULT_WEAPON_ANIMATION_MODES,
+  "weapon-ground-pulse": DEFAULT_WEAPON_ANIMATION_MODES,
 });
 
 /** The modes a weapon key accepts, for rendering and for validating a save. */
 export function weaponAnimationModeOptions(weaponKey) {
   const values = WEAPON_ANIMATION_MODE_OPTIONS[weaponKey] ?? DEFAULT_WEAPON_ANIMATION_MODES;
-  return values.map(value => ({ value, label: WEAPON_ANIMATION_MODE_LABELS[value] ?? value }));
+  return values.map(value => ({ value, label: value === "shader" && weaponKey.startsWith("weapon-ground-")
+    ? "Shader Energy (WebGL)" : WEAPON_ANIMATION_MODE_LABELS[value] ?? value }));
 }
 
 /** True when `mode` is one this weapon key is allowed to be set to. */
@@ -111,22 +133,41 @@ export const GROUND_PHASER_TYPE_ROWS = Object.freeze([
 const NATIVE_ENERGY_TYPES_HINT = "Covers phaser, phase-pulse, disruptor, polaron, antiproton, "
   + "tetryon, graviton, proton, free electron laser and ionic weapons.";
 
+// Shader Beam is Experimental with the beam BODY drawn by a fragment shader
+// instead of stroked: a hot core inside a boiling sheath, a pulse running toward
+// the target, and soft ends instead of round caps. Tuned in Beam VFX -> Shader
+// Beam. Needs WebGL; a client that cannot compile falls back to the stroked
+// beam with one console warning and no other difference.
+const SHADER_MODE_HINT = "Shader Beam: the same shot with the beam body drawn by a fragment "
+  + "shader — hot core, boiling sheath, a surge running toward the target. Tuned under "
+  + "Beam VFX -> Shader Beam. Falls back to the stroked beam where WebGL cannot compile it.";
+
 export const NATIVE_WEAPON_VFX_MODE_ROWS = Object.freeze([
+  { key: "weapon-ground-energy", label: "Ground Energy Weapons",
+    hint: "Shader beams and travelling bolts for disruptors, plasma, particle and phase weapons. "
+      + "Choose Beam or Bolt on each disruptor's item sheet. Rifle effects are larger than pistol effects. "
+      + "Uses native graphics if WebGL shaders are unavailable." },
+  { key: "weapon-ground-pulse", label: "Pulse Grenades",
+    hint: "One expanding energy shockwave centred on the primary target, reaching the selected Area targets. "
+      + "Shader mode adds a turbulent wavefront and an ionised afterglow." },
   { key: "weapon-phaser-bank", label: "Energy Banks",
-    hint: `Experimental: a burst of short beam bolts per target. ${NATIVE_ENERGY_TYPES_HINT}` },
+    hint: `Experimental: a burst of short beam bolts per target. ${SHADER_MODE_HINT} ${NATIVE_ENERGY_TYPES_HINT}` },
   { key: "weapon-phaser-array", label: "Energy Arrays",
-    hint: `Experimental: continuous strip beam with a charge-up along the array spine. ${NATIVE_ENERGY_TYPES_HINT}` },
+    hint: "Experimental: continuous strip beam with a charge-up along the array spine. "
+      + `${SHADER_MODE_HINT} The spine charge-up is unchanged in either native mode. ${NATIVE_ENERGY_TYPES_HINT}` },
   { key: "weapon-energy-lance", label: "Spinal Lances",
-    hint: `Experimental: heavy strike drawn like the array beam, fired from an emitter with no spine charge-up. ${NATIVE_ENERGY_TYPES_HINT}` },
+    hint: "Experimental: heavy strike drawn like the array beam, fired from an emitter with no "
+      + `spine charge-up. ${SHADER_MODE_HINT} ${NATIVE_ENERGY_TYPES_HINT}` },
   { key: "weapon-energy-cannon", label: "Energy Cannons",
     hint: "Experimental: discrete bolts that travel to the target, one per shot, drawn on the "
-      + "Foundry canvas. Travelling Bolt Sprite: flies the module's own bolt .webm from the "
-      + "emitter instead, picking the file that matches the weapon's energy type and falling "
-      + `back to the phaser bolt. Needs Sequencer. ${NATIVE_ENERGY_TYPES_HINT}` },
+      + `Foundry canvas. ${SHADER_MODE_HINT} Travelling Bolt Sprite: flies the module's own bolt `
+      + ".webm from the emitter instead, picking the file that matches the weapon's energy type "
+      + `and falling back to the phaser bolt. Needs Sequencer. ${NATIVE_ENERGY_TYPES_HINT}` },
   { key: "weapon-ground-phaser", label: "Ground Phasers",
     hint: "Experimental: hand phasers draw the starship beam at person scale, tinted per era, "
       + "and an Area attack opens one wide cone across every target it caught instead of a "
-      + "separate beam each. Leave on Current to keep the JB2A ground beam." },
+      + `separate beam each. ${SHADER_MODE_HINT} It applies to the single-target beam only — the `
+      + "Area cone is still drawn the same way. Leave on Current to keep the JB2A ground beam." },
 ]);
 
 const SUPPORTED_NATIVE_WEAPONS = new Set(Object.keys(NATIVE_WEAPON_VFX_DEFAULT_MODES));
@@ -389,6 +430,23 @@ export const DEFAULT_BEAM_VFX_SETTINGS = Object.freeze({
     // pointing right wants 0.
     spriteAngleOffset: 90,
   }),
+  // Shader Beam. One shared group rather than a copy per family: the per-family
+  // SIZING already exists (coreWidth, glowWidth, railOffset, railWidth) and the
+  // shader reuses those, so a world that has tuned its arrays keeps those widths
+  // when it flips to shader mode. Five families x fourteen dials would be
+  // seventy controls for what should be one look.
+  //
+  // Canonical in beam-shader.js, beside the GLSL they drive.
+  shader: BEAM_SHADER_DEFAULTS,
+  // The native glow that flies with a toolkit torpedo sprite. Not a beam and
+  // not even a PIXI effect the beams share, but it lives here for the same
+  // reason the `bolt` group does: the Beam VFX tab stays the one place weapon
+  // animation is tuned. Canonical in torpedo-glow-vfx.js.
+  torpedoGlow: TORPEDO_GLOW_DEFAULTS,
+  // The glow and trail carried by each travelling energy bolt, in shader mode.
+  // Sized well under the torpedo escort on purpose — a cannon round and a
+  // warhead must not read as the same object. Canonical in bolt-glow-vfx.js.
+  boltGlow: BOLT_GLOW_DEFAULTS,
   shared: Object.freeze({
     holdPercent: 0.55,
     easing: "inQuad",
@@ -507,6 +565,12 @@ const BEAM_VFX_RANGES = Object.freeze({
   "bolt.minTravelMs": [16, 2000], "bolt.maxTravelMs": [60, 6000],
   "bolt.impactPadMs": [0, 2000], "bolt.spriteAngleOffset": [-180, 180],
 
+  // Keys already arrive prefixed with their group, canonical beside the code
+  // they drive.
+  ...BEAM_SHADER_RANGES,
+  ...TORPEDO_GLOW_RANGES,
+  ...BOLT_GLOW_RANGES,
+
   "shared.holdPercent": [0.05, 0.95],
   "shared.cleanupDelay": [0, 2000],
   "shared.emitterPairDistance": [0, 0.5],
@@ -582,15 +646,14 @@ export function getBeamVfxSettings() {
 
 /**
  * Merge a stored modes object over the defaults, keeping only values the key is
- * allowed to hold. Anything unrecognised falls back to "current" rather than
- * being preserved, so a typo or a mode retired in a later version cannot leave a
- * weapon animating as nothing at all.
+ * allowed to hold. Missing or unrecognised values use that family's default.
+ * Existing families keep Current; new ground energy families start in Shader.
  */
 export function normalizeWeaponAnimationModes(modes = {}) {
   const normalized = { ...NATIVE_WEAPON_VFX_DEFAULT_MODES };
   for (const key of Object.keys(normalized)) {
     const stored = modes?.[key];
-    normalized[key] = isWeaponAnimationMode(key, stored) ? stored : "current";
+    normalized[key] = isWeaponAnimationMode(key, stored) ? stored : NATIVE_WEAPON_VFX_DEFAULT_MODES[key];
   }
   return normalized;
 }
@@ -600,12 +663,30 @@ export function getWeaponAnimationMode(weaponKey) {
     const modes = normalizeWeaponAnimationModes(game.settings.get(MODULE, "weaponAnimationModes") ?? {});
     return modes[weaponKey] ?? "current";
   } catch {
-    return "current";
+    return NATIVE_WEAPON_VFX_DEFAULT_MODES[weaponKey] ?? "current";
   }
 }
 
+/**
+ * Both native modes draw with this module rather than Sequencer; they differ
+ * only in whether the beam BODY is a shaded quad or a stroked line.
+ */
 export function shouldUseNativeWeaponVFX(weaponKey) {
-  return SUPPORTED_NATIVE_WEAPONS.has(weaponKey) && getWeaponAnimationMode(weaponKey) === "experimental";
+  if (!SUPPORTED_NATIVE_WEAPONS.has(weaponKey)) return false;
+  const mode = getWeaponAnimationMode(weaponKey);
+  return mode === "experimental" || mode === "shader";
+}
+
+/**
+ * Does this weapon draw its beam body with the fragment shader?
+ *
+ * A family left in shader mode on a client that cannot compile still returns
+ * true from `shouldUseNativeWeaponVFX` — so the shot is still drawn, as the
+ * stroked beam, with one console warning per session rather than an error
+ * dialog or a weapon that animates as nothing.
+ */
+export function shouldShadeNativeWeaponVFX(weaponKey) {
+  return getWeaponAnimationMode(weaponKey) === "shader" && beamShaderAvailable();
 }
 
 /**
@@ -654,6 +735,10 @@ export async function fireNativeWeaponVFX(config, isHit, sourceToken, targets, o
       await mod.fireGroundPhaserVFX(config, isHit, sourceToken, targetList, opts);
       return true;
     }
+    if (family === "ground-energy" || family === "ground-pulse") {
+      const mod = await import("./ground-energy-vfx.js");
+      return await mod.fireGroundEnergyVFX(config, isHit, sourceToken, targetList, opts);
+    }
 
   } catch (err) {
     console.warn("STA2e Toolkit | Native weapon VFX failed; falling back to current animation:", err);
@@ -661,6 +746,103 @@ export async function fireNativeWeaponVFX(config, isHit, sourceToken, targets, o
   }
 
   return false;
+}
+
+// ── Cross-client playback ───────────────────────────────────────────────────
+//
+// `fireNativeWeaponVFX` runs on the FIRING CLIENT ONLY, and until now emitted
+// nothing — so no ship bank, array, lance or cannon drawn by this module has
+// ever been visible to anyone but the shooter. Ground phasers
+// (`ground-phaser-vfx.js`) and Point Defense tracers were retrofitted with a
+// broadcast; the ship families were not.
+//
+// Each shot broadcasts at the moment it is drawn rather than the whole volley
+// being resolved up front with encoded delays: the sender is already pacing
+// itself with `await _delay(shotGap)`, so the messages arrive correctly spaced
+// and a receiver simply draws on arrival.
+//
+// VISUALS ONLY. Three things are deliberately NOT replayed:
+//   - sounds, which go through `AudioHelper.play(..., true)` and broadcast
+//     themselves — replaying would double every shot;
+//   - shield and hull impacts, which `shield-impact-vfx.js` routes through
+//     Sequencer and `shield-bubble-vfx.js` broadcasts itself;
+//   - the target point, which is a random hull pixel and a random shield depth
+//     rolled ONCE on the sender. Re-rolling per client would put each viewer's
+//     beam somewhere else on the hull.
+export const SHIP_BEAM_VFX_ACTION = "nativeShipBeamVfx";
+
+/**
+ * The scene a token actually lives on, which is not necessarily the one this
+ * client is viewing. `TokenDocument#parent` is the Scene.
+ */
+function _tokenSceneId(token) {
+  return token?.document?.parent?.id ?? null;
+}
+
+/**
+ * `payload.sceneId` is the ATTACKER TOKEN'S scene where the caller knows it,
+ * and only falls back to the scene this client happens to be LOOKING AT. The
+ * fallback alone was a real bug: a hit is drawn and broadcast from the GM's
+ * client, so a GM parked on another scene stamped that scene's id and every
+ * correctly-parked observer discarded the shot on the scene guard. The spread
+ * below is what lets a supplied id win.
+ */
+function _broadcastShipBeam(payload) {
+  try {
+    // The raw socket, not `emitToolkitSocket` — that helper re-runs the handler
+    // locally on the responsible GM and would draw the shot twice for them.
+    // Same reasoning as bolt-travel-vfx.js.
+    game.socket?.emit?.(`module.${MODULE}`, {
+      action: SHIP_BEAM_VFX_ACTION,
+      sceneId: canvas?.scene?.id ?? null,
+      ...payload,
+    });
+  } catch (err) {
+    console.warn("STA2e Toolkit | Could not broadcast ship beam VFX:", err);
+  }
+}
+
+/**
+ * Draw one broadcast ship-weapon shot on this client.
+ *
+ * The appearance groups are re-read locally rather than sent: `beamVfxAppearance`
+ * is a WORLD setting, so every client already resolves the same numbers, and
+ * shipping them per shot would put a few hundred bytes on the wire for nothing.
+ * Only what the sender ROLLED — the points, the colours, hit/miss — travels.
+ */
+export function playShipBeamVfxFromSocket(msg = {}) {
+  try {
+    if (!globalThis.PIXI || !canvas?.ready) {
+      vfxDrop(SHIP_BEAM_VFX_ACTION, "canvas-not-ready", { hasPIXI: !!globalThis.PIXI, ready: !!canvas?.ready });
+      return;
+    }
+    const sourcePoint = msg.sourcePoint;
+    const targetPoint = msg.targetPoint;
+    if (!Number.isFinite(sourcePoint?.x) || !Number.isFinite(targetPoint?.x)) {
+      vfxDrop(SHIP_BEAM_VFX_ACTION, "bad-coords", { sourcePoint, targetPoint });
+      return;
+    }
+
+    const beam = getBeamVfxSettings();
+    const shape = beam[msg.family] ?? beam.bank;
+    const shot = {
+      hit: msg.hit === true,
+      duration: msg.duration,
+      color: msg.color,
+      coreColor: msg.coreColor,
+      layer: msg.layer ?? "above",
+      beam,
+      shape,
+      // Banks in a tracer era borrow the tracer group; cannons use their own.
+      bolt: msg.draw === "tracer" ? (msg.useTracer ? beam.tracer : shape) : null,
+      shaded: msg.shaded === true,
+    };
+    if (msg.draw === "array") _arrayBeam(sourcePoint, targetPoint, shot);
+    else if (msg.draw === "tracer") _tracerVolley(sourcePoint, targetPoint, shot);
+    else _beamShot(sourcePoint, targetPoint, shot);
+  } catch (err) {
+    console.warn("STA2e Toolkit | Ship beam VFX replay failed:", err);
+  }
 }
 
 export async function playArrayCurveChargeVFX(sourceToken, weapon, targetPoint, options = {}) {
@@ -713,6 +895,7 @@ export async function previewShipWeaponVFX(sourceToken, weapon, targetPoint, opt
     }
     const sourcePoint = _sourcePointForShot(sourceToken, weapon, targetPoint, 0, settings, options.selectedEmitter);
     _arrayBeam(sourcePoint, targetPoint, {
+      shaded: options.shaded ?? shouldShadeNativeWeaponVFX(NATIVE_VFX_KEY_BY_FAMILY[family]),
       hit: true,
       // Deliberately ignores options.beamDuration (a Sequencer-path timing) so
       // the preview shows exactly what live fire will look like.
@@ -774,6 +957,9 @@ export function previewBeamVfxAppearance(sourceToken, targetToken, options = {})
     beam,
     shape,
     bolt,
+    // Explicit, so the Beam VFX tab can preview the Shader Beam group before
+    // any weapon family has been switched into shader mode.
+    shaded: options.shaded === true,
     duration: shape.hitDuration,
   };
   if (family === "array" || family === "lance") {
@@ -802,6 +988,9 @@ export function playNativeTracerBetweenPoints(sourcePoint, targetPoint, options 
     coreColor: _parseHexColor(options.coreColor, derivedCore),
     layer: options.layer ?? sourcePoint.layer ?? "above",
     beam,
+    // Point Defense is not a weapon family and has no mode of its own, so it
+    // follows the cannons — the family whose bolts it shares a shape with.
+    shaded: options.shaded ?? shouldShadeNativeWeaponVFX(NATIVE_VFX_KEY_BY_FAMILY.cannon),
   });
   return true;
 }
@@ -827,6 +1016,12 @@ export function playNativeBeamBetweenPoints(sourcePoint, targetPoint, options = 
     duration: options.duration,
     shape: options.shape ?? null,
     beam,
+    // `shape` is what tells a hand phaser from a ship bank here, so the mode
+    // has to be resolved by the caller and passed in. Ground phasers hand in
+    // their own key; ship banks fall through to the bank's.
+    shaded: options.shaded ?? shouldShadeNativeWeaponVFX(
+      options.weaponKey ?? NATIVE_VFX_KEY_BY_FAMILY.bank,
+    ),
   });
   return true;
 }
@@ -893,6 +1088,7 @@ function _chargeOptions(settings, options = {}) {
   const isMiss = options.isHit === false;
   return {
     ...charge,
+    shaded: options.shaded ?? shouldShadeNativeWeaponVFX(NATIVE_VFX_KEY_BY_FAMILY.array),
     duration: options.duration ?? (isMiss ? charge.missDuration : charge.hitDuration),
     color: _parseHexColor(charge.colorOverride, options.color ?? PHASER_PRIMARY),
     coreColor: _parseHexColor(charge.coreColorOverride, options.coreColor ?? PHASER_CORE),
@@ -902,7 +1098,7 @@ function _chargeOptions(settings, options = {}) {
     // Where on the spine the orbs meet, and how far out they start. Callers ask
     // for a repeat rather than a raw spread so the weapon's own Repeat Spread
     // stays the single source of it.
-    meetT: Number.isFinite(Number(options.meetT)) ? Number(options.meetT) : null,
+    meetT: options.meetT != null && Number.isFinite(Number(options.meetT)) ? Number(options.meetT) : null,
     spreadT: options.repeat ? charge.repeatSpread : 0,
   };
 }
@@ -1173,6 +1369,9 @@ async function _fireEnergyBolts(isHit, sourceToken, targets, opts) {
     : Math.max(3, _normalizeRepeatCount(opts.repeatCount));
   const beam = getBeamVfxSettings();
   const shape = isCannon ? beam.cannon : beam.bank;
+  // Resolved once per volley: the family knows its mode, the draw functions do
+  // not. Threaded onto the shot object beside `beam` / `shape` / `bolt`.
+  const shaded = shouldShadeNativeWeaponVFX(NATIVE_VFX_KEY_BY_FAMILY[opts.family]);
   const settings = getShipWeaponVfxSettings(sourceToken, opts.weapon);
   // Era tint and tracer fire belong to phaser banks alone.
   const eraApplies = !isCannon && _eraAppliesToWeapon(opts.weapon);
@@ -1217,9 +1416,26 @@ async function _fireEnergyBolts(isHit, sourceToken, targets, opts) {
         beam,
         shape,
         bolt,
+        shaded,
       };
       if (bolt) _tracerVolley(sourcePoint, targetPoint, shot);
       else _beamShot(sourcePoint, targetPoint, shot);
+      // Everyone else draws the same shot. Points and colours only — see
+      // SHIP_BEAM_VFX_ACTION for what deliberately does not travel.
+      _broadcastShipBeam({
+        sceneId: _tokenSceneId(sourceToken),
+        draw: bolt ? "tracer" : "beam",
+        family: isCannon ? "cannon" : "bank",
+        useTracer: !!bolt && !isCannon,
+        sourcePoint: { x: sourcePoint.x, y: sourcePoint.y },
+        targetPoint: { x: targetPoint.x, y: targetPoint.y },
+        color: colors.color,
+        coreColor: colors.coreColor,
+        hit: isHit,
+        duration: shot.duration,
+        layer: sourcePoint.layer ?? "above",
+        shaded,
+      });
       if (isHit) {
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: impactDelay });
         else {
@@ -1249,6 +1465,8 @@ async function _fireEnergyBeams(isHit, sourceToken, targets, opts) {
   const repeats = isHit ? opts.repeatCount : 1;
   const beam = getBeamVfxSettings();
   const shape = isLance ? beam.lance : beam.array;
+  // Resolved once per volley, including the curved spine charge.
+  const shaded = shouldShadeNativeWeaponVFX(NATIVE_VFX_KEY_BY_FAMILY[opts.family]);
   const settings = getShipWeaponVfxSettings(sourceToken, opts.weapon);
   // Era tint is a phaser-bank feature; arrays and lances keep their type colour.
   const colors = _previewColors(opts.weapon, settings, { beam });
@@ -1282,6 +1500,7 @@ async function _fireEnergyBeams(isHit, sourceToken, targets, opts) {
           coreColor: colors.coreColor,
           beam,
           repeat: i > 0,
+          shaded,
           meetT: Number.isFinite(arrayWalk.t) ? arrayWalk.t : null,
         });
       }
@@ -1299,6 +1518,19 @@ async function _fireEnergyBeams(isHit, sourceToken, targets, opts) {
         coreColor: colors.coreColor,
         beam,
         shape,
+        shaded,
+      });
+      _broadcastShipBeam({
+        sceneId: _tokenSceneId(sourceToken),
+        draw: "array",
+        family: isLance ? "lance" : "array",
+        sourcePoint: { x: sourcePoint.x, y: sourcePoint.y },
+        targetPoint: { x: targetPoint.x, y: targetPoint.y },
+        color: colors.color,
+        coreColor: colors.coreColor,
+        hit: isHit,
+        duration: beamDuration,
+        shaded,
       });
       if (isHit) {
         // `_arrayBeam` draws the rails, core and the impact spark on the target
@@ -1335,7 +1567,7 @@ function _arrayCurveCharge(curveMatch, opts = {}) {
 
   // A repeat strike charges locally around the point it fires from; the opening
   // strike carries no spread and still sweeps in from both ends of the spine.
-  const rawMeet = Number(opts.meetT);
+  const rawMeet = opts.meetT == null ? NaN : Number(opts.meetT);
   const meetT = Math.max(0.04, Math.min(0.96,
     Number.isFinite(rawMeet) ? rawMeet : (Number(curveMatch.t) || 0.5)));
   const spread = Number(opts.spreadT);
@@ -1352,11 +1584,16 @@ function _arrayCurveCharge(curveMatch, opts = {}) {
 
   try {
     const container = _sceneContainer(Math.max(...samples.map(point => point.y), meetPoint.y));
-    _applyBeamGlow(container, color, opts.beam?.shared);
     const trailA = new PIXI.Graphics();
     const trailB = new PIXI.Graphics();
+    const trailSpec = {color,coreColor,blend:_blendMode(opts.blendMode),width:opts.trailGlowWidth??16,
+      coreWidth:opts.trailCoreWidth??4,alpha:opts.trailGlowAlphaEnd??.32,coreAlpha:opts.trailCoreAlphaEnd??.72,
+      alphaStart:opts.trailGlowAlphaStart??.08,coreAlphaStart:opts.trailCoreAlphaStart??.22};
+    const fieldA = opts.shaded ? createWeaponEnergyTrail(container,trailSpec) : null;
+    const fieldB = opts.shaded ? createWeaponEnergyTrail(container,trailSpec) : null;
     const orbA = _arrayOrb(color, coreColor, opts);
     const orbB = _arrayOrb(color, coreColor, opts);
+    if (!fieldA || !fieldB || !orbA.energyField || !orbB.energyField) _applyBeamGlow(container, color, opts.beam?.shared);
     for (const child of [trailA, trailB, orbA, orbB]) child.blendMode = _blendMode(opts.blendMode);
     container.addChild(trailA, trailB, orbA, orbB);
     layer.addChild(container);
@@ -1364,6 +1601,7 @@ function _arrayCurveCharge(curveMatch, opts = {}) {
     const ticker = canvas.app?.ticker;
     const start = performance.now();
     let finished = false;
+    let backstop = null;
     let resolveDone;
     const done = new Promise(resolve => { resolveDone = resolve; });
 
@@ -1371,6 +1609,7 @@ function _arrayCurveCharge(curveMatch, opts = {}) {
       if (finished) return;
       finished = true;
       try { ticker?.remove?.(tick); } catch { /* no-op */ }
+      if (backstop) clearTimeout(backstop);
       if (flash) _arrayCurveMeetingFlash(meetPoint, color, coreColor, opts);
       _fadeContainer(container, opts.fadeDuration ?? 180, opts.cleanupDelay ?? 120);
       // Resolves the point the orbs met on, which a `meetT` override moves off
@@ -1397,12 +1636,18 @@ function _arrayCurveCharge(curveMatch, opts = {}) {
         orbA.y = pointA.y;
         orbB.x = pointB.x;
         orbB.y = pointB.y;
+        const time = (performance.now()-start)/1000;
+        const energy = .65 + .55*progress*progress;
+        orbA.energyField?.update(time,energy);
+        orbB.energyField?.update(time+.37,energy);
         const tail = Math.max(0.01, Math.min(1, Number(opts.trailLength) || 0.18));
         // Clamped to each orb's own start so a short local charge doesn't trail
         // back past where it began. The spine ends for the opening sweep.
-        _redrawSampledCurveTrail(trailA, samples, Math.max(startA, tA - tail), tA, color, coreColor, opts);
-        _redrawSampledCurveTrail(trailB, samples, Math.min(startB, tB + tail), tB, color, coreColor, opts);
-        container.alpha = raw < 0.9 ? 1 : Math.max(0.18, 1 - ((raw - 0.9) / 0.1));
+        if(fieldA) fieldA.update(t=>_sampledCurvePoint(samples,t),Math.max(startA,tA-tail),tA,time);
+        else _redrawSampledCurveTrail(trailA, samples, Math.max(startA, tA - tail), tA, color, coreColor, opts);
+        if(fieldB) fieldB.update(t=>_sampledCurvePoint(samples,t),Math.min(startB,tB+tail),tB,time);
+        else _redrawSampledCurveTrail(trailB, samples, Math.min(startB, tB + tail), tB, color, coreColor, opts);
+        container.alpha = opts.shaded ? Math.min(1,raw*12) : (raw < 0.9 ? 1 : Math.max(0.18,1-((raw-.9)/.1)));
         if (raw >= 1) finish();
       } catch (err) {
         fail(err);
@@ -1412,8 +1657,7 @@ function _arrayCurveCharge(curveMatch, opts = {}) {
     tick();
     if (!finished) {
       if (ticker?.add) ticker.add(tick);
-      else setTimeout(finish, duration);
-      setTimeout(finish, duration + (Number(opts.cleanupDelay) || 120));
+      backstop = setTimeout(finish, duration + (ticker?.add ? (Number(opts.cleanupDelay) || 120) : 0));
     }
     return done;
   } catch (err) {
@@ -1431,6 +1675,12 @@ function _arrayChargeSourcePulse(sourcePoint, targetPoint, opts = {}) {
     const color = opts.color ?? PHASER_PRIMARY;
     const coreColor = opts.coreColor ?? PHASER_CORE;
     const container = _sceneContainer(sourcePoint.y, sourcePoint.layer);
+    const field = opts.shaded ? _chargeFlashField(container, sourcePoint, color, coreColor, opts) : null;
+    if (field) {
+      layer.addChild(container);
+      _fadeContainer(container, duration, opts.cleanupDelay ?? 120);
+      return _delay(duration).then(() => true);
+    }
     _applyBeamGlow(container, color, opts.beam?.shared);
     const glow = new PIXI.Graphics();
     const core = new PIXI.Graphics();
@@ -1460,6 +1710,16 @@ function _arrayChargeSourcePulse(sourcePoint, targetPoint, opts = {}) {
 
 function _arrayOrb(color, coreColor, opts = {}) {
   const orb = new PIXI.Container();
+  if(opts.shaded){
+    const halo=opts.orbGlowRadius??15;
+    const field=createWeaponEnergyOrb(orb,{color,coreColor,blend:_blendMode(opts.blendMode),
+      radius:Math.max(halo*1.8,(opts.ringRadius??8)*1.8,(opts.coreRadius??4)*2),
+      coreRadius:opts.coreRadius??4,haloRadius:halo,ringRadius:opts.ringRadius??8,ringWidth:opts.ringWidth??2,
+      innerRadius:opts.orbInnerRadius??9,innerAlpha:opts.orbInnerAlpha??.5,
+      coreAlpha:opts.coreAlpha??.96,haloAlpha:opts.orbGlowAlpha??.28,ringAlpha:(opts.ringAlpha??.78)*.32,
+      flareAlpha:(opts.orbInnerAlpha??.5)*.22});
+    if(field){orb.energyField=field;return orb;}
+  }
   const glow = new PIXI.Graphics();
   const core = new PIXI.Graphics();
   glow.blendMode = _blendMode(opts.blendMode);
@@ -1476,6 +1736,11 @@ function _arrayCurveMeetingFlash(point, color, coreColor, opts = {}) {
   const layer = _effectLayer();
   if (!layer || !point) return;
   const container = _sceneContainer(point.y);
+  if(opts.shaded&&_chargeFlashField(container,point,color,coreColor,opts)){
+    layer.addChild(container);
+    _fadeContainer(container,opts.flashFadeDuration??220,opts.cleanupDelay??120);
+    return;
+  }
   _applyBeamGlow(container, color, opts.beam?.shared);
   const flash = new PIXI.Graphics();
   flash.blendMode = _blendMode(opts.blendMode);
@@ -1484,6 +1749,16 @@ function _arrayCurveMeetingFlash(point, color, coreColor, opts = {}) {
   container.addChild(flash);
   layer.addChild(container);
   _fadeContainer(container, opts.flashFadeDuration ?? 220, opts.cleanupDelay ?? 120);
+}
+
+function _chargeFlashField(container,point,color,coreColor,opts){
+  const radius=opts.flashRingRadius??22;
+  const field=createWeaponEnergyOrb(container,{color,coreColor,blend:_blendMode(opts.blendMode),
+    radius:Math.max(radius*2,(opts.flashFillRadius??12)*2),coreRadius:opts.flashFillRadius??12,
+    haloRadius:radius,ringRadius:radius*.7,ringWidth:opts.flashRingWidth??2,
+    coreAlpha:opts.flashFillAlpha??.72,haloAlpha:.3,ringAlpha:(opts.flashRingAlpha??.62)*.25,flareAlpha:.22});
+  if(field){field.mesh.position.set(point.x,point.y);field.update(performance.now()/1000,1.35);}
+  return field;
 }
 
 function _beamShot(sourcePoint, targetPoint, opts = {}) {
@@ -1498,20 +1773,35 @@ function _beamShot(sourcePoint, targetPoint, opts = {}) {
   const duration = opts.duration ?? bank.hitDuration;
 
   const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
-  _applyBeamGlow(container, opts.color, shared);
   layer.addChild(container);
 
-  const glow = new PIXI.Graphics();
-  const beam = new PIXI.Graphics();
   const flare = new PIXI.Graphics();
   const spark = new PIXI.Graphics();
-  for (const child of [glow, beam, flare, spark]) child.blendMode = blend;
+  for (const child of [flare, spark]) child.blendMode = blend;
 
-  _drawLine(glow, sourcePoint, targetPoint, bank.glowWidth, opts.color, bank.glowAlpha);
-  _drawLine(beam, sourcePoint, targetPoint, bank.coreWidth, opts.coreColor, bank.coreAlpha);
+  // The shaded quad subsumes both strokes: the halo and the hot core are one
+  // transverse profile in the fragment shader rather than two lines. The stroke
+  // Graphics are built inside the closure so a shaded shot allocates neither.
+  const ribbon = _beamBody(container, sourcePoint, targetPoint, opts, {
+    widest: Math.max(bank.glowWidth, bank.coreWidth),
+    core: bank.coreWidth,
+    lifetimeMs: duration,
+  }, () => {
+    const glow = new PIXI.Graphics();
+    const beam = new PIXI.Graphics();
+    for (const child of [glow, beam]) child.blendMode = blend;
+    _drawLine(glow, sourcePoint, targetPoint, bank.glowWidth, opts.color, bank.glowAlpha);
+    _drawLine(beam, sourcePoint, targetPoint, bank.coreWidth, opts.coreColor, bank.coreAlpha);
+    container.addChild(glow, beam);
+  });
+  // Shaded: no filter on the container — the quad is its own glow, and the
+  // flares get their own filtered child layer instead.
+  _applyBodyGlow(container, ribbon, opts, shared);
+
+  const flares = _flareLayer(container, ribbon, opts, shared);
   _fillCircle(flare, sourcePoint.x, sourcePoint.y, bank.muzzleFillRadius, opts.coreColor, bank.muzzleFillAlpha);
   _strokeCircle(flare, sourcePoint.x, sourcePoint.y, bank.muzzleRingRadius, bank.muzzleRingWidth, opts.color, bank.muzzleRingAlpha);
-  container.addChild(glow, beam, flare);
+  flares.addChild(flare);
   if (opts.hit) {
     _fillCircle(spark, targetPoint.x, targetPoint.y, bank.impactFillRadius, opts.coreColor, bank.impactFillAlpha);
     _strokeCircle(spark, targetPoint.x, targetPoint.y, bank.impactRingRadius, bank.impactRingWidth, opts.color, bank.impactRingAlpha);
@@ -1522,7 +1812,9 @@ function _beamShot(sourcePoint, targetPoint, opts = {}) {
       layer.addChild(impactContainer);
       _fadeContainer(impactContainer, duration, shared.cleanupDelay, shared);
     } else {
-      container.addChild(spark);
+      // `flares` IS `container` unless this shot is shaded, so unshaded
+      // behaviour is byte-identical to before.
+      flares.addChild(spark);
     }
   }
 
@@ -1564,24 +1856,61 @@ function _tracerVolley(sourcePoint, targetPoint, opts = {}) {
   const flashMs = Math.max(80, travel * 0.35);
   const lifetime = ((bolts - 1) * tracer.boltSpacing) + travel + flashMs;
 
+  const shader = _shaderCfg(opts);
   const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y), opts.layer);
-  _applyBeamGlow(container, opts.color, shared);
   layer.addChild(container);
+
+  // Built BEFORE the ribbon, because child order is draw order: the glow and
+  // trail belong under the shaded bolt, not over it. Shader mode only — the
+  // Experimental Native look is deliberately left exactly as it was.
+  const glow = shader ? createBoltGlow(container, {
+    color: opts.color,
+    coreColor: opts.coreColor,
+    blend,
+    boltCount: bolts,
+    gridSize: canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100,
+    dials: cfg.boltGlow,
+  }) : null;
+
+  // ONE quad for the whole volley, never one per bolt: QuadMesh#_render calls
+  // renderer.batch.flush() before every draw, so a mesh each would flush the
+  // batcher once per bolt per frame — measurably worse than the strokes it
+  // replaces. The bolts become windows along the quad's own u axis.
+  const ribbon = shader ? createBeamRibbon(container, {
+    mode: "bolts",
+    from: sourcePoint,
+    to: targetPoint,
+    halfWidth: Math.max(1, Math.max(tracer.glowWidth, tracer.coreWidth) * (Number(shader.widthScale) || 1.6)),
+    color: opts.color,
+    coreColor: opts.coreColor,
+    shader,
+    profile: { core: tracer.coreWidth, rail: [0, 0] },
+    lifetimeMs: lifetime,
+    blendMode: blend,
+  }) : null;
+  _applyBodyGlow(container, ribbon, opts, shared);
+
   const stream = new PIXI.Graphics();
   stream.blendMode = blend;
-  container.addChild(stream);
+  // Shaded, the stream Graphics carries only the muzzle flare, so it belongs in
+  // the filtered flare layer beside the spark rather than under the quad.
+  const flares = _flareLayer(container, ribbon, opts, shared);
+  flares.addChild(stream);
 
   // Mirrors _beamShot: when the emitter draws below the token, impacts still
   // need to land above it, so they get their own container.
   const sparkG = new PIXI.Graphics();
   sparkG.blendMode = blend;
-  let sparkContainer = container;
+  // Only a "below" shot gets a SECOND top-level container that has to be faded
+  // and destroyed on its own. The shaded flare layer is a child of `container`
+  // and rides its fade, so it must not end up here.
+  let sparkOwnContainer = null;
   if (opts.layer === "below") {
-    sparkContainer = _sceneContainer(targetPoint.y);
-    _applyBeamGlow(sparkContainer, opts.color, shared);
-    layer.addChild(sparkContainer);
+    sparkOwnContainer = _sceneContainer(targetPoint.y);
+    _applyBeamGlow(sparkOwnContainer, opts.color, shared);
+    layer.addChild(sparkOwnContainer);
   }
-  sparkContainer.addChild(sparkG);
+  (sparkOwnContainer ?? flares).addChild(sparkG);
 
   const pointAt = t => ({ x: sourcePoint.x + (dx * t), y: sourcePoint.y + (dy * t) });
   const ticker = canvas.app?.ticker;
@@ -1592,9 +1921,10 @@ function _tracerVolley(sourcePoint, targetPoint, opts = {}) {
     if (finished) return;
     finished = true;
     try { ticker?.remove?.(tick); } catch { /* no-op */ }
+    try { ribbon?.stop?.(); } catch { /* no-op */ }
     const fadeMs = Math.max(120, flashMs);
     _fadeContainer(container, fadeMs, shared.cleanupDelay, shared);
-    if (sparkContainer !== container) _fadeContainer(sparkContainer, fadeMs, shared.cleanupDelay, shared);
+    if (sparkOwnContainer) _fadeContainer(sparkOwnContainer, fadeMs, shared.cleanupDelay, shared);
   };
 
   const tick = () => {
@@ -1602,6 +1932,9 @@ function _tracerVolley(sourcePoint, targetPoint, opts = {}) {
       const elapsed = performance.now() - start;
       stream.clear?.();
       sparkG.clear?.();
+      // Shaded: the bolts are collected into one uniform array and uploaded
+      // once, instead of two strokes each into the Graphics below.
+      const live = ribbon ? [] : null;
       for (let i = 0; i < bolts; i++) {
         const since = elapsed - (i * tracer.boltSpacing);
         if (since < 0) continue;
@@ -1609,11 +1942,21 @@ function _tracerVolley(sourcePoint, targetPoint, opts = {}) {
 
         // The bolt itself, dimming as it crosses.
         if (t <= 1) {
-          const head = pointAt(t);
-          const tail = pointAt(Math.max(0, t - boltT));
           const fade = 1 - (tracer.tailFade * t);
-          _drawLine(stream, tail, head, tracer.glowWidth, opts.color, tracer.glowAlpha * fade);
-          _drawLine(stream, tail, head, tracer.coreWidth, opts.coreColor, tracer.coreAlpha * fade);
+          if (live) {
+            // `slot` is the bolt's own index, carried because `live` is
+            // COMPACTED — a bolt that has landed is simply absent, so array
+            // position shifts under the ones still flying. The ribbon does not
+            // care (it draws N windows), but the glow keeps a sprite set per
+            // bolt, and without a stable slot a landing bolt would hand its
+            // trail to the next one and visibly pop it backwards.
+            live.push({ slot: i, head: t, length: boltT, brightness: Math.max(0, fade) });
+          } else {
+            const head = pointAt(t);
+            const tail = pointAt(Math.max(0, t - boltT));
+            _drawLine(stream, tail, head, tracer.glowWidth, opts.color, tracer.glowAlpha * fade);
+            _drawLine(stream, tail, head, tracer.coreWidth, opts.coreColor, tracer.coreAlpha * fade);
+          }
         }
 
         // Muzzle flare, fading over its own short clock after launch.
@@ -1631,6 +1974,12 @@ function _tracerVolley(sourcePoint, targetPoint, opts = {}) {
             _strokeCircle(sparkG, targetPoint.x, targetPoint.y, bank.impactRingRadius, bank.impactRingWidth, opts.color, bank.impactRingAlpha * spark);
           }
         }
+      }
+      if (live) {
+        ribbon.setBolts(live);
+        // Same `live` list and the same `pointAt` the bolts are drawn from, so
+        // the glow cannot sit anywhere but on its bolt.
+        glow?.update(pointAt, live, boltT);
       }
       if (elapsed >= lifetime) cleanup();
     } catch (err) {
@@ -1660,7 +2009,6 @@ function _arrayBeam(sourcePoint, targetPoint, opts = {}) {
   const sweepColor = _parseHexColor(array.sweepColor, opts.coreColor);
 
   const container = _sceneContainer(Math.max(sourcePoint.y, targetPoint.y));
-  _applyBeamGlow(container, opts.color, shared);
   layer.addChild(container);
 
   const dx = targetPoint.x - sourcePoint.x;
@@ -1670,26 +2018,38 @@ function _arrayBeam(sourcePoint, targetPoint, opts = {}) {
   const ny = dx / len;
   const rail = array.railOffset;
 
-  const glow = new PIXI.Graphics();
-  const beam = new PIXI.Graphics();
-  const sweep = new PIXI.Graphics();
-  for (const child of [glow, beam, sweep]) child.blendMode = blend;
-
-  _drawLine(glow, sourcePoint, targetPoint, array.haloWidth, opts.color, array.haloAlpha);
-  _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, rail), _offsetPoint(targetPoint, nx, ny, rail), array.railWidth, opts.color, array.railAlpha);
-  _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, -rail), _offsetPoint(targetPoint, nx, ny, -rail), array.railWidth, opts.color, array.railAlpha);
-  _drawLine(beam, sourcePoint, targetPoint, array.coreWidth, opts.coreColor, array.coreAlpha);
-  _drawLine(sweep, sourcePoint, targetPoint, array.sweepWidth, sweepColor, array.sweepAlpha);
+  // Shaded, all five strokes are one transverse profile: the halo is the sheath
+  // falloff, the two offset rails are a symmetric pair of lobes at `railOffset`,
+  // the core is the core, and the hot sweep line is subsumed by the surge band
+  // travelling along the quad. The stroke Graphics are built inside the closure
+  // so a shaded shot allocates none of them.
+  const ribbon = _beamBody(container, sourcePoint, targetPoint, opts, {
+    widest: Math.max(array.haloWidth, array.coreWidth, rail + array.railWidth),
+    core: array.coreWidth,
+    rail: [rail, array.railWidth],
+    lifetimeMs: duration,
+  }, () => {
+    const glow = new PIXI.Graphics();
+    const beam = new PIXI.Graphics();
+    const sweep = new PIXI.Graphics();
+    for (const child of [glow, beam, sweep]) child.blendMode = blend;
+    _drawLine(glow, sourcePoint, targetPoint, array.haloWidth, opts.color, array.haloAlpha);
+    _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, rail), _offsetPoint(targetPoint, nx, ny, rail), array.railWidth, opts.color, array.railAlpha);
+    _drawLine(glow, _offsetPoint(sourcePoint, nx, ny, -rail), _offsetPoint(targetPoint, nx, ny, -rail), array.railWidth, opts.color, array.railAlpha);
+    _drawLine(beam, sourcePoint, targetPoint, array.coreWidth, opts.coreColor, array.coreAlpha);
+    _drawLine(sweep, sourcePoint, targetPoint, array.sweepWidth, sweepColor, array.sweepAlpha);
+    container.addChild(glow, beam, sweep);
+  });
+  _applyBodyGlow(container, ribbon, opts, shared);
 
   if (opts.hit) {
     const spark = new PIXI.Graphics();
     spark.blendMode = blend;
     _fillCircle(spark, targetPoint.x, targetPoint.y, array.impactFillRadius, opts.coreColor, array.impactFillAlpha);
     _strokeCircle(spark, targetPoint.x, targetPoint.y, array.impactRingRadius, array.impactRingWidth, opts.color, array.impactRingAlpha);
-    container.addChild(spark);
+    _flareLayer(container, ribbon, opts, shared).addChild(spark);
   }
 
-  container.addChild(glow, beam, sweep);
   _fadeContainer(container, duration, shared.cleanupDelay, shared);
 }
 
@@ -1802,15 +2162,20 @@ function _sceneContainer(y = 0, sourceLayer = "above") {
  * `shared` is handed in rather than read here so the Beam VFX settings tab can
  * preview unsaved slider positions; callers without a config in hand pass null
  * and fall through to the saved world setting.
+ *
+ * `sizeOverride` lets shader mode ask for a different distance than the shared
+ * one — normally 0, i.e. no filter at all over a beam that is already its own
+ * glow. Passing 0 explicitly is meaningful and must not fall back to `shared`.
  */
-function _applyBeamGlow(container, color, shared = null) {
+function _applyBeamGlow(container, color, shared = null, sizeOverride = null) {
   const cfg = shared ?? getBeamVfxSettings().shared;
-  if (!(Number(cfg?.glowSize) > 0)) return;
+  const size = sizeOverride === null ? Number(cfg?.glowSize) : Number(sizeOverride);
+  if (!(size > 0)) return;
   try {
     const GlowFilter = PIXI.filters?.GlowFilter ?? globalThis.PIXI?.filters?.GlowFilter;
     if (!GlowFilter) return;
     const filter = new GlowFilter({
-      distance: cfg.glowSize,
+      distance: size,
       outerStrength: cfg.glowStrength,
       innerStrength: cfg.glowInnerStrength,
       color: Number.isFinite(color) ? color : PHASER_PRIMARY,
@@ -1827,6 +2192,99 @@ function _applyBeamGlow(container, color, shared = null) {
 
 function _offsetPoint(point, nx, ny, amount) {
   return { x: point.x + nx * amount, y: point.y + ny * amount };
+}
+
+// ── The shader seam ─────────────────────────────────────────────────────────
+
+/**
+ * The `shader` settings group when this shot should be shaded, else null.
+ *
+ * `opts.shaded` is threaded onto the shot object exactly the way `beam`, `shape`
+ * and `bolt` already are — the fire functions know the family, the draw
+ * functions do not. An explicit `true` is what lets the Beam VFX tab preview
+ * shader dials before the mode is switched on.
+ */
+function _shaderCfg(opts) {
+  if (opts?.shaded !== true) return null;
+  const cfg = (opts.beam ?? getBeamVfxSettings()).shader;
+  return cfg && beamShaderAvailable() ? cfg : null;
+}
+
+/**
+ * The beam BODY — one shaded quad, or the stroked lines this module has always
+ * drawn.
+ *
+ * **This is the only shader-vs-Graphics branch in the module.** Every family
+ * goes through it, and the fallback path is literally the existing code, moved
+ * into the `strokes` closure. A closure rather than a flag because the stroke
+ * sets differ per family (a bank draws two lines, an array five) and reproducing
+ * that structure in here would be a second copy of it.
+ *
+ * `spec.widest` is the family's fattest stroke in pixels; the quad's half-width
+ * is that times `widthScale`, so the existing per-family width dials keep
+ * meaning something after a world flips to shader mode.
+ *
+ * Returns the ribbon handle when it shaded, else null.
+ */
+function _beamBody(container, from, to, opts, spec, strokes) {
+  const shader = _shaderCfg(opts);
+  if (shader) {
+    const ribbon = createBeamRibbon(container, {
+      mode: spec.mode ?? "beam",
+      from,
+      to,
+      halfWidth: Math.max(1, (Number(spec.widest) || 4) * (Number(shader.widthScale) || 1.6)),
+      color: opts.color,
+      coreColor: opts.coreColor,
+      shader,
+      profile: { core: Number(spec.core) || 2, rail: spec.rail ?? [0, 0] },
+      lifetimeMs: spec.lifetimeMs,
+      blendMode: _blendMode((opts.beam ?? getBeamVfxSettings()).shared?.blendMode),
+    });
+    // A null here means the probe passed but this particular build failed; the
+    // ribbon has already warned, so just fall through to the strokes.
+    if (ribbon) return ribbon;
+  }
+  strokes();
+  return null;
+}
+
+/**
+ * Where the muzzle flare and impact spark go.
+ *
+ * Unshaded: straight onto the effect container, which carries the glow — what
+ * it has always done. Shaded: a child container that carries the glow on its
+ * own, because the beam quad must NOT be filtered. A filtered container renders
+ * to an offscreen target first (see `_applyBeamGlow`), which would both
+ * double-composite a quad that is already its own bloom and cost a second full
+ * render pass per beam — the exact cost the shader exists to avoid.
+ *
+ * The discs still want the filter: they are hard-edged Graphics a few pixels
+ * across, which is why `groundPhaser` grew its own `flashGlow*` dials at all.
+ *
+ * `ribbon` is the handle `_beamBody` actually returned, NOT the intent to shade
+ * — if the shader was wanted but the build failed, the strokes were drawn and
+ * they need the glow on the container exactly as they always did.
+ */
+function _flareLayer(container, ribbon, opts, shared) {
+  if (!ribbon) return container;
+  const layer = new PIXI.Container();
+  _applyBeamGlow(layer, opts.color, shared);
+  container.addChild(layer);
+  return layer;
+}
+
+/**
+ * The glow pass for an effect container, deferred until the body is drawn.
+ *
+ * Which pass a container wants depends on whether a ribbon was actually built,
+ * so this cannot be decided up front: a shaded beam is its own glow and takes
+ * `shader.glowSize` (0 by default, i.e. none), while a beam that fell back to
+ * strokes needs the ordinary shared halo or it renders visibly flat.
+ */
+function _applyBodyGlow(container, ribbon, opts, shared) {
+  const shader = ribbon ? _shaderCfg(opts) : null;
+  _applyBeamGlow(container, opts.color, shared, shader ? shader.glowSize : null);
 }
 
 function _drawLine(g, from, to, width, color, alpha) {
@@ -1860,6 +2318,12 @@ function _strokeCircle(g, x, y, radius, width, color, alpha) {
   g.circle(x, y, radius).stroke({ width, color, alpha });
 }
 
+function _destroyFilters(node) {
+  if (!node) return;
+  try { for (const f of node.filters ?? []) f?.destroy?.(); } catch { /* older pixi-filters */ }
+  try { node.filters = null; } catch { /* already gone */ }
+}
+
 // `fade` lets the beams drive the hold/fade split and easing from the world
 // Beam VFX settings. Charge-up callers omit it and keep the original curve.
 function _fadeContainer(container, duration = 420, cleanupDelay = 120, fade = null) {
@@ -1869,9 +2333,11 @@ function _fadeContainer(container, duration = 420, cleanupDelay = 120, fade = nu
   _tween(container, { alpha: 0, duration: Math.max(120, duration * (1 - hold)), ease }, Math.max(90, duration * hold));
   setTimeout(() => {
     // destroy() does not take the filters with it, and a GlowFilter holds a
-    // shader program.
-    try { for (const f of container.filters ?? []) f?.destroy?.(); } catch { /* older pixi-filters */ }
-    try { container.filters = null; } catch { /* already gone */ }
+    // shader program. Shader mode puts the glow on a CHILD container (the beam
+    // quad must not be filtered), so the direct children have to be walked too
+    // or that filter leaks on every shot.
+    _destroyFilters(container);
+    for (const child of container.children ?? []) _destroyFilters(child);
     try { container.destroy({ children: true }); } catch { /* no-op */ }
   }, duration + Math.max(0, Number(cleanupDelay) || 0));
 }
@@ -1949,3 +2415,11 @@ export function nativeVfxBlendMode(mode) {
 export function playNativeVfxSound(soundPath, volume = 1) {
   _playSound(soundPath, volume);
 }
+
+// A scene change destroys the token layer, and with it every mesh a live beam
+// ribbon is driving. Drop the handles and re-probe — the new canvas is a new
+// renderer and a new GL context. The noise texture and the compiled programs
+// deliberately survive, since rebuilding them would force a GLSL recompile on
+// the next shot for nothing. Registered here rather than in `beam-shader.js` so
+// that file stays a leaf with no side effects on import.
+Hooks.on("canvasTearDown", () => releaseBeamShaderCache());

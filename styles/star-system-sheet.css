@@ -1228,6 +1228,24 @@
 
 /* ── Create Scene Map dialog ───────────────────────────────────────────── */
 
+.sta2e-planet-generator { display: grid; gap: 10px; max-height: calc(100vh - 180px); overflow-y: auto; padding: 4px; }
+.sta2e-planet-options { display: grid; gap: 8px; padding: 8px 0; }
+.sta2e-planet-generator summary { cursor: pointer; font-weight: bold; padding: 5px 0; }
+.sta2e-planet-colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sta2e-planet-generator .sta2e-planet-colors label > input[type="color"] { flex: 0 0 40px; width: 40px; min-width: 40px; }
+.sta2e-planet-generator output { min-width: 35px; text-align: right; }
+.sta2e-planet-generator label { display: flex; align-items: center; gap: 10px; }
+.sta2e-planet-generator [hidden] { display: none !important; }
+.sta2e-planet-generator [data-gas-options] { display: grid; gap: 8px; }
+.sta2e-planet-generator label > input:not([type="checkbox"]),
+.sta2e-planet-generator select { flex: 1; min-width: 0; }
+.sta2e-planet-generator [data-planet-preview] { text-align: center; background: #050912; border-radius: 8px; }
+.sta2e-planet-generator canvas { width: 256px; height: auto; max-width: 100%; }
+.sta2e-planet-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sta2e-planet-previews figure { margin: 0; text-align: center; }
+.sta2e-planet-previews figcaption { padding-top: 5px; font-size: 12px; }
+.sta2e-planet-generator p { margin: 0; font-size: 12px; }
+
 .sta2e-ss-scene-dialog h4 {
   margin: 10px 0 6px;
   border: none;

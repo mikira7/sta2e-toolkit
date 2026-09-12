@@ -327,6 +327,64 @@ function _fbm(grid, u, v, octaves, features = 3) {
 }
 
 /**
+ * A seamless, tiling fBm noise texture, greyscale in RGB with opaque alpha.
+ *
+ * Built for the beam shader, which samples it far outside 0..1 as the
+ * turbulence scrolls along the beam — so unlike every other texture here this
+ * one has to TILE, and two things make that true:
+ *
+ *  - `_sampleNoise` already wraps by modulo, so `_fbm` is periodic in u and v
+ *    provided every octave lands on a whole number of cells. `features` is
+ *    doubled per octave, so **it must be an integer** or a seam runs down the
+ *    beam every time the noise scrolls past.
+ *  - `wrapMode = REPEAT` is only legal on a power-of-two texture in WebGL 1,
+ *    which is why `size` defaults to 128 and should stay a power of two.
+ *
+ * No lobes and no radial edge fade — this is the raw field, not a sprite.
+ */
+export function buildNoiseTexture({ size = 128, octaves = 4, features = 4, contrast = 1 } = {}) {
+  const oc = document.createElement("canvas");
+  oc.width = oc.height = size;
+  const ctx = oc.getContext("2d");
+
+  const grid = new Float32Array(NOISE_GRID * NOISE_GRID);
+  for (let i = 0; i < grid.length; i++) grid[i] = Math.random();
+
+  let img;
+  try {
+    img = ctx.createImageData(size, size);
+  } catch {
+    // No pixel access (a tainted or stubbed canvas). Mid-grey tiles fine and
+    // reduces the shader to a clean gradient beam rather than failing to build.
+    ctx.fillStyle = "#808080";
+    ctx.fillRect(0, 0, size, size);
+    const flat = PIXI.Texture.from(oc);
+    try { flat.baseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT; } catch { /* v8 names it differently */ }
+    return flat;
+  }
+
+  const d = img.data;
+  // Integer `features` keeps every octave on a whole number of lattice cells,
+  // which is what makes the result periodic — see the docblock.
+  const feat = Math.max(1, Math.round(features));
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const n = Math.pow(_fbm(grid, x / size, v, octaves, feat), contrast);
+      const c = Math.max(0, Math.min(255, Math.round(n * 255)));
+      const i = (y * size + x) * 4;
+      d[i] = d[i + 1] = d[i + 2] = c;
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = PIXI.Texture.from(oc);
+  try { tex.baseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT; } catch { /* no REPEAT constant */ }
+  return tex;
+}
+
+/**
  * One gas cloud.
  *
  * Two stages, and the second is what makes it a cloud rather than a smudge:

@@ -67,6 +67,56 @@ Two rules the role abilities in the roller depend on:
 
 Bonus Momentum has the same shape of trap: it is summed independently in `npc-roller.js` (dialog summary, chat card, player card, weapon and post-roll tracker paths), in `combat-hud-core.js`'s confirm handler, and in `_opposedSideBonusMomentum` ([opposed-task.js](scripts/opposed-task.js)) — a new bonus-Momentum talent must be added to all of them.
 
+### Token HUD
+
+**One control, not four.** [token-toolkit-hud.js](scripts/token-toolkit-hud.js) is
+the module's sole `renderTokenHUD` hook: a single arrowhead button that opens a
+drill-down menu. It replaced four separate controls that each owned a hook, a
+control and a flyout — the ship command arrowhead, the weapon crosshair, the Q
+sparkle-hand, and an inline meteor button in `main.js`. On a starship that was
+four icons stacked under Foundry's own controls.
+
+**Navigation is the rebuild-in-place idiom the rich palettes already used, with
+one extra piece of state — which section is open.** A level change builds a fresh
+palette from `{sectionId, state}`, inherits the old one's `style.top` and
+`replaceWith`es it, so the panel never jumps. There is only ever one panel on
+screen, which is why `toggleHudFlyout`'s "one flyout per column" sweep — the one
+real hazard for a nested menu — can never bite.
+
+A section is a **descriptor, not a hook**. Two shapes:
+
+```js
+branch: { id, label, icon, tooltip?, available(token),
+          initialState?(host), build(host, state) -> Element[] }
+leaf:   { id, label, icon, tooltip?, leaf: true, available(token), run(host) }
+```
+
+`host` is `{app, token, control, palette, rebuild(next), back()}`. Each feature
+file's old `rebuild()` closure maps onto `host.rebuild()` one for one, which is
+why the conversion touched no row body. Four things it rests on:
+
+- **`build()` returns rows, never a flyout.** The host owns the container, the
+  `data-section` stamp and both connection guards. A section that builds its own
+  `buildHudFlyout` would nest a panel inside a panel.
+- **`buildHudItem` lives in [token-hud-util.js](scripts/token-hud-util.js), not in
+  the host.** The host imports the sections, so a row builder exported from it
+  would close a cycle. That util is the leaf, and it is also why the three
+  byte-identical local copies of the row builder are now one.
+- **The VFX leaf reaches its editor through `game.sta2eToolkit.openObjectVfxEditor`,
+  not an `import`** — the same precedent the Weapons section sets for the Combat
+  HUD, and it keeps the host out of `ship-vfx-anchors.js`'s import graph.
+- **The control is not drawn when no section is available**, so the arrowhead
+  never opens an empty menu.
+
+Colour is deliberately static LCARS orange. The Token HUD sits outside the themed
+`LC` token system and no HUD injection in this module themes itself — do not pull
+`lcars-theme.js` in here. Shape lives in
+[styles/token-hud-flyout.css](styles/token-hud-flyout.css) (container, rows, the
+`.section` / `.leaf` / `.back` variants) and the control's art in
+[styles/token-toolkit-hud.css](styles/token-toolkit-hud.css). The weapon grid
+sizes itself off `.sta2e-hud-flyout[data-section="weapons"]` — that attribute is
+what replaces the per-feature flyout class each section used to own.
+
 ### Zone System
 
 Three-file system:
@@ -175,7 +225,7 @@ Placement is shared: [scripts/spawn-picker.js](scripts/spawn-picker.js) has the 
 - `pads:<group>` — **one token per Region flagged as a spawn marker.** Regions are flagged in their own config (`flags.sta2e-toolkit.transporterPad`, with an optional `flags.sta2e-toolkit.padGroup` name), injected by [scripts/region-pad-config.js](scripts/region-pad-config.js) using the same native-form-path trick as `zone-token-config.js`. Markers are used in natural-sorted Region-name order ("Pad 1".."Pad 10"), unnamed ones last. All or nothing: fewer markers than queued tokens is an error that places nobody. Never grid-snapped — the marker is where the GM drew it.
 - `region:<id>` — fill one Region's grid spaces, centre-outward, footprint-checked. Grid-snapped. Pad-flagged Regions are excluded from this list.
 
-**Q tab** ([scripts/q-spawner.js](scripts/q-spawner.js)) is the transporter without the in-fiction limits — no six-pattern cap, no emitter types — plus a **Q Flash Move**: select tokens, click once, and the whole group is translated by one offset, keeping its shape. The actions that operate on tokens already on the canvas — Flash Move, **Flash Kick**, Snap Out + Hold — live in [scripts/q-actions.js](scripts/q-actions.js) rather than the tab, because the Token HUD needs them too ([scripts/q-hud.js](scripts/q-hud.js), GM-only, **no actor-type gate** — unlike the ship command HUD it appears on every token). `resolveQTargets(token)` is the shared rule for what they act on: the current selection when the HUD's token is part of it, otherwise just that token.
+**Q tab** ([scripts/q-spawner.js](scripts/q-spawner.js)) is the transporter without the in-fiction limits — no six-pattern cap, no emitter types — plus a **Q Flash Move**: select tokens, click once, and the whole group is translated by one offset, keeping its shape. The actions that operate on tokens already on the canvas — Flash Move, **Flash Kick**, Snap Out + Hold — live in [scripts/q-actions.js](scripts/q-actions.js) rather than the tab, because the Token HUD needs them too ([scripts/q-hud.js](scripts/q-hud.js) is the toolkit menu's Q section, GM-only, with **no actor-type gate** — unlike the Ship Command section it is offered on every token). `resolveQTargets(token)` is the shared rule for what they act on: the current selection when the HUD's token is part of it, otherwise just that token.
 
 **Q Flash Kick** throws tokens across the scene: the flash fires *behind* them (opposite their heading), then they lurch away, tumble, fade, and land as far along that heading as the scene rect allows. Aim comes from `game.user.targets` if anything is targeted, otherwise `pickHeading`. Two rules the implementation depends on, both easy to break:
 - The flight is a stream of `document.update` waypoints, so **it needs no socket action** — Foundry replicates position, rotation and alpha to every client itself. Only the flash and screen wash broadcast, and they do that themselves.
@@ -917,6 +967,129 @@ percent scales the *elongation*, so 0% is genuinely no stretch. Both rifts and
 `runWarpEngageCard` reads the `standard` style's stretch rather than the ship's,
 which does not weaken its style-agnostic contract — a look is not a timing.
 
+### Deflector Dish
+
+The navigational deflector, fired from the Token HUD's **Deflector Dish** section
+([deflector-hud.js](scripts/deflector-hud.js)) and drawn by
+[deflector-vfx.js](scripts/deflector-vfx.js). Four looks out of one placed
+emitter:
+
+| type | shape | aims at |
+|---|---|---|
+| `chargeGlow` | tiny motes drawn in from open space ahead of the ship, straight down a cone into the dish | nothing |
+| `pulse` | a crescent shockwave — smooth bright front, turbulent fog tail — that **swells and slows** as it crosses | a target |
+| `beam` | **several** lances fanned across the target area | a target |
+| `stream` | a translucent column with glowing motes running down inside it | a target |
+
+**Purely cosmetic** — no roll, no Power cost, no chat card, no rules hook. The
+engine trail is the contract it matches, and most of its scaffolding is that
+file's, lifted deliberately. Only the charge cone is aimless; the other three
+take a target point (a targeted token, else a canvas click) from whichever
+surface fired them, which is also why the emitter's **facing aims the charge
+cone and nothing else**.
+
+**The effect type is ship state, not emitter state.** A dish is one physical
+location and all four effects come out of it, so a `type` field on the emitter
+would mean stamping four markers on the same pixel and a marker list of
+overlapping dots. `anchors.deflectorEmitters` is pure placement
+(`{x, y, label, facingDeg, layer}`, facing defaulting to **0 — fore**, unlike an
+exhaust's 180) and `settings.deflector` is
+`{enabled, type, chargeGlow, pulse, beam, stream}` — structurally `engineTrail`
+with four modes instead of two, which is what makes every normalizer a near-copy.
+Six dials are shared (`colorMode`, `customColor`, `alpha`, `blendMode`, `width`,
+`durationMs`); the rest are per-type and are emitted **only for the types whose
+defaults declare them**, the same way the engine block treats `glowSize`.
+
+Six things the implementation rests on:
+
+- **`_deflectorRows` is why four effect types did not cost four template blocks.**
+  `_chargeRows` had already established a generic dial descriptor
+  (`{key, label, type, min, max, step, value, isColor, pickerValue}`) rendered by
+  one `{{#each}}` and read back by one `[data-…-setting]` sweep. The deflector tab
+  is that pattern again, so adding a fifth effect is a table entry.
+- **The dials are read back onto the type the FORM was built for**, stamped as
+  `data-deflector-form-type` on the settings block — not onto whatever the type
+  select currently says. A `change` on that select fires *before* the re-render,
+  so reading it live would copy one effect's dials onto another's block. Same
+  hazard, and same fix, as `_emitterFormIndex`.
+- **A preview is always a burst, even for the two sustained types.** Auto-preview
+  fires on every slider change, and a charge glow that held would sit lit on the
+  canvas until the GM went hunting for the Stop row. `previewDeflectorEffect`
+  releases it after `PREVIEW_HOLD_MS`, the same beat the warp-glow preview uses.
+  It also takes settings and emitters **as arguments**, like `previewEngineTrail`,
+  so unlike the warp glow the editor never has to persist the flag to see what it
+  is dragging.
+- **`createBeamRibbon` exposes `setSegment`, so the lance tracks a moving hull.**
+  Both the shader path and the mandatory Graphics fallback (the ribbon returns
+  **null** whenever `beamShaderAvailable()` is false) are re-placed every frame
+  from a re-read emitter point, so the two cannot drift apart in behaviour. One
+  container alpha drives the envelope for both, because the beam shader's
+  `_preRender` copies `mesh.worldAlpha` into `uAlpha`.
+- **A charge mote rides a straight ray, held as `(along, lateral)` rather than as
+  an angle.** Its offset from the axis is `u * along * tan(coneHalf)`, so both
+  terms fall to zero together and the path is a line onto the dish that cannot
+  leave the cone. Holding a fixed *angle* and shrinking the radius instead — the
+  obvious formulation — seeds every mote on a circular arc and sweeps each
+  through a curve: the field reads as **motes orbiting the ship** rather than
+  being drawn in from the space ahead of it. There is deliberately **no swirl
+  dial**; it was tried twice and it is the wrong read for an intake. The intake
+  also reaches well out in front (`radiusPx` 420 against a 44° cone) — a short
+  wide cone reads as a glow on the nose rather than as something being pulled in
+  from open space.
+- **A removed dial is removed from the DEFAULTS, not defaulted to zero.**
+  `_normalizeDeflectorModeSettings` only emits a dial the type's own defaults
+  declare, so deleting `swirlTurns` there also drops whatever a ship saved while
+  it existed. Setting the default to 0 instead would have left every
+  already-saved ship swirling, since a saved flag carries its own value.
+- **The crescent is TWO layers, and the split is the whole look.** A *front* —
+  seven nested lens fills sharing one outer arc, five shrinking inward plus two
+  wider faint ones *outside* it, so additive stacking peaks at the leading edge
+  and blooms just past it — and a *tail* of turbulent blobs shed **behind** that
+  front, whiter, wider in sweep, dispersing and thinning backwards, and lagging
+  further the faster the wave is still travelling (so it stretches on the way out
+  and gathers as it slows in). An earlier version laid the haze *on* the arc,
+  which fuzzed the leading edge and left the wave with no front at all: what
+  makes it read as a shockwave rather than a cloud is that **one edge is clean**,
+  so nothing noisy may touch it. `_drawCrescent` draws no bright spine for the
+  same reason. The tail container is added **before** the front's Graphics, so
+  the fog can never draw over the edge. The taper is still what makes it a
+  crescent — the lens thickness and the fog density both fall to nothing at the
+  tips on the same `(1 - u²)` profile — and the deceleration and the swelling are
+  **the same eased parameter**, so they cannot drift apart.
+- **`ringCount` defaults to 1.** One well-formed shockwave is the look; three
+  staggered crescents read as ripples, which is a different effect.
+- **The lance bundle fans about the DISH, not about its own centre.** Rotating
+  each endpoint around the emitter is what makes the beams converge where they
+  leave the ship and spread where they land — which is what "across the target
+  area" means. Each lance gets its **own sub-container**, so a per-beam flicker
+  is one alpha write and works for the shader too (`_preRender` copies
+  `mesh.worldAlpha` into `uAlpha`).
+- **A stream mote's lifetime is derived, never configured.** It holds a fixed
+  lateral place in the column and advances at `speedPxPerSec`, so the life falls
+  out of the distance — which is also what keeps the motes correct when the ship
+  drifts and the column lengthens mid-flight.
+- **Tint is written at seed and on recycle; alpha deliberately is not.** The fade
+  along a mote's path *is* the effect, and these pools are two orders of magnitude
+  smaller than a star field — the rule that matters is the colour conversion in
+  the tint setter, which is what the Scene Warp note is about.
+
+Sounds are four keys in **Settings → Sounds & Animations → Deflector**, played
+**locally on every client** (`AudioHelper.play(…, false)`) because every client
+runs `playDeflectorEffect` for itself off the broadcast — `true` there would
+multiply one shot by the number of connected clients. The tab carries **no timing
+rows**: every duration is a per-ship dial in the editor, where it is tuned against
+a live Preview, and a second copy would be a stale second source of truth.
+
+Socket actions are `deflectorVfx` / `stopDeflectorVfx`, play-locally-then-raw-emit
+(never `emitToolkitSocket`), `sceneId` from the **source token's** scene, the
+target as **coordinates rather than a token id**, and the stop handler
+deliberately **un**-scene-guarded — a stop discarded on a guard strands a
+sustained effect lit for good.
+
+Covered by [tests/deflector-vfx.mjs](tests/deflector-vfx.mjs), which drives all
+four renderers against a stubbed PIXI and asserts the teardown, the registry, the
+hold-vs-burst split and the broadcast payload.
+
 ### NPC Roller
 
 [scripts/npc-roller.js](scripts/npc-roller.js) — LCARS-styled dice roller dialog (`DialogV2`). Handles two pools (Crew and Ship), clickable die pips for rerolls, Targeting Solution bonus die, and Threat spending for rerolls after the first. Posts results as LCARS chat cards.
@@ -1138,7 +1311,13 @@ through `lcarsChatCard`.
 | `assets/spawn-frame-top.svg` / `-bottom.svg` | The frame artwork, worn as a `mask-image` so it still recolours per era. Inkscape-wrapped raster — no path to fill, which is why it is masked rather than tinted; the stylesheet's column positions are measured off it |
 | [scripts/q-spawner.js](scripts/q-spawner.js) | Q tab of the spawn window — uncapped snap in/out, hold buffer, Q Flash Move |
 | [scripts/q-actions.js](scripts/q-actions.js) | Q Flash Move and Snap Out + Hold — shared by the Q tab and the Token HUD |
-| [scripts/q-hud.js](scripts/q-hud.js) | Q control on the Token HUD, GM-only, every token type |
+| [scripts/token-toolkit-hud.js](scripts/token-toolkit-hud.js) | The module's **only** Token HUD control — the arrowhead, the drill-down menu, and the section registry |
+| [scripts/token-hud-util.js](scripts/token-hud-util.js) | Token HUD plumbing — `buildHudControl`, `buildHudFlyout`, `buildHudItem`, `resolveHudToken`, `toggleHudFlyout`. A leaf; the sections import the row builder from here |
+| [scripts/ship-command-hud.js](scripts/ship-command-hud.js) | Ship Command section — warp, tractor, scan, cloak, shields. Also owns `isShipActor`, the widest of the ship tests |
+| [scripts/token-weapon-hud.js](scripts/token-weapon-hud.js) | Weapons section — the weapon grid and the Hit / Miss / roller strip. The only stateful section |
+| [scripts/q-hud.js](scripts/q-hud.js) | Q section of the toolkit menu, GM-only, every token type |
+| [scripts/deflector-hud.js](scripts/deflector-hud.js) | Deflector Dish section — four effect rows plus a Stop row while a sustained one runs. The only file in that feature that may import `spawn-picker.js` |
+| [scripts/deflector-vfx.js](scripts/deflector-vfx.js) | The four deflector renderers, the per-token instance registry and the `deflectorVfx` broadcast. Imports only `ship-vfx-anchors`, `starfield-common`, `bolt-glow-vfx` and `beam-shader` |
 | [scripts/q-vfx.js](scripts/q-vfx.js) | Q's white screen flash and the composed snap sequences |
 | [scripts/spawn-picker.js](scripts/spawn-picker.js) | Shared canvas pickers, `pickSpawnCentres`, PIXI shims, `centreToTopLeft` |
 | [scripts/spawn-queue.js](scripts/spawn-queue.js) | The drag-actors-in queue widget shared by the LCARS tabs |
@@ -1168,10 +1347,17 @@ through `lcarsChatCard`.
 | [scripts/star-system-scene.js](scripts/star-system-scene.js) | Builds a scene map from a Star System actor (tiles, orbit rings, per-orbit zones, hover tooltips) |
 | [scripts/actor-faction.js](scripts/actor-faction.js) | `resolveActorFactionKey` — guesses a ship's faction by regex over its name and traits. A leaf module with no imports, so gating code can use it without cycles; re-exported from `ship-vfx-anchors.js`, which is where every caller has always found it |
 | [scripts/scene-flags.js](scripts/scene-flags.js) | Scene flag helpers |
+| [scripts/vfx-diagnostics.js](scripts/vfx-diagnostics.js) | Why a broadcast effect was not drawn on this client — `vfxDrop` reason slugs, per-action counters, the `vfxDebugLogging` memo. A leaf with **no imports**, since every drop site is inside a per-frame renderer |
 
 ## Key Conventions
 
-- **Socket pattern:** `game.socket.emit("module.sta2e-toolkit", { action, ...payload })`. All actions are handled in `main.js`'s single socket listener. Players cannot directly call GM-privileged Foundry API; they emit a socket event instead.
+- **Socket pattern:** `game.socket.emit("module.sta2e-toolkit", { action, ...payload })`. Players cannot directly call GM-privileged Foundry API; they emit a socket event instead. Nearly every action is handled in `main.js`'s listener, but it is **not the only one** — [destructible-objects.js](scripts/destructible-objects.js) registers a second on the same channel for `destructibleVfx` / `destructibleReply` / `destructibleRequest`.
+
+  **The subscription is made in `init`, and must stay there.** `game.socket.on` is called at the top of the `init` hook and forwards to `_toolkitSocketHandler`, which is not built until partway through `ready`; anything arriving in between is queued by `_dispatchToolkitSocket` and replayed by `_drainPendingSocketMsgs`. It used to be a single `game.socket.on(…, _toolkitSocketHandler)` on the last line of `ready` — ~1160 lines in, past twelve constructors and the whole chat-card wiring, with no try/catch. **Anything that threw before it left that client permanently unsubscribed**: it drew its own effects and emitted normally, but silently received no broadcast VFX for the rest of the session, with nothing in the console connecting the two. Moving a throwing statement above the subscription reintroduces exactly that bug. A `_toolkitReadyCompleted` watchdog reports a `ready` that threw or hung, since the rest of the hook still matters.
+
+- **Broadcast VFX diagnostics.** Every receive-side bail — scene mismatch, `!canvas.ready`, non-finite points, a token not on this client's canvas, `!window.Sequence` — calls `vfxDrop(action, reason, detail)` from [vfx-diagnostics.js](scripts/vfx-diagnostics.js) (a **leaf with no imports**; the drop sites are inside per-frame renderers). Reasons are short stable slugs so a support conversation can ask for one string. Console output is behind the client setting `vfxDebugLogging`; the counters are always kept. `game.sta2eToolkit.diagnoseVfx()` pings every client and whispers a report — **a user who does not answer at all is the headline result**, because that is the unsubscribed-client failure above.
+
+- **A broadcast effect's `sceneId` is the SOURCE TOKEN'S scene, not the sender's viewed scene.** `canvas?.scene?.id` is only a fallback. A hit is drawn and broadcast from the *GM's* client, so a GM parked on another scene stamped that scene's id and every correctly-parked observer discarded the shot on the receiver's scene guard. Receivers still compare against their own viewed scene, which is correct.
 - **Chat cards** are built as inline HTML strings (no Handlebars templates for dynamic cards) to allow per-era LCARS styling.
 - **Settings** are registered in [scripts/settings.js](scripts/settings.js); scope is `"world"` for GM-visible and `"client"` for per-user.
 - **Flags namespace** is always `"sta2e-toolkit"`.

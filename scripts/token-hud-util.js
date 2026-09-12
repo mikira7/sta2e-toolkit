@@ -1,14 +1,18 @@
 /**
  * sta2e-toolkit | token-hud-util.js
  *
- * Shared plumbing for the module's Token HUD injections — ship-command-hud.js
- * and token-weapon-hud.js. Both add a control to the HUD's right column that
- * opens a flyout, and both have to work around the same two Foundry quirks:
- * the control element type changed between versions, and the flyout cannot be
- * a child of the control.
+ * Shared plumbing for the module's Token HUD control — the toolkit menu in
+ * token-toolkit-hud.js and the sections it hosts. It adds one control to the
+ * HUD's right column that opens a flyout, working around the same two Foundry
+ * quirks as ever: the control element type changed between versions, and the
+ * flyout cannot be a child of the control.
+ *
+ * A leaf: the sections import `buildHudItem` from here, so nothing in this file
+ * may import the host back.
  *
  * Styling for the shell lives in styles/token-hud-flyout.css, keyed off the
- * `sta2e-hud-control` / `sta2e-hud-flyout` classes applied here.
+ * `sta2e-hud-control` / `sta2e-hud-flyout` / `sta2e-hud-item` classes applied
+ * here.
  */
 
 /**
@@ -47,7 +51,7 @@ export function resolveHudToken(app) {
  * Create an empty flyout element. Clicks inside it must never reach the HUD
  * behind it, so they stop here.
  *
- * @param {string} cssClass  Feature-specific class, e.g. "sta2e-ship-command-palette".
+ * @param {string} cssClass  Feature-specific class, e.g. "sta2e-toolkit-hud-palette".
  */
 export function buildHudFlyout(cssClass) {
   const flyout = document.createElement("div");
@@ -63,6 +67,10 @@ export function buildHudFlyout(cssClass) {
  * `<button>` in v13+, and nesting the flyout's own buttons inside it would be
  * invalid markup with unreliable hit-testing. It is positioned against the
  * column instead, aligned to the control's own offset.
+ *
+ * The "only one flyout at a time" sweep below was the one hazard for a nested
+ * menu, and the toolkit menu sidesteps it by never opening a second panel — it
+ * navigates by replacing the one it has. See token-toolkit-hud.js.
  *
  * @param {Element}  control
  * @param {string}   cssClass    The flyout's feature-specific class.
@@ -88,4 +96,43 @@ export function toggleHudFlyout(control, cssClass, buildFlyout) {
   flyout.style.top = `${control.offsetTop}px`;
   column.appendChild(flyout);
   control.classList.add("active");
+}
+
+/**
+ * Build one flyout row — the `.sta2e-hud-item` shared by every section.
+ *
+ * Lifted here from ship-command-hud.js and q-hud.js, which carried byte-identical
+ * copies. It lives in this leaf rather than in token-toolkit-hud.js because the
+ * sections are imported *by* that host, and importing the row builder back out of
+ * it would close a cycle.
+ *
+ * Labels are written with `textContent`, not interpolated into `innerHTML`: they
+ * carry token and actor names ("Release: <name>"), which are user-supplied.
+ *
+ * @param {{icon: string, label: string, tooltip?: string, danger?: boolean,
+ *          extraClass?: string}} options
+ * @param {Function} onClick  Receives the click event, so handlers can read
+ *                            `shiftKey` for the announce-in-chat modifier.
+ * @returns {HTMLButtonElement}
+ */
+export function buildHudItem({ icon, label, tooltip, danger = false, extraClass = "" }, onClick) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "sta2e-hud-item";
+  if (danger) btn.classList.add("danger");
+  for (const cls of extraClass.split(" ").filter(Boolean)) btn.classList.add(cls);
+  if (tooltip) btn.dataset.tooltip = tooltip;
+
+  const i = document.createElement("i");
+  i.className = icon;
+  const span = document.createElement("span");
+  span.textContent = label;
+  btn.append(i, span);
+
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onClick(event);
+  });
+  return btn;
 }

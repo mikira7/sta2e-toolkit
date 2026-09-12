@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Cinematic transporter verification</title>
+<style>
+body{margin:24px;background:#101622;color:#dce6f4;font:15px system-ui}button,select,input{font:inherit}button{padding:8px 16px;margin:4px;background:#234767;color:white;border:1px solid #6192c2;border-radius:5px}canvas{max-width:100%;border:1px solid #314459}#controls{margin:12px 0}#results{white-space:pre-wrap;color:#91e3ae}#form{margin-top:20px;height:700px}p{max-width:1000px;color:#9eb1cd}
+</style><script src="/vendor/pixi.js"></script><script src="/node_modules/handlebars/dist/handlebars.js"></script></head>
+<body><h1>Cinematic transporter verification</h1><p>Isolated token fixtures with the installed Foundry shader classes and PIXI 7. No live world data is changed. Each pair shows a transparent figure and a portrait.</p>
+<div id="controls"><button id="in">Beam In · all presets</button><button id="out">Beam Out · all presets</button><button id="stop">Stop</button><button id="half">Hold midpoint</button><button id="checks">Run rendering checks</button><button id="fallback">Preview native fallback</button></div>
+<label>Inspect sequence: <input id="scrub" aria-label="Sequence progress" type="range" min="0" max="1" step="0.01" value="0.475"> <output id="scrub-value">48%</output></label>
+<pre id="results">Loading…</pre><div id="gallery"></div><div id="form"></div>
+<script type="module" src="./transporter-browser.js"></script></body></html>

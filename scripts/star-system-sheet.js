@@ -357,13 +357,15 @@ const FORCE_HABITABLE_TABLE = [
 
 const WORLD_ZONE_OPTIONS = ["Inner Worlds", "Primary World", "Outer Worlds"];
 
-const WORLD_TYPE_OPTIONS = [
+export const WORLD_TYPE_OPTIONS = [
   "Class-A (Geothermal)",
   "Class-B (Geomorteus)",
   "Class-C (Icy Geoinactive)",
   "Class-D (Barren)",
   "Class-D (Icy/Rocky Barren)",
   "Class-E (Geoplastic)",
+  "Class-F (Primordial)",
+  "Class-G (Developing)",
   "Class-H (Desert)",
   "Class-I (Hot Jupiter)",
   "Class-J (Jovian)",
@@ -374,6 +376,9 @@ const WORLD_TYPE_OPTIONS = [
   "Class-N (Reducing)",
   "Class-O (Pelagic/Ocean)",
   "Class-P (Glaciated)",
+  "Class-Q (Variable)",
+  "Class-R (Rogue)",
+  "Class-S (Super Jovian)",
   "Class-T (Super Jovian)",
   "Class-Y (Demon)",
   "Asteroid Belt",
@@ -407,9 +412,10 @@ const ROOT_ORBITAL_NODE_ID = "root";
 const ORBITAL_NODE_FIELDS = ["id", "type", "label", "parentId", "starId", "orbitalAU", "angle"];
 const IMAGE_LAYER_FIELDS = ["base", "polarCap", "cloud", "ring"];
 const IMAGE_LAYER_FORM_FIELDS = IMAGE_LAYER_FIELDS.map(field => `imageLayers.${field}`);
-const STAR_RECORD_FIELDS = ["id", "role", "spectralType", "subdivision", "luminosityType", "classification", "notes", "image", "orbitParentNodeId", "orbitalAU", "orbitalAngle"];
-const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image", "orbitParentNodeId", ...IMAGE_LAYER_FORM_FIELDS];
-const WORLD_RECORD_FIELDS = ["id", "orbit", "orbitParentNodeId", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image", ...IMAGE_LAYER_FORM_FIELDS];
+const PROCEDURAL_ART_FIELDS = ["procedural", "sceneImage", "sceneImageSource", "sceneBodyScale"];
+const STAR_RECORD_FIELDS = ["id", "role", "spectralType", "subdivision", "luminosityType", "classification", "notes", "image", "orbitParentNodeId", "orbitalAU", "orbitalAngle", ...PROCEDURAL_ART_FIELDS];
+const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image", "orbitParentNodeId", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
+const WORLD_RECORD_FIELDS = ["id", "orbit", "orbitParentNodeId", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
 
 const OUTER_WORLD_TABLE = [
   { min: 1, max: 1, value: "Class-L (Marginal)" },
@@ -912,6 +918,8 @@ function imageFromLayers(layers = {}) {
 
 async function bakePlanetImageForBody(body, { actorId = "", kind = "world" } = {}) {
   if (!body) return body;
+  // Procedural artwork already contains its clouds, shading, and rings.
+  if (body.image?.includes("sta2e-procedural-")) return body;
   const sourceLayers = normalizeImageLayers(body);
   if (!sourceLayers.base) sourceLayers.base = savedImage(body.image) || planetImageForType(body.type);
   if (!sourceLayers.ring && hasRings(body.rings)) sourceLayers.ring = pickStarSystemOverlay("ring");
@@ -1227,6 +1235,10 @@ function normalizeMoonRecord(row = {}, hostWorld = {}, index = 0) {
     notes: clampText(row.notes, fallback.notes),
     image: savedImage(row.image),
     imageLayers: normalizeImageLayers(row),
+    procedural: clampText(row.procedural),
+    sceneImage: savedImage(row.sceneImage),
+    sceneImageSource: savedImage(row.sceneImageSource),
+    sceneBodyScale: clampText(row.sceneBodyScale),
   };
 }
 
@@ -1424,6 +1436,10 @@ export function normalizeStarSystemData(raw = {}) {
       classification: clampText(row.classification),
       notes: clampText(row.notes),
       image: savedImage(row.image),
+      procedural: clampText(row.procedural),
+      sceneImage: savedImage(row.sceneImage),
+      sceneImageSource: savedImage(row.sceneImageSource),
+      sceneBodyScale: clampText(row.sceneBodyScale),
       orbitParentNodeId: clampText(row.orbitParentNodeId),
       orbitalAU: clampText(row.orbitalAU),
       orbitalAngle: clampText(row.orbitalAngle),
@@ -1467,6 +1483,10 @@ export function normalizeStarSystemData(raw = {}) {
       notes: clampText(row.notes),
       image: savedImage(row.image),
       imageLayers: normalizeImageLayers(row),
+      procedural: clampText(row.procedural),
+      sceneImage: savedImage(row.sceneImage),
+      sceneImageSource: savedImage(row.sceneImageSource),
+      sceneBodyScale: clampText(row.sceneBodyScale),
     };
     world.orbitParentLabel = orbitParentLabel(world, data);
     const hasMoonRecords = Object.prototype.hasOwnProperty.call(row, "moonRecords");
@@ -2491,7 +2511,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const button = event.currentTarget;
     const action = button.dataset.ssAction;
     const form = button.closest("form");
-    const gmOnlyActions = new Set(["generate", "refresh-portrait", "refresh-star-art", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene"]);
+    const gmOnlyActions = new Set(["generate", "refresh-portrait", "refresh-star-art", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene", "procedural-world", "procedural-moon", "procedural-star", "planet-scene"]);
     if (gmOnlyActions.has(action) && !game.user?.isGM) {
       ui.notifications.warn("STA2e Toolkit: Only the GM can modify generated star system records.");
       return;
@@ -2561,13 +2581,48 @@ export class StarSystemActorSheet extends ActorSheet {
       return;
     }
 
-    if (action === "create-scene") {
-      if (form) await this._saveForm(form);
-      const data = ensureOrbitalDistances(getStarSystemData(this.actor));
-      await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, data);
-      const { createStarSystemMapScene } = await import("./star-system-scene.js");
-      await createStarSystemMapScene(this.actor);
-      this.render(false);
+    if (["procedural-world", "procedural-moon", "procedural-star"].includes(action)) {
+      if (this._planetGenerationBusy) return;
+      this._planetGenerationBusy = true;
+      try {
+        const data = form ? this._dataFromForm(form).starSystem : getStarSystemData(this.actor);
+        const world = data.worlds[Number(button.dataset.index)];
+        const body = action === "procedural-star" ? data.stars[Number(button.dataset.index)] : action === "procedural-moon" ? world?.moonRecords?.[Number(button.dataset.moonIndex)] : world;
+        if (!body) return;
+        const { promptProceduralPlanet } = await import("./planet-generator.js");
+        const art = await promptProceduralPlanet(body, this.actor.id);
+        if (!art) return;
+        Object.assign(body, art);
+        if (action !== "procedural-star") body.imageLayers = { base: art.image, polarCap: "", cloud: "", ring: "" };
+        const normalized = normalizeStarSystemData(data);
+        await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, normalized);
+        if (action === "procedural-star") {
+          const portrait = await resolveStarSystemPortraitImage(normalized, { actorId: this.actor.id, knownPath: this.actor.img });
+          if (portrait) await this.actor.update({ img: portrait, "prototypeToken.texture.src": portrait });
+        }
+        this.render(false);
+      } catch (error) {
+        console.error("STA2e Toolkit | Procedural planet failed", error);
+        ui.notifications.error(`STA2e Toolkit: ${error.message}`);
+      } finally { this._planetGenerationBusy = false; }
+      return;
+    }
+
+    if (action === "create-scene" || action === "planet-scene") {
+      if (this._planetSceneBusy) return;
+      this._planetSceneBusy = true;
+      try {
+        if (form) await this._saveForm(form);
+        const data = ensureOrbitalDistances(getStarSystemData(this.actor));
+        await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, data);
+        const { createStarSystemMapScene, createPlanetaryOverviewScene } = await import("./star-system-scene.js");
+        if (action === "planet-scene") await createPlanetaryOverviewScene(this.actor, data.worlds[Number(button.dataset.index)]?.id);
+        else await createStarSystemMapScene(this.actor);
+        this.render(false);
+      } catch (error) {
+        console.error("STA2e Toolkit | Scene generation failed", error);
+        ui.notifications.error(`STA2e Toolkit: Scene creation failed: ${error.message}`);
+      } finally { this._planetSceneBusy = false; }
       return;
     }
 

@@ -19,7 +19,7 @@
  */
 
 import { pointInPolygon, polygonArea, polygonCentroid } from "./zone-data.js";
-import { PAD_FLAG, GROUP_FLAG } from "./region-pad-config.js";
+import { PAD_FLAG, GROUP_FLAG, EMITTER_FLAG } from "./region-pad-config.js";
 
 const FLAG_SCOPE = "sta2e-toolkit";
 
@@ -141,7 +141,8 @@ export function getPadRegions(groupKey) {
  *
  * @param {string} groupKey
  * @param {Array} slots  One entry per token to place — only the length is read
- * @returns {{centres: {x,y}[]|null, padCount: number, label: string}}
+ * Each centre carries its pad's optional arrival emitter for the transporter.
+ * @returns {{centres: {x,y,transporterEmitterType}[]|null, padCount: number, label: string}}
  */
 export function padCentresForSlots(groupKey, slots) {
   const pads  = getPadRegions(groupKey);
@@ -151,7 +152,14 @@ export function padCentresForSlots(groupKey, slots) {
   if (!pads.length || pads.length < need) {
     return { centres: null, padCount: pads.length, label };
   }
-  return { centres: pads.slice(0, need).map(regionCentre), padCount: pads.length, label };
+  return {
+    centres: pads.slice(0, need).map(region => ({
+      ...regionCentre(region),
+      transporterEmitterType: _padFlag(region, EMITTER_FLAG),
+    })),
+    padCount: pads.length,
+    label,
+  };
 }
 
 // ── Spawn Location picker ─────────────────────────────────────────────────────

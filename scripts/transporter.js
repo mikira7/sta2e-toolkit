@@ -20,6 +20,8 @@ import {
   formatKlingonDate, formatRomulanDate,
 } from "./stardate-calc.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { runTransporterShader, isTransporterShaderRunning } from "./transporter-shader-playback.js";
+import { TRANSPORTER_SHADER_SETTING } from "./transporter-shader-config.js";
 import { SPAWN_PATTERNS } from "./spawn-patterns.js";
 import { getWildcardImage, buildSpawnTokenData, protoHalfSize } from "./token-spawn-utils.js";
 import { centreToTopLeft, pickSpawnCentres } from "./spawn-picker.js";
@@ -31,6 +33,7 @@ import {
   getBufferGroups,
   makeBufferGroup,
   removeBufferGroup,
+  setBufferGroups,
   wireBufferButtons,
 } from "./spawn-buffer.js";
 import { buildQueueHTML, renderQueue, wireQueue } from "./spawn-queue.js";
@@ -106,6 +109,8 @@ const _TRANSPORTER_COLORS = {
   tngFed:     0x4488ff,
   tmpFed:     0xDDEEFF,   // cool silver-white for TMP / film era
   tosFed:     0xFFD700,
+  entFed:     0xC4E5FF,
+  dominion:   0xC4E5FF,
   klingon:    0xCC2200,
   cardassian: 0xCC7700,
   romulan:    0x00CC55,
@@ -138,6 +143,22 @@ function _buildTransporterEffects() {
       ],
       freeEffects: _BLUE_STACK,
       freeTint:    "#FFD700",
+    },
+    entFed: {
+      name: "Enterprise Era",
+      sound: _tSound("sndTransporterEntFed"),
+      patronEffects: _BLUE_STACK.map(effect => ({ ...effect, delay: effect.delay === 2400 ? 3000 : effect.delay })),
+      freeEffects: _BLUE_STACK.map(effect => ({ ...effect, delay: effect.delay === 2400 ? 3000 : effect.delay })),
+      patronTint: "#C4E5FF",
+      freeTint: "#C4E5FF",
+    },
+    dominion: {
+      name: "Dominion",
+      sound: _tSound("sndTransporterDominion"),
+      patronEffects: _BLUE_STACK,
+      freeEffects: _BLUE_STACK,
+      patronTint: "#D9DFFF",
+      freeTint: "#D9DFFF",
     },
     // TMP = Star Trek II–VI film era — silver-white transporter column.
     // Only jb2a.teleport.01.white is confirmed to exist; the border, burst,
@@ -232,6 +253,11 @@ function _isPatronJb2a() {
 
 function _isNativeVFX() {
   try { return game.settings.get(MODULE, "vfxEngine") === "native"; }
+  catch { return false; }
+}
+
+function _isShaderVFX() {
+  try { return game.settings.get(MODULE, "vfxEngine") === "shader"; }
   catch { return false; }
 }
 
@@ -383,6 +409,7 @@ const _removeBeamGroup = groupId => removeBufferGroup(BUFFER_SETTING, groupId);
 // ── Beam out ──────────────────────────────────────────────────────────────────
 
 async function _beamOutSelected(transporterType, effects) {
+  const shaderMode = _isShaderVFX();
   const controlled = canvas.tokens.controlled;
   if (!controlled?.length) {
     ui.notifications.warn("No tokens selected. Select tokens to beam out.");
@@ -392,10 +419,14 @@ async function _beamOutSelected(transporterType, effects) {
     ui.notifications.error(`Transporter Malfunction — ${controlled.length} patterns detected. Starfleet regulations limit transport to 6 personnel simultaneously.`);
     return;
   }
+  if (shaderMode && controlled.some(isTransporterShaderRunning)) {
+    ui.notifications.warn("A selected token is already being transported. Wait for it to finish.");
+    return;
+  }
 
   const config  = effects[transporterType];
-  const entries = controlled
-    .filter(t => t.actor)
+  const actorTokens = controlled.filter(token => token.actor);
+  const entries = actorTokens
     .map(t => ({
       actorId:      t.actor.id,
       name:         t.actor.name,
@@ -407,16 +438,37 @@ async function _beamOutSelected(transporterType, effects) {
       quantity:     1,
     }));
 
+  let bufferGroup;
   if (entries.length) {
     const effectName = effects[transporterType]?.name ?? transporterType;
-    // transporterType rides along so a restore replays the emitter it left on,
-    // whatever the panel is set to now.
+    // Keep the departure emitter as the restore default. Destination pads can
+    // override it without changing the saved pattern or the panel selection.
     const newGroup = makeBufferGroup(effectName, entries, { transporterType });
     await addBufferGroup(BUFFER_SETTING, newGroup);
+    bufferGroup = newGroup;
     ui.notifications.info(`Transporter buffer: "${newGroup.label}" — ${entries.length} pattern${entries.length > 1 ? "s" : ""} held.`);
   }
 
   _playSound(config.sound);
+
+  if (shaderMode) {
+    const results = await Promise.allSettled(controlled.map(token => runTransporterShader(token, transporterType, "out")));
+    // A failed deletion restored the original token. Remove its saved pattern so a
+    // later buffer restore cannot create a duplicate of the person still on scene.
+    const failed = new Set(controlled.filter((_token, i) => results[i].status === "rejected").map(token => token.id));
+    if (bufferGroup && failed.size) {
+      const retained = entries.filter((_entry, i) => !failed.has(actorTokens[i].id));
+      try {
+        const groups = await getBufferGroups(BUFFER_SETTING);
+        await setBufferGroups(BUFFER_SETTING, groups.flatMap(group => group.groupId !== bufferGroup.groupId
+          ? [group] : retained.length ? [{ ...group, entries: retained }] : []));
+      } catch (error) {
+        console.error("STA2e Toolkit | Could not remove failed departure patterns", error);
+        ui.notifications.warn("Some departures failed. Remove their saved patterns from the transporter buffer before restoring this group.");
+      }
+    }
+    return;
+  }
 
   for (const token of controlled) {
     if (_isNativeVFX()) {
@@ -485,13 +537,18 @@ function _pickBeamCentres(items, { pattern, spacing, location, indicatorColor, v
  * a marker that was drawn off-grid was drawn off-grid on purpose.
  */
 async function _materializeItems(items, centres, effectType, effects, { snap = false } = {}) {
-  const config = effects[effectType];
-  _playSound(config?.sound);
+  const shaderArrivals = [];
+  const arrivalTypes = items.map((_, i) => {
+    const override = centres[i]?.transporterEmitterType;
+    return override && Object.hasOwn(effects, override) ? override : effectType;
+  });
+  for (const type of new Set(arrivalTypes)) _playSound(effects[type]?.sound);
   canvas.animatePan({ x: centres[0]?.x ?? 0, y: centres[0]?.y ?? 0, duration: 1000 });
 
   for (let i = 0; i < items.length; i++) {
     const item   = items[i];
     const centre = centres[i] ?? centres[0];
+    const arrivalType = arrivalTypes[i];
     const { x, y } = centreToTopLeft(centre, item.halfW, item.halfH, snap);
 
     try {
@@ -512,13 +569,17 @@ async function _materializeItems(items, centres, effectType, effects, { snap = f
       const [created] = await canvas.scene.createEmbeddedDocuments("Token", [newTokenData]);
       if (!created) throw new Error("Token creation returned nothing.");
 
-      if (_isNativeVFX()) {
+      if (_isShaderVFX()) {
+        // Start each arrival as it is created; all six animate concurrently.
+        // Attach rejection handling immediately while the next token is being created.
+        shaderArrivals.push(runTransporterShader(created, arrivalType, "in").catch(() => false));
+      } else if (_isNativeVFX()) {
         // Native VFX: beamIn drives the full materialisation sequence —
         // mesh alpha, glow filters, and document sync are all handled internally.
         // A 50 ms yield ensures the canvas token is registered before we animate it.
         setTimeout(() => {
           const tk = canvas.tokens.get(created.id);
-          if (tk) TransporterVFX.beamIn(tk, effectType);
+          if (tk) TransporterVFX.beamIn(tk, arrivalType);
         }, 50);
       } else {
         setTimeout(async () => {
@@ -527,7 +588,7 @@ async function _materializeItems(items, centres, effectType, effects, { snap = f
             // Apply sparkle rain right as the token begins to fade in so it's
             // visible from the very first frame of materialisation.
             const tk = canvas.tokens.get(created.id);
-            if (tk) _applyTransporterMagic(tk, effectType);
+            if (tk) _applyTransporterMagic(tk, arrivalType);
             await td.update({ alpha: 1 }, { animate: true, animation: { duration: 800 } });
             // Let the effect shimmer briefly after fully materialising, then
             // clean up.  (800 ms fade + ~1 s visible = 1800 ms)
@@ -537,13 +598,14 @@ async function _materializeItems(items, centres, effectType, effects, { snap = f
             }, 1800);
           } catch { /**/ }
         }, 2000);
-        _playEffect(created, effectType, effects);
+        _playEffect(created, arrivalType, effects);
       }
     } catch (e) {
       console.error(`Transporter: error spawning ${item.displayName}:`, e);
       ui.notifications.error(`Failed to spawn ${item.displayName}.`);
     }
   }
+  await Promise.all(shaderArrivals);
 }
 
 // ── Beam in (from the panel queue) ────────────────────────────────────────────
@@ -812,15 +874,19 @@ function _readTpControls(root) {
 const _renderTpQueue = root => renderQueue(root, _tpQueue);
 
 /**
- * Re-read the panel against the current scene. Runs on every activation, since
- * the scene's Regions can change while the Ships tab is in front — and the
- * pattern control has nothing to say once a Region defines the layout.
+ * Re-read destinations on activation, scene switches and Region edits. Only
+ * destination controls change; the queue and emitter selection stay intact.
  */
 function _refreshTpPanel(root) {
   const select = root?.querySelector("#sta2e-tp-location");
   if (select) {
-    select.innerHTML = buildLocationOptions(select.value);
+    const sceneId = canvas.scene?.id ?? null;
+    const selected = root._sta2eBeamSceneId !== sceneId
+      ? getSpawnPref(BEAM_SITE_PREF, select.value)
+      : select.value;
+    select.innerHTML = buildLocationOptions(selected);
     if (!select.value) select.value = "canvas";
+    root._sta2eBeamSceneId = sceneId;
   }
 
   // Neither Region mode has anything for the formation controls to say — the
@@ -886,6 +952,8 @@ registerSpawnTab({
     _refreshTpPanel(panel);
   },
 
+  onSceneChange: panel => _refreshTpPanel(panel),
+
   buildActions: (panel, api) =>
     _buildActions(_tpGroups, _effects(), panel, panel._sta2eRefresh ?? (async () => {}), api),
 });
@@ -908,15 +976,22 @@ export function registerTransporterSettings() {
   game.settings.register(MODULE, "vfxEngine", {
     name:    "Transporter Visual Effects Engine",
     hint:    "Native: uses Foundry v14's built-in VFX API — no Sequencer or JB2A required. "
-           + "Sequencer: plays JB2A assets via the Sequencer module (classic behaviour).",
+           + "Sequencer: plays JB2A assets via the Sequencer module (classic behaviour). "
+           + "Cinematic Shader: slow token fades, dancing sparkles, streak rain and era-specific light effects; tune presets in Sounds & Animations → Transporter.",
     scope:   "world",
     config:  true,
     type:    String,
     choices: {
       sequencer: "Sequencer + JB2A (default)",
       native:    "Native Foundry v14 VFX (experimental)",
+      shader:    "Cinematic Shader — Rain & Shimmer",
     },
     default: "sequencer",
+  });
+
+  game.settings.register(MODULE, TRANSPORTER_SHADER_SETTING, {
+    name: "Cinematic Transporter Appearance", scope: "world", config: false,
+    type: Object, default: {},
   });
 
   // Internal: beam buffer storage — world-scoped so all GMs share it
@@ -942,6 +1017,8 @@ export function registerTransporterSettings() {
   game.settings.register(MODULE, "sndTransporterVoyFed",    tSnd("Transporter Sound — Voyager / Federation"));
   game.settings.register(MODULE, "sndTransporterTngFed",    tSnd("Transporter Sound — TNG Federation"));
   game.settings.register(MODULE, "sndTransporterTosFed",    tSnd("Transporter Sound — TOS Federation"));
+  game.settings.register(MODULE, "sndTransporterEntFed",    tSnd("Transporter Sound — Enterprise Era"));
+  game.settings.register(MODULE, "sndTransporterDominion",  tSnd("Transporter Sound — Dominion"));
   game.settings.register(MODULE, "sndTransporterTmpFed",    tSnd("Transporter Sound — TMP / Films"));
   game.settings.register(MODULE, "sndTransporterKlingon",   tSnd("Transporter Sound — Klingon"));
   game.settings.register(MODULE, "sndTransporterCardassian",tSnd("Transporter Sound — Cardassian"));

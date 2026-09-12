@@ -12,12 +12,22 @@ import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
 import { NativeTractorBeamVFX, registerTractorBeamVfxHooks } from "./tractor-beam-vfx.js";
 import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
+import { registerDestructibleObjects, isDestructible, requestObjectOperation } from "./destructible-objects.js";
+import { registerDestructibleCombat } from "./destructible-combat.js";
 import { ToolkitAPI } from "./toolkit-api.js";
+registerDestructibleObjects();
+registerDestructibleCombat();
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
 import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, promptWarpFleeStyle, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
 import { buildWeaponContext, refreshToolkitSpriteCache } from "./weapon-configs.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
+import {
+  DEFLECTOR_VFX_ACTION,
+  STOP_DEFLECTOR_VFX_ACTION,
+  playDeflectorEffect,
+  stopDeflectorEffect,
+} from "./deflector-vfx.js";
 import { registerConditionHooks } from "./token-conditions.js";
 import { buildPlayerRollCardHtml, openNpcRoller, openPlayerRoller } from "./npc-roller.js";
 import { applyAssistPendingRequest } from "./assist-pending.js";
@@ -30,6 +40,8 @@ import { registerShipTurnMarker } from "./combat/initiative-turn-marker.js";
 // Importing these registers their tabs on the shared spawn window, in strip
 // order — transporter, ships, Q.
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
+import { receiveTransporterShader, teardownTransporterShaderPlayback } from "./transporter-shader-playback.js";
+import { TRANSPORTER_SHADER_ACTION } from "./transporter-shader-config.js";
 import { openShipSpawner } from "./ship-spawner.js";
 import { openQSpawner } from "./q-spawner.js";
 import { openSpawnWindow } from "./spawn-window.js";
@@ -42,6 +54,7 @@ import { LcarsActionRing } from "./lcars-action-ring.js";
 import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
 import { getLcTokens } from "./lcars-theme.js";
+import { lcarsChatCard } from "./chat-card-frame.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
 import { ZoneOverlay } from "./zone-layer.js";
@@ -67,14 +80,17 @@ import {
   registerSceneWarpCache,
 } from "./scene-warp.js";
 import { registerStarfieldSettingsCache } from "./starfield-common.js";
-import { registerQHud } from "./q-hud.js";
-import { registerShipCommandHud } from "./ship-command-hud.js";
-import { registerTokenWeaponHud } from "./token-weapon-hud.js";
+import { registerTokenToolkitHud } from "./token-toolkit-hud.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
 import { playWarpStretch, stopWarpStretch, registerWarpStretch } from "./warp-stretch-vfx.js";
 import { shipHasWarpEffectChoice } from "./warp-effect-styles.js";
-import { playNativeTracerBetweenPoints } from "./native-weapon-vfx.js";
+import {
+  SHIP_BEAM_VFX_ACTION,
+  playNativeTracerBetweenPoints,
+  playShipBeamVfxFromSocket,
+} from "./native-weapon-vfx.js";
 import { GROUND_PHASER_VFX_ACTION, playGroundPhaserVfxFromSocket } from "./ground-phaser-vfx.js";
+import { GROUND_ENERGY_VFX_ACTION, playGroundEnergyVfxFromSocket } from "./ground-energy-vfx.js";
 import { BOLT_TRAVEL_VFX_ACTION, playBoltTravelLocal } from "./bolt-travel-vfx.js";
 import { registerGroundWeaponItemSheetFields } from "./ground-weapon-item-sheet.js";
 import {
@@ -123,6 +139,8 @@ import {
   repairStarSystemSheetBindings,
 } from "./star-system-sheet.js";
 import { registerStarSystemMapHover } from "./star-system-scene.js";
+import { noteVfxReceived, registerVfxDiagnostics, resetVfxCounters, vfxCounters, vfxDrop } from "./vfx-diagnostics.js";
+import { beamShaderAvailable } from "./beam-shader.js";
 
 function getShipCardAllowedUserIds(message, payload = {}) {
   const toolkitFlags = message?.flags?.["sta2e-toolkit"] ?? {};
@@ -311,8 +329,194 @@ function _isResponsibleGM() {
   return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
 }
 
-// Set at ready when the socket listener registers; used by emitToolkitSocket.
+// Assigned partway through the `ready` hook below; used by emitToolkitSocket.
 let _toolkitSocketHandler = null;
+
+// ── Socket subscription ──────────────────────────────────────────────────────
+//
+// The SUBSCRIPTION is made in `init` (below) and is deliberately decoupled from
+// the handler it forwards to. It used to be `game.socket.on(...)` at the very
+// end of the `ready` hook — roughly 1160 lines in, past twelve constructors and
+// the whole chat-card wiring, with no try/catch. Anything that threw before it
+// on one client left that client PERMANENTLY UNSUBSCRIBED: it drew its own
+// effects and emitted fine, but silently received no broadcast VFX for the rest
+// of the session, with nothing in the console tying the two together. That is
+// exactly the shape of "the player who wasn't firing couldn't see it".
+//
+// Subscribing first and queueing until the handler exists means no amount of
+// breakage further down `ready` can cost a client its inbound effects.
+const _pendingSocketMsgs = [];
+// A client stuck without a handler is already broken; the queue is here so the
+// first few messages of a slow start are not lost, not to buffer a session.
+const PENDING_SOCKET_MAX = 50;
+
+function _runToolkitSocketHandler(msg) {
+  // The handler is async and `game.socket.on` attaches no catch, so without
+  // this a throw in any un-wrapped branch becomes a bare unhandled rejection.
+  Promise.resolve(_toolkitSocketHandler(msg)).catch(err =>
+    console.error("STA2e Toolkit | socket handler failed:", msg?.action, err));
+}
+
+function _dispatchToolkitSocket(msg) {
+  if (typeof _toolkitSocketHandler === "function") {
+    _runToolkitSocketHandler(msg);
+    return;
+  }
+  if (_pendingSocketMsgs.length >= PENDING_SOCKET_MAX) _pendingSocketMsgs.shift();
+  _pendingSocketMsgs.push(msg);
+}
+
+/**
+ * Is this broadcast effect for the scene this client is looking at?
+ *
+ * A message with no `sceneId` predates the stamp and is always drawn. The
+ * mismatch is traced rather than silently swallowed — "I saw nothing" and "I
+ * was on another scene" are otherwise indistinguishable from the console.
+ */
+function _vfxSceneOk(msg) {
+  if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) return true;
+  vfxDrop(msg.action, "scene-mismatch", { sent: msg.sceneId, viewing: canvas?.scene?.id ?? null });
+  return false;
+}
+
+/**
+ * Resolve a token this client must have on canvas to draw a token-anchored
+ * effect. Unlike the point-to-point effects (beams, flashes, tracers), these
+ * carry an id rather than coordinates and simply cannot be drawn without it.
+ */
+function _vfxToken(msg) {
+  const tok = canvas?.tokens?.get(msg.tokenId);
+  if (!tok) vfxDrop(msg.action, "token-not-on-canvas", { tokenId: msg.tokenId ?? null });
+  return tok ?? null;
+}
+
+// ── VFX self-test ────────────────────────────────────────────────────────────
+
+// Replies to the most recent `vfxPing`, keyed by user id. Only ever read by the
+// client that sent the ping.
+const _vfxPongs = new Map();
+
+const VFX_PING_WAIT_MS = 2500;
+
+function _vfxRow(LC, label, value, bad = false) {
+  const colour = bad ? LC.red : LC.text;
+  return `<div style="display:flex;justify-content:space-between;gap:8px;">
+    <span style="opacity:.75;">${label}</span>
+    <span style="color:${colour};font-weight:${bad ? 700 : 400};">${value}</span>
+  </div>`;
+}
+
+/**
+ * Ping every connected client and report who can actually draw broadcast VFX.
+ *
+ * The headline result is the SILENT client: a user who does not answer has no
+ * live subscription on the toolkit socket, which means they have been quietly
+ * missing every broadcast effect — beams, trails, warp flashes — for the whole
+ * session, while their own actions looked completely normal to them. That is
+ * indistinguishable from "the animation is broken" without this.
+ */
+async function diagnoseVfx() {
+  // Resolved here, not at module load — the theme follows the active campaign.
+  const LC = getLcTokens();
+  _vfxPongs.clear();
+  resetVfxCounters();
+
+  game.socket.emit("module.sta2e-toolkit", { action: "vfxPing", fromUserId: game.userId });
+  // Answer for ourselves too — sockets never loop back.
+  _runToolkitSocketHandler({ action: "vfxPing", fromUserId: game.userId });
+
+  await new Promise(resolve => setTimeout(resolve, VFX_PING_WAIT_MS));
+
+  const active = (game.users?.contents ?? []).filter(u => u?.active);
+  const silent = active.filter(u => !_vfxPongs.has(u.id));
+  const answered = active.filter(u => _vfxPongs.has(u.id));
+  const myScene = canvas?.scene?.id ?? null;
+
+  const blocks = [];
+
+  if (silent.length) {
+    blocks.push(`<div style="border:1px solid ${LC.red};padding:6px;margin-bottom:8px;">
+      <div style="color:${LC.red};font-weight:700;margin-bottom:4px;">NO RESPONSE — ${silent.length} client(s)</div>
+      <div style="font-size:11px;opacity:.85;margin-bottom:4px;">
+        The module's socket listener is not active for these users. They are receiving
+        NO broadcast effects at all. Ask them to reload (F5) and check their browser
+        console for a STA 2e Toolkit startup error.
+      </div>
+      <div>${silent.map(u => _escapeHtml(u.name)).join(", ")}</div>
+    </div>`);
+  }
+
+  for (const user of answered) {
+    const r = _vfxPongs.get(user.id);
+    const sceneMismatch = r.viewedSceneId !== myScene;
+    const rows = [
+      _vfxRow(LC, "Scene", r.viewedSceneName ?? "—", sceneMismatch),
+      _vfxRow(LC, "Canvas ready", r.canvasReady ? "yes" : "no", !r.canvasReady),
+      _vfxRow(LC, "PIXI", r.hasPIXI ? "yes" : "no", !r.hasPIXI),
+      _vfxRow(LC, "Sequencer", r.hasSequencer ? "yes" : "no — no torpedoes/bolts", !r.hasSequencer),
+      _vfxRow(LC, "Beam shader", r.shaderAvailable === null ? "?" : (r.shaderAvailable ? "yes" : "no — falls back to strokes")),
+      _vfxRow(LC, "Module version", r.moduleVersion ?? "—", r.moduleVersion !== game.modules?.get("sta2e-toolkit")?.version),
+    ];
+    const drops = Object.entries(r.dropped ?? {});
+    if (drops.length) {
+      rows.push(_vfxRow(LC, "Dropped", drops.map(([k, v]) => `${k} x${v}`).join(", "), true));
+    }
+    blocks.push(`<div style="border:1px solid ${LC.primary};padding:6px;margin-bottom:6px;">
+      <div style="color:${LC.primary};font-weight:700;margin-bottom:4px;">
+        ${_escapeHtml(r.userName)}${r.isGM ? " (GM)" : ""}
+      </div>
+      <div style="display:grid;gap:2px;font-size:11px;">${rows.join("")}</div>
+    </div>`);
+  }
+
+  const body = `<div style="font-size:11px;opacity:.8;margin-bottom:8px;">
+      ${answered.length} of ${active.length} connected client(s) answered.
+      A scene shown in red is one this user is not viewing — effects for your
+      current scene are correctly skipped there.
+    </div>${blocks.join("")}`;
+
+  const html = lcarsChatCard({
+    title: "VFX Diagnostics",
+    accent: silent.length ? LC.red : LC.primary,
+    body,
+    legacy: () => `<div style="border:1px solid ${LC.primary};padding:8px;">
+      <div style="color:${LC.primary};font-weight:700;margin-bottom:6px;">VFX DIAGNOSTICS</div>${body}
+    </div>`,
+  });
+
+  await ChatMessage.create({
+    content: html,
+    whisper: [game.userId],
+  });
+
+  return { silent: silent.map(u => u.name), answered: Object.fromEntries(_vfxPongs) };
+}
+
+let _socketSubscribed = false;
+
+/**
+ * Subscribe to the toolkit channel. Idempotent, and safe to call from `init`
+ * before `ready` has built the handler — `_dispatchToolkitSocket` queues until
+ * then. Returns whether this client is now listening.
+ */
+function _subscribeToolkitSocket() {
+  if (_socketSubscribed) return true;
+  try {
+    game.socket.on("module.sta2e-toolkit", _dispatchToolkitSocket);
+    _socketSubscribed = true;
+  } catch (err) {
+    console.error("STA2e Toolkit | could not subscribe to the module socket:", err);
+  }
+  return _socketSubscribed;
+}
+
+/** Replay anything that arrived before the handler was built. */
+function _drainPendingSocketMsgs() {
+  if (!_pendingSocketMsgs.length) return;
+  console.warn(`STA2e Toolkit | replaying ${_pendingSocketMsgs.length} socket message(s) received during startup`);
+  const queued = _pendingSocketMsgs.splice(0, _pendingSocketMsgs.length);
+  for (const msg of queued) _runToolkitSocketHandler(msg);
+}
 
 // Foundry sockets never deliver a message back to the emitting client. Any
 // action gated on the responsible GM therefore silently does nothing when the
@@ -322,14 +526,22 @@ let _toolkitSocketHandler = null;
 function emitToolkitSocket(msg) {
   game.socket.emit("module.sta2e-toolkit", msg);
   if (_isResponsibleGM() && typeof _toolkitSocketHandler === "function") {
-    Promise.resolve(_toolkitSocketHandler(msg)).catch(err =>
-      console.error("STA2e Toolkit | local socket dispatch failed:", err));
+    _runToolkitSocketHandler(msg);
   }
 }
 
 Hooks.once("init", () => {
   console.log("STA 2e Toolkit | Initializing");
+
+  // FIRST, before anything that could throw. See the note on
+  // `_dispatchToolkitSocket` — losing this subscription costs a client every
+  // broadcast effect for the session, silently. Wrapped because the whole point
+  // is that nothing here can take the rest of init down with it; `ready`
+  // re-attempts if this somehow did not take.
+  _subscribeToolkitSocket();
+
   registerSettings();
+  registerVfxDiagnostics();
   registerTractorBeamVfxHooks();
   registerShieldBubbleVfxHooks();
   registerShieldIdleVfxHooks();
@@ -345,9 +557,7 @@ Hooks.once("init", () => {
   registerRegionPadConfig();
   registerRegionSplineTool();
   registerWarpViewscreenBehavior();
-  registerShipCommandHud();
-  registerQHud();
-  registerTokenWeaponHud();
+  registerTokenToolkitHud();
   registerHullDecals();
   registerTraitItemSheetFields();
   registerGroundWeaponItemSheetFields();
@@ -711,8 +921,23 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 // ready — build systems, expose API, render HUD
 // ---------------------------------------------------------------------------
 
+// Set on the last line of the `ready` hook below. The watchdog started there
+// reports a startup that threw or hung partway: Foundry logs the throw itself,
+// but nothing connects that to "the toolkit is now half-built", which is the
+// part a GM needs to know. Inbound VFX no longer depend on reaching the end of
+// that hook (see `_dispatchToolkitSocket`), but plenty else still does.
+let _toolkitReadyCompleted = false;
+
 Hooks.once("ready", async () => {
   console.log("STA 2e Toolkit | Ready");
+
+  setTimeout(() => {
+    if (_toolkitReadyCompleted) return;
+    console.error("STA2e Toolkit | startup did not complete — the module is only partly initialized. Look for an earlier error in this console.");
+    if (game.user?.isGM) {
+      ui.notifications?.error("STA 2e Toolkit failed to finish starting up. Check the browser console (F12) for the error.");
+    }
+  }, 20000);
 
   // Scan for bundled per-type torpedo sprites ("<Type>-Torpedo.webm") so each
   // torpedo type uses its own animation when present, else the photon sprite.
@@ -734,6 +959,7 @@ Hooks.once("ready", async () => {
 
   game.sta2eToolkit = new ToolkitAPI({ campaignStore, hud, dateEditor, campaignManager });
   game.sta2eToolkit.openWarpCalc    = openWarpCalc;
+  game.sta2eToolkit.diagnoseVfx     = diagnoseVfx;
   game.sta2eToolkit.alertHud        = alertHud;
   game.sta2eToolkit.combatHud       = combatHud;
 
@@ -875,6 +1101,9 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.testShieldBubbleVFX = options => testShieldBubble(options);
   game.sta2eToolkit.testShieldIdleVFX = level => testShieldIdle(level);
   game.sta2eToolkit.openShipVfxAnchorEditor = openShipVfxAnchorEditor;
+  game.sta2eToolkit.openObjectVfxEditor = openShipVfxAnchorEditor;
+  game.sta2eToolkit.isDestructible = isDestructible;
+  game.sta2eToolkit.applyObjectDamage = requestObjectOperation;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
   game.sta2eToolkit.createStarSystemActor = createStarSystemActor;
   game.sta2eToolkit.openStarSystemSheet = openStarSystemSheet;
@@ -1176,8 +1405,9 @@ Hooks.once("ready", async () => {
     // other client so all players see it. Runs on ALL receivers (no GM gate —
     // it's cosmetic and touches no documents).
     if (msg.action === "spawnEngineTrailVfx") {
-      const trailTok = canvas?.tokens?.get(msg.tokenId);
+      const trailTok = _vfxToken(msg);
       if (trailTok) {
+        noteVfxReceived(msg.action);
         // Stop any prior remote trail for this token before starting a new one.
         _remoteEngineTrails.get(msg.tokenId)?.stop?.();
         const remoteTrail = spawnEngineTrail(trailTok, msg.kind, { ...(msg.opts ?? {}) });
@@ -1191,12 +1421,19 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // Cosmetic playback only; the initiating GM owns transporter documents.
+    if (msg.action === TRANSPORTER_SHADER_ACTION) {
+      if (_vfxSceneOk(msg)) await receiveTransporterShader(msg);
+      return;
+    }
+
     // Warp flash / corridor — same deal as the engine trail, and only sent when
     // the native PIXI path is in use (Sequencer routes its own effects).
     // Coordinates are explicit because the arrival flash fires right after a
     // teleport, when a remote client could still resolve the token's pre-jump
     // position. x2/y2 carry the far end of the corridor.
     if (msg.action === "warpFlashVfx") {
+      noteVfxReceived(msg.action);
       playNativeWarpFlash({
         x: msg.x, y: msg.y, x2: msg.x2, y2: msg.y2,
         radius: msg.radius, heading: msg.heading, phase: msg.phase,
@@ -1211,7 +1448,10 @@ Hooks.once("ready", async () => {
     // runs only on the GM, so everyone else needs telling. Scene-guarded: a
     // client looking at somewhere else should not be flashed.
     if (msg.action === "qSceneFlashVfx") {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) playNativeQSceneFlash();
+      if (_vfxSceneOk(msg)) {
+        noteVfxReceived(msg.action);
+        playNativeQSceneFlash();
+      }
       return;
     }
 
@@ -1220,9 +1460,10 @@ Hooks.once("ready", async () => {
     // lands the pop-fade on the depart flash; the glow also self-expires in
     // case that message is lost.
     if (msg.action === "warpChargeVfx") {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
-        const chargeTok = canvas?.tokens?.get(msg.tokenId);
+      if (_vfxSceneOk(msg)) {
+        const chargeTok = _vfxToken(msg);
         if (chargeTok) {
+          noteVfxReceived(msg.action);
           playWarpChargeGlow(chargeTok, {
             sweepMs: msg.sweepMs, peakHoldMs: msg.peakHoldMs, fadeMs: msg.fadeMs,
           });
@@ -1241,9 +1482,10 @@ Hooks.once("ready", async () => {
     // ungated because it is purely cosmetic. Each client runs its own tween off
     // the same parameters.
     if (msg.action === "warpStretchVfx") {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
-        const stretchTok = canvas?.tokens?.get(msg.tokenId);
+      if (_vfxSceneOk(msg)) {
+        const stretchTok = _vfxToken(msg);
         if (stretchTok) {
+          noteVfxReceived(msg.action);
           playWarpStretch(stretchTok, {
             from: msg.from, to: msg.to,
             holdMs: msg.holdMs, durationMs: msg.durationMs,
@@ -1262,16 +1504,57 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // Deflector dish effects. Cosmetic, so ungated by GM — every client runs its
+    // own copy off the same parameters, reading the look from the actor flag
+    // rather than from the payload, and plays its own sound locally.
+    if (msg.action === DEFLECTOR_VFX_ACTION) {
+      if (_vfxSceneOk(msg)) {
+        const deflectorTok = _vfxToken(msg);
+        if (deflectorTok) {
+          noteVfxReceived(msg.action);
+          playDeflectorEffect(deflectorTok, msg.type, {
+            target: (Number.isFinite(msg.targetX) && Number.isFinite(msg.targetY))
+              ? { x: msg.targetX, y: msg.targetY }
+              : null,
+            durationMs: Number.isFinite(msg.durationMs) ? msg.durationMs : undefined,
+          });
+        }
+      }
+      return;
+    }
+    // Deliberately NOT scene-guarded, matching stopWarpChargeVfx above: a stop
+    // discarded on a guard leaves a sustained effect lit for good on that client.
+    if (msg.action === STOP_DEFLECTOR_VFX_ACTION) {
+      stopDeflectorEffect(msg.tokenId);
+      return;
+    }
+
     // Point Defense tracers are native PIXI, while the intercepted torpedo and
     // its destruction effect remain Sequencer-synchronized. The firing client
     // draws locally before emitting because Foundry sockets do not loop back.
     if (msg.action === "pointDefenseTracerVfx") {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+      if (_vfxSceneOk(msg)) {
+        noteVfxReceived(msg.action);
         playNativeTracerBetweenPoints(msg.sourcePoint, msg.targetPoint, {
           color: msg.color,
           layer: msg.layer,
           hit: true,
         });
+      }
+      return;
+    }
+
+    // Ship banks, arrays, lances and cannons drawn natively, for the same
+    // reason ground phasers are below: fireNativeWeaponVFX runs on the firing
+    // client alone, so without this nobody else sees an experimental or shader
+    // beam at all. Visuals only — sounds broadcast themselves through
+    // AudioHelper, and shield/hull impacts route themselves. The appearance
+    // groups are re-read from the world setting on this side rather than sent.
+    // See native-weapon-vfx.js.
+    if (msg.action === SHIP_BEAM_VFX_ACTION) {
+      if (_vfxSceneOk(msg)) {
+        noteVfxReceived(msg.action);
+        playShipBeamVfxFromSocket(msg);
       }
       return;
     }
@@ -1282,7 +1565,15 @@ Hooks.once("ready", async () => {
     // was played through AudioHelper, which broadcasts itself, so replaying it
     // here would double it. See ground-phaser-vfx.js.
     if (msg.action === GROUND_PHASER_VFX_ACTION) {
+      // Scene-guarded inside the function rather than here, unlike its
+      // neighbours — see playGroundPhaserVfxFromSocket.
+      noteVfxReceived(msg.action);
       playGroundPhaserVfxFromSocket(msg);
+      return;
+    }
+    if (msg.action === GROUND_ENERGY_VFX_ACTION) {
+      noteVfxReceived(msg.action);
+      playGroundEnergyVfxFromSocket(msg);
       return;
     }
 
@@ -1293,7 +1584,8 @@ Hooks.once("ready", async () => {
     // its own sequence from the plan keeps that delta at ~0. See
     // torpedo-travel-vfx.js.
     if (msg.action === "torpedoTravelVfx") {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+      if (_vfxSceneOk(msg)) {
+        noteVfxReceived(msg.action);
         playTorpedoTravelLocal(msg.plan);
       }
       return;
@@ -1303,7 +1595,8 @@ Hooks.once("ready", async () => {
     // see bolt-travel-vfx.js. The firing client resolved the flight to plain
     // numbers; each client builds its own sequence from them.
     if (msg.action === BOLT_TRAVEL_VFX_ACTION) {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+      if (_vfxSceneOk(msg)) {
+        noteVfxReceived(msg.action);
         playBoltTravelLocal(msg.plan);
       }
       return;
@@ -1314,7 +1607,8 @@ Hooks.once("ready", async () => {
     // sender; each client recomputes only the geometry, which is local to its
     // own canvas. See shield-bubble-vfx.js.
     if (msg.action === "shieldBubbleVfx") {
-      if (!msg.sceneId || msg.sceneId === canvas?.scene?.id) {
+      if (_vfxSceneOk(msg)) {
+        noteVfxReceived(msg.action);
         playShieldBubbleLocal({
           tokenId: msg.tokenId,
           x: msg.x, y: msg.y,
@@ -1326,6 +1620,35 @@ Hooks.once("ready", async () => {
           broke: msg.broke,
         });
       }
+      return;
+    }
+
+    // ── VFX self-test ────────────────────────────────────────────────────────
+    // Answers "why did that player not see the animation?" — the question this
+    // whole diagnostics path exists for. UNGATED and deliberately trivial: the
+    // single most useful result is a client that does not answer AT ALL, which
+    // means its socket subscription is missing and it has been receiving no
+    // broadcast effects all session.
+    if (msg.action === "vfxPing") {
+      game.socket.emit("module.sta2e-toolkit", {
+        action: "vfxPong",
+        targetUserId: msg.fromUserId,
+        userId: game.userId,
+        userName: game.user?.name ?? "?",
+        isGM: !!game.user?.isGM,
+        viewedSceneId: canvas?.scene?.id ?? null,
+        viewedSceneName: canvas?.scene?.name ?? null,
+        canvasReady: !!canvas?.ready,
+        hasPIXI: !!globalThis.PIXI,
+        hasSequencer: !!window.Sequence,
+        shaderAvailable: (() => { try { return beamShaderAvailable(); } catch { return null; } })(),
+        moduleVersion: game.modules?.get("sta2e-toolkit")?.version ?? null,
+        ...vfxCounters(),
+      });
+      return;
+    }
+    if (msg.action === "vfxPong") {
+      if (msg.targetUserId === game.userId) _vfxPongs.set(msg.userId, msg);
       return;
     }
 
@@ -1855,7 +2178,11 @@ Hooks.once("ready", async () => {
       }
     }
   };
-  game.socket.on("module.sta2e-toolkit", _toolkitSocketHandler);
+  // Normally NOT a second `game.socket.on` — the subscription was made back in
+  // `init` and has been queueing for us. This call is idempotent and only
+  // actually subscribes if that one somehow failed.
+  _subscribeToolkitSocket();
+  _drainPendingSocketMsgs();
 
   // Seed default campaign for new worlds
   if (game.user.isGM && campaignStore.getCampaigns().length === 0) {
@@ -1874,6 +2201,8 @@ Hooks.once("ready", async () => {
 
   // Deferred so it also catches hooks other modules register late in ready.
   setTimeout(() => _shimTokenlessCombatantHookErrors(), 0);
+
+  _toolkitReadyCompleted = true;
 });
 
 // ---------------------------------------------------------------------------
@@ -2714,6 +3043,7 @@ Hooks.on("canvasReady", () => {
 // The field's containers and the glows both hold PIXI objects parented into the
 // token layer, which the teardown is about to destroy under them.
 Hooks.on("canvasTearDown", () => {
+  teardownTransporterShaderPlayback();
   detachSceneWarp();
   _stopAllSceneWarpGlows();
 });
@@ -4221,6 +4551,24 @@ function _addShipToolkitSettingsButton(app, html) {
 Hooks.on("renderSTAStarshipSheet2e",  _addShipToolkitSettingsButton);
 Hooks.on("renderSTASmallCraftSheet2e", _addShipToolkitSettingsButton);
 
+// Existing character/NPC sheets keep their normal sheet; VFX holds object configuration.
+for (const hook of ["renderSTACharacterSheet2e", "renderSTANPCSheet2e", "renderSTASupportingSheet2e"]) {
+  Hooks.on(hook, (app, html) => {
+    if (!game.user.isGM) return;
+    const root = html instanceof HTMLElement ? html : html?.[0];
+    const header = root?.closest(".app")?.querySelector(".window-header") ?? app.element?.querySelector?.(".window-header");
+    if (!header || header.querySelector(".sta2e-object-vfx-button")) return;
+    const button = document.createElement("button"); button.type = "button";
+    button.className = "header-control sta2e-object-vfx-button"; button.title = "VFX and Destructible Object";
+    button.innerHTML = '<i class="fas fa-meteor"></i>';
+    button.addEventListener("click", () => openShipVfxAnchorEditor(app.token ?? app.document ?? app.actor));
+    header.insertBefore(button, header.querySelector('[data-action="close"]'));
+  });
+}
+// The Token HUD's VFX button is now a row in the toolkit menu — see the
+// VFX_SECTION leaf in token-toolkit-hud.js, which reaches the editor through
+// game.sta2eToolkit.openObjectVfxEditor rather than importing it.
+
 // ---------------------------------------------------------------------------
 // createCombatant — when a ship token is added to the combat tracker,
 // also add combatant entries for all assigned crew officers so the GM
@@ -4245,6 +4593,7 @@ Hooks.on("createCombatant", async (combatant, _options, userId) => {
   if (canvasToken?.actor) actor = canvasToken.actor;
 
   // Only process ship actors
+  if (isDestructible(canvasToken ?? actor)) return;
   const isShip = actor.type === "starship" || actor.type === "spacecraft2e"
     || actor.items?.some(i => i.type === "starshipweapon2e");
   if (!isShip) return;

@@ -76,6 +76,55 @@
   <div class="ec-tab-panel {{#if @first}}active{{/if}}" data-tab="{{id}}"
     {{#if customKey}}data-custom-key="{{customKey}}"{{/if}}>
 
+    {{#if transporterShader}}
+    <section class="ec-native-section" aria-label="Cinematic transporter settings">
+      <div class="ec-native-header">Transporter Visual Effects Engine</div>
+      <select class="ec-native-select" data-transporter-engine aria-label="Transporter engine">
+        {{#each transporterShader.engines}}
+        <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+      <p class="ec-native-hint" style="color:#90a8c4;margin:8px 0;">Tokens fade beneath a colored veil and circling particles confined to the artwork's transparency. Dancing particles form an outer cylinder and a smaller sphere clustered at the token's center. Inner cluster size (%) adjusts the sphere's spread; 100% keeps its original size. Inner cluster intensity and Outer dancing particle intensity adjust the layers separately; zero disables that layer. Inner dancing particle speed and Outer dancing particle speed control each layer's motion separately; zero pauses that layer. Inner cluster direction and Outer particle direction set rotation independently (clockwise or counterclockwise, viewed from above). Shimmer speed controls flicker independently. TNG/Voyager add falling streaks; Voyager adds two successive orb pairs. TOS/Enterprise/TMP use circular outlines; TMP adds adjustable glowing swipes (100% is the default size). Romulan uses a scanning field; Borg uses energy strands. Dominion builds a haze followed by dense blue, lavender, and white rain; its three colors are adjustable. Rain controls apply to presets with rainfall. Select up to six tokens to preview unsaved settings locally; previews restore their appearance without transporting them.</p>
+      <p class="ec-native-hint" style="color:#90a8c4;margin:8px 0;">All cinematic presets also include stationary sparkles that pop in and out inside the artwork. Static sparkle amount controls how many appear (zero disables them); Static sparkle rate controls how often they appear.</p>
+      <button type="button" class="ec-add-btn" data-transporter-stop>Stop Preview</button>
+      {{#each transporterShader.presets}}
+      <details data-transporter-preset="{{type}}" style="margin:8px 0;border:1px solid #2a3050;padding:8px;">
+        <summary style="cursor:pointer;color:#d0d8f0;font-weight:700;font-size:12px;">{{label}}</summary>
+        <div class="ec-beam-toolbar" style="margin-top:10px;">
+          <button type="button" class="ec-add-btn" data-transporter-preview="in">▶ Beam In</button>
+          <button type="button" class="ec-add-btn" data-transporter-preview="out">▶ Beam Out</button>
+          <button type="button" class="ec-add-btn" data-transporter-reset>Reset Preset</button>
+          <label style="font-size:11px;">Framing
+            <select class="ec-native-select" data-transporter-field="framing">
+              <option value="figure" {{#unless portrait}}selected{{/unless}}>Figure</option>
+              <option value="portrait" {{#if portrait}}selected{{/if}}>Portrait</option>
+            </select>
+          </label>
+          <label style="font-size:11px;">Primary <input class="ec-beam-color" type="color" data-transporter-field="color" value="{{values.color}}" /></label>
+          <label style="font-size:11px;">Highlight <input class="ec-beam-color" type="color" data-transporter-field="highlight" value="{{values.highlight}}" /></label>
+          {{#if hasSecondary}}<label style="font-size:11px;">Secondary <input class="ec-beam-color" type="color" data-transporter-field="secondary" value="{{values.secondary}}" /></label>{{/if}}
+        </div>
+        <table class="ec-table"><tbody>
+          {{#each controls}}
+          <tr><td class="ec-label">{{label}}</td><td>
+            {{#if options}}
+            <select class="ec-native-select" aria-label="{{label}}" data-transporter-field="{{key}}">
+              {{#each options}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+            </select>
+            {{else}}
+            <div class="ec-slider">
+              <input type="range" aria-label="{{label}}" data-transporter-field="{{key}}" value="{{value}}" min="{{min}}" max="{{max}}" step="{{step}}" />
+              <span class="ec-slider-val" style="min-width:42px;">{{value}}</span>
+            </div>
+            {{/if}}
+          </td></tr>
+          {{/each}}
+        </tbody></table>
+      </details>
+      {{/each}}
+    </section>
+    {{/if}}
+
     {{!-- Main rows table --}}
     {{#if rows.length}}
     <table class="ec-table">
@@ -248,9 +297,14 @@
     <div class="ec-beam-toolbar">
       <p class="ec-torp-hint" style="margin:0;flex:1;">
         Appearance of the experimental native beams — the ones enabled under
-        Ship Weapons ▸ Experimental Native Weapon VFX. Widths and radii are canvas pixels.
+        Ship Weapons ▸ Experimental Native Weapon VFX — plus the travelling bolt sprite
+        and the Shader Beam look. Widths and radii are canvas pixels.
         Select a token, target another, then Preview to judge unsaved values on canvas.
       </p>
+      <label class="ec-beam-blank" title="Draw the preview with the Shader Beam group below, whatever mode the weapon families are actually set to">
+        <input type="checkbox" data-beam-preview-shader />
+        Preview with shader
+      </label>
       <label class="ec-beam-blank" title="Which energy type's colour the preview fires in">
         Type
         <select class="ec-native-select" style="min-width:150px;" data-beam-preview-type>

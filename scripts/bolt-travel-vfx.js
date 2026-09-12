@@ -34,6 +34,8 @@
 //   { file, px, travelMs, rotationOffsetDeg,
 //     launch: {x, y}, target: {x, y}, layer }
 
+import { vfxDrop } from "./vfx-diagnostics.js";
+
 export const BOLT_TRAVEL_VFX_ACTION = "boltTravelVfx";
 
 function applyLayer(effect, layer) {
@@ -45,11 +47,20 @@ function applyLayer(effect, layer) {
 
 /** Builds and plays the bolt on THIS client only. Never broadcasts. */
 export function playBoltTravelLocal(plan) {
-  if (!plan?.file || !window.Sequence) return;
+  if (!plan?.file || !window.Sequence) {
+    // Sequencer is an OPTIONAL relationship in module.json, so a client whose
+    // copy failed to load loses bolts and torpedoes while native PIXI beams
+    // keep working — a confusing half-failure worth naming.
+    vfxDrop(BOLT_TRAVEL_VFX_ACTION, plan?.file ? "sequencer-missing" : "no-plan-file");
+    return;
+  }
   const launch = plan.launch;
   const target = plan.target;
-  if (!Number.isFinite(launch?.x) || !Number.isFinite(launch?.y)) return;
-  if (!Number.isFinite(target?.x) || !Number.isFinite(target?.y)) return;
+  if (!Number.isFinite(launch?.x) || !Number.isFinite(launch?.y)
+    || !Number.isFinite(target?.x) || !Number.isFinite(target?.y)) {
+    vfxDrop(BOLT_TRAVEL_VFX_ACTION, "bad-coords", { launch, target });
+    return;
+  }
 
   try {
     const travelMs = Math.max(1, Number(plan.travelMs) || 400);

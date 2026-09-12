@@ -349,6 +349,17 @@ export class ToolkitWidget {
         () => game.sta2eToolkit?.openVfxTestPanel?.(),
       ));
 
+      // VFX Diagnostics — GM only. Pings every client and whispers back who can
+      // actually draw broadcast effects; a client that does not answer has no
+      // live socket subscription and has been silently missing all of them.
+      btnContainer.appendChild(mkBtn(
+        "fas fa-stethoscope",
+        game.i18n.localize("STA2E.Widget.Button.VfxDiagnostics.Label"),
+        game.i18n.localize("STA2E.Widget.Button.VfxDiagnostics.Hint"),
+        LC.red ?? "#cc6666",
+        () => game.sta2eToolkit?.diagnoseVfx?.(),
+      ));
+
       // Zone Editor button — GM only
       btnContainer.appendChild(mkBtn(
         "fas fa-vector-square",

@@ -1,11 +1,11 @@
 /**
  * sta2e-toolkit | ship-command-hud.js
  *
- * GM-only ship controls on the Token HUD (right-click a starship token).
+ * The Ship Command section of the Token HUD toolkit menu (token-toolkit-hud.js).
  *
- * One arrowhead button opens a flyout palette of shortcuts: warp jump, warp out,
- * tractor beam lock/release, scan for weakness, and cloak engage/disengage.
- * Weapon attacks live on their own Token HUD control — see token-weapon-hud.js.
+ * GM shortcuts for staging a starship between beats: warp jump, warp out,
+ * tractor beam lock/release, scan for weakness, cloak, and the standing shield
+ * envelope. Weapon attacks are their own section — see token-weapon-hud.js.
  *
  * Every one of them exists because the normal route — roller → chat card →
  * confirm → picker — is far too much ceremony when the GM just wants to stage a
@@ -41,17 +41,10 @@ import {
   nextShieldLevel,
   raiseShields,
 } from "./shield-idle-vfx.js";
-import {
-  buildHudControl,
-  buildHudFlyout,
-  resolveHudToken,
-  toggleHudFlyout,
-} from "./token-hud-util.js";
+import { buildHudItem } from "./token-hud-util.js";
 
-const FLAG_SCOPE    = "sta2e-toolkit";
-const ARROWHEAD     = "modules/sta2e-toolkit/assets/arrowhead.svg";
-const SHIFT_HINT    = " · Shift-click to announce in chat";
-const PALETTE_CLASS = "sta2e-ship-command-palette";
+const FLAG_SCOPE = "sta2e-toolkit";
+const SHIFT_HINT = " · Shift-click to announce in chat";
 
 /**
  * Is this actor a ship of some kind?
@@ -264,48 +257,22 @@ async function _onCloakToggle(token, { announce }) {
 }
 
 /**
- * Build one palette row. `onClick` receives the click event so handlers can read
- * `shiftKey` for the announce-in-chat modifier.
+ * Build the section's rows for the token's current state. `rebuild()` is called
+ * after every stateful action so Engage/Release labels flip without reopening
+ * the HUD; the host owns the connection guards and the in-place swap.
  */
-function _buildItem({ icon, label, tooltip, danger = false }, onClick) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  // Row styling is shared with the Q palette — see token-hud-flyout.css. The
-  // feature class stays alongside it for anything aimed specifically at these.
-  btn.className = "sta2e-hud-item sta2e-ship-command-item";
-  if (danger) btn.classList.add("danger");
-  btn.dataset.tooltip = tooltip;
-  btn.innerHTML = `<i class="${icon}"></i><span>${label}</span>`;
-  btn.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    onClick(event);
-  });
-  return btn;
-}
+function _buildRows(host) {
+  const { app, token } = host;
+  const rows    = [];
+  const rebuild = () => host.rebuild();
 
-/**
- * Build the flyout contents for the token's current state. Rebuilt after every
- * stateful action so Engage/Release labels flip without reopening the HUD.
- */
-function _buildPalette(app, token, control) {
-  const palette = buildHudFlyout(PALETTE_CLASS);
-
-  const rebuild = () => {
-    // The HUD may have closed while the action was running.
-    if (!control.isConnected || !palette.isConnected) return;
-    const fresh = _buildPalette(app, token, control);
-    fresh.style.top = palette.style.top;
-    palette.replaceWith(fresh);
-  };
-
-  palette.appendChild(_buildItem({
+  rows.push(buildHudItem({
     icon:    "fas fa-forward-fast",
     label:   "Warp Jump",
     tooltip: "Pick a destination and warp there",
   }, () => _onWarpJump(app, token)));
 
-  palette.appendChild(_buildItem({
+  rows.push(buildHudItem({
     icon:    "fas fa-right-from-bracket",
     label:   "Warp Out",
     tooltip: "Warp off the map — removes the token from this scene",
@@ -315,7 +282,7 @@ function _buildPalette(app, token, control) {
   const pair = _resolveTractorPair(token);
   if (pair) {
     const isProjector = pair.sourceTok === token;
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    "fas fa-link-slash",
       label:   isProjector ? `Release: ${pair.heldName}` : `Break Free: ${pair.heldName}`,
       tooltip: isProjector
@@ -327,7 +294,7 @@ function _buildPalette(app, token, control) {
       rebuild();
     }));
   } else {
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    "fas fa-link",
       label:   "Tractor: Lock Beam",
       tooltip: `Lock the targeted ship — visual only, it is not moved${SHIFT_HINT}`,
@@ -336,7 +303,7 @@ function _buildPalette(app, token, control) {
       rebuild();
     }));
 
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    "fas fa-link",
       label:   "Tractor: Lock & Tow",
       tooltip: `Lock the targeted ship and attach it so it follows this one${SHIFT_HINT}`,
@@ -352,7 +319,7 @@ function _buildPalette(app, token, control) {
   const scanState  = scanTarget && scanTarget.id !== token.id
     ? getScanForWeaknessStateForAttacker(scanTarget, token.id)
     : null;
-  palette.appendChild(_buildItem({
+  rows.push(buildHudItem({
     icon:    scanState ? "fas fa-magnifying-glass-minus" : "fas fa-magnifying-glass",
     label:   scanState ? `Scan: Clear ${scanTarget.name}` : "Scan for Weakness",
     tooltip: scanState
@@ -367,7 +334,7 @@ function _buildPalette(app, token, control) {
 
   if (hasCloakingDevice(token.actor)) {
     const cloaked = _isCloaked(token);
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    cloaked ? "fas fa-eye" : "fas fa-eye-slash",
       label:   cloaked ? "Cloak: Disengage" : "Cloak: Engage",
       tooltip: cloaked
@@ -381,11 +348,11 @@ function _buildPalette(app, token, control) {
   }
 
   // Standing shield envelope. These are pure flag writes with no chat card and
-  // no dialog, so unlike the entries above they deliberately leave the palette
+  // no dialog, so unlike the entries above they deliberately leave the panel
   // open — the GM is usually here to try a level, look at it, and try the next.
   const shields = getShieldIdleState(token);
   if (!shields) {
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    "fas fa-shield-halved",
       label:   "Shields: Raise",
       tooltip: "Raise shields — a standing envelope with nebula interference",
@@ -395,7 +362,7 @@ function _buildPalette(app, token, control) {
     }));
   } else {
     const next = nextShieldLevel(shields.level);
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    "fas fa-shield-halved",
       label:   `Shields: ${SHIELD_IDLE_LEVELS[shields.level].label}`,
       tooltip: `Interference level — click for ${SHIELD_IDLE_LEVELS[next].label}`,
@@ -403,7 +370,7 @@ function _buildPalette(app, token, control) {
       await cycleShieldLevel(token);
       rebuild();
     }));
-    palette.appendChild(_buildItem({
+    rows.push(buildHudItem({
       icon:    "fas fa-shield-slash",
       label:   "Shields: Lower",
       tooltip: "Drop the standing shield envelope",
@@ -414,37 +381,15 @@ function _buildPalette(app, token, control) {
     }));
   }
 
-  return palette;
+  return rows;
 }
 
-function _injectShipCommand(app, html) {
-  if (!game.user?.isGM) return;
-
-  const root = html instanceof HTMLElement ? html : html?.[0];
-  if (!root) return;
-  if (root.querySelector(".sta2e-ship-command")) return;
-
-  const token = resolveHudToken(app);
-  if (!token || !isShipActor(token.actor)) return;
-
-  const column = root.querySelector(".col.right") ?? root.querySelector(".col.left");
-  if (!column) return;
-  const sibling = column.querySelector(".control-icon");
-
-  const control = buildHudControl(sibling, {
-    cssClass: "sta2e-ship-command",
-    img:      ARROWHEAD,
-    tooltip:  "Ship Command (GM)",
-  });
-  control.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    toggleHudFlyout(control, PALETTE_CLASS, () => _buildPalette(app, token, control));
-  });
-  column.appendChild(control);
-}
-
-/** Register the HUD hook. Call once from main.js init. */
-export function registerShipCommandHud() {
-  Hooks.on("renderTokenHUD", _injectShipCommand);
-}
+/** @see token-toolkit-hud.js for the section descriptor contract. */
+export const SHIP_COMMAND_SECTION = {
+  id:        "ship",
+  label:     "Ship Command",
+  icon:      "fas fa-rocket",
+  tooltip:   "Warp, tractor, scan, cloak and shields — no rolls",
+  available: (token) => isShipActor(token.actor),
+  build:     _buildRows,
+};

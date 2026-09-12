@@ -1,25 +1,15 @@
 /* sta2e-toolkit | token-weapon-hud.css
  *
- * The GM weapon control on the Token HUD and the contents of its flyout. The
- * flyout container itself is shared — see styles/token-hud-flyout.css.
+ * The contents of the toolkit menu's Weapons section. The flyout container, its
+ * rows and the Token HUD overflow fixes are shared — see
+ * styles/token-hud-flyout.css.
  */
-
-/* ── The crosshair control ────────────────────────────────────────────────── */
-
-.control-icon.sta2e-token-weapons i {
-  opacity: 0.75;
-  transition: opacity 120ms ease, text-shadow 120ms ease;
-}
-
-.control-icon.sta2e-token-weapons:hover i,
-.control-icon.sta2e-token-weapons.active i {
-  opacity: 1;
-  text-shadow: 0 0 6px #ff9c00;
-}
 
 /* ── Weapon grid ──────────────────────────────────────────────────────────── */
 
-.sta2e-token-weapon-palette {
+/* The section has no root of its own — it contributes rows to the shared panel,
+   which stamps `data-section` for exactly this. */
+.sta2e-hud-flyout[data-section="weapons"] {
   /* Five icons per row before wrapping: 5 × 40px + 4 × 4px gap + 8px padding. */
   max-width: 224px;
 }

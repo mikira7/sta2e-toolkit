@@ -685,6 +685,9 @@
     {{/each}}
   </div>
 
+  {{#if isDestructibleTab}}
+    {{{destructiblePanel}}}
+  {{else}}
   {{#if hitSystemOptions}}
   <div class="sta2e-hit-system-picker">
     {{#each hitSystemOptions}}
@@ -918,6 +921,98 @@
     <div class="sta2e-vfx-preview-bar">
       <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Defender: {{previewSourceName}}</div>
       <div class="sta2e-vfx-preview-status" title="{{previewTargetName}}">Intercept: {{previewTargetName}}</div>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
+      <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
+    </div>
+  </div>
+  {{/if}}
+
+  {{#if isDeflectorTab}}
+  <div class="sta2e-vfx-settings" data-deflector-form-type="{{activeDeflectorType}}">
+    <div class="sta2e-vfx-settings-heading">
+      <span>Deflector Dish Settings</span>
+      <button type="button" data-reset-deflector title="Reset this ship's settings for the selected effect"><i class="fas fa-undo"></i> Reset</button>
+    </div>
+    <div class="sta2e-anchor-value">
+      Place the dish on the hull below, then pick what it does. {{deflectorHint}} Facing is ship-local: 0 fore, 90 starboard, 180 aft, 270 port. Cosmetic only &mdash; no roll and no Power cost. Fire it from the token's toolkit menu.
+    </div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-enabled">Enabled</label>
+        <input id="sta2e-deflector-enabled" type="checkbox" data-deflector-setting="enabled" {{#if activeDeflectorSettings.enabled}}checked{{/if}} />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-type" title="Which of the four deflector effects this ship's dials describe">Effect Type</label>
+        <select id="sta2e-deflector-type" data-deflector-setting="type">
+          {{#each deflectorTypeOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-colormode">Color</label>
+        <select id="sta2e-deflector-colormode" data-deflector-setting="colorMode">
+          {{#each deflectorColorModeOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Resolved</label>
+        <span class="sta2e-anchor-value"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid rgba(255,255,255,0.4);background:{{resolvedDeflectorColor}};"></span> {{resolvedDeflectorColor}}</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-blend">Blend</label>
+        <select id="sta2e-deflector-blend" data-deflector-setting="blendMode">
+          {{#each deflectorBlendOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </div>
+      {{!-- One generic loop renders all four effect types' dials, the way
+            activeChargeRows does for the array charge. --}}
+      {{#each deflectorRows}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-{{key}}" title="{{#if title}}{{title}}{{else}}{{label}}{{/if}}">{{label}}</label>
+        {{#if isColor}}
+        <div class="sta2e-vfx-color-control">
+          <input id="sta2e-deflector-{{key}}" type="text" value="{{value}}" placeholder="{{placeholder}}" data-deflector-setting="{{key}}" data-hex-color-text />
+          <input class="sta2e-vfx-color-swatch" type="color" value="{{../deflectorPickerColor}}" title="{{label}}" data-hex-color-picker data-hex-color-scope="deflector" data-hex-color-key="{{key}}" />
+        </div>
+        {{else}}
+        <input id="sta2e-deflector-{{key}}" type="{{type}}" {{#if min}}min="{{min}}"{{/if}} {{#if max}}max="{{max}}"{{/if}} {{#if step}}step="{{step}}"{{/if}} value="{{value}}" data-deflector-setting="{{key}}" />
+        {{/if}}
+      </div>
+      {{/each}}
+    </div>
+
+    {{#if showEmitterArcSettings}}
+    <div class="sta2e-vfx-settings-heading">
+      <span>Emitter {{activeEmitterArcControls.displayIndex}} Direction</span>
+    </div>
+    <div class="sta2e-anchor-value">Facing aims the Charge Glow's intake cone. A dish points fore, so 0 is usually right; the other three effects aim at their target instead.</div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-facing">Facing</label>
+        <input id="sta2e-deflector-facing" type="range" min="0" max="359" step="1" value="{{activeEmitterArcControls.facingDeg}}" data-emitter-setting="facingDeg" />
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label>Facing Value</label>
+        <span class="sta2e-anchor-value" data-emitter-facing-value>{{activeEmitterArcControls.facingDeg}} deg</span>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-deflector-layer">Layer</label>
+        <select id="sta2e-deflector-layer" data-emitter-setting="layer">
+          <option value="above" {{#if activeEmitterArcControls.layerAboveSelected}}selected{{/if}}>Above Token</option>
+          <option value="below" {{#if activeEmitterArcControls.layerBelowSelected}}selected{{/if}}>Below Token</option>
+        </select>
+      </div>
+    </div>
+    {{/if}}
+
+    <div class="sta2e-vfx-preview-bar">
+      <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Source: {{previewSourceName}}</div>
+      <div class="sta2e-vfx-preview-status" title="{{previewTargetName}}">Target: {{previewTargetName}}</div>
       <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
       <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
     </div>
@@ -1291,8 +1386,9 @@
     {{/if}}
   </div>
 
+  {{/if}}
   <div class="sta2e-anchor-actions">
-    <button type="button" data-action="export" title="Download this ship's full VFX setup as JSON"><i class="fas fa-file-export"></i> Export</button>
+    <button type="button" data-action="export" title="Download this actor's full VFX setup as JSON"><i class="fas fa-file-export"></i> Export</button>
     <button type="button" data-action="import" title="Load a VFX setup JSON onto this ship (replaces everything)"><i class="fas fa-file-import"></i> Import</button>
     <button type="button" data-action="clear"><i class="fas fa-eraser"></i> Clear Tab</button>
     <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>

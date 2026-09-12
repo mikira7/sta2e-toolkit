@@ -6,6 +6,7 @@
 
 import {
   NativeTractorBeamVFX,
+  getTractorBeamAnimationRenderer,
   getTractorBeamVfxDefaults,
   getMergedTractorBeamVfxSettings,
   getTractorBeamVfxPresets,
@@ -30,6 +31,7 @@ function _readForm(root, defaults) {
   const preset = root.querySelector('[name="preset"]')?.value ?? defaults.preset;
   return {
     preset,
+    renderer: root.querySelector('[name="renderer"]')?.value === "shader" ? "shader" : "pixi",
     colorMode: root.querySelector('[name="colorMode"]')?.value === "custom" ? "custom" : "auto",
     color: root.querySelector('[name="color"]')?.value?.trim() || defaults.color,
     placement: root.querySelector('[name="placement"]')?.value === "below" ? "below" : "above",
@@ -83,6 +85,8 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
 
     return {
       values: foundry.utils.deepClone(this._values),
+      previewShader: (this._values.renderer ?? getTractorBeamAnimationRenderer()) === "shader",
+      previewPixi: (this._values.renderer ?? getTractorBeamAnimationRenderer()) !== "shader",
       presets,
       colorAuto,
       colorCustom: !colorAuto,

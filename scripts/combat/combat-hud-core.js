@@ -52,6 +52,9 @@ import {
 } from "../npc-roller.js";
 import { addAssistPending, clearAssistPending } from "../assist-pending.js";
 import { playGroundPhaserCone } from "../ground-phaser-vfx.js";
+import { fireGroundEnergyVFX } from "../ground-energy-vfx.js";
+import { isDestructible, getDestructibleConfig, destructibleDifficulty, requestObjectOperation } from "../destructible-objects.js";
+import { objectDamageRow } from "../destructible-combat.js";
 import {
   STATION_SLOTS,
   getCrewManifest,
@@ -274,7 +277,7 @@ function _shipAttackPatternDifficultyReduction(targetToken) {
 }
 
 function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null, options = {}) {
-  const base = baseDifficulty ?? (_shipWeaponIsTorpedo(weapon, config) ? 3 : 2);
+  const base = baseDifficulty ?? destructibleDifficulty(options.defenderToken ?? options.targetToken, _shipWeaponIsTorpedo(weapon, config) ? 3 : 2);
   const attackPatternReduction = Number(options.attackPatternReduction
     ?? _shipAttackPatternDifficultyReduction(options.defenderToken ?? options.targetToken)
     ?? 0) || 0;
@@ -1463,6 +1466,7 @@ async function _openAssistCardEditDialog(rollData) {
 //   { proceed: "pending", defMode, defenderTokenId }
 // ---------------------------------------------------------------------------
 export async function checkOpposedTaskForTokens(weaponName, attackerToken, targetTokens, options = {}) {
+  targetTokens = targetTokens?.filter(t => !isDestructible(t));
   if (!targetTokens?.length) return { proceed: true, difficulty: null, defenseType: null, defenderSuccesses: null };
 
   const weapon = options?.weapon
@@ -2456,14 +2460,14 @@ export class CombatHUD {
             // Detect target defensive states BEFORE showing the choice dialog
             // so the dialog can reflect cover / guard info accurately.
             const targets = Array.from(game.user.targets ?? []);
-            const targetIsGuarded = targets.some(t =>
+            const targetIsGuarded = targets.filter(t => !isDestructible(t)).some(t =>
               t.document?.getFlag(MODULE, "guardActive")
             );
             const guardPenalty = targetIsGuarded ? 1 : 0;
-            const targetHasCover = !isMelee && targets.some(t =>
+            const targetHasCover = !isMelee && targets.filter(t => !isDestructible(t)).some(t =>
               t.document?.getFlag(MODULE, "coverActive")
             );
-            const targetIsProne = targets.some(t => t.actor?.statuses?.has("prone") ?? false);
+            const targetIsProne = targets.filter(t => !isDestructible(t)).some(t => t.actor?.statuses?.has("prone") ?? false);
             // Prone + In Cover (ranged only) → +1 Protection AND +1 Difficulty at Medium+
             const targetIsProneInCover = !isMelee && targetHasCover && targetIsProne;
             const chiefSecurityAttackPenaltyData = await CombatHUD.consumeChiefSecurityAttackPenalty(this._token);
@@ -2473,17 +2477,17 @@ export class CombatHUD {
               : "";
             // Defensive Training — passive on the defender, matched against the
             // type of attack being made. Capped at +1 across all targets.
-            const defTrainPenalty = await defensiveTrainingPenalty(targets, isMelee);
+            const defTrainPenalty = await defensiveTrainingPenalty(targets.filter(t => !isDestructible(t)), isMelee);
             const defTrainPenaltyLabel = defTrainPenalty ? " +1 Defensive Training" : "";
             // Close Protection — single-use, spent on this target by an ally.
-            const closeProtectionData = await CombatHUD.consumeCloseProtection(targets[0] ?? null);
+            const closeProtectionData = isDestructible(targets[0]) ? null : await CombatHUD.consumeCloseProtection(targets[0] ?? null);
             const closeProtectionPenalty = closeProtectionData ? 1 : 0;
             const closeProtectionSource = closeProtectionData?.protectorName ?? null;
             const closeProtectionLabel = closeProtectionPenalty
               ? ` +1 Close Protection (${closeProtectionSource ?? "ally"})`
               : "";
 
-            if (isMelee) {
+            if (isMelee && !isDestructible(targets[0])) {
               const meleeTarget = targets[0] ?? null;
               if (!meleeTarget) {
                 ui.notifications.warn("STA2e Toolkit | Select a melee target before attacking.");
@@ -2823,7 +2827,7 @@ export class CombatHUD {
               // Melee vs prone: 2 bonus Momentum note is shown in the melee dialog below
             }
 
-            if (isMelee) {
+            if (isMelee && !isDestructible(targets[0])) {
               // Melee is always an opposed task — post the defender roll card then store
               // the full attacker context in the pending opposed task world flag and bail.
               // The attacker's roller will open automatically once the defender confirms.
@@ -2949,7 +2953,7 @@ export class CombatHUD {
             this[`_groundToggle_ground-aim`] = false;
             this._groundAimRerolls = 0;
 
-            const rangedDifficulty = 2 + guardPenalty + pronePenalty + chiefSecurityPenalty
+            const rangedDifficulty = Math.max(...targets.map(t => destructibleDifficulty(t, 2)), 0) + guardPenalty + pronePenalty + chiefSecurityPenalty
               + defTrainPenalty + closeProtectionPenalty;
             openPlayerRoller(actor, this._token, {
               officer:           readOfficerStats(actor),
@@ -2958,7 +2962,7 @@ export class CombatHUD {
               groundMode:        true,
               groundIsNpc:       CombatHUD.isGroundNpcActor(actor),
               difficulty:        rangedDifficulty,
-              defaultAttr:       "control",
+              defaultAttr:       isMelee ? meleeAttackAttribute(actor) : "control",
               defaultDisc:       "security",
               taskLabel:         `Attack — ${weapon.name}`,
               taskContext:       `Control + Security · Difficulty ${rangedDifficulty}${guardPenalty ? " (+1 Guard)" : ""}${pronePenalty ? " (+1 Prone)" : ""}${chiefSecurityPenaltyLabel}${defTrainPenaltyLabel}${closeProtectionLabel}`,
@@ -4177,7 +4181,7 @@ export class CombatHUD {
 
     const targets = (canvas.tokens?.placeables ?? []).filter(t => {
       if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
-      if (!CombatHUD._isShipToken(t)) return false;
+      if (!isDestructible(t) && !CombatHUD._isShipToken(t)) return false;
       if (usingZones) {
         return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
       }
@@ -4218,7 +4222,7 @@ export class CombatHUD {
 
     const targets = (canvas.tokens?.placeables ?? []).filter(t => {
       if (excluded.has(t.id)) return false;
-      if (!t.actor || CombatHUD._isShipToken(t)) return false;
+      if (!t.actor || (!isDestructible(t) && CombatHUD._isShipToken(t))) return false;
       if (usingZones) {
         return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
       }
@@ -4250,6 +4254,7 @@ export class CombatHUD {
   }
 
   static getAttackPatternDifficultyReduction(targetToken) {
+    if (isDestructible(targetToken)) return 0;
     return _shipAttackPatternDifficultyReduction(targetToken);
   }
 
@@ -4372,10 +4377,10 @@ export class CombatHUD {
    * the GM applies it — the only moment the true affected set exists, because
    * Area spill is ticked on the card rather than targeted before the roll.
    *
-   * Returns true only when a cone actually drew. In classic (JB2A) mode nothing
-   * happens here and the per-target beams stay exactly as they are today.
+   * Returns true only when a cone or pulse grenade blast actually drew. Pulse
+   * blasts finish before injury resolution can delete any affected token.
    */
-  static _playGroundAreaConeAnimation(payload) {
+  static async _playGroundAreaConeAnimation(payload) {
     try {
       const attackerToken = canvas.tokens?.get(payload.attackerTokenId);
       const primaryToken = canvas.tokens?.get(payload.tokenId);
@@ -4383,12 +4388,15 @@ export class CombatHUD {
 
       const weapon = CombatHUD._weaponFromPayload(attackerToken, payload, "characterweapon2e");
       const config = weapon ? getWeaponConfig(weapon) : null;
-      if (config?.family !== "ground-phaser") return false;
+      if (config?.family !== "ground-phaser" && config?.family !== "ground-pulse") return false;
 
       const secondaries = (payload.areaSecondaryTokenIds ?? [])
         .map(id => canvas.tokens?.get(id))
         .filter(Boolean);
 
+      if (config.family === "ground-pulse") {
+        return await fireGroundEnergyVFX(config, true, attackerToken, [primaryToken, ...secondaries]);
+      }
       return playGroundPhaserCone(attackerToken, [primaryToken, ...secondaries], {
         config,
         hit: true,
@@ -4858,12 +4866,13 @@ export class CombatHUD {
       const targetToken     = canvas.tokens?.get(t.id);
       const targetDefMode   = targetToken ? getDefenseMode(targetToken) : null;
       const hasGlancingImpactBonus = (() => {
+        if (isDestructible(t)) return false;
         if (targetDefMode !== "evasive-action") return false;
         const helmOfficers = getStationOfficers(tActor, "helm");
         return helmOfficers.some(o => hasGlancingImpact(o));
       })();
-      const hasModulatedShields = CombatHUD.getModulatedShields(tActor);
-      const listedResistance = Number(tActor?.system?.resistance ?? 0) || 0;
+      const hasModulatedShields = !isDestructible(t) && CombatHUD.getModulatedShields(tActor);
+      const listedResistance = isDestructible(t) ? getDestructibleConfig(t).resistance : Number(tActor?.system?.resistance ?? 0) || 0;
       const glancingBonusTotal = hasGlancingImpactBonus ? 2 : 0;
       const modulationBonusTotal = hasModulatedShields ? 2 : 0;
       const totalResistanceBeforePiercing = listedResistance + glancingBonusTotal + modulationBonusTotal;
@@ -11475,6 +11484,11 @@ export class CombatHUD {
 
     // Per-target damage rows
     const targetRows = isHit ? targetData.map(t => {
+      const objectRow = objectDamageRow({ ...t, weaponType: getWeaponConfig(weapon)?.type }, weapon, {
+        areaTargets: t.area ? CombatHUD._getAreaSecondaryTargets(t.tokenId, t.attackerTokenId).targets : [],
+        traitHtml: isDestructible(canvas.tokens?.get(t.tokenId)) ? damageTraitControlsHtml(damageTraitSuggestions({ mode: "starship", weapon, attackerActor: actor, targetActor: canvas.tokens?.get(t.tokenId)?.actor, scene: canvas.scene })) : "",
+      });
+      if (objectRow) return objectRow;
       const shieldAfter = Math.max(0, t.currentShields - t.finalDamage);
       const pctBefore   = t.maxShields > 0 ? t.currentShields / t.maxShields : 1;
       const pctAfter    = t.maxShields > 0 ? shieldAfter / t.maxShields : 0;
@@ -13598,7 +13612,7 @@ export class CombatHUD {
   }
 
   static async playTractorBeamEffect(sourceToken, targetToken) {
-    if (getTractorBeamAnimationRenderer() === "pixi") {
+    if (getTractorBeamAnimationRenderer() !== "jb2a") {
       // The shared tractor flags drive native playback on every client. Refresh
       // immediately for the GM that engaged it; remote clients receive the same
       // work through their updateToken hook.
@@ -13640,7 +13654,7 @@ export class CombatHUD {
   }
 
   static async stopTractorBeamEffect(sourceToken) {
-    if (getTractorBeamAnimationRenderer() === "pixi") {
+    if (getTractorBeamAnimationRenderer() !== "jb2a") {
       NativeTractorBeamVFX.stopPersistent(getPersistentTractorBeamKey(sourceToken));
       return;
     }
@@ -14924,6 +14938,14 @@ export class CombatHUD {
   }
 
   static async applyDamage(payload) {
+    const objectTarget = game.scenes.get(payload.sceneId ?? canvas.scene?.id)?.tokens.get(payload.tokenId);
+    if (isDestructible(objectTarget) || payload.destructible) {
+      const result = await requestObjectOperation({ ...payload, sceneId: payload.sceneId ?? canvas.scene.id,
+        operationId: payload.operationId ? `${payload.operationId}-${payload.tokenId}` : undefined,
+        rawDamage: payload.rawDamage ?? payload.finalDamage, piercing: payload.piercing ?? payload.weaponPiercing });
+      if (!result.replayed) await CombatHUD._applyAreaSecondaryTargets(payload);
+      return result;
+    }
     const { tokenId, actorId, finalDamage, highYield, _isDevastating, targetingSystem, noDevastating } = payload;
     const suppressCriticalDestruction = payload.suppressCriticalDestruction === true;
 
@@ -15400,6 +15422,9 @@ export class CombatHUD {
       if (!tToken) continue;
       await CombatHUD.applyDamage({
         tokenId:        tId,
+        sceneId: payload.sceneId ?? canvas.scene.id,
+        operationId: payload.operationId,
+        ...(isDestructible(tToken) ? { rawDamage: payload.rawDamage ?? payload.finalDamage, piercing: payload.piercing ?? payload.weaponPiercing } : {}),
         actorId:        tToken.actor?.id,
         finalDamage:    payload.finalDamage,
         highYield:      false,
@@ -16025,6 +16050,11 @@ export class CombatHUD {
       : (CombatHUD.isGroundNpcActor(areaAttackerActor) ? "Threat" : "Momentum");
 
     const targetsHtml = targetData.map((t, rowIdx) => {
+      const objectRow = objectDamageRow({ ...t, weaponType: getWeaponConfig(weapon)?.type }, weapon, {
+        ground: true, areaTargets: rowIdx === 0 ? areaInfo.targets : [],
+        traitHtml: isDestructible(canvas.tokens?.get(t.tokenId)) ? damageTraitControlsHtml(damageTraitSuggestions({ mode: "ground", weapon, attackerActor: canvas.tokens?.get(t.attackerTokenId)?.actor, targetActor: canvas.tokens?.get(t.tokenId)?.actor, scene: canvas.scene })) : "",
+      });
+      if (objectRow) return objectRow;
       const npcType   = t.npcType;
       // isPlayerOwned is true for STACharacterSheet2e and STASupportingSheet2e.
       // For NPCs (STANPCSheet2e), npcType is reliable: minor/notable/major.
@@ -16302,6 +16332,7 @@ export class CombatHUD {
   // ── Ground injury — interactive chat card avoidance ─────────────────────────
 
   static async _postInjuryDecisionCard(payload) {
+    if (isDestructible(canvas.tokens?.get(payload.tokenId)) || payload.destructible) return CombatHUD.applyGroundInjury(payload);
     const { tokenId, actorId, injuryName, useStun, severity, potency,
             npcType, isPlayerOwned, currentStress: payloadStress = 0, maxStress: payloadStressMax = 0 } = payload;
     const actor    = canvas.tokens.get(tokenId)?.actor ?? game.actors.get(actorId);
@@ -16773,6 +16804,14 @@ export class CombatHUD {
   }
 
   static async applyGroundInjury(payload) {
+    const objectTarget = game.scenes.get(payload.sceneId ?? canvas.scene?.id)?.tokens.get(payload.tokenId);
+    if (isDestructible(objectTarget) || payload.destructible) {
+      const result = await requestObjectOperation({ ...payload, sceneId: payload.sceneId ?? canvas.scene.id, ground: true,
+        operationId: payload.operationId ? `${payload.operationId}-${payload.tokenId}` : undefined,
+        rawDamage: payload.severity ?? 0, piercing: payload.piercingApplied });
+      if (!result.replayed) await CombatHUD._applyGroundAreaSecondaryTargets(payload);
+      return result;
+    }
     const { tokenId, actorId, injuryName, useStun, potency,
             npcType, isPlayerOwned } = payload;
 
@@ -19776,7 +19815,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
               // card as each target's decision comes back. The flag rides along
               // into every secondary — they are built by spreading this payload
               // — and survives the JSON round-trip through the injury socket.
-              if (payload.area && CombatHUD._playGroundAreaConeAnimation(payload)) {
+              if (payload.area && await CombatHUD._playGroundAreaConeAnimation(payload)) {
                 payload._groundConeVfxPlayed = true;
               }
               await CombatHUD.applyGroundInjury(payload);

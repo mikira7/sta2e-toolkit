@@ -595,7 +595,7 @@ function recomputeSpend(panelEl) {
 
 /** The damage-card controls block this panel was injected above. */
 function siblingControls(panelEl) {
-  return panelEl.parentElement?.querySelector(".sta2e-damage-controls, .sta2e-ground-controls") ?? null;
+  return panelEl.parentElement?.querySelector(".sta2e-damage-controls, .sta2e-ground-controls, .sta2e-object-controls") ?? null;
 }
 
 /**
@@ -613,7 +613,7 @@ function siblingControls(panelEl) {
  */
 function areaSecondaryCostFor(panelEl, blob, qualities) {
   const controls = siblingControls(panelEl);
-  const checked = controls?.querySelectorAll(".sta2e-main-area-target:checked").length ?? 0;
+  const checked = controls?.querySelectorAll(".sta2e-main-area-target:checked, .sta2e-ground-area-target:checked").length ?? 0;
   const picked = checked * SECONDARY_TARGET_COST;
   if (qualities.isShip) return picked;
   return picked + Math.max(0, Number(blob.areaSecondaryCost) || 0);
@@ -644,8 +644,8 @@ export function wireSpendPanel(html) {
       // Ship damage card → `.sta2e-damage-controls` + `.sta2e-extra-damage` + `.sta2e-apply-damage`
       // Ground damage card → `.sta2e-ground-controls` + `.sta2e-ground-adj` + `.sta2e-apply-injury`
       const controls = siblingControls(panel);
-      const extraInput = controls?.querySelector(".sta2e-extra-damage, .sta2e-ground-adj");
-      const applyBtn = controls?.querySelector(".sta2e-apply-damage, .sta2e-apply-injury");
+      const extraInput = controls?.querySelector(".sta2e-extra-damage, .sta2e-ground-adj, .sta2e-object-adj");
+      const applyBtn = controls?.querySelector(".sta2e-apply-damage, .sta2e-apply-injury, .sta2e-apply-object");
       if (extraInput) {
         // Extra dice + devastating (Devastating ≈ +Vicious 1 / High Yield equivalent).
         // For ship Devastating we set the highYield flag on the payload; the die
@@ -844,20 +844,23 @@ export function injectSpendPanels(message, html) {
     : false;
   if (!game.user.isGM && !isOwnedAttacker) return;
 
-  const controlsList = html.querySelectorAll(".sta2e-damage-controls, .sta2e-ground-controls");
+  const controlsList = html.querySelectorAll(".sta2e-damage-controls, .sta2e-ground-controls, .sta2e-object-controls");
   if (!controlsList.length) return;
 
   controlsList.forEach((controls, idx) => {
     if (controls.previousElementSibling?.classList?.contains("sta2e-spend-panel")) return;
     let targetTokenId = null;
     try {
-      const inp = controls.querySelector(".sta2e-extra-damage, .sta2e-ground-adj");
+      const inp = controls.querySelector(".sta2e-extra-damage, .sta2e-ground-adj, .sta2e-object-adj");
       const basePayload = inp?.dataset?.basePayload;
       if (basePayload) targetTokenId = JSON.parse(decodeURIComponent(basePayload))?.tokenId ?? null;
     } catch { /* ignore */ }
     // Every target row past the first is a secondary Area target and carries
     // the 1-per-extra-target Area cost.
-    const panelHtml = buildSpendPanelHtml(spendCtx, targetTokenId ?? `idx${idx}`, {
+    const rowSpendCtx = controls.classList.contains("sta2e-object-controls")
+      ? { ...spendCtx, qualities: { ...spendCtx.qualities, persistent: false } }
+      : spendCtx;
+    const panelHtml = buildSpendPanelHtml(rowSpendCtx, targetTokenId ?? `idx${idx}`, {
       isSecondaryAreaTarget: idx > 0,
     });
     controls.insertAdjacentHTML("beforebegin", panelHtml);

@@ -178,6 +178,14 @@
 
   <div class="sta2e-vfx-grid">
     <div class="sta2e-vfx-row">
+      <label for="sta2e-vfx-renderer">Preview renderer</label>
+      <select id="sta2e-vfx-renderer" name="renderer">
+        <option value="pixi" {{#if previewPixi}}selected{{/if}}>Native PIXI</option>
+        <option value="shader" {{#if previewShader}}selected{{/if}}>Cinematic Shader (WebGL)</option>
+      </select>
+    </div>
+    <p class="notes">For live tractor beams, choose the Tractor Beam Animation Renderer in module settings.</p>
+    <div class="sta2e-vfx-row">
       <label for="sta2e-vfx-preset">Preset</label>
       <select id="sta2e-vfx-preset" name="preset">
         {{#each presets}}

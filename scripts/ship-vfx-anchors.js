@@ -11,6 +11,9 @@ import {
   resolveShipWarpEffectStyleId,
 } from "./warp-effect-styles.js";
 import { resolveActorFactionKey } from "./actor-faction.js";
+import { getDestructibleConfig, objectTokenDocument, saveDestructibleConfig } from "./destructible-objects.js";
+import { normalizeDestructible } from "./destructible-geometry.js";
+import { objectPanelHtml, readObjectPanel, wireObjectPanel, saveObjectPanel, previewObjectPanel } from "./destructible-panel.js";
 
 const MODULE = "sta2e-toolkit";
 const SHIP_VFX_ANCHORS_FLAG = "shipVfxAnchors";
@@ -18,7 +21,7 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 14;
+const SHIP_VFX_ANCHORS_VERSION = 15;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -76,6 +79,76 @@ export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
 const DEFAULT_ENGINE_TRAIL_SHARED = Object.freeze({
   enabled: true,
   warpThreshold: 4,
+});
+
+// ── Deflector dish ──────────────────────────────────────────────────────────
+// The navigational deflector: a charge glow that draws energy into the dish, a
+// pulse that throws a ring of it at a target, a sustained lance, and a forward
+// particle wash. Purely cosmetic — no roll, no Power cost, no rules hook.
+//
+// The TYPE lives on the ship, not on the emitter. A dish is one physical
+// location and all four effects come out of it, so type-per-emitter would mean
+// stamping four markers on the same pixel. Structurally this is engineTrail
+// ({enabled, impulse, warp}) with four modes instead of two, which is what
+// makes every normalizer below a near-copy of its engine counterpart.
+export const DEFLECTOR_EFFECT_TYPES = Object.freeze(["chargeGlow", "pulse", "beam", "stream"]);
+const DEFLECTOR_BLEND_OPTIONS = Object.freeze(["add", "normal"]);
+const DEFLECTOR_COLOR_MODES = Object.freeze(["auto", "custom"]);
+// A dish points FORE, unlike an exhaust's 180.
+const DEFAULT_DEFLECTOR_EMITTER_FACING_DEG = 0;
+// Six dials are shared by all four types (colorMode, customColor, alpha,
+// blendMode, width, durationMs); the rest are per-type and are picked up only
+// for the types whose defaults declare them, the same way the engine block
+// treats glowSize.
+export const DEFAULT_DEFLECTOR_MODE_SETTINGS = Object.freeze({
+  // A cone opening along the dish's facing, drawing tiny motes inward down it.
+  chargeGlow: Object.freeze({
+    colorMode: "auto", customColor: "", alpha: 0.85, blendMode: "add",
+    width: 3, durationMs: 2600,
+    // The intake reaches well out ahead of the hull: the motes are meant to
+    // come in from open space in front of the ship, not to appear at its nose.
+    // Narrower than it is long, so it reads as a funnel rather than a fan.
+    radiusPx: 420, coneDeg: 44, coneAlpha: 0.14,
+    rate: 200, glowSize: 22,
+  }),
+  // A crescent that decelerates and swells as it crosses to the target: a
+  // smooth luminous front with a turbulent fog tail shed behind it. One
+  // crescent by default — the look is a single well-formed shockwave, and
+  // stacking three reads as ripples rather than as one wave.
+  pulse: Object.freeze({
+    colorMode: "auto", customColor: "", alpha: 0.9, blendMode: "add",
+    width: 18, durationMs: 1400,
+    radiusPx: 90, arcDeg: 120, ringCount: 1, expandTo: 3.2,
+    tailLength: 4, tailAlpha: 0.5, glowSize: 20,
+  }),
+  // Several lances fanned across the target area.
+  beam: Object.freeze({
+    colorMode: "auto", customColor: "", alpha: 0.95, blendMode: "add",
+    width: 10, durationMs: 1400,
+    beamCount: 3, spreadDeg: 7, rampMs: 180, fadeMs: 320, glowSize: 26,
+  }),
+  // A translucent column to the target with motes running down inside it.
+  stream: Object.freeze({
+    colorMode: "auto", customColor: "", alpha: 0.75, blendMode: "add",
+    width: 78, durationMs: 1800,
+    bodyAlpha: 0.22, moteSize: 12, rate: 200, speedPxPerSec: 900, glowSize: 18,
+  }),
+});
+const DEFLECTOR_TYPE_LABELS = Object.freeze({
+  chargeGlow: "Charge Glow",
+  pulse: "Energy Pulse",
+  beam: "Energy Lance",
+  stream: "Forward Stream",
+});
+const DEFLECTOR_TYPE_HINTS = Object.freeze({
+  chargeGlow: "Tiny motes are drawn in from open space ahead of the ship, straight down a cone into the dish. Holds until stopped; no target.",
+  pulse: "A crescent shockwave leaves the dish — a smooth bright front with turbulent fog trailing behind it — swelling and slowing as it crosses to the target.",
+  beam: "Several lances held across the target area, then released.",
+  stream: "A translucent column to the target with glowing motes running down inside it.",
+});
+const DEFAULT_DEFLECTOR_SHARED = Object.freeze({
+  enabled: true,
+  type: "chargeGlow",
 });
 const PHASER_ERA_OPTIONS = Object.freeze([
   { value: "", label: "Current Default" },
@@ -387,6 +460,77 @@ function _normalizeEngineModeSettings(settings = {}, kind = "impulse") {
       ? { glowSize: Math.round(_clampNumber(settings?.glowSize, defaults.glowSize, 0, 200)) }
       : {}),
   };
+}
+
+function _normalizeDeflectorType(value) {
+  const type = String(value ?? "");
+  return DEFLECTOR_EFFECT_TYPES.includes(type) ? type : DEFAULT_DEFLECTOR_SHARED.type;
+}
+
+function _normalizeDeflectorTypeSafe(value, fallback) {
+  const type = String(value ?? "");
+  return DEFLECTOR_EFFECT_TYPES.includes(type) ? type : fallback;
+}
+
+function _normalizeDeflectorEmitter(anchor) {
+  const normalized = _normalizeAnchor(anchor, "Deflector emitter");
+  if (!normalized) return null;
+  return {
+    ...normalized,
+    facingDeg: _normalizeDegrees(anchor?.facingDeg, DEFAULT_DEFLECTOR_EMITTER_FACING_DEG),
+    layer: _normalizeEmitterLayer(anchor?.layer),
+  };
+}
+
+function _normalizeDeflectorColorMode(value) {
+  const mode = String(value ?? "").toLowerCase();
+  return DEFLECTOR_COLOR_MODES.includes(mode) ? mode : "auto";
+}
+
+function _normalizeDeflectorModeSettings(settings = {}, type = "chargeGlow") {
+  const key = _normalizeDeflectorType(type);
+  const defaults = DEFAULT_DEFLECTOR_MODE_SETTINGS[key];
+  // Only emit a dial the type actually declares, so a chargeGlow block never
+  // carries a stray rampMs. Mirrors the engine block's glowSize treatment.
+  const opt = (name, min, max, round = 1) => (defaults[name] !== undefined
+    ? { [name]: Math.round(_clampNumber(settings?.[name], defaults[name], min, max) * round) / round }
+    : {});
+  return {
+    colorMode: _normalizeDeflectorColorMode(settings?.colorMode),
+    customColor: _normalizeHexColor(settings?.customColor),
+    alpha: Math.round(_clampNumber(settings?.alpha, defaults.alpha, 0, 1) * 100) / 100,
+    blendMode: DEFLECTOR_BLEND_OPTIONS.includes(settings?.blendMode) ? settings.blendMode : defaults.blendMode,
+    width: Math.round(_clampNumber(settings?.width, defaults.width, 1, 200) * 10) / 10,
+    durationMs: Math.round(_clampNumber(settings?.durationMs, defaults.durationMs, 120, 20000)),
+    ...opt("radiusPx", 4, 2000),
+    ...opt("rate", 4, 600),
+    ...opt("glowSize", 0, 200),
+    ...opt("coneDeg", 5, 180),
+    ...opt("coneAlpha", 0, 1, 100),
+    ...opt("arcDeg", 10, 360),
+    ...opt("ringCount", 1, 12),
+    ...opt("expandTo", 1, 20, 100),
+    ...opt("tailLength", 0, 20, 10),
+    ...opt("tailAlpha", 0, 1, 100),
+    ...opt("beamCount", 1, 12),
+    ...opt("spreadDeg", 0, 60, 10),
+    ...opt("rampMs", 0, 5000),
+    ...opt("fadeMs", 0, 5000),
+    ...opt("bodyAlpha", 0, 1, 100),
+    ...opt("moteSize", 1, 80, 10),
+    ...opt("speedPxPerSec", 20, 6000),
+  };
+}
+
+export function normalizeShipDeflectorSettings(settings = {}) {
+  const out = {
+    enabled: settings?.enabled !== false,
+    type: _normalizeDeflectorType(settings?.type),
+  };
+  for (const type of DEFLECTOR_EFFECT_TYPES) {
+    out[type] = _normalizeDeflectorModeSettings(settings?.[type], type);
+  }
+  return out;
 }
 
 export function normalizeShipEngineTrailSettings(settings = {}) {
@@ -789,6 +933,10 @@ export function normalizeShipVfxAnchors(data = {}) {
     ? data.anchors.pointDefenseEmitters.map(anchor => _normalizePointDefenseEmitter(anchor)).filter(Boolean)
     : [];
 
+  const deflectorEmitters = Array.isArray(data?.anchors?.deflectorEmitters)
+    ? data.anchors.deflectorEmitters.map(anchor => _normalizeDeflectorEmitter(anchor)).filter(Boolean)
+    : [];
+
   const hitLocations = Array.isArray(data?.anchors?.hitLocations)
     ? data.anchors.hitLocations.map(anchor => _normalizeHitLocation(anchor)).filter(Boolean)
     : [];
@@ -818,6 +966,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       weaponEmitters,
       engineEmitters,
       pointDefenseEmitters,
+      deflectorEmitters,
       hitLocations,
       hitPolygons,
       arrayCurves,
@@ -829,6 +978,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
       tractorBeam: normalizeShipTractorBeamSettings(data?.settings?.tractorBeam),
       pointDefense: normalizePointDefenseSettings(data?.settings?.pointDefense),
+      deflector: normalizeShipDeflectorSettings(data?.settings?.deflector),
       warpEffect: normalizeShipWarpEffectSettings(data?.settings?.warpEffect),
     },
   };
@@ -940,6 +1090,14 @@ export function getShipPointDefenseSettings(actorOrToken) {
   return normalizePointDefenseSettings(getShipVfxAnchors(actorOrToken)?.settings?.pointDefense);
 }
 
+export function getShipDeflectorEmitters(actorOrToken) {
+  return getShipVfxAnchors(actorOrToken).anchors.deflectorEmitters ?? [];
+}
+
+export function getShipDeflectorSettings(actorOrToken) {
+  return normalizeShipDeflectorSettings(getShipVfxAnchors(actorOrToken)?.settings?.deflector);
+}
+
 export function getShipTractorBeamSettings(actorOrToken) {
   return normalizeShipTractorBeamSettings(getShipVfxAnchors(actorOrToken)?.settings?.tractorBeam);
 }
@@ -1027,6 +1185,33 @@ export function resolvePointDefenseColorHex(actorOrToken, settingsOverride = nul
   return POINT_DEFENSE_FACTION_COLORS[resolveActorFactionKey(actorOrToken)] ?? POINT_DEFENSE_FALLBACK_COLOR;
 }
 
+// The deflector keeps its own palette for the same reason the point-defense
+// tracers do. Two fallbacks, not one: the charge/pulse/stream family is the
+// blue of a dish under load, while a lance reads green — a single fallback
+// could not serve both looks.
+export const DEFLECTOR_FACTION_COLORS = Object.freeze({ ...TRACTOR_FACTION_COLORS });
+export const DEFLECTOR_FALLBACK_COLORS = Object.freeze({
+  chargeGlow: "#6fb6ff",
+  pulse: "#6fb6ff",
+  stream: "#6fb6ff",
+  beam: "#57ff9a",
+});
+
+export function resolveDeflectorColorHex(actorOrToken, type, modeSettings = null) {
+  const key = _normalizeDeflectorType(type);
+  const settings = modeSettings
+    ? _normalizeDeflectorModeSettings(modeSettings, key)
+    : getShipDeflectorSettings(actorOrToken)?.[key];
+  if (settings?.colorMode === "custom" && _normalizeHexColor(settings.customColor)) {
+    return settings.customColor.toLowerCase();
+  }
+  // The lance is the one type that does not take the faction tint: its green is
+  // the point of the look, and a Klingon red lance reads as a disruptor.
+  if (key === "beam") return DEFLECTOR_FALLBACK_COLORS.beam;
+  return DEFLECTOR_FACTION_COLORS[resolveActorFactionKey(actorOrToken)]
+    ?? DEFLECTOR_FALLBACK_COLORS[key];
+}
+
 // Shield impacts get their own palette again. A shield flare is a sheet of
 // light seen edge-on, not a beam body: it reads brighter, cooler and less
 // saturated than the tractor/point-defense colours, so a shared table would
@@ -1080,6 +1265,11 @@ export function resolveShieldStandoffFactor(actorOrToken, settingsOverride = nul
 }
 
 export function shipPointDefenseEmitterToCanvasPoint(token, anchor) {
+  const point = tokenAnchorToCanvasPoint(token, anchor);
+  return point ? { ...point, layer: _normalizeEmitterLayer(anchor?.layer) } : null;
+}
+
+export function shipDeflectorEmitterToCanvasPoint(token, anchor) {
   const point = tokenAnchorToCanvasPoint(token, anchor);
   return point ? { ...point, layer: _normalizeEmitterLayer(anchor?.layer) } : null;
 }
@@ -2137,6 +2327,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   constructor(actorOrToken, options = {}) {
     super(options);
     this.actor = _resolveActor(actorOrToken);
+    this.objectToken = objectTokenDocument(actorOrToken);
+    this.objectSettings = getDestructibleConfig(actorOrToken);
     this.textureSrc = tokenTextureSource(actorOrToken) ?? tokenTextureSource(this.actor) ?? "";
     const saved = getShipVfxAnchors(this.actor);
     this._anchors = {
@@ -2144,7 +2336,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       textureSrc: saved.textureSrc || this.textureSrc,
     };
     this._opaqueState = null;
-    this._activeTab = "tractor";
+    this._activeTab = this.objectSettings.enabled || !["starship", "spacecraft2e", "smallcraft"].includes(this.actor?.type) ? "destructible" : "tractor";
     this._activeHitSystem = "structure";
     this._activePlacementMode = "points";
     this._selectedEmitterIndex = 0;
@@ -2170,9 +2362,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _resolveActiveTab() {
+    if (this._activeTab === "destructible") return "destructible";
     if (this._activeTab === "tractor") return "tractor";
     if (this._activeTab === "hitLocations") return "hitLocations";
     if (this._activeTab === "pointDefense" && hasPointDefenseSystem(this.actor)) return "pointDefense";
+    if (this._activeTab === "deflector") return "deflector";
     if (this._activeTab === "engineImpulse" || this._activeTab === "engineWarp") return this._activeTab;
     if (this._weaponForTab(this._activeTab)) return this._activeTab;
     this._activeTab = "tractor";
@@ -2190,6 +2384,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _isPointDefenseTab() {
     return this._resolveActiveTab() === "pointDefense";
+  }
+
+  _isDeflectorTab() {
+    return this._resolveActiveTab() === "deflector";
   }
 
   _activePointDefenseSettings() {
@@ -2216,6 +2414,132 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       customColor: read("customColor", current.customColor),
     });
     return this._activePointDefenseSettings();
+  }
+
+  // ── Deflector settings ────────────────────────────────────────────────────
+  // The TYPE is ship state, not emitter state: one dish, four things it can do.
+  // Mirrors the Point Defense triple below, with the per-type dial block picked
+  // by `type` the way the engine tab picks impulse vs warp.
+  _activeDeflectorSettings() {
+    return normalizeShipDeflectorSettings(this._anchors.settings?.deflector);
+  }
+
+  _activeDeflectorType() {
+    return this._activeDeflectorSettings().type;
+  }
+
+  _activeDeflectorModeSettings() {
+    const settings = this._activeDeflectorSettings();
+    return settings[settings.type];
+  }
+
+  _setDeflectorSettings(settings) {
+    this._anchors = normalizeShipVfxAnchors({
+      ...this._anchors,
+      textureSrc: this.textureSrc,
+      settings: {
+        ...(this._anchors.settings ?? {}),
+        deflector: normalizeShipDeflectorSettings(settings),
+      },
+    });
+  }
+
+  _readDeflectorSettingsFromForm() {
+    if (!this._isDeflectorTab() || !this.element) return null;
+    const current = this._activeDeflectorSettings();
+    const el = key => this.element.querySelector(`[data-deflector-setting="${key}"]`);
+    const read = (key, fallback) => el(key)?.value ?? fallback;
+    const checked = (key, fallback) => {
+      const node = el(key);
+      return node ? node.checked === true : fallback;
+    };
+    // The type select may have moved since the dial rows were rendered, so the
+    // dials are read back onto the type the FORM was built for — the same
+    // reasoning as _readEmitterArcFromForm's _emitterFormIndex. The block
+    // stamps the type it rendered; a change event on the select fires before
+    // the re-render, so reading the select here would copy one effect's dials
+    // onto another's block.
+    const formType = _normalizeDeflectorTypeSafe(
+      this.element.querySelector("[data-deflector-form-type]")?.dataset?.deflectorFormType,
+      current.type,
+    );
+    const mode = { ...current[formType] };
+    for (const key of Object.keys(mode)) {
+      const node = el(key);
+      if (!node) continue;
+      mode[key] = node.type === "checkbox" ? node.checked === true : node.value;
+    }
+    this._setDeflectorSettings({
+      ...current,
+      enabled: checked("enabled", current.enabled),
+      type: read("type", current.type),
+      [formType]: mode,
+    });
+    return this._activeDeflectorSettings();
+  }
+
+  /**
+   * The per-type dial rows, as DATA. `_chargeRows` established this shape and
+   * the template renders it with one generic loop, which is what keeps four
+   * effect types from needing four hand-written template blocks.
+   */
+  _deflectorRows(mode, type) {
+    if (!mode) return [];
+    const row = (key, label, min, max, step, title = "") => (mode[key] === undefined ? null : {
+      key, label, title, type: "number", min, max, step, value: mode[key],
+    });
+    const shared = [
+      {
+        key: "customColor", label: "Custom Hex", type: "text", value: mode.customColor,
+        placeholder: type === "beam" ? "#57ff9a or blank" : "#6fb6ff or blank",
+        isColor: true,
+        pickerValue: mode.customColor || (type === "beam" ? "#57ff9a" : "#6fb6ff"),
+      },
+      row("alpha", "Alpha", 0, 1, 0.05, "Peak opacity"),
+      row("width",
+        type === "stream" ? "Column Width"
+          : (type === "chargeGlow" ? "Mote Size" : (type === "pulse" ? "Front Thickness" : "Width")),
+        1, 200, type === "stream" ? 2 : 0.5,
+        type === "stream" ? "Width of the translucent column, in pixels"
+          : (type === "chargeGlow" ? "Diameter of each in-falling mote, in pixels"
+            : (type === "pulse" ? "Thickness of the smooth leading edge, in pixels — the tail is sized off this"
+              : "Stroke width in pixels"))),
+      row("durationMs", "Duration (ms)", 120, 20000, 20,
+        type === "beam" ? "How long the lance holds before it fades" : "How long the effect runs"),
+    ];
+    const perType = {
+      chargeGlow: [
+        row("radiusPx", "Intake Reach", 4, 2000, 10, "How far out in front of the ship the motes come from, in pixels"),
+        row("coneDeg", "Cone Width", 5, 180, 1, "How wide the intake cone opens, in degrees"),
+        row("coneAlpha", "Cone Body", 0, 1, 0.02, "Opacity of the faint cone itself; 0 leaves only the motes"),
+        row("rate", "Mote Rate", 4, 600, 2, "Motes drawn in per second"),
+        row("glowSize", "Glow Size", 0, 200, 1, "Bloom radius in pixels; 0 turns the filter off"),
+      ],
+      pulse: [
+        row("radiusPx", "Crescent Radius", 4, 2000, 5, "Radius of the crescent as it leaves the dish"),
+        row("arcDeg", "Crescent Sweep", 10, 360, 5, "How far the crescent wraps, in degrees"),
+        row("expandTo", "Expand To", 1, 20, 0.1, "Multiple of the starting radius on arrival"),
+        row("tailLength", "Tail Length", 0, 20, 0.25, "How far the fog trails behind the front, as a multiple of its thickness; 0 leaves only the front"),
+        row("tailAlpha", "Tail Density", 0, 1, 0.02, "How thick the trailing fog reads"),
+        row("glowSize", "Glow Size", 0, 200, 1, "Bloom radius in pixels; 0 turns the filter off"),
+        row("ringCount", "Crescent Count", 1, 12, 1, "Waves in the pulse. 1 is one shockwave; more reads as ripples"),
+      ],
+      beam: [
+        row("beamCount", "Beam Count", 1, 12, 1, "How many lances fire at once"),
+        row("spreadDeg", "Spread", 0, 60, 0.5, "How far the lances fan across the target area, in degrees"),
+        row("rampMs", "Ramp (ms)", 0, 5000, 20, "Time to reach full brightness"),
+        row("fadeMs", "Fade (ms)", 0, 5000, 20, "Time to fade once released"),
+        row("glowSize", "Glow Size", 0, 200, 1, "Bloom radius of the fallback lance, in pixels"),
+      ],
+      stream: [
+        row("bodyAlpha", "Column Opacity", 0, 1, 0.02, "How solid the translucent column reads; 0 leaves only the motes"),
+        row("moteSize", "Mote Size", 1, 80, 0.5, "Diameter of the glowing motes inside the column, in pixels"),
+        row("rate", "Mote Rate", 4, 600, 2, "Motes entering the column per second"),
+        row("speedPxPerSec", "Mote Speed", 20, 6000, 20, "Pixels per second along the column"),
+        row("glowSize", "Glow Size", 0, 200, 1, "Bloom radius in pixels; 0 turns the filter off"),
+      ],
+    };
+    return [...shared, ...(perType[type] ?? [])].filter(Boolean);
   }
 
   _activeTractorBeamSettings() {
@@ -2266,8 +2590,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _activeTabLabel() {
+    if (this._resolveActiveTab() === "destructible") return "Destructible Object";
     if (this._resolveActiveTab() === "tractor") return "Tractor";
     if (this._resolveActiveTab() === "pointDefense") return "Point Defense";
+    if (this._resolveActiveTab() === "deflector") return "Deflector Dish";
     if (this._resolveActiveTab() === "hitLocations") return `${_systemLabel(this._activeHitSystem)} Hit Location`;
     if (this._resolveActiveTab() === "engineImpulse") return "Impulse Trail";
     if (this._resolveActiveTab() === "engineWarp") return "Warp Trail";
@@ -2471,7 +2797,42 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   async _previewActive({ silent = false } = {}) {
     if (this._isEngineTab()) return this._previewActiveEngine({ silent });
     if (this._isPointDefenseTab()) return this._previewActivePointDefense({ silent });
+    if (this._isDeflectorTab()) return this._previewActiveDeflector({ silent });
     return this._previewActiveWeapon({ silent });
+  }
+
+  /**
+   * Unlike the warp glow, this needs no flag write first: previewDeflectorEffect
+   * takes the settings and emitters as arguments, so what plays is exactly the
+   * unsaved state on screen.
+   */
+  async _previewActiveDeflector({ silent = false } = {}) {
+    const sourceToken = this._previewSourceToken();
+    if (!sourceToken) {
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Select or place a token for this ship to preview the deflector.");
+      return;
+    }
+    const settings = this._readDeflectorSettingsFromForm() ?? this._activeDeflectorSettings();
+    this._readEmitterArcFromForm();
+    const emitters = this._activeEmitters();
+    if (!emitters.length) {
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Place a deflector emitter point to preview.");
+      return;
+    }
+    const type = settings.type;
+    // Everything except the charge cone aims at something. _previewTargetPoint
+    // already resolves a target first and projects ahead of the ship's bow when
+    // nothing is targeted, so the editor needs no picker.
+    const target = type === "chargeGlow"
+      ? null
+      : this._previewTargetPoint(sourceToken)?.point;
+    try {
+      const { previewDeflectorEffect } = await import("./deflector-vfx.js");
+      previewDeflectorEffect(sourceToken, type, settings, emitters, target);
+    } catch (err) {
+      console.warn("STA2e Toolkit | Deflector preview failed:", err);
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Deflector preview failed. See console for details.");
+    }
   }
 
   async _previewActivePointDefense({ silent = false } = {}) {
@@ -2640,6 +3001,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _activeEmitters() {
     if (this._resolveActiveTab() === "tractor") return this._anchors.anchors.tractorEmitters ?? [];
     if (this._resolveActiveTab() === "pointDefense") return this._anchors.anchors.pointDefenseEmitters ?? [];
+    if (this._resolveActiveTab() === "deflector") return this._anchors.anchors.deflectorEmitters ?? [];
     if (this._resolveActiveTab() === "hitLocations") {
       return (this._anchors.anchors.hitLocations ?? [])
         .filter(anchor => anchor.systemKey === this._activeHitSystem);
@@ -2679,6 +3041,21 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
           pointDefenseEmitters: emitters.map((anchor, index) => _normalizePointDefenseEmitter({
             ...anchor,
             label: anchor.label || `Point Defense emitter ${index + 1}`,
+          })),
+        },
+      });
+      return;
+    }
+
+    if (this._resolveActiveTab() === "deflector") {
+      this._anchors = normalizeShipVfxAnchors({
+        ...this._anchors,
+        textureSrc: this.textureSrc,
+        anchors: {
+          ...this._anchors.anchors,
+          deflectorEmitters: emitters.map((anchor, index) => _normalizeDeflectorEmitter({
+            ...anchor,
+            label: anchor.label || `Deflector emitter ${index + 1}`,
           })),
         },
       });
@@ -2856,14 +3233,19 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
-    const showFacingArrow = isWeaponEmitterTab || isEngineTab;
+    const isDeflectorTab = this._isDeflectorTab();
+    // The dish's facing drives the forward wash, so it gets an arrow too.
+    const showFacingArrow = isWeaponEmitterTab || isEngineTab || isDeflectorTab;
     const engineColor = isEngineTab
       ? resolveEngineTrailColorHex(this.actor, this._activeEngineKind(), this._activeEngineModeSettings())
       : null;
     const pointDefenseColor = isPointDefenseTab
       ? resolvePointDefenseColorHex(this.actor, this._activePointDefenseSettings())
       : null;
-    const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : 0;
+    const deflectorColor = isDeflectorTab
+      ? resolveDeflectorColorHex(this.actor, this._activeDeflectorType(), this._activeDeflectorModeSettings())
+      : null;
+    const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : DEFAULT_DEFLECTOR_EMITTER_FACING_DEG;
     const arcMin = isWeaponEmitterTab
       ? _emitterArcMinForWeapon(_weaponImg(this._weaponForTab()), _weaponName(this._weaponForTab()))
       : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
@@ -2875,11 +3257,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       top: `${anchor.y * 100}%`,
       coords: `${anchor.x.toFixed(3)}, ${anchor.y.toFixed(3)}`,
       systemLabel: anchor.systemKey ? _systemLabel(anchor.systemKey) : null,
-      markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : (engineColor ?? pointDefenseColor ?? "#33aaff"),
+      markerColor: anchor.systemKey ? _systemColor(anchor.systemKey) : (engineColor ?? pointDefenseColor ?? deflectorColor ?? "#33aaff"),
       selected: (showFacingArrow || isPointDefenseTab) && index === this._selectedEmitterIndex,
       showFacingArrow,
       showArcWidth: isWeaponEmitterTab,
-      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, isEngineTab ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
+      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, (isEngineTab || isDeflectorTab) ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
       arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg, arcMin),
       layerLabel: _normalizeEmitterLayer(anchor.layer) === "below" ? "Below" : "Above",
       pairGroupLabel: isWeaponEmitterTab ? _normalizePairGroup(anchor.pairGroup) : "",
@@ -2899,12 +3281,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
-    if (!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab) return null;
+    const isDeflectorTab = this._isDeflectorTab();
+    if (!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab && !isDeflectorTab) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
     this._emitterFormIndex = selected.index;
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
-    const defaultFacing = isEngineTab ? DEFAULT_ENGINE_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor);
+    const defaultFacing = isEngineTab
+      ? DEFAULT_ENGINE_EMITTER_FACING_DEG
+      : (isDeflectorTab ? DEFAULT_DEFLECTOR_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor));
     const minArcWidthDeg = isWeaponEmitterTab
       ? _emitterArcMinForWeapon(_weaponImg(this._weaponForTab()), _weaponName(this._weaponForTab()))
       : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
@@ -2989,7 +3374,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isWeaponEmitterTab = !!this._weaponForTab() && !this._isActiveArrayWeaponTab();
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
-    if ((!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab) || !this.element) return null;
+    const isDeflectorTab = this._isDeflectorTab();
+    if ((!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab && !isDeflectorTab) || !this.element) return null;
     // Write back to the emitter the form was rendered for, not to whatever is
     // selected right now. Clicking another marker moves the selection on
     // pointerdown, which lands before the blur/change of the control the user
@@ -3003,6 +3389,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const layer = this.element.querySelector('[data-emitter-setting="layer"]')?.value ?? current.layer;
     if (isPointDefenseTab) {
       emitters[index] = _normalizePointDefenseEmitter({ ...current, layer });
+    } else if (isDeflectorTab) {
+      emitters[index] = _normalizeDeflectorEmitter({ ...current, facingDeg, layer });
     } else if (isEngineTab) {
       emitters[index] = _normalizeEngineEmitter({ ...current, facingDeg, layer });
     } else {
@@ -3109,6 +3497,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _tabContext() {
     const tabs = [
+      { id: "destructible", label: "Destructible Object", title: "Procedural artwork, Integrity and fractures", icon: "fas fa-meteor", count: "", active: this._resolveActiveTab() === "destructible" },
       {
         id: "tractor",
         label: "Tractor",
@@ -3131,6 +3520,14 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         icon: "fas fa-rocket",
         count: (this._anchors.anchors.engineEmitters ?? []).filter(a => a.kind === "impulse").length,
         active: this._resolveActiveTab() === "engineImpulse",
+      },
+      {
+        id: "deflector",
+        label: "Deflector",
+        title: "Deflector dish emitter and effect settings",
+        icon: "fas fa-satellite-dish",
+        count: (this._anchors.anchors.deflectorEmitters ?? []).length,
+        active: this._resolveActiveTab() === "deflector",
       },
       {
         id: "engineWarp",
@@ -3209,6 +3606,13 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const resolvedPointDefenseColor = isPointDefenseTab
       ? resolvePointDefenseColorHex(this.actor, activePointDefenseSettings)
       : null;
+    const isDeflectorTab = this._isDeflectorTab();
+    const activeDeflectorSettings = isDeflectorTab ? this._activeDeflectorSettings() : null;
+    const activeDeflectorType = activeDeflectorSettings?.type ?? "chargeGlow";
+    const activeDeflectorModeSettings = isDeflectorTab ? this._activeDeflectorModeSettings() : null;
+    const resolvedDeflectorColor = isDeflectorTab
+      ? resolveDeflectorColorHex(this.actor, activeDeflectorType, activeDeflectorModeSettings)
+      : null;
     const activePointKind = isHitLocationsTab ? "hit location" : "emitter";
     const activeZones = isHitLocationsTab ? this._activeZones() : [];
     const activeZoneRows = isHitLocationsTab ? this._zoneContext(activeZones) : [];
@@ -3219,6 +3623,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
     return {
       actorName: this.actor?.name ?? "Unknown ship",
+      isDestructibleTab: this._resolveActiveTab() === "destructible",
+      destructiblePanel: this._resolveActiveTab() === "destructible" ? objectPanelHtml(this) : "",
       textureSrc: this.textureSrc,
       hasTexture: !!this.textureSrc,
       isVideoTexture: _isVideoTextureSrc(this.textureSrc),
@@ -3257,6 +3663,29 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         label: value === "custom" ? "Custom Hex" : "Auto by Faction",
         selected: value === (activePointDefenseSettings?.colorMode ?? "auto"),
       })) : [],
+      isDeflectorTab,
+      activeDeflectorSettings,
+      activeDeflectorType,
+      activeDeflectorModeSettings,
+      resolvedDeflectorColor,
+      deflectorPickerColor: activeDeflectorModeSettings?.customColor || resolvedDeflectorColor || "#6fb6ff",
+      deflectorTypeOptions: isDeflectorTab ? DEFLECTOR_EFFECT_TYPES.map(value => ({
+        value,
+        label: DEFLECTOR_TYPE_LABELS[value] ?? value,
+        selected: value === activeDeflectorType,
+      })) : [],
+      deflectorColorModeOptions: isDeflectorTab ? DEFLECTOR_COLOR_MODES.map(value => ({
+        value,
+        label: value === "custom" ? "Custom Hex" : "Auto by Faction",
+        selected: value === (activeDeflectorModeSettings?.colorMode ?? "auto"),
+      })) : [],
+      deflectorBlendOptions: isDeflectorTab ? DEFLECTOR_BLEND_OPTIONS.map(value => ({
+        value,
+        label: value,
+        selected: value === (activeDeflectorModeSettings?.blendMode ?? "add"),
+      })) : [],
+      deflectorRows: isDeflectorTab ? this._deflectorRows(activeDeflectorModeSettings, activeDeflectorType) : [],
+      deflectorHint: DEFLECTOR_TYPE_HINTS[activeDeflectorType] ?? "",
       isEngineTab,
       engineKind,
       engineKindLabel: engineKind === "warp" ? "Warp" : "Impulse",
@@ -3346,6 +3775,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _onRender(context, options) {
     super._onRender(context, options);
+    if (this._resolveActiveTab() === "destructible") {
+      this.element.querySelectorAll("[data-anchor-tab]").forEach(button => button.addEventListener("click", () => {
+        readObjectPanel(this);
+        this._activeTab = button.dataset.anchorTab;
+        this.render({ force: true });
+      }));
+      wireObjectPanel(this);
+      return;
+    }
     const el = this.element;
     if (!el) return;
 
@@ -3606,6 +4044,33 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         this._scheduleAutoPreview();
         this.render({ force: true });
       });
+    });
+
+    el.querySelectorAll("[data-deflector-setting]").forEach(input => {
+      input.addEventListener("input", () => {
+        this._readDeflectorSettingsFromForm();
+        this._scheduleAutoPreview();
+      });
+      input.addEventListener("change", () => {
+        this._readDeflectorSettingsFromForm();
+        this._scheduleAutoPreview();
+        // The type swaps the whole dial block; colorMode and enabled change what
+        // is shown. Everything else is a live value the renderer re-reads.
+        const key = input.dataset.deflectorSetting;
+        if (key === "type" || key === "colorMode" || key === "enabled") this.render({ force: true });
+      });
+    });
+
+    el.querySelector("[data-reset-deflector]")?.addEventListener("click", event => {
+      event.preventDefault();
+      // Reset only the active type's dials — the GM is tuning one effect, not
+      // discarding the other three.
+      const current = this._activeDeflectorSettings();
+      this._setDeflectorSettings({
+        ...current,
+        [current.type]: { ...DEFAULT_DEFLECTOR_MODE_SETTINGS[current.type] },
+      });
+      this.render({ force: true });
     });
 
     el.querySelector("[data-reset-tractor]")?.addEventListener("click", event => {
@@ -3907,6 +4372,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       const anchor = { x, y, label: `${activeLabel} ${pointKind} ${activeEmitters.length + 1}` };
       if (this._isPointDefenseTab()) {
         anchor.layer = "above";
+      } else if (this._isDeflectorTab()) {
+        anchor.facingDeg = DEFAULT_DEFLECTOR_EMITTER_FACING_DEG;
+        anchor.layer = "above";
       } else if (this._isEngineTab()) {
         anchor.kind = this._activeEngineKind();
         anchor.facingDeg = DEFAULT_ENGINE_EMITTER_FACING_DEG;
@@ -4105,10 +4573,15 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   static async _onSave(_event, _target) {
     if (!game.user?.isGM || !this.actor) return;
+    if (this._resolveActiveTab() === "destructible") {
+      try { await saveObjectPanel(this); } catch (err) { ui.notifications.error(err.message); }
+      return;
+    }
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
     this._readPointDefenseSettingsFromForm();
+    this._readDeflectorSettingsFromForm();
     this._readWarpEffectSettingsFromForm();
     this._anchors = await _saveShipVfxAnchors(this.actor, {
       ...this._anchors,
@@ -4120,6 +4593,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   static async _onClear(_event, _target) {
     if (!game.user?.isGM || !this.actor) return;
+    if (this._resolveActiveTab() === "destructible") {
+      this.objectSettings = normalizeDestructible();
+      this.render({ force: true });
+      return;
+    }
     const clearedLabel = this._activeTabLabel();
     if (this._curveModeActive()) {
       this._setActiveCurves([]);
@@ -4144,6 +4622,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   static async _onPreview(_event, _target) {
+    if (this._resolveActiveTab() === "destructible") return previewObjectPanel(this, "beam");
     await this._previewActive({ silent: false });
   }
 
@@ -4157,9 +4636,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
     this._readPointDefenseSettingsFromForm();
+    this._readDeflectorSettingsFromForm();
     this._readWarpEffectSettingsFromForm();
     const payload = {
       module: MODULE,
+      destructible: readObjectPanel(this),
       type: SHIP_VFX_ANCHORS_FLAG,
       version: SHIP_VFX_ANCHORS_VERSION,
       actorName: this.actor?.name ?? "",
@@ -4221,6 +4702,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         content: `<p>Replace the entire VFX setup for <strong>${this.actor.name}</strong> with the imported one${sourceName}? This overwrites all emitters, hit zones, curves, and settings.</p>`,
       });
       if (!confirmed) return;
+      if (parsed.destructible) this.objectSettings = await saveDestructibleConfig(this.objectToken ?? this.actor, parsed.destructible);
 
       // Weapon ids are per-actor item ids, so entries exported from another
       // ship would never match this ship's weapons (id mismatch short-circuits

@@ -138,6 +138,10 @@
         {{#each starSystem.stars}}
         <div class="sta2e-ss-row">
           <input type="hidden" name="starSystem.stars.{{index}}.id" value="{{id}}" />
+          <input type="hidden" name="starSystem.stars.{{index}}.procedural" value="{{procedural}}" />
+          <input type="hidden" name="starSystem.stars.{{index}}.sceneImage" value="{{sceneImage}}" />
+          <input type="hidden" name="starSystem.stars.{{index}}.sceneImageSource" value="{{sceneImageSource}}" />
+          <input type="hidden" name="starSystem.stars.{{index}}.sceneBodyScale" value="{{sceneBodyScale}}" />
           <input type="text" name="starSystem.stars.{{index}}.role" value="{{role}}" placeholder="Primary" />
           <select name="starSystem.stars.{{index}}.spectralType" data-ss-type-change="star" data-index="{{index}}" title="Spectral type">{{#each spectralOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
           <input type="text" name="starSystem.stars.{{index}}.subdivision" value="{{subdivision}}" placeholder="2" />
@@ -153,6 +157,7 @@
           <input type="text" name="starSystem.stars.{{index}}.notes" value="{{notes}}" placeholder="Traits and generation notes" />
           <div class="sta2e-ss-world-actions">
             {{#if ../isGM}}<button type="button" data-ss-action="randomize-star" data-index="{{index}}" title="Randomize this star"><i class="fas fa-dice-d20"></i></button>{{/if}}
+            {{#if ../isGM}}<button type="button" data-ss-action="procedural-star" data-index="{{index}}" title="Generate procedural star artwork"><i class="fas fa-palette"></i></button>{{/if}}
             {{#if ../isGM}}<button type="button" data-ss-action="remove-row" data-collection="stars" data-index="{{index}}" title="Remove star"><i class="fas fa-trash"></i></button>{{/if}}
           </div>
         </div>
@@ -171,6 +176,10 @@
         {{#each starSystem.worlds}}
         <section class="sta2e-ss-world-block">
           <input type="hidden" name="starSystem.worlds.{{index}}.id" value="{{id}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.procedural" value="{{procedural}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.sceneImage" value="{{sceneImage}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.sceneImageSource" value="{{sceneImageSource}}" />
+          <input type="hidden" name="starSystem.worlds.{{index}}.sceneBodyScale" value="{{sceneBodyScale}}" />
           <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.base" value="{{imageLayers.base}}" />
           <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.polarCap" value="{{imageLayers.polarCap}}" />
           <input type="hidden" name="starSystem.worlds.{{index}}.imageLayers.cloud" value="{{imageLayers.cloud}}" />
@@ -179,6 +188,8 @@
             <h4>{{name}}</h4>
             <div class="sta2e-ss-world-actions">
               {{#if ../isGM}}<button type="button" data-ss-action="randomize-world" data-index="{{index}}" title="Randomize this world"><i class="fas fa-dice-d20"></i></button>{{/if}}
+              {{#if ../isGM}}<button type="button" data-ss-action="procedural-world" data-index="{{index}}" title="Generate procedural planet or asteroid artwork"><i class="fas fa-palette"></i></button>{{/if}}
+              {{#if ../isGM}}<button type="button" data-ss-action="planet-scene" data-index="{{index}}" title="Create planetary space overview scene"><i class="fas fa-map"></i></button>{{/if}}
               <button type="button" data-ss-action="post-world" data-index="{{index}}" title="Post planet to chat"><i class="fas fa-comment-alt"></i></button>
               {{#if ../isGM}}<button type="button" data-ss-action="whisper-world" data-index="{{index}}" title="Whisper planet to players"><i class="fas fa-comment-dots"></i></button>{{/if}}
               {{#if ../isGM}}<button type="button" data-ss-action="prompt-world" data-index="{{index}}" title="Prompt players with this planet report"><i class="fas fa-bell"></i></button>{{/if}}
@@ -211,6 +222,10 @@
             {{#each moonRecords}}
             <div class="sta2e-ss-moon-row">
               <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.id" value="{{id}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.procedural" value="{{procedural}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.sceneImage" value="{{sceneImage}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.sceneImageSource" value="{{sceneImageSource}}" />
+              <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.sceneBodyScale" value="{{sceneBodyScale}}" />
               <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.base" value="{{imageLayers.base}}" />
               <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.polarCap" value="{{imageLayers.polarCap}}" />
               <input type="hidden" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.imageLayers.cloud" value="{{imageLayers.cloud}}" />
@@ -229,6 +244,7 @@
               <label class="sta2e-ss-moon-field--wide"><span>Notes</span><input type="text" name="starSystem.worlds.{{../index}}.moonRecords.{{index}}.notes" value="{{notes}}" placeholder="Notes" /></label>
               <div class="sta2e-ss-world-actions">
                 {{#if ../../isGM}}<button type="button" data-ss-action="randomize-moon" data-index="{{../index}}" data-moon-index="{{index}}" title="Randomize this moon"><i class="fas fa-dice-d20"></i></button>{{/if}}
+                {{#if ../../isGM}}<button type="button" data-ss-action="procedural-moon" data-index="{{../index}}" data-moon-index="{{index}}" title="Generate procedural moon artwork"><i class="fas fa-palette"></i></button>{{/if}}
                 {{#if ../../isGM}}<button type="button" data-ss-action="remove-moon" data-index="{{../index}}" data-moon-index="{{index}}" title="Remove moon"><i class="fas fa-trash"></i></button>{{/if}}
               </div>
             </div>

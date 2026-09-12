@@ -1,13 +1,14 @@
 /**
  * sta2e-toolkit | token-weapon-hud.js
  *
- * GM-only weapon attacks on the Token HUD, for starship and ground tokens alike.
+ * The Weapons section of the Token HUD toolkit menu (token-toolkit-hud.js), for
+ * starship and ground tokens alike.
  *
- * A crosshair control opens a flyout of weapon icons. Clicking one expands a
- * strip beneath the grid: ✓ HIT and ✗ MISS resolve the attack outright, 🎲 opens
- * the normal dice roller. This is where Hit / Miss lives now — weapon clicks in
- * the Combat HUD and the LCARS action ring used to open an "Attack Method"
- * prompt first, and they no longer do: they go straight to the roller.
+ * A grid of weapon icons; clicking one expands a strip beneath it: ✓ HIT and
+ * ✗ MISS resolve the attack outright, 🎲 opens the normal dice roller. This is
+ * where Hit / Miss lives now — weapon clicks in the Combat HUD and the LCARS
+ * action ring used to open an "Attack Method" prompt first, and they no longer
+ * do: they go straight to the roller.
  *
  * Nothing is reimplemented here. HIT/MISS routes through
  * `CombatHUD#triggerHudHitMiss` and 🎲 through `CombatHUD#triggerRingWeapon`, so
@@ -15,18 +16,14 @@
  * Combat HUD's own. The two mode toggles mirror the Combat HUD's inline strip —
  * Area/Spread for beam arrays and torpedo salvos, Stun/Deadly for ground weapons
  * that can inflict either.
+ *
+ * This is the only stateful section: its `{weaponId, salvoMode, useStun}` bag is
+ * the `state` the host carries across a rebuild.
  */
 
 import { CombatHUD } from "./combat/combat-hud-core.js";
 import { buildWeaponContext, getGroundWeaponSeverity } from "./weapon-configs.js";
-import {
-  buildHudControl,
-  buildHudFlyout,
-  resolveHudToken,
-  toggleHudFlyout,
-} from "./token-hud-util.js";
 
-const FLYOUT_CLASS = "sta2e-token-weapon-palette";
 const WEAPON_TYPES = ["characterweapon2e", "starshipweapon2e"];
 
 /** Nothing picked yet — the flyout opens here and returns here on deselect. */
@@ -151,7 +148,7 @@ function _buildStrip(app, token, weapon, selection, rebuild) {
   label.textContent = weapon.name;
   strip.appendChild(label);
 
-  // Range is shown, not enforced — same stance as the ship command palette.
+  // Range is shown, not enforced — same stance as the ship command section.
   if (weapon.type === "starshipweapon2e") {
     const warning = CombatHUD.rangeWarningForToken(token, weapon);
     if (warning) {
@@ -217,21 +214,16 @@ function _buildStrip(app, token, weapon, selection, rebuild) {
 }
 
 /**
- * Build the flyout for the current selection. Rebuilt whenever a weapon or a
- * mode toggle changes, the same way the ship command palette rebuilds itself.
+ * Build the section's rows for the current selection. Rebuilt whenever a weapon
+ * or a mode toggle changes, the same way the ship command section does; the host
+ * owns the connection guards and the in-place swap.
  *
  * @param {object} selection {weaponId, salvoMode, useStun}
  */
-function _buildPalette(app, token, control, selection) {
-  const palette = buildHudFlyout(FLYOUT_CLASS);
-
-  const rebuild = (next) => {
-    // The HUD may have closed while an action was running.
-    if (!control.isConnected || !palette.isConnected) return;
-    const fresh = _buildPalette(app, token, control, next);
-    fresh.style.top = palette.style.top;
-    palette.replaceWith(fresh);
-  };
+function _buildRows(host, selection) {
+  const { app, token } = host;
+  const rows    = [];
+  const rebuild = (next) => host.rebuild(next);
 
   const grid = document.createElement("div");
   grid.className = "sta2e-token-weapon-grid";
@@ -252,44 +244,21 @@ function _buildPalette(app, token, control, selection) {
     });
     grid.appendChild(btn);
   }
-  palette.appendChild(grid);
+  rows.push(grid);
 
   const selected = weapons.find(weapon => weapon.id === selection.weaponId);
-  if (selected) palette.appendChild(_buildStrip(app, token, selected, selection, rebuild));
+  if (selected) rows.push(_buildStrip(app, token, selected, selection, rebuild));
 
-  return palette;
+  return rows;
 }
 
-function _injectTokenWeapons(app, html) {
-  if (!game.user?.isGM) return;
-
-  const root = html instanceof HTMLElement ? html : html?.[0];
-  if (!root) return;
-  if (root.querySelector(".sta2e-token-weapons")) return;
-
-  const token = resolveHudToken(app);
-  if (!token?.actor || _weapons(token.actor).length === 0) return;
-
-  const column = root.querySelector(".col.right") ?? root.querySelector(".col.left");
-  if (!column) return;
-  const sibling = column.querySelector(".control-icon");
-
-  const control = buildHudControl(sibling, {
-    cssClass: "sta2e-token-weapons",
-    icon:     "fas fa-crosshairs",
-    tooltip:  "Weapon Attack (GM)",
-  });
-  control.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    toggleHudFlyout(control, FLYOUT_CLASS, () =>
-      _buildPalette(app, token, control, NO_SELECTION)
-    );
-  });
-  column.appendChild(control);
-}
-
-/** Register the HUD hook. Call once from main.js init. */
-export function registerTokenWeaponHud() {
-  Hooks.on("renderTokenHUD", _injectTokenWeapons);
-}
+/** @see token-toolkit-hud.js for the section descriptor contract. */
+export const WEAPON_SECTION = {
+  id:           "weapons",
+  label:        "Weapons",
+  icon:         "fas fa-crosshairs",
+  tooltip:      "Resolve a weapon attack — hit, miss, or open the roller",
+  available:    (token) => _weapons(token.actor).length > 0,
+  initialState: () => NO_SELECTION,
+  build:        _buildRows,
+};

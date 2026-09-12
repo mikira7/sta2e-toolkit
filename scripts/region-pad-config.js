@@ -16,12 +16,16 @@
  * extra save handler — the same trick zone-token-config.js uses.
  */
 
+import { TRANSPORTER_SHADER_PRESETS } from "./transporter-shader-config.js";
+
 const FLAG_SCOPE = "sta2e-toolkit";
 export const PAD_FLAG   = "transporterPad";
 export const GROUP_FLAG = "padGroup";
+export const EMITTER_FLAG = "transporterEmitterType";
 
 const PAD_FORM_PATH   = `flags.${FLAG_SCOPE}.${PAD_FLAG}`;
 const GROUP_FORM_PATH = `flags.${FLAG_SCOPE}.${GROUP_FLAG}`;
+const EMITTER_FORM_PATH = `flags.${FLAG_SCOPE}.${EMITTER_FLAG}`;
 
 /** The group name is user text going back into an attribute. */
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
@@ -82,6 +86,19 @@ function _injectPadFields(app, html) {
         form one set, so a scene can hold a main transporter room and a cargo
         transporter at once. Leave blank to join the scene's default set.
         Pads are used in order of the Region's name — name them "Pad 1", "Pad 2", …`,
+    }));
+  }
+  if (!root.querySelector(`select[name="${EMITTER_FORM_PATH}"]`)) {
+    const value = foundry.utils.getProperty(doc ?? {}, EMITTER_FORM_PATH) ?? "";
+    const options = Object.entries(TRANSPORTER_SHADER_PRESETS).map(([key, preset]) =>
+      `<option value="${esc(key)}" ${key === value ? "selected" : ""}>${esc(preset.label)}</option>`).join("");
+    target.appendChild(_buildFormGroup({
+      label: "Force Beam-In Emitter",
+      field: `<select name="${EMITTER_FORM_PATH}"><option value="">Use buffer / selected emitter</option>${options}</select>`,
+      hint: `Only applies when this Region is used as a transporter pad marker.
+        Overrides the arrival effect and sound, including patterns restored from
+        the buffer. Beam-out uses the spawner's selected emitter. Set this on
+        each pad in the room; leave blank to keep the buffer or selected emitter.`,
     }));
   }
 }

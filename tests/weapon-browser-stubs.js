@@ -1,0 +1,20 @@
+// Only non-rendering world/anchor dependencies are replaced in the gallery.
+export const samples=Array.from({length:129},(_,i)=>{const t=i/128;return{x:70+400*t,y:210-110*Math.sin(Math.PI*t)};});
+export const sampleShipArrayCurvePointAtT=(pts,t)=>{const f=Math.max(0,Math.min(1,t))*(pts.length-1),i=Math.min(pts.length-2,Math.floor(f)),k=f-i;return{x:pts[i].x+(pts[i+1].x-pts[i].x)*k,y:pts[i].y+(pts[i+1].y-pts[i].y)*k};};
+export const getClosestShipArrayCurveMatch=()=>({canvasCurve:{start:samples[0],end:samples.at(-1)},samples,t:.5,point:sampleShipArrayCurvePointAtT(samples,.5)});
+export const getShipWeaponVfxSettings=()=>({charge:{hitDuration:900,trailGlowWidth:16,trailCoreWidth:4,orbGlowRadius:15,coreRadius:4,easing:'inOutQuad'}});
+export const isShipArrayWeapon=()=>true;
+export const advanceShipArrayCurveWalk=()=>null;
+export const getShipHitLocationPointForShot=()=>null;
+export const getShipWeaponEmitterArcSelection=()=>null;
+export const getShipWeaponEmitterCluster=()=>[];
+export const getShipWeaponEmitterAnchors=()=>[];
+export const getTokenAlphaMask=()=>null;
+export const shipWeaponAnchorToCanvasPoint=()=>({x:60,y:180});
+export const tokenAnchorToCanvasPoint=shipWeaponAnchorToCanvasPoint;
+export const tokenTextureSource=()=>null;
+export const scheduleHullImpactVFX=()=>{};
+export const scheduleShieldImpactVFX=()=>{};
+export const shieldStopPoint=()=>null;
+export const isSceneWeaponAutoRotateDisabled=()=>false;
+export const vfxDrop=(...args)=>console.warn(...args);

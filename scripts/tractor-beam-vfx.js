@@ -4,6 +4,10 @@
  * Native Foundry/PIXI tractor beam renderer for previews and live tractor locks.
  */
 
+import { createFanField } from "./fan-field-shader.js";
+import { createWeaponEnergyOrb } from "./weapon-energy-shader.js";
+import { createTractorHullLock } from "./tractor-hull-shader.js";
+import { sampleTractorHullContact } from "./tractor-contact-geometry.js";
 import {
   getClosestShipTractorEmitterPoint,
   getShipTractorBeamSettings,
@@ -633,6 +637,33 @@ function _resolveBeamOptions(sourceToken, options) {
   return opts;
 }
 
+/** Rotation-independent capture volume. Only translation, emitter movement or
+ * token resizing changes these vertices; target artwork is never sampled.
+ * The fan reaches into the target's center, so transparent texture margins
+ * cannot leave a visible gap between the beam and the ship.
+ */
+function _softGrabGeometry(source, target, state) {
+  const center = _tokenCenter(target);
+  const width = Number(target.w), height = Number(target.h);
+  if (![source?.x, source?.y, center.x, center.y, width, height].every(Number.isFinite)) return false;
+  const dx = center.x - source.x, dy = center.y - source.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1 || width <= 0 || height <= 0) return false;
+  const radius = Math.min(Math.max(4, Math.min(width, height) * .42), distance * .65);
+  state.changed = source.x !== state.sx || source.y !== state.sy
+    || center.x !== state.cx || center.y !== state.cy || radius !== state.radius;
+  if (!state.changed) return true;
+  Object.assign(state, { sx: source.x, sy: source.y, cx: center.x, cy: center.y, radius });
+  const ux = dx / distance, uy = dy / distance;
+  for (let i = 0; i < state.contour.length; i++) {
+    const angle = (i / (state.contour.length - 1) * 2 - 1) * Math.PI * .36;
+    const forward = radius * .3 * Math.cos(angle), lateral = radius * Math.sin(angle);
+    state.contour[i].x = center.x + ux * forward - uy * lateral;
+    state.contour[i].y = center.y + uy * forward + ux * lateral;
+  }
+  return true;
+}
+
 export class NativeTractorBeamVFX {
   static _active = null;
   static _persistent = new Map();
@@ -644,6 +675,10 @@ export class NativeTractorBeamVFX {
     else NativeTractorBeamVFX.stopActive();
 
     const opts = _resolveBeamOptions(sourceToken, options);
+    const renderer = options.renderer ?? getTractorBeamAnimationRenderer();
+    const softGrab = renderer === "shader";
+    const grabGeometry = { contour: Array.from({ length: 33 }, () => ({ x: 0, y: 0 })) };
+    const adaptive = { key: null, mask: null, contour: null, nextSample: 0, lastTime: performance.now() };
     let sourceAlphaMask = null;
     let targetAlphaMask = null;
     let sourceTextureSrc = null;
@@ -657,10 +692,13 @@ export class NativeTractorBeamVFX {
           if (sourceTextureSrc === nextSourceSrc) sourceAlphaMask = mask;
         }).catch(() => {});
       }
+      // Cached alpha is used only for bounded contact samples, never to rebuild
+      // or validate a hull polygon that could cancel the live animation.
       const nextTargetSrc = tokenTextureSource(targetToken);
       if (nextTargetSrc !== targetTextureSrc) {
         targetTextureSrc = nextTargetSrc;
         targetAlphaMask = null;
+        adaptive.key = null; adaptive.contour = null;
         getTokenAlphaMask(nextTargetSrc).then(mask => {
           if (targetTextureSrc === nextTargetSrc) targetAlphaMask = mask;
         }).catch(() => {});
@@ -668,23 +706,47 @@ export class NativeTractorBeamVFX {
     };
     refreshMasks();
     let sourcePoint = _sourceStartPoint(sourceToken, _tokenCenter(targetToken), sourceAlphaMask);
-    let targetContour = _limitFacingContourCoverage(sourcePoint, targetToken,
-      _targetFacingContour(sourcePoint, targetToken, targetAlphaMask)
-        ?? _targetRectFacingContour(sourcePoint, targetToken));
-    if (!targetContour) return null;
+    let targetContour;
 
     const layer = _effectLayer(opts.placement);
+    if (!layer) return null;
     const tokenZ = typeof sourceToken.zIndex === "number" ? sourceToken.zIndex : 0;
     const baseZ = opts.placement === "below"
       ? Math.min(-1000, tokenZ - 10_000)
       : Math.max(VFX_Z_BASE, tokenZ + 10_000);
     const container = new PIXI.Container();
+    // Pure decoration: neither the fan nor its target glow may intercept token
+    // selection, targeting, hover or drag events on the TokenLayer underneath.
+    container.eventMode = "none";
+    container.interactiveChildren = false;
     container.zIndex = baseZ;
     container.blendMode = _addBlend();
 
     const body = new PIXI.Graphics();
     body.blendMode = _addBlend();
     container.addChild(body);
+    const field = renderer === "shader" ? createFanField(container, {
+      kind: "tractor", color: _hexToInt(opts.color), core: 0xe8f6ff, blend: _addBlend(),
+      opacity: opts.opacity, rayCount: opts.rayLines ? opts.rayCount : 0,
+      rayWidth: opts.rayWidth, rayAlpha: opts.rayOpacity, rayFeather: opts.rayFeather,
+      raySpeed: opts.raySpeed, pulseSpeed: opts.pulseSpeed, rayShade: opts.rayShade,
+    }) : null;
+    const emitterRadius = Math.max(8, Math.min(32, Math.max(sourceToken.w ?? 0, sourceToken.h ?? 0) * .12));
+    const emitter = field ? createWeaponEnergyOrb(container, {
+      color: _hexToInt(opts.color), coreColor: 0xe8f6ff, blend: _addBlend(),
+      radius: emitterRadius, coreRadius: emitterRadius * .16, haloRadius: emitterRadius * .8,
+      ringRadius: 0, ringAlpha: 0, haloAlpha: .45, flareAlpha: .1,
+    }) : null;
+    if (emitter) emitter.mesh.alpha = opts.opacity;
+    const grab = field ? createWeaponEnergyOrb(container, {
+      color: _hexToInt(opts.color), coreColor: _hexToInt(opts.color), blend: _addBlend(),
+      radius: 1, coreRadius: 0, haloRadius: .9, haloAlpha: .32,
+      coreAlpha: 0, ringRadius: 0, ringAlpha: 0, flareAlpha: 0,
+    }) : null;
+    if (grab) grab.mesh.alpha = opts.opacity;
+    const hullLock = field ? createTractorHullLock(container, targetToken, {
+      color: _hexToInt(opts.color), opacity: opts.opacity, speed: opts.raySpeed,
+    }) : null;
 
     layer.addChild(container);
     const started = performance.now();
@@ -693,6 +755,7 @@ export class NativeTractorBeamVFX {
 
     const tick = () => {
       if (stopped) return;
+      if (container.destroyed) { handle.stop(); return; }
       if (!_isLiveToken(sourceToken) || !_isLiveToken(targetToken)) {
         handle.stop();
         return;
@@ -700,16 +763,74 @@ export class NativeTractorBeamVFX {
 
       refreshMasks();
       sourcePoint = _sourceStartPoint(sourceToken, _tokenCenter(targetToken), sourceAlphaMask);
-      targetContour = _limitFacingContourCoverage(sourcePoint, targetToken,
+      targetContour = softGrab ? null : _limitFacingContourCoverage(sourcePoint, targetToken,
         _targetFacingContour(sourcePoint, targetToken, targetAlphaMask)
           ?? _targetRectFacingContour(sourcePoint, targetToken));
+      // A bad silhouette is a temporary geometry problem, not a released lock.
+      // Native mode also gets a stable fallback if its hull contour is invalid.
+      if (!targetContour && _softGrabGeometry(sourcePoint, targetToken, grabGeometry)) {
+        targetContour = grabGeometry.contour;
+      }
+      if (softGrab && targetContour && targetAlphaMask) {
+        const now = performance.now(), texture = targetToken.document?.texture ?? {};
+        const key = [sourcePoint.x, sourcePoint.y, targetToken.center?.x, targetToken.center?.y,
+          targetToken.w, targetToken.h, targetToken.document?.rotation, texture.fit,
+          texture.scaleX, texture.scaleY, texture.anchorX, texture.anchorY].join('|');
+        if ((key !== adaptive.key || adaptive.mask !== targetAlphaMask) && now >= adaptive.nextSample) {
+          const contact = sampleTractorHullContact(targetAlphaMask, sourcePoint,
+            pixel => _maskPixelToCanvas(targetToken, targetAlphaMask, pixel));
+          adaptive.key = key; adaptive.mask = targetAlphaMask; adaptive.nextSample = now + 65;
+          adaptive.contour = contact?.contour ?? null;
+        }
+        if (adaptive.contour) {
+          const amount = 1 - Math.exp(-Math.min(100, now - adaptive.lastTime) / 70);
+          // Fixed vertex count, eased motion, and no contour rejection/stop path.
+          let changed = !adaptive.current;
+          if (!adaptive.current) adaptive.current = adaptive.contour.map(p => ({ ...p }));
+          for (let i = 0; i < adaptive.current.length; i++) {
+            const p = adaptive.current[i], goal = adaptive.contour[i];
+            const delta = Math.hypot(goal.x - p.x, goal.y - p.y);
+            if (delta > .01) {
+              const ease = delta > Math.max(targetToken.w, targetToken.h) ? 1 : amount;
+              p.x += (goal.x - p.x) * ease; p.y += (goal.y - p.y) * ease;
+              changed = true;
+            }
+          }
+          targetContour = adaptive.current;
+          grabGeometry.changed ||= changed;
+        } else {
+          if (adaptive.current) grabGeometry.changed = true;
+          adaptive.current = null;
+        }
+        adaptive.lastTime = now;
+      }
+      if (softGrab && !targetAlphaMask && adaptive.current) {
+        adaptive.current = null; grabGeometry.changed = true;
+      }
+      container.renderable = !!targetContour;
       if (!targetContour) {
-        handle.stop();
         return;
       }
 
       const elapsedSeconds = (performance.now() - started) / 1000;
-      _drawFacingBeam(body, sourcePoint, targetContour, opts, elapsedSeconds);
+      if (field) {
+        if (grabGeometry.changed) field.update(sourcePoint, targetContour, elapsedSeconds);
+        else field.setTime(elapsedSeconds);
+        const hullReady = hullLock?.update(elapsedSeconds) ?? false;
+        if (grab) {
+          grab.mesh.visible = !hullReady;
+          grab.mesh.position.set(grabGeometry.cx, grabGeometry.cy);
+          grab.mesh.scale.set(grabGeometry.radius * 2.8);
+          grab.update(elapsedSeconds, .85 + .15 * Math.sin(elapsedSeconds * opts.pulseSpeed * Math.PI * 2));
+        }
+        if (emitter) {
+          emitter.mesh.position.set(sourcePoint.x, sourcePoint.y);
+          emitter.update(elapsedSeconds, .85 + .15 * Math.sin(elapsedSeconds * opts.pulseSpeed * Math.PI * 2));
+        }
+        // A brief lock-on rise, then a steady field instead of a hard pop-in.
+        const lock = Math.min(1, elapsedSeconds / .28);
+        container.alpha = lock * lock * (3 - 2 * lock);
+      } else _drawFacingBeam(body, sourcePoint, targetContour, opts, elapsedSeconds);
     };
 
     const handle = {
@@ -732,7 +853,7 @@ export class NativeTractorBeamVFX {
     else NativeTractorBeamVFX._active = handle;
     canvas.app.ticker.add(tick);
     tick();
-    if (!persistentKey) timeoutId = window.setTimeout(handle.stop, opts.duration);
+    if (!stopped && !persistentKey) timeoutId = window.setTimeout(handle.stop, opts.duration);
     return handle;
   }
 
@@ -795,7 +916,8 @@ export function normalizeTractorBeamVfxSettings(options = {}) {
 
 export function getTractorBeamAnimationRenderer() {
   try {
-    return game.settings.get(MODULE, TRACTOR_BEAM_RENDERER_SETTING) === "pixi" ? "pixi" : "jb2a";
+    const mode = game.settings.get(MODULE, TRACTOR_BEAM_RENDERER_SETTING);
+    return mode === "pixi" || mode === "shader" ? mode : "jb2a";
   } catch {
     return "jb2a";
   }
@@ -840,7 +962,7 @@ export function refreshPersistentTractorBeamVfx() {
   NativeTractorBeamVFX.stopAllPersistent();
   if (!canvas?.ready) return;
   const opts = getMergedTractorBeamVfxSettings();
-  const usePixiBeam = getTractorBeamAnimationRenderer() === "pixi";
+  const usePixiBeam = getTractorBeamAnimationRenderer() !== "jb2a";
 
   if (!usePixiBeam) return;
   for (const source of canvas.tokens?.placeables ?? []) {
@@ -880,7 +1002,10 @@ export function registerTractorBeamVfxHooks() {
   _tractorVfxHooksRegistered = true;
 
   Hooks.on("canvasReady", () => refreshPersistentTractorBeamVfx());
-  Hooks.on("canvasTearDown", () => NativeTractorBeamVFX.stopAllPersistent());
+  Hooks.on("canvasTearDown", () => {
+    NativeTractorBeamVFX.stopActive();
+    NativeTractorBeamVFX.stopAllPersistent();
+  });
   Hooks.on("updateToken", (_tokenDoc, changes) => {
     if (_tractorFlagChanged(changes)) {
       refreshPersistentTractorBeamVfx();
