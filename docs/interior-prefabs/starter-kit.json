@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "status": "geometry-proof-not-production-art",
+  "style": "starfleet-tng",
+  "metresPerUnit": 1.5,
+  "masterPixelsPerUnit": 200,
+  "wallThickness": 0.1,
+  "connectors": {
+    "room": {"width": 1.2, "description": "1.8 m clear room doorway"},
+    "corridor": {"width": 2, "description": "3 m clear corridor end"}
+  },
+  "pieces": [
+    {
+      "id": "Q01-A", "name": "Standard quarters", "category": "room", "zone": "outboard",
+      "footprint": [[0,0],[5,0],[5,5],[0,5]],
+      "ports": [{"id":"entry","type":"room","at":[2.5,5],"facing":90}],
+      "windows": [[[0.6,0],[2.1,0]]],
+      "bathroom": {"polygon":[[3,0],[5,0],[5,2.2],[3,2.2]],"tub":false},
+      "partitions": [
+        {"a":[3,0],"b":[3,2.2],"door":{"at":[3,1.1],"width":1.2}},
+        {"a":[3,2.2],"b":[5,2.2]}
+      ],
+      "fixtures": [
+        {"kind":"bed","rect":[0.3,0.3,0.8,1.4]},
+        {"kind":"desk","rect":[0.3,2.35,1.25,0.55]},
+        {"kind":"chair","rect":[0.7,3.05,0.45,0.45]},
+        {"kind":"sofa","rect":[3.15,3.65,1.55,0.65]},
+        {"kind":"table","rect":[3.4,2.85,1,0.5]},
+        {"kind":"shower","rect":[4.05,0.15,0.8,0.8]},
+        {"kind":"basin","rect":[3.15,0.15,0.65,0.4]},
+        {"kind":"toilet","rect":[4.3,1.4,0.5,0.65]}
+      ],
+      "accessPoints": [[2.5,4.3],[2.35,1.1],[3.55,1.25],[1.85,1.1]],
+      "notes": "7.5 m square; 9.9 m² perimeter bathroom. Door/bathroom positions are fixed."
+    },
+    {
+      "id": "Q03-L", "name": "Officer quarters — L", "category": "room", "zone": "outboard",
+      "footprint": [[0,0],[4,0],[4,2],[6,2],[6,6],[0,6]],
+      "ports": [{"id":"entry","type":"room","at":[3,6],"facing":90}],
+      "windows": [[[2.6,0],[3.6,0]]],
+      "bathroom": {"polygon":[[0,0],[2.4,0],[2.4,2.8],[0,2.8]],"tub":true},
+      "partitions": [
+        {"a":[2.4,0],"b":[2.4,2.8],"door":{"at":[2.4,1.4],"width":1.2}},
+        {"a":[0,2.8],"b":[2.4,2.8]}
+      ],
+      "fixtures": [
+        {"kind":"bed","rect":[4.75,2.35,0.85,1.4]},
+        {"kind":"desk","rect":[0.3,4,1.3,0.65]},
+        {"kind":"chair","rect":[0.75,4.85,0.45,0.45]},
+        {"kind":"sofa","rect":[3.95,5.05,1.7,0.65]},
+        {"kind":"table","rect":[4.15,4.2,1.1,0.5]},
+        {"kind":"shower","rect":[0.15,0.15,0.85,0.75]},
+        {"kind":"toilet","rect":[1.65,0.15,0.55,0.65]},
+        {"kind":"basin","rect":[0.15,1.2,0.6,0.4]},
+        {"kind":"tub","rect":[0.2,2.05,1.55,0.7]}
+      ],
+      "accessPoints": [[3,5.3],[3.05,1.4],[1.75,1.4],[3.7,3.1]],
+      "notes": "9 × 9 m envelope with a real 3 × 3 m missing corner; 15.12 m² bathroom. F01 fills the notch."
+    },
+    {
+      "id":"T01-A", "name":"Compact turbolift", "category":"room", "zone":"inboard",
+      "footprint":[[0.9,0],[2.1,0],[2.7,0.6],[2.7,1.8],[2.1,2.4],[0.9,2.4],[0.3,1.8],[0.3,0.6]],
+      "ports":[{"id":"entry","type":"room","at":[1.5,0],"facing":270}],
+      "fixtures":[{"kind":"console","rect":[2.3,0.85,0.2,0.55]}],
+      "accessPoints":[[1.5,0.7],[1.5,1.3]],
+      "notes":"One cabin directly off the passageway. No lobby or exterior-window option."
+    },
+    {
+      "id":"H02-A", "name":"Straight corridor", "category":"corridor",
+      "footprint":[[0,0],[4,0],[4,2.1],[0,2.1]],
+      "ports":[{"id":"west","type":"corridor","at":[0,1.05],"facing":180},{"id":"east","type":"corridor","at":[4,1.05],"facing":0}],
+      "fixtures":[], "notes":"6 m run with 3 m clear width."
+    },
+    {
+      "id":"H08-A", "name":"One room doorway", "category":"corridor",
+      "footprint":[[0,0],[4,0],[4,2.1],[0,2.1]],
+      "ports":[{"id":"west","type":"corridor","at":[0,1.05],"facing":180},{"id":"east","type":"corridor","at":[4,1.05],"facing":0},{"id":"north-room","type":"room","at":[2,0],"facing":270}],
+      "fixtures":[], "notes":"One fixed side opening. Other side remains a solid wall."
+    },
+    {
+      "id":"H09-A", "name":"Opposed room doorways", "category":"corridor",
+      "footprint":[[0,0],[4,0],[4,2.1],[0,2.1]],
+      "ports":[{"id":"west","type":"corridor","at":[0,1.05],"facing":180},{"id":"east","type":"corridor","at":[4,1.05],"facing":0},{"id":"north-room","type":"room","at":[2,0],"facing":270},{"id":"south-room","type":"room","at":[2,2.1],"facing":90}],
+      "fixtures":[], "notes":"Both side openings are deliberate. Used between quarters and an inboard lift."
+    },
+    {
+      "id":"H04-A", "name":"Right-angle bend", "category":"corridor",
+      "footprint":[[0,0],[4.1,0],[4.1,4.1],[2,4.1],[2,2.1],[0,2.1]],
+      "ports":[{"id":"west","type":"corridor","at":[0,1.05],"facing":180},{"id":"south","type":"corridor","at":[3.05,4.1],"facing":90}],
+      "fixtures":[], "notes":"True L-shaped footprint; full-width turn, not a square junction image."
+    },
+    {
+      "id":"H07-A", "name":"Corridor end cap", "category":"corridor",
+      "footprint":[[0,0],[2.1,0],[2.1,1],[0,1]],
+      "ports":[{"id":"north","type":"corridor","at":[1.05,0],"facing":270}],
+      "fixtures":[], "notes":"Rotate this piece to close either end of the sample passageway."
+    },
+    {
+      "id":"F01-A", "name":"Structural notch infill", "category":"structure",
+      "footprint":[[0,0],[2,0],[2,2],[0,2]],"ports":[],"fixtures":[],
+      "notes":"Non-walkable technical volume filling the officer cabin's missing corner. Not an orphan room."
+    }
+  ],
+  "assembly": {
+    "name":"Habitation fitting proof",
+    "outboardDirection":"north",
+    "placements":[
+      {"id":"crew","piece":"Q01-A","at":[-0.5,-5],"rotation":0},
+      {"id":"officer","piece":"Q03-L","at":[7,-6],"rotation":0},
+      {"id":"lift","piece":"T01-A","at":[0.5,2.1],"rotation":0},
+      {"id":"hall-west","piece":"H09-A","at":[0,0],"rotation":0},
+      {"id":"hall-middle","piece":"H02-A","at":[4,0],"rotation":0},
+      {"id":"hall-east","piece":"H08-A","at":[8,0],"rotation":0},
+      {"id":"bend","piece":"H04-A","at":[12,0],"rotation":0},
+      {"id":"cap-west","piece":"H07-A","at":[0,0],"rotation":90},
+      {"id":"cap-south","piece":"H07-A","at":[14,4.1],"rotation":0},
+      {"id":"infill","piece":"F01-A","at":[11,-6],"rotation":0}
+    ]
+  }
+}

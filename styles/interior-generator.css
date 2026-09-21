@@ -1,0 +1,29 @@
+.sta2e-interior-generator { display:grid; grid-template-columns:250px minmax(0,1fr); gap:18px; min-height:540px; }
+.sta2e-interior-generator .interior-fields { display:flex; flex-direction:column; gap:9px; max-height:610px; overflow:auto; padding-right:8px; }
+.sta2e-interior-generator details { border-top:1px solid #566573; padding-top:6px; }
+.sta2e-interior-generator summary { cursor:pointer; font-weight:600; }
+.sta2e-interior-generator .interior-room-choices { display:grid; grid-template-columns:1fr; gap:4px; }
+.sta2e-interior-generator .interior-room-choices label { display:flex; align-items:center; gap:5px; font-size:12px; }
+.sta2e-interior-generator .interior-asset-row { display:grid; grid-template-columns:48px minmax(0,1fr); gap:6px; margin:10px 0; }
+.sta2e-interior-generator .interior-asset-row img { width:48px; height:48px; object-fit:contain; background:#263039; border:0; }
+.sta2e-interior-generator .interior-asset-row button { margin-top:3px; font-size:11px; }
+.sta2e-interior-generator .interior-field { display:flex; flex-direction:column; gap:3px; font-size:12px; }
+.sta2e-interior-generator .interior-field>span { font-weight:600; }
+.sta2e-interior-generator .interior-row { display:flex; gap:6px; align-items:center; }
+.sta2e-interior-generator .interior-row input[type=text] { min-width:0; }
+.sta2e-interior-generator button { min-height:28px; }
+.sta2e-interior-generator .interior-preview { height:505px; overflow:auto; background:#10171e; border:1px solid #566573; border-radius:6px; }
+.sta2e-interior-generator .interior-preview img { display:block; width:100%; height:100%; object-fit:contain; max-width:none; border:0; }
+.sta2e-interior-generator .interior-map-area { height:505px; }
+.sta2e-interior-generator [data-brush-canvas] { width:100%; height:100%; object-fit:contain; background:#10171e; touch-action:none; cursor:crosshair; border:1px solid #566573; border-radius:6px; }
+.sta2e-interior-generator [hidden] { display:none !important; }
+.sta2e-interior-generator .interior-brush-tools .interior-row { margin:6px 0; }
+.sta2e-interior-generator .interior-help { font-size:11px; opacity:.8; margin:4px 0; line-height:1.45; }
+.sta2e-interior-generator .interior-summary { font-size:12px; margin:8px 0; }
+.sta2e-interior-generator [data-zoom] { margin-left:auto; width:auto; }
+.sta2e-interior-generator [data-error] { color:#ed7777; }
+@media(max-width:750px) {
+  .sta2e-interior-generator { grid-template-columns:1fr; }
+  .sta2e-interior-generator .interior-preview { height:350px; }
+  .sta2e-interior-generator .interior-map-area { height:350px; }
+}

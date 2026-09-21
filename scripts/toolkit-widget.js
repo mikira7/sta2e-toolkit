@@ -331,6 +331,15 @@ export class ToolkitWidget {
         () => game.sta2eToolkit?.openWarpViewscreenPanel?.(),
       ));
 
+      // Procedural interiors — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-dungeon",
+        "Generate Interior",
+        "Generate a furnished starship or station interior scene",
+        LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openInteriorGenerator?.(),
+      ));
+
       // Scene Warp button — GM only
       btnContainer.appendChild(mkBtn(
         "fas fa-forward-fast",

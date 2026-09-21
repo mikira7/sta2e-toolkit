@@ -415,7 +415,7 @@ const IMAGE_LAYER_FORM_FIELDS = IMAGE_LAYER_FIELDS.map(field => `imageLayers.${f
 const PROCEDURAL_ART_FIELDS = ["procedural", "sceneImage", "sceneImageSource", "sceneBodyScale"];
 const STAR_RECORD_FIELDS = ["id", "role", "spectralType", "subdivision", "luminosityType", "classification", "notes", "image", "orbitParentNodeId", "orbitalAU", "orbitalAngle", ...PROCEDURAL_ART_FIELDS];
 const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image", "orbitParentNodeId", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
-const WORLD_RECORD_FIELDS = ["id", "orbit", "orbitParentNodeId", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
+const WORLD_RECORD_FIELDS = ["id", "orbit", "orbitParentNodeId", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image", "viewscreenImage", "viewscreenComposition", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
 
 const OUTER_WORLD_TABLE = [
   { min: 1, max: 1, value: "Class-L (Marginal)" },
@@ -1483,6 +1483,8 @@ export function normalizeStarSystemData(raw = {}) {
       notes: clampText(row.notes),
       image: savedImage(row.image),
       imageLayers: normalizeImageLayers(row),
+      viewscreenImage: savedImage(row.viewscreenImage),
+      viewscreenComposition: clampText(row.viewscreenComposition),
       procedural: clampText(row.procedural),
       sceneImage: savedImage(row.sceneImage),
       sceneImageSource: savedImage(row.sceneImageSource),
@@ -2511,7 +2513,7 @@ export class StarSystemActorSheet extends ActorSheet {
     const button = event.currentTarget;
     const action = button.dataset.ssAction;
     const form = button.closest("form");
-    const gmOnlyActions = new Set(["generate", "refresh-portrait", "refresh-star-art", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene", "procedural-world", "procedural-moon", "procedural-star", "planet-scene"]);
+    const gmOnlyActions = new Set(["generate", "refresh-portrait", "refresh-star-art", "add-world", "add-feature", "add-hazard", "add-moon", "add-star", "randomize-world", "randomize-moon", "randomize-star", "remove-moon", "remove-row", "create-scene", "procedural-world", "procedural-moon", "procedural-star", "planet-scene", "planet-viewscreen"]);
     if (gmOnlyActions.has(action) && !game.user?.isGM) {
       ui.notifications.warn("STA2e Toolkit: Only the GM can modify generated star system records.");
       return;
@@ -2604,6 +2606,43 @@ export class StarSystemActorSheet extends ActorSheet {
       } catch (error) {
         console.error("STA2e Toolkit | Procedural planet failed", error);
         ui.notifications.error(`STA2e Toolkit: ${error.message}`);
+      } finally { this._planetGenerationBusy = false; }
+      return;
+    }
+
+    if (action === "planet-viewscreen") {
+      if (this._planetGenerationBusy) return;
+      this._planetGenerationBusy = true;
+      let exportedPath = "";
+      try {
+        const data = form ? this._dataFromForm(form).starSystem : getStarSystemData(this.actor);
+        const world = data.worlds[Number(button.dataset.index)];
+        if (!world) return;
+        if (world.type?.includes("Asteroid Belt")) {
+          ui.notifications.warn("STA2e Toolkit: Select a planet to create a viewscreen image.");
+          return;
+        }
+        const { promptPlanetView, planetViewTargets, addPlanetViewToLibrary } = await import("./planet-viewscreen.js");
+        const result = await promptPlanetView(world, this.actor.id);
+        if (!result) return;
+        const { targetId, ...art } = result;
+        exportedPath = art.viewscreenImage;
+        Object.assign(world, art);
+        await this.actor.setFlag(MODULE_ID, STAR_SYSTEM_FLAG, normalizeStarSystemData(data));
+        this.render(false);
+        ui.notifications.info(`STA2e Toolkit: Planet view saved: ${exportedPath}`);
+        if (targetId) {
+          try {
+            const target = planetViewTargets().find(row => row.id === targetId);
+            await addPlanetViewToLibrary(target?.behavior, exportedPath, `${data.designation || this.actor.name} — ${world.name || "Planet"}`);
+            ui.notifications.info("STA2e Toolkit: Added to the viewscreen library. Select it in the viewscreen controls to display it.");
+          } catch (error) {
+            ui.notifications.warn(`STA2e Toolkit: Image saved, but could not add it to the viewscreen library: ${error.message}`);
+          }
+        }
+      } catch (error) {
+        console.error("STA2e Toolkit | Planet view failed", error);
+        ui.notifications.error(`STA2e Toolkit: ${error.message}${exportedPath ? ` Exported file retained: ${exportedPath}` : ""}`);
       } finally { this._planetGenerationBusy = false; }
       return;
     }

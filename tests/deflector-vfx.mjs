@@ -3,6 +3,8 @@
 // Drives all four deflector effects against a stubbed PIXI/canvas, checking
 // that each one builds, ticks, and tears down cleanly — and that the two
 // sustained types hold until stopped while the two bursts end on their own.
+// The stream covers both: a burst by default, and latched under `hold`, where it
+// arms no backstop at all and may only end on stop().
 //
 // deflector-vfx.js is loaded for real; its four imports are synthetic modules,
 // so the renderer is exercised in isolation from the 4300-line anchor editor.
@@ -85,7 +87,15 @@ function environment() {
     Math, Date, Number, String, Array, Object, Set, Map, Promise, JSON, Boolean, Error, isNaN,
     globalThis: undefined,
     performance: { now: () => now },
-    setTimeout: (fn, ms) => { const id = ++serial; timers.set(id, { at: now + Math.max(0, ms), fn }); return id; },
+    // A browser COERCES a non-finite or out-of-range delay to 0 and fires on the
+    // next tick, rather than never firing — which is the whole reason a held
+    // effect has to skip arming its backstop instead of passing Infinity to it.
+    setTimeout: (fn, ms) => {
+      const id = ++serial;
+      const delay = (Number.isFinite(ms) && ms >= 0 && ms <= 2147483647) ? ms : 0;
+      timers.set(id, { at: now + delay, fn });
+      return id;
+    },
     clearTimeout: id => timers.delete(id),
     PIXI, game, canvas,
     foundry: { audio: { AudioHelper: { play: (o, broadcast) => sounds.push({ ...o, broadcast }) } } },
@@ -522,6 +532,46 @@ async function loadRenderer(env) {
   env.advance(2000);
   check('stream runs dry and tears down', () => assert.equal(env.layer.children.length, 0));
 
+  // --- stream, latched: the Token HUD's toggle -------------------------------
+  // durationMs is 400 here, and no backstop is armed, so anything that still
+  // encodes the burst shows up as a torn-down column well before the 3s mark.
+  const held = ns.playDeflectorEffect(token, 'stream',
+    { settings: SETTINGS, emitters: EMITTERS, target, hold: true });
+  env.advance(3000);
+  check('a held stream ignores durationMs and is still up seconds later', () => {
+    assert.ok(held, 'held stream did not build');
+    assert.equal(env.layer.children.length, 1, 'the held column tore itself down');
+    const motes = env.layer.children[0].children.filter(c => c.visible && c.texture);
+    assert.ok(motes.length > 5, 'only ' + motes.length + ' live motes — it stopped emitting');
+  });
+  check('a held stream holds at its full level rather than fading', () => {
+    const motes = env.layer.children[0].children.filter(c => c.visible && c.texture);
+    assert.ok(motes.some(m => m.alpha > MODE.stream.alpha * 0.5),
+      'brightest mote is only ' + Math.max(...motes.map(m => m.alpha)));
+  });
+  check('a held stream registers as sustained, and by its own type', () => {
+    assert.equal(ns.hasLiveDeflectorEffect('tok'), true);
+    assert.equal(ns.hasLiveDeflectorEffect('tok', 'stream'), true);
+    // The type filter is what keeps the HUD's Stream row from relabelling
+    // itself while some other effect is the one being held.
+    assert.equal(ns.hasLiveDeflectorEffect('tok', 'beam'), false);
+  });
+  ns.stopDeflectorEffect('tok');
+  env.advance(100);
+  check('a held stream FADES from its held level rather than snapping off', () => {
+    // Measuring the release against durationMs gives a negative alpha once the
+    // column has been up longer than that, which cuts it instantly.
+    assert.equal(env.layer.children.length, 1, 'the column vanished inside its release');
+    const motes = env.layer.children[0].children.filter(c => c.visible && c.texture);
+    assert.ok(motes.some(m => m.alpha > 0), 'every mote is already dark');
+  });
+  env.advance(500);
+  check('a held stream releases on stop and leaves no ticker behind', () => {
+    assert.equal(env.layer.children.length, 0);
+    assert.equal(env.ticks.size, 0);
+    assert.equal(ns.hasLiveDeflectorEffect('tok'), false);
+  });
+
   // Stop during the ramp: release from the current brightness, even when the
   // configured end is still seconds away. No brightening or lingering ticker.
   const longStream = { ...SETTINGS, stream: { ...MODE.stream, durationMs: 8000 } };
@@ -585,12 +635,26 @@ async function loadRenderer(env) {
     assert.ok(!('settings' in env.packets[0]));
     assert.ok(!('color' in env.packets[0]));
   });
+  check('an unheld broadcast says so explicitly', () =>
+    assert.equal(env.packets[0].hold, false));
   handle.stop();
   check('the handle stop also emits a stop packet', () => {
     assert.equal(env.packets.length, 2);
     assert.equal(env.packets[1].action, 'stopDeflectorVfx');
   });
   env.advance(2000);
+
+  // The hold has to travel: a remote client reads the look from the flag but has
+  // no other way to know this firing was latched, and would run the burst.
+  env.packets.length = 0;
+  const heldBroadcast = ns.broadcastDeflectorEffect(other, 'stream', { target, hold: true });
+  check('broadcast carries the hold, so a remote client latches too', () => {
+    assert.equal(env.packets.length, 1);
+    assert.equal(env.packets[0].type, 'stream');
+    assert.equal(env.packets[0].hold, true);
+  });
+  heldBroadcast.stop();
+  env.advance(600);
 
   env.packets.length = 0;
   ns.broadcastStopDeflectorEffect('nobody');

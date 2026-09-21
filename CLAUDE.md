@@ -979,7 +979,7 @@ emitter:
 | `chargeGlow` | tiny motes drawn in from open space ahead of the ship, straight down a cone into the dish | nothing |
 | `pulse` | a crescent shockwave — smooth bright front, turbulent fog tail — that **swells and slows** as it crosses | a target |
 | `beam` | **several** lances fanned across the target area | a target |
-| `stream` | a translucent column with glowing motes running down inside it | a target |
+| `stream` | a translucent column with glowing motes running down inside it — **latched**, so it holds until stopped | a target |
 
 **Purely cosmetic** — no roll, no Power cost, no chat card, no rules hook. The
 engine trail is the contract it matches, and most of its scaffolding is that
@@ -1072,6 +1072,25 @@ Six things the implementation rests on:
   along a mote's path *is* the effect, and these pools are two orders of magnitude
   smaller than a star field — the rule that matters is the colour conversion in
   the tint setter, which is what the Scene Warp note is about.
+- **The stream is the one effect that can be LATCHED, and the latch has no
+  timer.** `opts.hold` makes `_runStream`'s `emitting` predicate ignore
+  `durationMs` and passes `totalMs: Infinity`, which `_makeRunner` reads as
+  "arm no backstop" — the `Number.isFinite` guard there is load-bearing, since
+  `setTimeout(fn, Infinity)` fires on the **next tick** rather than never. Three
+  things follow. Its `stop()` must take the release level from the *sustained*
+  brightness, or a column held for seconds computes a negative alpha off
+  `durationMs` and snaps off instead of fading. `hold` has to travel **in the
+  socket payload** — it is an instruction about the firing, not a look, and
+  without it every remote client runs the burst and goes dark at `durationMs`
+  while the firing client's column is still up. And it ends only on `stop()`,
+  on `canvasTearDown`, or on `token.destroyed` — the per-tick check that exists
+  because this is the first deflector effect that can outlive its ship — which
+  is also why the stop handler's deliberately missing scene guard matters more
+  here than anywhere else. The Token HUD's Stream row is a **toggle** built off
+  the type-filtered `hasLiveDeflectorEffect(id, "stream")`, so a held charge
+  glow cannot relabel it; the burst stays reachable from the editor's Preview
+  and from `playDeflectorEffect`, which is what keeps the `durationMs` dial
+  meaning what it says.
 
 Sounds are four keys in **Settings → Sounds & Animations → Deflector**, played
 **locally on every client** (`AudioHelper.play(…, false)`) because every client

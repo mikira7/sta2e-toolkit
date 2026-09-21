@@ -31,11 +31,11 @@ export class ZoneEditState {
 
     // ── Hex stamp state ───────────────────────────────────────────────────
     this._hexOverlay = null;
-    this._hexSize = this._deriveHexSizeFromGrid();
+    this._hexSize = this._recommendedSizeFromGrid();
 
     // ── Square stamp state ────────────────────────────────────────────────
     this._squareOverlay = null;
-    this._squareSize = this._deriveSquareSizeFromGrid();
+    this._squareSize = this._recommendedSizeFromGrid();
 
     // ── Brush paint state ─────────────────────────────────────────────────
     this._brushPreview = null;
@@ -1190,14 +1190,6 @@ export class ZoneEditState {
     }
   }
 
-  _deriveSquareSizeFromGrid() {
-    try {
-      const gs = canvas?.scene?.grid?.size;
-      if (gs && gs > 0) return Math.round(gs);
-    } catch { /* canvas not ready */ }
-    return 100;
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // Fill Scene
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1263,12 +1255,41 @@ export class ZoneEditState {
     ui.notifications.info(`Created ${newCells.length} ${shape} zones.`);
   }
 
-  _deriveHexSizeFromGrid() {
+  /** Zone stamp size as a multiple of the scene's grid size (world setting). */
+  _getZoneSizeGridMultiple() {
     try {
-      const gs = canvas?.scene?.grid?.size;
-      if (gs && gs > 0) return Math.round(gs);
+      const v = Number(game.settings.get("sta2e-toolkit", "zoneSizeGridMultiple"));
+      if (Number.isFinite(v) && v > 0) return Math.min(8, Math.max(0.5, v));
+    } catch { /* setting may not be registered yet */ }
+    return 3.5;
+  }
+
+  /**
+   * The auto-preset stamp size for this scene: grid size x the world multiple,
+   * rounded to 10px and clamped to the same 50..1000 range promptHexSize()'s
+   * inputs accept, so a derived size is never one the dialog would reject.
+   * Sole owner of the starting value of both _hexSize and _squareSize.
+   */
+  _recommendedSizeFromGrid() {
+    let gs = 100;
+    try {
+      const g = canvas?.scene?.grid?.size;
+      if (g && g > 0) gs = g;
     } catch { /* canvas not ready */ }
-    return game.settings.get("sta2e-toolkit", "zoneHexSize") ?? 150;
+    const px = Math.round(gs * this._getZoneSizeGridMultiple() / 10) * 10;
+    return Math.min(1000, Math.max(50, px));
+  }
+
+  /**
+   * Re-derive both stamp sizes from the current scene's grid. Called on every
+   * canvasReady and when the multiple setting changes, which is what makes the
+   * auto-preset — rather than any size typed into the dialog — authoritative.
+   */
+  resyncSizesFromGrid() {
+    this._hexSize    = this._recommendedSizeFromGrid();
+    this._squareSize = this._recommendedSizeFromGrid();
+    if (this.activeTool === "hex")    this._showHexOverlay();
+    if (this.activeTool === "square") this._showSquareOverlay();
   }
 
   async promptHexSize() {
@@ -1276,20 +1297,20 @@ export class ZoneEditState {
     const gridSize     = gridScene?.grid?.size ?? 100;
     const gridDistance = gridScene?.grid?.distance ?? "?";
     const gridUnits    = gridScene?.grid?.units ?? "";
-    const gridRecOneSize  = gridSize * 2;
-    const gridRecTwoSize  = gridSize * 3;
+    const sizeMultiple = this._getZoneSizeGridMultiple();
+    const recSize      = this._recommendedSizeFromGrid();
     const gridType     = (() => {
       const t = gridScene?.grid?.type ?? 1;
       const map = { 0: "Gridless", 1: "Square", 2: "Hex (row, odd)", 3: "Hex (row, even)", 4: "Hex (col, odd)", 5: "Hex (col, even)" };
       return map[t] ?? `Type ${t}`;
     })();
-    const gridLabel = `${gridSize}px / ${gridDistance}${gridUnits ? " " + gridUnits : ""}`;
     const content = `
       <form>
         <div class="form-group">
           <p class="notes">
             Foundry grid: <strong>${gridType}</strong> — ${gridSize}px per cell, ${gridDistance}${gridUnits ? " " + gridUnits : ""} per cell.
-            Recommend for Grid sets hex and square size to be 2x-3x ${gridSize}px, ${gridRecOneSize}px between ${gridRecTwoSize}px.
+            Recommended zone size: <strong>${recSize}px</strong> (${sizeMultiple}x grid), set in
+            Settings &rarr; Zone Size (&times; Grid). Sizes typed here apply for this session only.
           </p>
         </div>
         <div class="form-group">
@@ -1302,7 +1323,7 @@ export class ZoneEditState {
         </div>
         <div class="form-group">
           <button type="button" class="sta2e-match-grid" style="width:100%;margin-top:4px;">
-            <i class="fas fa-grid"></i> Match Both to Grid (${gridLabel})
+            <i class="fas fa-rotate-left"></i> Reset Both to Recommended (${recSize}px)
           </button>
         </div>
       </form>`;
@@ -1319,7 +1340,7 @@ export class ZoneEditState {
         const hexInput   = html.querySelector?.("[name=hexSize]")    ?? html.element?.querySelector?.("[name=hexSize]");
         const sqInput    = html.querySelector?.("[name=squareSize]") ?? html.element?.querySelector?.("[name=squareSize]");
         if (matchBtn && hexInput && sqInput) {
-          matchBtn.addEventListener("click", () => { hexInput.value = gridSize; sqInput.value = gridSize; });
+          matchBtn.addEventListener("click", () => { hexInput.value = recSize; sqInput.value = recSize; });
         }
       },
     });
@@ -1329,7 +1350,6 @@ export class ZoneEditState {
       const sq  = Number(result.get?.("squareSize") ?? this._squareSize);
       if (hex >= 50 && hex <= 1000) {
         this._hexSize = hex;
-        await game.settings.set("sta2e-toolkit", "zoneHexSize", hex);
       }
       if (sq >= 50 && sq <= 1000) {
         this._squareSize = sq;

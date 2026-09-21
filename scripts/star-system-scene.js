@@ -13,6 +13,7 @@ import { normalizePlanetRecipe, saveProceduralPlanetImage, planetSeedHash, isPro
 const MODULE_ID = "sta2e-toolkit";
 export const SCENE_ACTOR_FLAG = "starSystemSceneActor";
 export const SCENE_WORLD_FLAG = "starSystemSceneWorld";
+export const SCENE_LAYOUT_FLAG = "starSystemSceneLayout";
 const BODY_FLAG = "systemBody";
 
 // Layout constants (pixels). The scene is gridless with a 100px grid size.
@@ -296,6 +297,13 @@ async function promptSceneOptions(data, existingScenes, planet = null) {
     <div class="sta2e-ss-scene-dialog">
       <p>Create a scene map for <strong>${escapeHtml(planet?.name || data.designation || "this system")}</strong>
       with ${planet ? `${planet.moonRecords?.length ?? 0} moons. Orbital spacing is schematic, not a distance scale.` : `${data.worlds.length} orbital bodies.`}</p>
+      ${planet ? `<label>Layout <select name="layout"><option value="encounter">Encounter — open space for ships</option><option value="overview">Overview — planet and moon system</option></select></label>
+      <fieldset><legend>Encounter options</legend>
+      <label><input type="checkbox" name="mirror"> Planet on the right</label>
+      <label><input type="checkbox" name="moons" checked> Include moons</label>
+      <label><input type="checkbox" name="labels"> Show labels</label>
+      <label><input type="checkbox" name="orbitRings"> Show orbit rings</label></fieldset>
+      <p>Replacement applies only to scenes of the selected layout. Older planetary scenes count as Overview.</p>` : ""}
       <label>Body artwork <select name="artwork">
         <option value="missing" selected>Generate procedural art where images are missing</option>
         <option value="all">Generate procedural art for ${planet ? "this planet and its moons" : "all stars, planets, moons, and asteroids"}</option>
@@ -309,7 +317,7 @@ async function promptSceneOptions(data, existingScenes, planet = null) {
 
   let result = null;
   const outcome = await foundry.applications.api.DialogV2.wait({
-    window: { title: planet ? "Create Planetary Space Overview" : "Create Star System Scene" },
+    window: { title: planet ? "Create Orbital Scene" : "Create Star System Scene" },
     position: { width: 480 },
     content,
     buttons: [
@@ -326,6 +334,11 @@ async function promptSceneOptions(data, existingScenes, planet = null) {
             background: background === "__random" ? (backgrounds.length ? backgrounds[Math.floor(Math.random() * backgrounds.length)] : "") : background,
             replace: existingScenes.length > 0 && mode === "replace",
             artwork: root.querySelector('select[name="artwork"]')?.value ?? "missing",
+            layout: root.querySelector('[name="layout"]')?.value === "overview" ? "overview" : "encounter",
+            mirror: !!root.querySelector('[name="mirror"]')?.checked,
+            moons: root.querySelector('[name="moons"]')?.checked ?? true,
+            labels: !!root.querySelector('[name="labels"]')?.checked,
+            orbitRings: !!root.querySelector('[name="orbitRings"]')?.checked,
           };
           return "create";
         },
@@ -371,10 +384,13 @@ export async function createPlanetaryOverviewScene(actor, worldId) {
   const choice = await promptSceneOptions(data, existing, world);
   if (!choice) return null;
   await prepareProceduralSceneArt(actor, data, world.id, choice.artwork);
-  const scene = await buildPlanetaryOverviewScene(actor, data, world, choice.background);
+  const scene = choice.layout === "encounter"
+    ? await buildPlanetaryEncounterScene(actor, data, world, choice.background, choice)
+    : await buildPlanetaryOverviewScene(actor, data, world, choice.background);
   if (!scene) return null;
-  if (choice.replace && existing.length) await Scene.deleteDocuments(existing.map(scene => scene.id));
-  ui.notifications.info(`STA2e Toolkit: Planetary overview "${scene.name}" created.`);
+  const replaced = existing.filter(scene => (scene.getFlag(MODULE_ID, SCENE_LAYOUT_FLAG) || "overview") === choice.layout);
+  if (choice.replace && replaced.length) await Scene.deleteDocuments(replaced.map(scene => scene.id));
+  ui.notifications.info(`STA2e Toolkit: Orbital scene "${scene.name}" created.`);
   await scene.view();
   return scene;
 }
@@ -389,7 +405,7 @@ export async function buildPlanetaryOverviewScene(actor, data, world, background
     name: `${data.designation || actor.name} — ${name} Orbit`, width: size, height: size, padding: 0,
     grid: { type: CONST.GRID_TYPES.GRIDLESS, size: GRID, distance: 1, units: "" },
     tokenVision: true, fog: { exploration: false }, environment: { globalLight: { enabled: true } },
-    flags: { [MODULE_ID]: { [SCENE_ACTOR_FLAG]: actor.id, [SCENE_WORLD_FLAG]: world.id, starSystemGeneratedAt: Date.now() } },
+    flags: { [MODULE_ID]: { [SCENE_ACTOR_FLAG]: actor.id, [SCENE_WORLD_FLAG]: world.id, [SCENE_LAYOUT_FLAG]: "overview", starSystemGeneratedAt: Date.now() } },
   };
   if ((game.release?.generation ?? 13) >= 14) {
     sceneData.levels = [{ _id: "defaultLevel0000", name: "Level", background: { color: "#000000", src: background || null } }];
@@ -437,6 +453,65 @@ export async function buildPlanetaryOverviewScene(actor, data, world, background
     await scene.delete();
     throw error;
   }
+}
+
+/** A fixed-size tactical arena; moon sizes adapt to keep even crowded systems clear. */
+export async function buildPlanetaryEncounterScene(actor, data, world, background = "", options = {}) {
+  const width = 6000, height = 4000, cx = 1400, cy = 2000, planetSize = 2600;
+  const mirrorX = x => options.mirror ? width - x : x;
+  const moons = options.moons === false ? [] : world.moonRecords ?? [];
+  const sceneData = {
+    name: `${data.designation || actor.name} — ${displayName(world)} Encounter`, width, height, padding: 0,
+    grid: { type: CONST.GRID_TYPES.GRIDLESS, size: GRID, distance: 1, units: "" },
+    tokenVision: true, fog: { exploration: false }, environment: { globalLight: { enabled: true } },
+    flags: { [MODULE_ID]: { [SCENE_ACTOR_FLAG]: actor.id, [SCENE_WORLD_FLAG]: world.id,
+      [SCENE_LAYOUT_FLAG]: "encounter", starSystemGeneratedAt: Date.now() } },
+  };
+  if ((game.release?.generation ?? 13) >= 14) {
+    sceneData.levels = [{ _id: "defaultLevel0000", name: "Level", background: { color: "#000000", src: background || null } }];
+  } else {
+    sceneData.backgroundColor = "#000000";
+    if (background) sceneData.background = { src: background };
+  }
+  const tiles = [], drawings = [], walls = [];
+  const add = (body, x, y, size, kind) => {
+    x = mirrorX(x);
+    const src = planetSceneImage(body) || pickStarSystemImage("planet", worldClassOf(body.type));
+    const name = displayName(body, kind);
+    if (src) tiles.push(tileData({ src, cx: x, cy: y, size, sort: kind === "planet" ? 200 : 300, name, kind, type: body.type }));
+    else drawings.push({ x: x - size / 2, y: y - size / 2, shape: { type: "e", width: size, height: size },
+      fillType: CONST.DRAWING_FILL_TYPES.SOLID, fillColor: "#8899aa", fillAlpha: 1, strokeWidth: 0, flags: bodyFlag(name, kind, body.type) });
+    walls.push(...terrainWallLoop({ cx: x, cy: y, radius: size / 2 * PLANET_WALL_RADIUS_SCALE * (src ? planetSceneBodyScale(body) : 1), name, kind, type: body.type }));
+    if (options.labels) drawings.push({ x: x - size / 2, y: y + size / 2 + 15,
+      shape: { type: "r", width: size, height: 80 }, fillType: CONST.DRAWING_FILL_TYPES.NONE,
+      strokeWidth: 0, text: name, fontSize: kind === "planet" ? 42 : 24, textColor: "#aaccff" });
+  };
+  add(world, cx, cy, planetSize, "planet");
+  // A half-orbit on the open side leaves the outer third free for ships.
+  const radius = 1750, arc = 2.7;
+  const moonSize = Math.min(240, radius * arc / Math.max(1, moons.length) * .65);
+  moons.forEach((moon, index) => {
+    const angle = moons.length === 1 ? 0 : -arc / 2 + index * arc / (moons.length - 1);
+    add(moon, cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius, moonSize, "moon");
+  });
+  if (options.orbitRings && moons.length) {
+    // Polygonal arc stays inside the encounter map (the full orbit extends off-map).
+    const points = [];
+    for (let i = 0; i <= 48; i++) {
+      const angle = -arc / 2 + i * arc / 48;
+      points.push(mirrorX(cx + Math.cos(angle) * radius), cy + Math.sin(angle) * radius);
+    }
+    drawings.push({ x: 0, y: 0, shape: { type: "p", points, width, height },
+      fillType: CONST.DRAWING_FILL_TYPES.NONE, strokeWidth: 2, strokeColor: "#557799", strokeAlpha: .35, bezierFactor: 0 });
+  }
+  const scene = await Scene.create(sceneData);
+  if (!scene) return null;
+  try {
+    if (tiles.length) await scene.createEmbeddedDocuments("Tile", tiles);
+    if (drawings.length) await scene.createEmbeddedDocuments("Drawing", drawings);
+    if (walls.length) await scene.createEmbeddedDocuments("Wall", walls);
+    return scene;
+  } catch (error) { await scene.delete(); throw error; }
 }
 
 async function buildScene(actor, data, background) {

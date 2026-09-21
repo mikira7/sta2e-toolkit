@@ -180,6 +180,8 @@
   "STA2E.Settings.ZoneBorderStyleDefault.None": "None",
   "STA2E.Settings.ZoneBorderWidth.Name": "Zone Border Width",
   "STA2E.Settings.ZoneBorderWidth.Hint": "Thickness in pixels of zone border lines. Can also be changed live in the Zone Editor toolbar.",
+  "STA2E.Settings.ZoneSizeGridMultiple.Name": "Zone Size (× Grid)",
+  "STA2E.Settings.ZoneSizeGridMultiple.Hint": "Default size of hex and square zone stamps, as a multiple of the scene's grid size. 3.5× suits most STA zone maps. The Zone Editor re-applies this on every scene load; a size typed into its Zone Size dialog applies for the session only. Scenes using a Foundry hex grid snap to that grid instead — use the toolbar's Honeycomb radius there.",
   "STA2E.Settings.ZoneShowLabels.Name": "Show Zone Labels During Play",
   "STA2E.Settings.ZoneShowLabels.Hint": "Show zone name labels in play mode. Can also be toggled per scene via Scene Config.",
   "STA2E.Settings.ZoneDragRuler.Name": "Zone-Aware Token Drag Overlay",

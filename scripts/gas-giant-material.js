@@ -211,7 +211,7 @@ export function createRingMaterial(recipe, noise) {
 
 /** Planet shadow received by a point on the ring plane, in outer-ring units. */
 export function ringPlanetShadow(x, y, z, bodyScale = RING_BODY_SCALE, light = PLANET_LIGHT) {
-  const dot = y * light.y + z * light.z;
+  const dot = x * (light.x ?? 0) + y * light.y + z * light.z;
   if (dot >= 0) return 1;
   const distance = Math.sqrt(Math.max(0, x * x + y * y + z * z - dot * dot));
   return .10 + .90 * smooth(bodyScale - .009, bodyScale + .015, distance);
@@ -224,6 +224,6 @@ export function ringSurfaceTransmission(material, x, y, z, sin, cos, footprint =
   const t = -(-sin * y + cos * z) / incidence;
   if (t <= 0) return 1;
   const qy = y + t * light.y, qz = z + t * light.z;
-  const tau = material.opticalDepth(Math.hypot(x, qy, qz), footprint);
+  const tau = material.opticalDepth(Math.hypot(x + t * (light.x ?? 0), qy, qz), footprint);
   return Math.exp(-tau / Math.max(.05, Math.abs(incidence)));
 }

@@ -1,0 +1,8 @@
+## console-retro.png
+
+Use case: stylized-concept. Asset type: pre-generated transparent console sprite for realistic top-down Star Trek battlemap scenes. ONE wide rectangular 1960s Star Trek original-series starship control console, true orthographic straight-down view of its top surface. Black recessed worktop with rows of small physical red, yellow, blue and white square buttons, two simple circular blue radar screens, pale cool-gray thick frame, a modest red edge strip. No modern touch-interface curves, no readable text. Width three times depth, centered filling 90 percent image width. Transparent alpha background outside the single console. Photorealistic game prop with fine material detail, restrained weathering, diffuse overhead lighting, crisp alpha silhouette. No characters, watermark, logos, backdrop or isometric view.
+
+## console-imperial.png
+
+Use case: stylized-concept. Asset type: pre-generated transparent console sprite for realistic top-down Star Trek battlemap scenes. ONE wide angular alien starship control console suitable for Klingon, Romulan, Cardassian or Borg industrial interiors, exact 90-degree orthographic overhead view. Weathered dark bronze-gray metal frame with chamfered aggressive corners, black recessed display surface showing abstract segmented green and amber illuminated diagrams and fine nonreadable glyph-like marks, tactile metal keys. Three times wider than deep, centered filling 90 percent image width. Transparent alpha background outside the one object. No room, floor or perspective. Photorealistic game prop with fine material detail, restrained weathering, diffuse overhead lighting, crisp alpha silhouette. No characters, watermark, logos, backdrop or isometric view.
+

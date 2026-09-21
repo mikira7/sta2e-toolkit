@@ -336,7 +336,7 @@ function riverCoverage(d, x, y, z) {
 
 const rgb = hex => [1, 3, 5].map(start => parseInt(hex.slice(start, start + 2), 16));
 
-function* planetPixelRows(recipe, requestedSize, { view = "portrait" } = {}) {
+function* planetPixelRows(recipe, requestedSize, { view = "portrait", lightDirection = 0 } = {}) {
   const r = normalizePlanetRecipe(recipe);
   const size = clamp(Math.round(Number(requestedSize) || 512), 32, 4096);
   if (["star", "asteroid"].includes(r.style)) return yield* celestialPixelRows(r, size, createPlanetTerrain(r), { view });
@@ -360,8 +360,10 @@ function* planetPixelRows(recipe, requestedSize, { view = "portrait" } = {}) {
   const gas = r.style === "gas" ? createGasGiantMaterial(r, terrain, colors) : null;
   const greenhouse = envelope ? createGreenhouseClouds(r, terrain, colors) : null;
   const groundMaterial = gas || envelope ? null : createSolidSurfaceMaterial(r, terrain, colors);
-  const sourceLight = planetLightDirection(r);
-  const bodyLight = planetSurfacePoint(0, sourceLight.y, sourceLight.z, inclination);
+  const baseLight = planetLightDirection(r);
+  const lightAngle = (Number(lightDirection) || 0) * Math.PI / 180;
+  const sourceLight = { x: -baseLight.y * Math.sin(lightAngle), y: baseLight.y * Math.cos(lightAngle), z: baseLight.z };
+  const bodyLight = planetSurfacePoint(sourceLight.x, sourceLight.y, sourceLight.z, inclination);
   const rings = r.rings ? createRingMaterial(r, noise) : null;
   const hazeColor = gas || envelope || r.style === "primordial" ? mix(colors.surfaceHigh, colors.cloud, .45) : [53, 115, 193];
   const incidence = -sin * sourceLight.y + cos * sourceLight.z;
@@ -432,7 +434,7 @@ function* planetPixelRows(recipe, requestedSize, { view = "portrait" } = {}) {
         const cloud = weather?.sample(sx, sy, sz, bodyLight);
         const cloudCover = cloud?.alpha ?? 0;
         // Light faces the top of the texture, independently of the planet's pole.
-        const lightDot = sourceLight.y * y + sourceLight.z * z;
+        const lightDot = sourceLight.x * x + sourceLight.y * y + sourceLight.z * z;
         const light = planetIllumination(r, lightDot, z);
         const ringTransmission = rings ? ringSurfaceTransmission(rings, x * bodyScale, y * bodyScale, z * bodyScale, sin, cos, 2 / size, sourceLight) : 1;
         color = color.map(v => v * light * (.12 + .88 * ringTransmission) * (1 - (cloud?.shadow ?? 0) * Math.max(0, lightDot)));
@@ -450,7 +452,7 @@ function* planetPixelRows(recipe, requestedSize, { view = "portrait" } = {}) {
         alpha = clamp((1 - Math.sqrt(d2)) * radius, 0, 1);
       } else if (atmosphere && d2 < 1.045) {
         color = gas || envelope ? hazeColor : [73, 145, 222];
-        const limbLight = r.nightBrightness / 100 + (1 - r.nightBrightness / 100) * Math.max(0, sourceLight.y * y / Math.sqrt(d2));
+        const limbLight = r.nightBrightness / 100 + (1 - r.nightBrightness / 100) * Math.max(0, (sourceLight.x * x + sourceLight.y * y) / Math.sqrt(d2));
         alpha = (1 - (d2 - 1) / .045) * (gas || envelope ? .08 : .28) * limbLight;
       }
       // Project the equatorial ring plane using the same axis as the surface.

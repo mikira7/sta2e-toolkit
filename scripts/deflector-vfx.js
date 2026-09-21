@@ -261,12 +261,12 @@ function _playTypeSound(type) {
 // ── Live instances ──────────────────────────────────────────────────────────
 // One effect per token: firing again replaces whatever was running, so a
 // double-click cannot stack two charge glows. Mirrors _warpChargeInstances.
-const _instances = new Map();   // tokenId -> {handle, sustained}
+const _instances = new Map();   // tokenId -> {handle, sustained, type}
 
-function _register(tokenId, handle, sustained) {
+function _register(tokenId, handle, sustained, type) {
   if (!tokenId) return handle;
   _instances.get(tokenId)?.handle?.cleanup?.();
-  _instances.set(tokenId, { handle, sustained });
+  _instances.set(tokenId, { handle, sustained, type });
   return handle;
 }
 
@@ -274,9 +274,16 @@ function _unregister(tokenId, handle) {
   if (_instances.get(tokenId)?.handle === handle) _instances.delete(tokenId);
 }
 
-/** Whether a SUSTAINED effect is running — what the HUD's Stop row reads. */
-export function hasLiveDeflectorEffect(tokenId) {
-  return _instances.get(tokenId)?.sustained === true;
+/**
+ * Whether a SUSTAINED effect is running — what the HUD's Stop row reads.
+ *
+ * The optional type filter is what lets the HUD's Stream row be a toggle: a held
+ * charge glow must not make it read "Stop Stream". Callers that only care whether
+ * *something* is held pass no type, as they always did.
+ */
+export function hasLiveDeflectorEffect(tokenId, type = null) {
+  const live = _instances.get(tokenId);
+  return live?.sustained === true && (!type || live.type === type);
 }
 
 /** Stop whatever this token is running. Safe to call when nothing is. */
@@ -297,6 +304,8 @@ export function stopDeflectorEffect(tokenId) {
  * @param {object[]} [opts.emitters]   Emitter anchors; defaults to the saved ones.
  * @param {{x:number,y:number}} [opts.target]  Required for pulse and beam.
  * @param {number}   [opts.durationMs] Overrides the type's own duration.
+ * @param {boolean}  [opts.hold]       STREAM ONLY: latch it on until stopped, ignoring
+ *                                     durationMs. The other three renderers ignore it.
  * @param {boolean}  [opts.isPreview]  Bypasses the enabled gate and plays no sound.
  * @returns {{stop:Function, cleanup:Function}|null}
  */
@@ -337,7 +346,8 @@ export function playDeflectorEffect(tokenOrDoc, type, opts = {}) {
   const coreColor = lighten(color, 0.55);
   const blend = _blendMode(mode.blendMode);
   const durationMs = Math.max(120, _num(opts.durationMs, mode.durationMs));
-  const ctx = { token, parent, mode, color, coreColor, blend, durationMs, target, emitters };
+  const hold = opts.hold === true;
+  const ctx = { token, parent, mode, color, coreColor, blend, durationMs, target, emitters, hold };
 
   let handle = null;
   try {
@@ -354,7 +364,7 @@ export function playDeflectorEffect(tokenOrDoc, type, opts = {}) {
 
   const tokenId = token.document?.id ?? token.id ?? null;
   handle.onDone = () => _unregister(tokenId, handle);
-  return _register(tokenId, handle, SUSTAINED_TYPES.includes(type));
+  return _register(tokenId, handle, SUSTAINED_TYPES.includes(type) || hold, type);
 }
 
 /**
@@ -420,6 +430,10 @@ export function broadcastDeflectorEffect(tokenOrDoc, type, opts = {}) {
         targetX: Number.isFinite(opts.target?.x) ? opts.target.x : null,
         targetY: Number.isFinite(opts.target?.y) ? opts.target.y : null,
         durationMs: Number.isFinite(opts.durationMs) ? opts.durationMs : null,
+        // Not a look setting — an instruction about this firing. Without it a
+        // remote client runs the burst and goes dark at durationMs while the
+        // firing client's column is still held up.
+        hold: opts.hold === true,
       });
     } catch { /* cosmetic — never block on the socket */ }
   }
@@ -483,8 +497,11 @@ function _makeRunner({ containers, filters = [], tick, totalMs, onCleanup }) {
   }
 
   canvas.app.ticker.add(step);
-  // Hard stop in case the ticker callback is starved.
-  backstop = setTimeout(cleanup, Math.max(1000, totalMs) + 2000);
+  // Hard stop in case the ticker callback is starved. A HELD effect passes
+  // Infinity instead: it ends on stop(), on its token being destroyed, or on
+  // canvasTearDown, and never on a clock. The finite guard is load-bearing —
+  // setTimeout(fn, Infinity) fires on the NEXT TICK rather than never.
+  if (Number.isFinite(totalMs)) backstop = setTimeout(cleanup, Math.max(1000, totalMs) + 2000);
   handle.cleanup = cleanup;
   return handle;
 }
@@ -1023,8 +1040,14 @@ function _runBeam({ token, parent, mode, color, coreColor, blend, durationMs, ta
  * along it at `speedPxPerSec`, so its lifetime falls out of the distance rather
  * than being configured separately — which also means the motes stay correct
  * when the ship drifts and the column gets longer or shorter mid-flight.
+ *
+ * THE ONE EFFECT THAT CAN BE LATCHED. With `hold`, `durationMs` is ignored, no
+ * backstop is armed, and the column runs until stop(), until the token is
+ * destroyed, or until canvasTearDown — which is the Token HUD's toggle. Three
+ * pieces encode the burst and all three have to move together: the `emitting`
+ * predicate, `totalMs`, and stop()'s release level.
  */
-function _runStream({ token, parent, mode, color, coreColor, blend, durationMs, target, emitters }) {
+function _runStream({ token, parent, mode, color, coreColor, blend, durationMs, target, emitters, hold }) {
   const points = _emitterPoints(token, emitters);
   const origin = _nearestEmitter(points, target);
   if (!origin) return null;
@@ -1080,10 +1103,13 @@ function _runStream({ token, parent, mode, color, coreColor, blend, durationMs, 
   const runner = _makeRunner({
     containers: [container],
     filters,
-    totalMs: durationMs + lifeMs + 600,
+    totalMs: hold ? Infinity : durationMs + lifeMs + 600,
     tick(now, dt) {
+      // A held column is the first deflector effect that can outlive its ship:
+      // deleting the token destroys the placeable, and nothing else would end it.
+      if (token.destroyed) return false;
       const elapsed = now - startedAt;
-      const emitting = !forceStop && elapsed < durationMs;
+      const emitting = !forceStop && (hold || elapsed < durationMs);
       // Fade the whole column in and back out rather than snapping it off.
       const envelope = emitting
         ? Math.min(1, elapsed / 220)
@@ -1140,7 +1166,12 @@ function _runStream({ token, parent, mode, color, coreColor, blend, durationMs, 
   runner.stop = () => {
     if (forceStop) return;
     const elapsed = performance.now() - startedAt;
-    releaseAlpha = elapsed < durationMs ? Math.min(1, elapsed / 220) : Math.max(0, 1 - (elapsed - durationMs) / 420);
+    // A held column is at its ramp-in level however long it has been up, so
+    // measuring the release against durationMs would compute a negative alpha
+    // and snap it off instead of fading it.
+    releaseAlpha = (hold || elapsed < durationMs)
+      ? Math.min(1, elapsed / 220)
+      : Math.max(0, 1 - (elapsed - durationMs) / 420);
     stoppedAt = elapsed;
     forceStop = true;
   };

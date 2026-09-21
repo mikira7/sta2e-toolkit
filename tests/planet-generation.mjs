@@ -5,6 +5,7 @@ import vm from "node:vm";
 import { deflateSync } from "node:zlib";
 
 let nextId = 0, failEmbedded = false, dialogChoice = "create", replace = false, artworkMode = "existing";
+let layout = "overview";
 const created = [], deleted = [];
 // Use this standalone process's context. A contextified global proxy makes the
 // numerical renderer orders of magnitude slower than a browser's normal realm.
@@ -18,7 +19,7 @@ Object.assign(context, {
     DialogV2: { wait: async options => {
       if (dialogChoice === "cancel") return null;
       return options.buttons[0].callback(null, null, { element: { querySelector: selector => ({
-        value: selector.includes("background") ? "__random" : selector.includes("mode") ? (replace ? "replace" : "new") : artworkMode,
+        value: selector.includes("layout") ? layout : selector.includes("background") ? "__random" : selector.includes("mode") ? (replace ? "replace" : "new") : artworkMode,
       }) } });
     } },
   } } },
@@ -680,7 +681,7 @@ for (const version of [13, 14]) {
     assert(cy - tile.height / 2 >= 0 && cy + tile.height / 2 <= scene.height);
   }
 }
-const existingScene = (id, worldId) => ({ id, name: id, getFlag: (_module, key) => key === "starSystemSceneActor" ? actor.id : worldId });
+const existingScene = (id, worldId, sceneLayout) => ({ id, name: id, getFlag: (_module, key) => key === "starSystemSceneActor" ? actor.id : key === "starSystemSceneWorld" ? worldId : key === "starSystemSceneLayout" ? sceneLayout : undefined });
 context.game.scenes = [existingScene("old-system", null), existingScene("old-planet", "planet1"), existingScene("other-planet", "planet2")];
 replace = true;
 await scenes.createStarSystemMapScene(actor);
@@ -692,8 +693,43 @@ assert(!deleted.includes("old-planet"), "System replacement preserves planetary 
 await scenes.createPlanetaryOverviewScene(actor, "planet1");
 assert(deleted.includes("old-planet"));
 assert(!deleted.includes("other-planet"), "Only selected planet is replaced");
+context.game.scenes.push(existingScene("old-encounter", "planet1", "encounter"));
+deleted.length = 0;
+layout = "encounter";
+await scenes.createPlanetaryOverviewScene(actor, "planet1");
+assert.deepEqual(deleted, ["old-encounter"], "Encounter replacement preserves legacy overview and other planets");
+layout = "overview";
+
+for (const version of [13, 14]) for (const mirror of [false, true]) for (const count of [0, 8, 50]) {
+  context.game.release.generation = version;
+  const world = { ...normalized.worlds[0], moonRecords: Array.from({ length: count }, (_, i) => ({ ...normalized.worlds[0].moonRecords[0], id: `moon${i}` })) };
+  const scene = await scenes.buildPlanetaryEncounterScene(actor, normalized, world, "background.webp", { mirror });
+  assert.equal(scene.width, 6000); assert.equal(scene.height, 4000);
+  assert.equal(scene.embedded.Tile.length, count + 1);
+  assert.equal(scene.embedded.Wall.length, (count + 1) * 16);
+  assert.equal(scene.embedded.Drawing, undefined, "Encounter annotations default off");
+  assert.equal(scene.flags["sta2e-toolkit"].starSystemSceneLayout, "encounter");
+  assert.equal(version === 14 ? scene.levels[0].background.src : scene.background.src, "background.webp");
+  const bodies = scene.embedded.Tile.map(tile => ({
+    x: tile.x + (version === 13 ? tile.width / 2 : 0), y: tile.y + (version === 13 ? tile.height / 2 : 0), radius: tile.width / 2,
+  }));
+  assert.equal(bodies[0].x, mirror ? 4600 : 1400);
+  for (const [i, body] of bodies.entries()) {
+    assert(body.x - body.radius >= 0 && body.x + body.radius <= 6000);
+    assert(body.y - body.radius >= 0 && body.y + body.radius <= 4000);
+    for (const other of bodies.slice(i + 1)) assert(Math.hypot(body.x - other.x, body.y - other.y) > body.radius + other.radius, "Encounter bodies do not overlap");
+  }
+}
+const noMoons = await scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0], "", { moons: false, labels: true, orbitRings: true });
+assert.equal(noMoons.embedded.Tile.length, 1);
+assert.equal(noMoons.embedded.Drawing.length, 1);
+const annotated = await scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0], "", { labels: true, orbitRings: true });
+assert.equal(annotated.embedded.Drawing.length, normalized.worlds[0].moonRecords.length + 2);
 deleted.length = 0;
 failEmbedded = true;
+await assert.rejects(scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0]), /injected failure/);
+assert.deepEqual(deleted, [created.at(-1).id]);
+deleted.length = 0;
 await assert.rejects(scenes.createStarSystemMapScene(actor), /injected failure/);
 assert.deepEqual(deleted, [created.at(-1).id], "Failed new scene is cleaned up; existing scene is retained");
 await assert.rejects(scenes.createPlanetaryOverviewScene(actor, "planet1"), /injected failure/);

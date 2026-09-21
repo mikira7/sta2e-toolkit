@@ -13,6 +13,9 @@ import {
   isMultiZoneToken as _isMultiZoneToken,
 } from "./zone-data.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { openInteriorGenerator as _openInteriorGenerator } from "./interior-generator.js";
+import { generateInterior as _generateInterior } from "./interior-layout.js";
+import { createInteriorScene as _createInteriorScene } from "./interior-scene.js";
 import { previewTransporterShader } from "./transporter-shader.js";
 import { refreshTurnMarkerSizes as _refreshTurnMarkerSizes } from "./combat/initiative-turn-marker.js";
 import {
@@ -24,6 +27,15 @@ import {
 } from "./combat/initiative-order.js";
 
 export class ToolkitAPI {
+
+  /** Open the GM's procedural starship / station interior generator. */
+  openInteriorGenerator(recipe = {}) { return _openInteriorGenerator(recipe); }
+
+  /** Deterministic geometry only; safe for macro previews, without document changes. */
+  generateInterior(recipe = {}) { return _generateInterior(recipe); }
+
+  /** GM only. Save artwork and create a new scene from a reproducible recipe. */
+  createInteriorScene(recipe = {}, options = {}) { return _createInteriorScene(recipe, options); }
 
   constructor({ campaignStore, hud, dateEditor, campaignManager }) {
     this.campaignStore = campaignStore;

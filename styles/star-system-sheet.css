@@ -293,6 +293,19 @@
   flex-wrap: wrap;
 }
 
+.sta2e-ss-world-actions button[data-ss-action="planet-scene"],
+.sta2e-ss-world-actions button[data-ss-action="planet-viewscreen"] {
+  width: auto;
+  padding: 0 7px;
+}
+
+.sta2e-planet-view .sta2e-planet-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sta2e-planet-view label { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.sta2e-planet-view label > select, .sta2e-planet-view label > input { width: 100%; min-width: 0; }
+.sta2e-planet-view output { margin-left: auto; }
+
 .sta2e-ss-world-list {
   display: flex;
   flex-direction: column;

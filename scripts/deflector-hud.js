@@ -3,7 +3,12 @@
  *
  * The Deflector Dish section of the Token HUD toolkit menu
  * (token-toolkit-hud.js). Four rows, one per effect, plus a Stop row that
- * appears only while one of the two sustained effects is running.
+ * appears only while a sustained effect is running.
+ *
+ * The Stream row is a TOGGLE rather than a trigger: it fires with `hold`, so the
+ * column stays up until it is released, and while one is held the row renders as
+ * "Stop Stream" in its place. That is why it reads the type-filtered
+ * hasLiveDeflectorEffect — a held charge glow must not relabel it.
  *
  * Purely cosmetic: no roll, no Power cost, no chat card. The rows deliberately
  * leave the panel open and rebuild() instead, the same argument the shield rows
@@ -61,7 +66,9 @@ const ROWS = Object.freeze([
     type: "stream",
     icon: "fas fa-wind",
     label: "Deflector Stream",
-    tooltip: "A translucent column of streaming energy to the target — target with T, or click a point",
+    tooltip: "A held column of streaming energy — stays on until stopped. Target with T, or click a point",
+    // Latched: the row below it becomes the off switch while this is running.
+    hold: true,
   },
 ]);
 
@@ -123,7 +130,7 @@ async function _fire(host, token, row) {
     if (!target) return;   // aborted, or self-targeted
   }
   try {
-    broadcastDeflectorEffect(token, row.type, { target });
+    broadcastDeflectorEffect(token, row.type, { target, hold: row.hold === true });
   } catch (err) {
     console.error("STA2e Toolkit | Deflector fire failed:", err);
     ui.notifications.error("Deflector effect failed — see console.");
@@ -132,9 +139,24 @@ async function _fire(host, token, row) {
 
 function _buildRows(host) {
   const { token } = host;
+  const tokenId = token.document?.id ?? token.id;
   const rows = [];
 
   for (const row of ROWS) {
+    // A latched effect that is already running shows its own release in place of
+    // the trigger, so one row is both the on and the off switch.
+    if (row.hold && hasLiveDeflectorEffect(tokenId, row.type)) {
+      rows.push(buildHudItem({
+        icon: "fas fa-ban",
+        label: `Stop ${row.label.replace(/^Deflector /, "")}`,
+        tooltip: "Release the held deflector stream on this ship",
+        danger: true,
+      }, () => {
+        broadcastStopDeflectorEffect(tokenId);
+        host.rebuild();
+      }));
+      continue;
+    }
     rows.push(buildHudItem({
       icon: row.icon,
       label: row.label,
@@ -149,16 +171,16 @@ function _buildRows(host) {
     }));
   }
 
-  if (hasLiveDeflectorEffect(token.document?.id ?? token.id)) {
+  if (hasLiveDeflectorEffect(tokenId)) {
     rows.push(buildHudItem({
       icon: "fas fa-ban",
       label: "Stop Deflector",
-      tooltip: "Release the charge or the lance on this ship",
+      tooltip: "Release the charge, the lance or the stream on this ship",
       danger: true,
     }, () => {
       // Stopping only here would leave every other client still lit, so the
       // stop goes out the same way the start did.
-      broadcastStopDeflectorEffect(token.document?.id ?? token.id);
+      broadcastStopDeflectorEffect(tokenId);
       host.rebuild();
     }));
   }

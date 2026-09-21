@@ -43,6 +43,7 @@ import { SHIP_COMMAND_SECTION } from "./ship-command-hud.js";
 import { WEAPON_SECTION } from "./token-weapon-hud.js";
 import { DEFLECTOR_SECTION } from "./deflector-hud.js";
 import { Q_SECTION } from "./q-hud.js";
+import { TREK_FX_SECTION } from "./trek-fx-hud.js";
 
 const ARROWHEAD     = "modules/sta2e-toolkit/assets/arrowhead.svg";
 const PALETTE_CLASS = "sta2e-toolkit-hud-palette";
@@ -73,7 +74,7 @@ const VFX_SECTION = {
 };
 
 /** Root order, matching the column order the four controls used to appear in. */
-const SECTIONS = [SHIP_COMMAND_SECTION, WEAPON_SECTION, DEFLECTOR_SECTION, Q_SECTION, VFX_SECTION];
+const SECTIONS = [SHIP_COMMAND_SECTION, WEAPON_SECTION, DEFLECTOR_SECTION, Q_SECTION, TREK_FX_SECTION, VFX_SECTION];
 
 /**
  * Which sections this token can offer. A section that throws while deciding is

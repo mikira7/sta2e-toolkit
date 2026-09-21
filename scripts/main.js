@@ -15,6 +15,8 @@ import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { registerDestructibleObjects, isDestructible, requestObjectOperation } from "./destructible-objects.js";
 import { registerDestructibleCombat } from "./destructible-combat.js";
 import { ToolkitAPI } from "./toolkit-api.js";
+import { registerInteriorGeneratorHooks } from "./interior-generator.js";
+registerInteriorGeneratorHooks();
 registerDestructibleObjects();
 registerDestructibleCombat();
 import { openWarpCalc } from "./warp-calc.js";
@@ -81,6 +83,7 @@ import {
 } from "./scene-warp.js";
 import { registerStarfieldSettingsCache } from "./starfield-common.js";
 import { registerTokenToolkitHud } from "./token-toolkit-hud.js";
+import { registerTrekFx } from "./trek-fx.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
 import { playWarpStretch, stopWarpStretch, registerWarpStretch } from "./warp-stretch-vfx.js";
 import { shipHasWarpEffectChoice } from "./warp-effect-styles.js";
@@ -558,6 +561,7 @@ Hooks.once("init", () => {
   registerRegionSplineTool();
   registerWarpViewscreenBehavior();
   registerTokenToolkitHud();
+  registerTrekFx();
   registerHullDecals();
   registerTraitItemSheetFields();
   registerGroundWeaponItemSheetFields();
@@ -1517,6 +1521,9 @@ Hooks.once("ready", async () => {
               ? { x: msg.targetX, y: msg.targetY }
               : null,
             durationMs: Number.isFinite(msg.durationMs) ? msg.durationMs : undefined,
+            // A latched stream: without this the column here would go dark at
+            // durationMs while it is still held up on the firing client.
+            hold: msg.hold === true,
           });
         }
       }
@@ -2377,6 +2384,8 @@ Hooks.on("canvasReady", async () => {
     if (toolkit.zoneEditor) {
       toolkit.zoneEditor.overlay = overlay;
       toolkit.zoneEditor.setTool(null);
+      // New scene, possibly a new grid size — re-apply the zone size preset.
+      toolkit.zoneEditor.resyncSizesFromGrid();
     } else {
       toolkit.zoneEditor = new ZoneEditState(overlay);
     }

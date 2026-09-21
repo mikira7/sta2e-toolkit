@@ -25,3 +25,9 @@
   opacity: 1;
   filter: brightness(0) invert(1) drop-shadow(0 0 4px #ff9c00);
 }
+
+.sta2e-hud-item.trek-fx-active {
+  background: rgba(48, 135, 255, 0.18);
+  border-color: #60aaff;
+  color: #b5ddff;
+}

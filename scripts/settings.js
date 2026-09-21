@@ -418,13 +418,18 @@ export function registerSettings() {
     default: false,
   });
 
-  // Internal — last hex size used for stamp/fill (persists per-client)
-  game.settings.register("sta2e-toolkit", "zoneHexSize", {
-    name:    "Zone Hex Size",
-    scope:   "client",
-    config:  false,
+  // Default size of the hex/square zone stamps, as a multiple of the scene's
+  // grid size. The Zone Editor re-derives from this on every canvas load, so a
+  // size typed into the Zone Size dialog applies for the session only.
+  game.settings.register("sta2e-toolkit", "zoneSizeGridMultiple", {
+    name:    "STA2E.Settings.ZoneSizeGridMultiple.Name",
+    hint:    "STA2E.Settings.ZoneSizeGridMultiple.Hint",
+    scope:   "world",
+    config:  true,
     type:    Number,
-    default: 150,
+    range:   { min: 0.5, max: 8, step: 0.5 },
+    default: 3.5,
+    onChange: () => game.sta2eToolkit?.zoneEditor?.resyncSizesFromGrid(),
   });
 
   // Honeycomb radius for the hex stamp tool. 0 = single hex; 1 = 7-cell cluster;
