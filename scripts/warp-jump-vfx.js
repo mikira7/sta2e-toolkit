@@ -79,14 +79,14 @@ function _addBlend() {
 function _gPolyline(g, pts, width, color, alpha) {
   if (pts.length < 2) return;
   if (typeof g.lineStyle === "function") {
-    g.lineStyle(width, color, alpha);
+    g.lineStyle({ width, color, alpha, cap: "round", join: "round" });
     g.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
     g.lineStyle(0);
   } else {
     g.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
-    g.stroke({ width, color, alpha });
+    g.stroke({ width, color, alpha, cap: "round", join: "round" });
   }
 }
 
@@ -618,7 +618,7 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
   const tokenId = token.document?.id ?? token.id;
   try { _warpChargeInstances.get(tokenId)?.stop?.({ immediate: true }); } catch { /**/ }
 
-  // A procedural ribbon supplies the soft light. The old Graphics/GlowFilter
+  // A continuous distance field supplies the soft light. The Graphics/GlowFilter
   // path remains available when the native shader cannot be used.
   const GlowFilterClass = glowSize > 0
     ? (PIXI.filters?.GlowFilter ?? globalThis.PIXI?.filters?.GlowFilter ?? null)

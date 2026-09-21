@@ -1,14 +1,14 @@
 /**
  * sta2e-toolkit | engine-trail-vfx.js
  *
- * Native PIXI v8 movement trails for starship impulse engines and warp
+ * Native PIXI movement trails for starship impulse engines and warp
  * nacelles. Emitter points, their facing and above/below layer, and the
  * per-ship colour / length / width / rate / alpha / fade / blend settings are
  * authored in the Ship VFX Anchor editor and stored on the actor flag.
  *
  * Each placed emitter draws its OWN tapered line (so twin nacelles each leave a
- * streak). The trail is a redrawn ribbon — a polyline through the recent path
- * of the emitter point — not loose particles, so it reads as a continuous line.
+ * streak). A shader draws a soft, tapered light field along the recent emitter
+ * path. A Graphics ribbon is retained for unsupported renderers.
  *
  * The action handlers decide whether an impulse or warp trail should fire.
  * See the foundry-vfx skill for the PIXI v8 patterns this builds on.

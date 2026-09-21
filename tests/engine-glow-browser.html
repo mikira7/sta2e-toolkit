@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Ship engine glow review</title>
+<style>body{background:#080d17;color:#c7d9ef;font:15px system-ui;margin:20px}button{background:#1b3551;color:#deebfc;border:1px solid #466a8e;padding:8px 16px;margin:4px;border-radius:5px}canvas{max-width:100%}pre{white-space:pre-wrap;color:#91d8ac}</style>
+<script src="/vendor/pixi.js"></script>
+<script type="importmap">{"imports":{"/scripts/ship-vfx-anchors.js":"/tests/engine-glow-browser-anchors.js","/scripts/warp-effect-styles.js":"/tests/engine-glow-browser-anchors.js"}}</script>
+</head><body><h1>Ship engine glow review</h1><p>Soft nacelle light and impulse exhaust, using Foundry's installed PIXI. Isolated fixtures; no world data.</p>
+<button id="play">Play charge sequence</button><button id="hold">Hold powered engines</button><button id="fallback">Show fallback</button><button id="checks">Run rendering checks</button>
+<button id="curves">Inspect tight curves</button>
+<pre id="results">Loading…</pre><div id="gallery"></div><script type="module" src="./engine-glow-browser.js"></script></body></html>
