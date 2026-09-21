@@ -22,6 +22,7 @@ import {
   shipEngineFacingToCanvasDeg,
   resolveEngineTrailColorHex,
 } from "./ship-vfx-anchors.js";
+import { createEngineGlow } from "./engine-glow-shader.js";
 
 // ── PIXI v8 compatibility shims (see foundry-vfx skill) ─────────────────────
 function _addBlend() {
@@ -186,9 +187,10 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
     container.zIndex = _trailZIndex(token, layerName);
     const g = new PIXI.Graphics();
     g.blendMode = blend;
-    container.addChild(g);
+    const glow = createEngineGlow({ color: colorNum, width, glowSize: mode.glowSize ?? 14, warp: kind === "warp", blendMode: blend });
+    container.addChild(glow?.mesh ?? g);
     parent.addChild(container);
-    sources.push({ anchor, g, container, nodes: [], spawnAccum: 0 });
+    sources.push({ anchor, g, glow, container, nodes: [], spawnAccum: 0 });
   }
   if (!sources.length) return _abort(kind, "no emitter ribbons could be created");
 
@@ -209,16 +211,27 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
   const startedAt = performance.now();
   let prevNow = startedAt;
   let forceStop = false;
+  let finished = false;
+  let backstop;
+  const ticker = canvas.app.ticker;
+  const scene = canvas.scene;
 
   const cleanup = () => {
-    try { canvas.app.ticker.remove(tick); } catch { /* no-op */ }
+    if (finished) return;
+    finished = true;
+    clearTimeout(backstop);
+    try { ticker.remove(tick); } catch { /* no-op */ }
     for (const source of sources) {
+      source.glow?.destroy();
+      if (source.glow) source.g.destroy();
       // Destroy the container (removes it from the layer) along with its Graphics.
       try { source.container.destroy({ children: true }); } catch { /* no-op */ }
     }
   };
 
   function tick() {
+    if (finished) return;
+    if (token.destroyed || canvas.scene !== scene) { cleanup(); return; }
     const now = performance.now();
     const dt = Math.min(now - prevNow, 50);
     prevNow = now;
@@ -263,6 +276,12 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
       const g = source.g;
       g.clear();
       const pts = (emitting && head) ? [head, ...kept] : kept;
+      if (source.glow) {
+        source.glow.update(pts.map(p => ({ ...p, strength: Math.pow(Math.max(0, 1 - (p.age ?? 0) / life), 1.25) })), {
+          alpha: peakAlpha, time: elapsed / 1000, taper: true,
+        });
+        continue;
+      }
       const count = pts.length;
       if (count >= 2) {
         for (let i = 0; i < count - 1; i++) {
@@ -281,9 +300,9 @@ export function spawnEngineTrail(tokenOrDoc, kind, opts = {}) {
     if (!emitting && liveNodes === 0) cleanup();
   }
 
-  canvas.app.ticker.add(tick);
+  ticker.add(tick);
   // Hard safety stop in case the ticker callback is starved.
-  setTimeout(cleanup, emitDuration + life + 800);
+  backstop = setTimeout(cleanup, emitDuration + life + 800);
   return {
     stop() { forceStop = true; },
     cleanup,

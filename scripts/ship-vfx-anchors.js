@@ -48,6 +48,11 @@ export const DEFAULT_POINT_DEFENSE_SETTINGS = Object.freeze({
 export const ENGINE_EMITTER_KINDS = Object.freeze(["impulse", "warp"]);
 const ENGINE_BLEND_OPTIONS = Object.freeze(["add", "normal"]);
 const ENGINE_COLOR_MODES = Object.freeze(["auto", "custom"]);
+// How the pre-warp charge glow lights a spline: "sweep" runs a head fore->aft
+// along the curve, "flood" lights the whole curve at once and brings it up to
+// power. Warp only — the impulse defaults omit the key, so the normalizer
+// strips it for impulse.
+export const ENGINE_CHARGE_MODES = Object.freeze(["sweep", "flood"]);
 // Default facing for an engine emitter is aft (180) — exhaust points astern.
 const DEFAULT_ENGINE_EMITTER_FACING_DEG = 180;
 export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
@@ -60,6 +65,7 @@ export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
     alpha: 0.8,
     fade: 600,
     blendMode: "add",
+    glowSize: 14,
   }),
   warp: Object.freeze({
     colorMode: "auto",
@@ -70,8 +76,10 @@ export const DEFAULT_ENGINE_MODE_SETTINGS = Object.freeze({
     alpha: 0.85,
     fade: 420,
     blendMode: "add",
-    // Bloom radius (px) of the pre-warp spline glow filter; 0 disables it.
+    // Soft halo radius in pixels; 0 leaves just the luminous core.
     glowSize: 18,
+    // Sweep a head along the spline, or light the whole spline at once.
+    chargeMode: "sweep",
   }),
 });
 // Legacy setting retained for existing actor data; action handlers now choose
@@ -455,9 +463,17 @@ function _normalizeEngineModeSettings(settings = {}, kind = "impulse") {
     alpha: Math.round(_clampNumber(settings?.alpha, defaults.alpha, 0, 1) * 100) / 100,
     fade: Math.round(_clampNumber(settings?.fade, defaults.fade, 60, 4000)),
     blendMode: ENGINE_BLEND_OPTIONS.includes(settings?.blendMode) ? settings.blendMode : defaults.blendMode,
-    // Only the warp mode declares a glowSize default; impulse has no glow.
+    // Both engines expose the same soft halo control.
     ...(defaults.glowSize !== undefined
       ? { glowSize: Math.round(_clampNumber(settings?.glowSize, defaults.glowSize, 0, 200)) }
+      : {}),
+    // Charge style applies only to warp nacelles.
+    ...(defaults.chargeMode !== undefined
+      ? {
+        chargeMode: ENGINE_CHARGE_MODES.includes(settings?.chargeMode)
+          ? settings.chargeMode
+          : defaults.chargeMode,
+      }
       : {}),
   };
 }
@@ -3439,9 +3455,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       alpha: _number(read("alpha", mode.alpha), mode.alpha),
       fade: _number(read("fade", mode.fade), mode.fade),
       blendMode: read("blendMode", mode.blendMode),
-      // Warp only — the input is absent on the impulse tab and the normalizer
-      // strips the key for modes without a glowSize default.
+      // Both engines have a halo; only warp declares a charge style.
       glowSize: _number(read("glowSize", mode.glowSize), mode.glowSize),
+      chargeMode: read("chargeMode", mode.chargeMode),
     };
     const next = {
       ...current,
@@ -3702,6 +3718,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
         value,
         label: value,
         selected: value === (activeEngineModeSettings?.blendMode ?? "add"),
+      })) : [],
+      engineChargeModeOptions: isEngineTab ? ENGINE_CHARGE_MODES.map(value => ({
+        value,
+        label: value === "flood" ? "Whole Spline At Once" : "Sweep Along Spline",
+        selected: value === (activeEngineModeSettings?.chargeMode ?? "sweep"),
       })) : [],
       activeShieldImpactSettings: this._activeShieldImpactSettings(),
       shieldColorOptions: SHIELD_COLOR_OPTIONS.map(option => ({

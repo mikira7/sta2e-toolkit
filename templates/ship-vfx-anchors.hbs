@@ -1099,7 +1099,7 @@
       <button type="button" data-reset-engine title="Reset {{engineKindLabel}} trail settings"><i class="fas fa-undo"></i> Reset</button>
     </div>
     <div class="sta2e-anchor-value">
-      {{#if isWarpCurveTab}}Draw warp splines along the nacelles below. The pre-warp charge glow sweeps each spline toward its aft end when the Warp major action fires, then the Warp-Flash animation plays. Width, Color, and Glow Size shape the glow.{{else}}Place emitter points on the nacelles below. Facing biases the exhaust direction (0 fore, 180 aft). Impulse points fire from the Impulse minor action.{{/if}}
+      {{#if isWarpCurveTab}}Draw warp splines along the nacelles below. Soft nacelle light builds to a brief peak when the Warp major action fires, then the Warp-Flash animation plays. Charge Style picks a sweep toward the aft end or a whole-nacelle power-up. Width, Color, Alpha, and Glow Size shape the light.{{else}}Place emitter points on the impulse engines below. Facing biases the exhaust direction (0 fore, 180 aft). Impulse points fire from the Impulse minor action. Glow Size softens the halo around the tapered exhaust.{{/if}}
     </div>
     <div class="sta2e-vfx-settings-grid">
       <div class="sta2e-vfx-settings-row">
@@ -1138,7 +1138,7 @@
         <input id="sta2e-engine-rate" type="number" min="4" max="600" step="2" value="{{activeEngineModeSettings.rate}}" data-engine-setting="rate" />
       </div>
       <div class="sta2e-vfx-settings-row">
-        <label for="sta2e-engine-alpha" title="Peak particle opacity">Alpha</label>
+        <label for="sta2e-engine-alpha" title="Peak engine brightness">Alpha</label>
         <input id="sta2e-engine-alpha" type="number" min="0" max="1" step="0.05" value="{{activeEngineModeSettings.alpha}}" data-engine-setting="alpha" />
       </div>
       <div class="sta2e-vfx-settings-row">
@@ -1155,10 +1155,18 @@
       </div>
       {{#if isWarpCurveTab}}
       <div class="sta2e-vfx-settings-row">
-        <label for="sta2e-engine-glowsize" title="Bloom radius of the pre-warp spline glow, in pixels. 0 turns the glow filter off.">Glow Size</label>
-        <input id="sta2e-engine-glowsize" type="number" min="0" max="200" step="1" value="{{activeEngineModeSettings.glowSize}}" data-engine-setting="glowSize" />
+        <label for="sta2e-engine-chargemode" title="Sweep runs a lit head fore to aft along the spline. Whole Spline At Once lights the full curve immediately and brings it up to power.">Charge Style</label>
+        <select id="sta2e-engine-chargemode" data-engine-setting="chargeMode">
+          {{#each engineChargeModeOptions}}
+          <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
       </div>
       {{/if}}
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-engine-glowsize" title="Soft halo radius in pixels. 0 leaves just the luminous core.">Glow Size</label>
+        <input id="sta2e-engine-glowsize" type="number" min="0" max="200" step="1" value="{{activeEngineModeSettings.glowSize}}" data-engine-setting="glowSize" />
+      </div>
     </div>
 
     {{#if showEmitterArcSettings}}

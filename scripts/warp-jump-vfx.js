@@ -11,7 +11,7 @@
  * fix, as spawnEngineTrailVfx. Only the corridor still goes through Sequencer
  * + JB2A when available (Sequencer routes that one to every client itself).
  *
- * This file also owns the pre-warp nacelle charge glow, which sweeps the warp
+ * This file also owns the pre-warp nacelle charge glow, which lights the warp
  * splines drawn in the Ship VFX Anchors editor (see playWarpChargeGlow below).
  *
  * The socket payload carries explicit canvas coordinates rather than a tokenId:
@@ -40,6 +40,7 @@ import {
   normalizeWarpEffectStyleId,
   resolveWarpSoundKey,
 } from "./warp-effect-styles.js";
+import { createEngineGlow } from "./engine-glow-shader.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -546,11 +547,27 @@ export async function playWarpCorridor(from, to, opts = {}) {
 }
 
 // ── Warp charge glow ─────────────────────────────────────────────────────────
-// The nacelle power-up: a light sweeps fore-to-aft along each warp spline drawn
-// in the Ship VFX Anchors editor, leaves the whole spline lit, and builds to
-// peak brightness until stop() cuts it — timed by the warp runner so the peak
-// lands on the depart flash. The curves are re-mapped from the token every
-// frame, so the glow rides the ship through its pre-warp rotation and run-up.
+// The nacelle power-up: each warp spline drawn in the Ship VFX Anchors editor
+// lights up, then builds to peak brightness until stop() cuts it — timed by the
+// warp runner so the peak lands on the depart flash. The curves are re-mapped
+// from the token every frame, so the glow rides the ship through its pre-warp
+// rotation and run-up.
+//
+// The ship's Charge Style dial (warp mode setting `chargeMode`) picks HOW a
+// spline lights, and the two styles share every other dial and the whole
+// envelope:
+//
+//   sweep — a lit head travels fore→aft along the curve over sweepMs, leaving
+//           the spline lit behind it. The curve's direction setting (or the
+//           auto image-space fallback) decides which end is aft.
+//   flood — the whole curve is lit from the first frame and comes up to power
+//           over that same sweepMs, with a throb that damps out as it settles.
+//           No geometry is involved, so a curve whose direction is ambiguous
+//           looks the same either way round.
+//
+// Both converge on the SAME intensity once sweepMs has elapsed, which is what
+// lets the build/peak/stop half of the tick stay style-agnostic — and why
+// Scene Warp's `sweepMs: 1` (nacelles already lit) stays correct for both.
 
 const _warpChargeInstances = new Map();   // token document id → { stop }
 
@@ -590,16 +607,19 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
   const coreColor = _lighten(color, 0.65);
   const blend = _addBlend();
   const baseWidth = Math.max(2, Number(mode?.width) || 9);
-  // Ship VFX Anchors → Warp tab → "Glow Size"; 0 turns the filter off.
+  // Ship VFX Anchors → Warp tab → "Glow Size"; 0 leaves just the core.
   const glowSize = Math.max(0, Number(mode?.glowSize ?? 18));
+  const peakAlpha = Math.max(0, Math.min(1, Number(mode?.alpha ?? 0.85)));
+  // Ship VFX Anchors → Warp tab → "Charge Style". Anything but "flood" is the
+  // sweep, so a ship saved before the dial existed keeps the look it had.
+  const flood = String(opts.chargeMode ?? mode?.chargeMode ?? "sweep") === "flood";
 
   // Replace any glow already running on this token (restart, double engage).
   const tokenId = token.document?.id ?? token.id;
   try { _warpChargeInstances.get(tokenId)?.stop?.({ immediate: true }); } catch { /**/ }
 
-  // One GlowFilter per strand does the actual "glow" — bare additive strokes
-  // alone read as flat lines. Filters are NOT destroyed by container.destroy,
-  // so cleanup() releases them explicitly (same etiquette as shield-bubble).
+  // A procedural ribbon supplies the soft light. The old Graphics/GlowFilter
+  // path remains available when the native shader cannot be used.
   const GlowFilterClass = glowSize > 0
     ? (PIXI.filters?.GlowFilter ?? globalThis.PIXI?.filters?.GlowFilter ?? null)
     : null;
@@ -609,9 +629,10 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
     container.zIndex = curve.layer === "below" ? -VFX_Z_BASE : VFX_Z_BASE + 5;
     const g = new PIXI.Graphics();
     g.blendMode = blend;
-    container.addChild(g);
+    const glow = createEngineGlow({ color, width: baseWidth, glowSize, warp: true, blendMode: blend });
+    container.addChild(glow?.mesh ?? g);
     let glowFilter = null;
-    if (GlowFilterClass) {
+    if (!glow && GlowFilterClass) {
       try {
         glowFilter = new GlowFilterClass({
           distance: glowSize,
@@ -627,18 +648,24 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
     // The sweep always travels fore → aft; the curve's direction setting (or
     // the auto image-space fallback) decides which end that is.
     const reversed = !warpCurveAftIsEnd(curve);
-    return { curve, container, g, glowFilter, reversed };
+    return { curve, container, g, glow, glowFilter, reversed };
   });
 
   const startedAt = performance.now();
   let stoppingAt = 0;
   let finished = false;
+  let backstop;
+  const ticker = canvas.app.ticker;
+  const scene = canvas.scene;
 
   const cleanup = () => {
     if (finished) return;
     finished = true;
-    try { canvas.app.ticker.remove(tick); } catch { /**/ }
+    clearTimeout(backstop);
+    try { ticker.remove(tick); } catch { /**/ }
     for (const strand of strands) {
+      strand.glow?.destroy();
+      if (strand.glow) strand.g.destroy();
       try {
         strand.container.filters = [];
         strand.glowFilter?.destroy?.();
@@ -650,19 +677,31 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
 
   function tick() {
     if (finished) return;
+    if (token.destroyed || canvas.scene !== scene) { cleanup(); return; }
     const now = performance.now();
     const elapsed = now - startedAt;
 
     // Sweep head position (0..1 fore→aft), then brightness build to the peak.
+    // Flood has no head — the whole curve is lit from the first frame — so
+    // `ignite` takes the sweep's place as the ramp, landing on exactly the
+    // intensity the sweep style reaches at the same moment.
     const headT = Math.min(1, elapsed / sweepMs);
     const build = Math.min(1, Math.max(0, (elapsed - sweepMs) / Math.max(1, peakHoldMs * 0.55)));
-    let intensity = 0.55 + 0.45 * build;
+    let intensity = 0.48 + 0.52 * build * build * (3 - 2 * build);
+    if (flood) {
+      const ignite = Math.min(1, elapsed / sweepMs);
+      // Smoothstepped so it blooms rather than fading linearly in, plus a small
+      // throb that damps out as the build takes over — coils settling on power.
+      const eased = ignite * ignite * (3 - 2 * ignite);
+      const throb = 1 + 0.025 * Math.sin(elapsed / 180) * eased * (1 - build);
+      intensity = (0.12 + 0.36 * eased + 0.52 * build * build * (3 - 2 * build)) * throb;
+    }
     let containerAlpha = 1;
 
     if (stoppingAt) {
       const sinceStop = now - stoppingAt;
-      // Quick bright pop, then fade out.
-      intensity = sinceStop < 80 ? 1.5 : 1.2;
+      // A brief exposure peak with a continuous falloff into the warp flash.
+      intensity = 1 + 0.4 * Math.exp(-Math.pow((sinceStop - 35) / 45, 2));
       containerAlpha = Math.max(0, 1 - Math.max(0, sinceStop - 80) / fadeMs);
       if (sinceStop > 80 + fadeMs) { cleanup(); return; }
     } else if (elapsed > sweepMs + peakHoldMs) {
@@ -672,17 +711,24 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
     for (const strand of strands) {
       const g = strand.g;
       g.clear();
-      strand.container.alpha = containerAlpha;
+      strand.container.alpha = strand.glow ? 1 : containerAlpha * peakAlpha;
       // The filter carries the actual glow; ramp it with the charge so the
       // strand blooms as it builds and pops at the stop flash.
       if (strand.glowFilter) strand.glowFilter.outerStrength = 1.6 + 1.8 * intensity;
       const canvasCurve = tokenArrayCurveToCanvasCurve(token, strand.curve);
       const samples = canvasCurve ? sampleShipArrayCurve(canvasCurve) : [];
+      if (strand.glow) {
+        strand.glow.update(strand.reversed ? samples.slice().reverse() : samples, {
+          alpha: peakAlpha * intensity * containerAlpha, time: elapsed / 1000,
+          reveal: flood ? 1 : headT,
+        });
+        continue;
+      }
       if (samples.length < 2) continue;
       const n = samples.length - 1;
       const litFrom = strand.reversed ? Math.round((1 - headT) * n) : 0;
       const litTo = strand.reversed ? n : Math.round(headT * n);
-      const lit = samples.slice(litFrom, litTo + 1);
+      const lit = flood ? samples : samples.slice(litFrom, litTo + 1);
       if (lit.length >= 2) {
         _gPolyline(g, lit, baseWidth * 4.2, color, 0.10 * intensity);
         _gPolyline(g, lit, baseWidth * 2.4, color, 0.22 * intensity);
@@ -700,9 +746,9 @@ export function playWarpChargeGlow(tokenOrDoc, opts = {}) {
     },
   };
   _warpChargeInstances.set(tokenId, instance);
-  canvas.app.ticker.add(tick);
+  ticker.add(tick);
   // Backstop in case the ticker dies mid-effect (scene teardown mid-jump).
-  setTimeout(cleanup, sweepMs + peakHoldMs + fadeMs + 2000);
+  backstop = setTimeout(cleanup, sweepMs + peakHoldMs + fadeMs + 2000);
   return instance;
 }
 
