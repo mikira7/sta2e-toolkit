@@ -11,6 +11,7 @@ import {
   resolveShipWarpEffectStyleId,
 } from "./warp-effect-styles.js";
 import { resolveActorFactionKey } from "./actor-faction.js";
+import { SHIP_EXPLOSION_COLORS, normalizeShipExplosionSettings } from "./ship-explosion-colors.js";
 import { getDestructibleConfig, objectTokenDocument, saveDestructibleConfig } from "./destructible-objects.js";
 import { normalizeDestructible } from "./destructible-geometry.js";
 import { objectPanelHtml, readObjectPanel, wireObjectPanel, saveObjectPanel, previewObjectPanel } from "./destructible-panel.js";
@@ -1004,6 +1005,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       shieldImpact: normalizeShipShieldImpactSettings(data?.settings?.shieldImpact),
       engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
       breachTrail: normalizeBreachTrailSettings(data?.settings?.breachTrail),
+      explosion: normalizeShipExplosionSettings(data?.settings?.explosion),
       tractorBeam: normalizeShipTractorBeamSettings(data?.settings?.tractorBeam),
       pointDefense: normalizePointDefenseSettings(data?.settings?.pointDefense),
       deflector: normalizeShipDeflectorSettings(data?.settings?.deflector),
@@ -2351,6 +2353,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       save: ShipVfxAnchorEditor._onSave,
       clear: ShipVfxAnchorEditor._onClear,
       preview: ShipVfxAnchorEditor._onPreview,
+      previewExplosion: ShipVfxAnchorEditor._onPreviewExplosion,
+      previewShockwave: ShipVfxAnchorEditor._onPreviewShockwave,
+      previewMeltdown: ShipVfxAnchorEditor._onPreviewMeltdown,
       export: ShipVfxAnchorEditor._onExport,
       import: ShipVfxAnchorEditor._onImport,
       close: ShipVfxAnchorEditor._onClose,
@@ -2417,6 +2422,41 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _isBreachTab() { return this._resolveActiveTab() === "breach"; }
+
+  _readExplosionSettingsFromForm() {
+    const current = normalizeShipExplosionSettings(this._anchors.settings?.explosion);
+    const root = this.element;
+    const settings = normalizeShipExplosionSettings({
+      renderer: root?.querySelector('[data-explosion-setting="renderer"]')?.value ?? current.renderer,
+      color: root?.querySelector('[data-explosion-setting="color"]')?.value ?? current.color,
+      shockwave: root?.querySelector('[data-explosion-setting="shockwave"]')?.checked ?? current.shockwave,
+      meltdown: root?.querySelector('[data-explosion-setting="meltdown"]')?.checked ?? current.meltdown,
+    });
+    this._anchors.settings.explosion = settings;
+    return settings;
+  }
+
+  async _previewExplosion(shockwaveOnly = false) {
+    const token = this._previewSourceToken();
+    if (!token) return ui.notifications.warn("Place a token for this ship to preview its destruction effects.");
+    const settings = this._readExplosionSettingsFromForm();
+    const { previewShipDestruction } = await import("./ship-explosion-vfx.js");
+    this._explosionPreview?.stop();
+    this._explosionPreview = previewShipDestruction(token, settings, { shockwaveOnly });
+  }
+
+  static async _onPreviewExplosion() { await this._previewExplosion(); }
+  static async _onPreviewShockwave() { await this._previewExplosion(true); }
+
+  static async _onPreviewMeltdown() {
+    const token=this._previewSourceToken();
+    if(!token)return ui.notifications.warn("Place a token for this ship to preview its hull meltdown.");
+    const settings=this._readExplosionSettingsFromForm();
+    const {playShipMeltdown}=await import("./ship-meltdown-vfx.js");
+    const {getShipExplosionColor}=await import("./ship-explosion-vfx.js");
+    this._meltdownPreview?.stop();
+    this._meltdownPreview=playShipMeltdown(token,{preview:true,color:getShipExplosionColor(token,settings)});
+  }
 
   _readBreachSettingsFromForm() {
     const current = normalizeBreachTrailSettings(this._anchors.settings?.breachTrail);
@@ -3703,6 +3743,11 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
     return {
       actorName: this.actor?.name ?? "Unknown ship",
+      explosionSettings: normalizeShipExplosionSettings(this._anchors.settings?.explosion),
+      explosionRendererOptions: [["inherit", "Use world setting"], ["jb2a", "JB2A"], ["native", "Native cinematic explosion"]]
+        .map(([value,label]) => ({value,label,selected:value===this._anchors.settings.explosion.renderer})),
+      explosionColorOptions: [["inherit", "Use saved ship color / Classic"], ...Object.entries(SHIP_EXPLOSION_COLORS).map(([id,p]) => [id,p.label])]
+        .map(([value,label]) => ({value,label,selected:value===this._anchors.settings.explosion.color})),
       isDestructibleTab: this._resolveActiveTab() === "destructible",
       destructiblePanel: this._resolveActiveTab() === "destructible" ? objectPanelHtml(this) : "",
       textureSrc: this.textureSrc,
@@ -3873,6 +3918,10 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     }
     const el = this.element;
     if (!el) return;
+
+    el.querySelectorAll("[data-explosion-setting]").forEach(input => {
+      input.addEventListener("change", () => this._readExplosionSettingsFromForm());
+    });
 
     const stage = el.querySelector("[data-anchor-stage]");
     const img = el.querySelector("[data-anchor-image]");
@@ -4686,6 +4735,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       try { await saveObjectPanel(this); } catch (err) { ui.notifications.error(err.message); }
       return;
     }
+    this._readExplosionSettingsFromForm();
     this._readEmitterArcFromForm();
     this._readBreachSettingsFromForm();
     this._readWeaponSettingsFromForm();
@@ -4743,6 +4793,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   // exported from one ship drops cleanly onto any other ship using the same
   // (or same-proportioned) art — handy for fleets of one class.
   static _onExport(_event, _target) {
+    this._readExplosionSettingsFromForm();
     this._readEmitterArcFromForm();
     this._readBreachSettingsFromForm();
     this._readWeaponSettingsFromForm();
@@ -4862,6 +4913,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   async close(options) {
+    this._meltdownPreview?.stop();
+    this._explosionPreview?.stop();
     this._breachPreview?.destroy();
     window.clearTimeout(this._previewTimer);
     return super.close(options);

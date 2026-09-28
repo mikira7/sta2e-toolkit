@@ -16,6 +16,7 @@
  */
 
 import { getSceneZones, getZoneAtPoint, getZonePathWithCosts, rangeBandFor } from "./zone-data.js";
+import { getRangeContext, measureMovement, isMovementMeasured } from "./zone-dynamic.js";
 import { getLcTokens } from "./lcars-theme.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { PaymentPrompt } from "./payment-prompt.js";
@@ -85,9 +86,6 @@ export class ZoneMovementLog {
     if (!this._isEnabled()) return;
     if (this._suppressIds.has(tokenDoc.id)) return;
 
-    const zones = getSceneZones();
-    if (!zones.length) return;
-
     const gs = canvas.grid?.size ?? 100;
     const tw = (tokenDoc.width  ?? 1) * gs;
     const th = (tokenDoc.height ?? 1) * gs;
@@ -95,6 +93,9 @@ export class ZoneMovementLog {
       x: (changes.x ?? tokenDoc.x) + tw / 2,
       y: (changes.y ?? tokenDoc.y) + th / 2,
     };
+
+    const zones = getSceneZones();
+    if (!zones.length) return this._onDynamicMove(tokenDoc, origin, dest);
 
     const fromZone = getZoneAtPoint(origin.x, origin.y, zones);
     const toZone   = getZoneAtPoint(dest.x,   dest.y,   zones);
@@ -129,6 +130,25 @@ export class ZoneMovementLog {
         }
       }
     }
+  }
+
+  /**
+   * Dynamic Zones (a scene with no zone grid): log a move that left the
+   * token's own zone. There are no named zones, hazards or terrain costs to
+   * report, so the card carries only the distance in zones and its band.
+   */
+  async _onDynamicMove(tokenDoc, origin, dest) {
+    const ctx = getRangeContext();
+    if (ctx.mode !== "dynamic") return;
+    const info = measureMovement(origin, dest, ctx);
+    if (!isMovementMeasured(info) || info.zoneCount === 0) return;
+
+    const actor  = canvas.tokens?.get(tokenDoc.id)?.actor ?? null;
+    const isNpc  = _isNpc(actor);
+    const isShip = actor?.system?.systems !== undefined;
+    const fromZone = { id: "dynamic-from", name: "Starting Position", hazards: [], momentumCost: 0 };
+    const toZone   = { id: "dynamic-to",   name: "New Position",      hazards: [], momentumCost: 0 };
+    await this._postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, []);
   }
 
   // ── Card rendering ────────────────────────────────────────────────────────

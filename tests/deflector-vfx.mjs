@@ -687,7 +687,9 @@ async function loadRenderer(env) {
     { context, identifier: id },
   );
   const noop = () => {};
-  await mod.link((spec) => synth(spec, {
+  await mod.link(async (spec) => spec === './ship-explosion-colors.js'
+    ? new vm.SourceTextModule(await readFile(new URL('../scripts/ship-explosion-colors.js', import.meta.url), 'utf8'), { context })
+    : synth(spec, {
     hasPointDefenseSystem: () => false,
     normalizeWarpEffectStyleId: (v) => v ?? 'standard',
     getWarpEffectStyleOptions: () => [{ value: 'standard' }],
@@ -700,6 +702,24 @@ async function loadRenderer(env) {
   }));
   await mod.evaluate();
   const A = mod.namespace;
+
+  check('explosion renderer, color, shockwave, and meltdown survive editor save/export normalization', () => {
+    const editor=Object.create(A.ShipVfxAnchorEditor.prototype);
+    editor._anchors=A.normalizeShipVfxAnchors();
+    assert.equal(editor._anchors.settings.explosion.renderer,'inherit');
+    assert.equal(editor._anchors.settings.explosion.shockwave,false);
+    assert.equal(editor._anchors.settings.explosion.meltdown,true);
+    editor.element={querySelector: selector=>selector.includes('renderer')?{value:'native'}:selector.includes('color')?{value:'green'}:{checked:!selector.includes('meltdown')}};
+    editor._readExplosionSettingsFromForm();
+    const saved=A.normalizeShipVfxAnchors(JSON.parse(JSON.stringify(editor._anchors))).settings.explosion;
+    assert.equal(saved.renderer,'native');assert.equal(saved.color,'green');assert.equal(saved.shockwave,true);
+    assert.equal(saved.meltdown,false,'disabled meltdown survives export/import');
+    editor.element={querySelector:()=>null};
+    assert.equal(editor._readExplosionSettingsFromForm().shockwave,true,'changing tabs retains draft settings');
+    assert.equal(editor._readExplosionSettingsFromForm().meltdown,false,'changing tabs retains disabled meltdown');
+    const invalid=A.normalizeShipVfxAnchors({settings:{explosion:{renderer:'bad',color:'bad',shockwave:'false'}}}).settings.explosion;
+    assert.equal(invalid.renderer,'inherit');assert.equal(invalid.color,'inherit');assert.equal(invalid.shockwave,false);
+  });
 
   check('breach length defaults, clamps invalid input, and survives save/export normalization', () => {
     assert.equal(A.normalizeBreachTrailSettings().length, 1);

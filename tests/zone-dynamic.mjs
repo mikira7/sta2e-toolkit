@@ -138,6 +138,73 @@ check('tokensSharingZone: no zone system → usingZones false so callers fall ba
   assert.equal(res.targets.length, 0);   // array is from the vm realm — no deepEqual
 });
 
+// ── Movement ────────────────────────────────────────────────────────────────
+check('reach radius: n zones reaches R × (2n + 1)', () => {
+  assert.equal(D.dynamicReachRadius(0, 100), 100);
+  assert.equal(D.dynamicReachRadius(1, 100), 300);   // ground Move
+  assert.equal(D.dynamicReachRadius(2, 100), 500);   // Impulse / Sprint
+  assert.equal(D.dynamicReachRadius(-1, 100), 100);
+});
+
+check('reach radius agrees with the band maths at its edge', () => {
+  for (const n of [0, 1, 2, 5]) {
+    const r = D.dynamicReachRadius(n, 120);
+    assert.equal(D.dynamicZoneCount(r, 120), n, `edge of ${n}`);
+    assert.equal(D.dynamicZoneCount(r + 1, 120), n + 1, `just past ${n}`);
+  }
+});
+
+check('measureMovement: dynamic is centre to centre, no Momentum cost', () => {
+  const ctx = { mode: 'dynamic', zones: [], radius: 100 };
+  const m = D.measureMovement({ x: 0, y: 0 }, { x: 0, y: 450 }, ctx);
+  assert.equal(m.zoneCount, 2);
+  assert.equal(m.rangeBand, 'Long');
+  assert.equal(m.momentumCost, 0);
+  assert.equal(D.isMovementMeasured(m), true);
+  assert.equal(D.measureMovement({ x: 0, y: 0 }, { x: 50, y: 0 }, ctx).zoneCount, 0);
+});
+
+check('measureMovement: null with no zone system; drawn needs named zones', () => {
+  assert.equal(D.measureMovement({ x: 0, y: 0 }, { x: 9, y: 9 }, { mode: null }), null);
+  assert.equal(D.isMovementMeasured(null), false);
+  assert.equal(D.isMovementMeasured({ zoneCount: 1, fromZone: null, toZone: null }), false);
+  assert.equal(D.isMovementMeasured({ zoneCount: -1, dynamic: true }), false);
+});
+
+check('measureMovement: drawn zones still route through the zone path', () => {
+  const sq = (x, y) => [{ x, y }, { x: x + 100, y }, { x: x + 100, y: y + 100 }, { x, y: y + 100 }];
+  const zones = [
+    { id: 'a', name: 'A', vertices: sq(0, 0) },
+    { id: 'b', name: 'B', vertices: sq(100, 0), momentumCost: 1 },
+  ];
+  const m = D.measureMovement({ x: 50, y: 50 }, { x: 150, y: 50 }, { mode: 'drawn', zones, radius: 0 });
+  assert.equal(m.zoneCount, 1);
+  assert.equal(m.momentumCost, 1);
+  assert.equal(m.steps.length, 2);
+  assert.equal(D.isMovementMeasured(m), true);
+});
+
+check('drawDynamicZoneRings: one circle per band, active ring heavier', () => {
+  const calls = [];
+  const gfx = {
+    lineStyle: (w, c, a) => calls.push(['line', w, c, a]),
+    drawCircle: (x, y, r) => calls.push(['circle', x, y, r]),
+  };
+  D.drawDynamicZoneRings(gfx, { x: 10, y: 20 }, 100, { count: 3, activeIndex: 1 });
+  const circles = calls.filter(c => c[0] === 'circle');
+  assert.deepEqual(circles.map(c => c[3]), [100, 300, 500]);
+  assert.ok(circles.every(c => c[1] === 10 && c[2] === 20));
+  const widths = calls.filter(c => c[0] === 'line' && c[1] > 0).map(c => c[1]);
+  assert.deepEqual(widths, [1.5, 3, 1.5]);
+  assert.deepEqual(calls.at(-1), ['line', 0, undefined, undefined]);   // style reset
+});
+
+check('drawDynamicZoneRings: no-op without a radius', () => {
+  let n = 0;
+  D.drawDynamicZoneRings({ lineStyle: () => n++, drawCircle: () => n++ }, { x: 0, y: 0 }, 0);
+  assert.equal(n, 0);
+});
+
 // ── Report ──────────────────────────────────────────────────────────────────
 for (const [status, name, msg] of results) console.log(`${status}  ${name}${msg ? `\n      ${msg}` : ''}`);
 const failed = results.filter(r => r[0] === 'FAIL').length;

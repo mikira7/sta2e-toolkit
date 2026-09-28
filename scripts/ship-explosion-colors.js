@@ -23,3 +23,23 @@ export function shipExplosionPalette(value) {
 export function rgbToHex(rgb) {
   return (Math.round(rgb[0]*255)<<16) | (Math.round(rgb[1]*255)<<8) | Math.round(rgb[2]*255);
 }
+
+export function normalizeShipExplosionSettings(value = {}) {
+  return {
+    renderer: ["native", "jb2a"].includes(value?.renderer) ? value.renderer : "inherit",
+    color: Object.hasOwn(SHIP_EXPLOSION_COLORS, value?.color) ? value.color : "inherit",
+    shockwave: value?.shockwave === true,
+    meltdown: value?.meltdown !== false,
+  };
+}
+
+export function getShipExplosionSettings(target) {
+  const actor = target?.actor ?? target?.document?.actor ?? target;
+  return normalizeShipExplosionSettings(actor?.getFlag?.("sta2e-toolkit", "shipVfxAnchors")?.settings?.explosion);
+}
+
+export function resolveShipExplosionRenderer(target, settings = getShipExplosionSettings(target)) {
+  if (settings.renderer === "native" || settings.renderer === "jb2a") return settings.renderer;
+  try { return game.settings.get("sta2e-toolkit", "shipExplosionRenderer") === "native" ? "native" : "jb2a"; }
+  catch { return "jb2a"; }
+}

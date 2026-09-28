@@ -10,10 +10,15 @@
  * Gated behind:
  *   - world setting `zoneDragRuler` = true
  *   - per-scene flag `sta2e-toolkit.zonesEnabled` != false
- *   - zones must exist on the scene
+ *   - zones must exist on the scene, or the scene must use Dynamic Zones
+ *     (zone-dynamic.js), in which case the zone rings round the drag origin
+ *     are drawn in place of the tinted path
  */
 
-import { getSceneZones, getZonePathWithCosts, rangeBandColor } from "./zone-data.js";
+import { rangeBandColor } from "./zone-data.js";
+import {
+  getRangeContext, measureMovement, isMovementMeasured, drawDynamicZoneRings,
+} from "./zone-dynamic.js";
 import { getLcTokens } from "./lcars-theme.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,13 +132,14 @@ export class ZoneDragRuler {
     this._panel.style.left = `${px}px`;
     this._panel.style.top  = `${py}px`;
 
-    // Compute zone info
-    const zones = getSceneZones();
-    if (!zones.length) return;
+    // Compute zone info — drawn zones, or Dynamic Zones on a scene without a grid
+    const ctx = getRangeContext();
+    const info = measureMovement(this._originPt, pt, ctx);
+    if (!info) return;
 
-    const info = getZonePathWithCosts(this._originPt, pt, zones);
     this._updatePanel(info);
-    this._drawPathHighlight(info, zones);
+    if (ctx.mode === "dynamic") this._drawDynamicRings(info, ctx.radius);
+    else this._drawPathHighlight(info, ctx.zones);
   }
 
   _handleDragMove(event) {
@@ -164,7 +170,7 @@ export class ZoneDragRuler {
     const impulseEl  = this._panel.querySelector(".sta2e-zdp-impulse");
     const warpEl     = this._panel.querySelector(".sta2e-zdp-warp");
 
-    if (!info.fromZone || !info.toZone || info.zoneCount < 0) {
+    if (!isMovementMeasured(info)) {
       zoneEl.textContent = "— OUT OF ZONES —";
       bandEl.textContent = "";
       momentumEl.style.display = "none";
@@ -241,6 +247,21 @@ export class ZoneDragRuler {
   }
 
   // ── Path highlight ───────────────────────────────────────────────────────
+
+  /**
+   * Dynamic Zones have no polygons to tint, so draw the zone boundaries round
+   * the drag origin instead — Close / Medium / Long — with the ring the cursor
+   * currently sits inside drawn heavier. The Move (1 zone), Sprint and Impulse
+   * (2 zones) limits all land on these rings, so they double as the limits.
+   */
+  _drawDynamicRings(info, radius) {
+    if (!this._pathGfx || !this._originPt) return;
+    this._pathGfx.clear();
+    drawDynamicZoneRings(this._pathGfx, this._originPt, radius, {
+      count: 3,
+      activeIndex: Math.min(info.zoneCount, 2),
+    });
+  }
 
   _drawPathHighlight(info, zones) {
     if (!this._pathGfx) return;

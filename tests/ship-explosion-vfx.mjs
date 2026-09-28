@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-let now=0, shaderDestroyed=0, broadcast=[], nextId=0, lastColor;
+let now=0, shaderDestroyed=0, broadcast=[], nextId=0, lastColor, ringsCreated=0, ringsDestroyed=0;
 const ticks=new Set(), hooks=new Map(), timers=new Map();
 class Container {
   constructor() { this.children=[];this.position={set(){}}; }
@@ -24,6 +24,9 @@ const module=new vm.SourceTextModule(await readFile(new URL('../scripts/ship-exp
 await module.link(async name=>{
   if(name.endsWith('ship-explosion-colors.js')) return new vm.SourceTextModule(
     await readFile(new URL('../scripts/ship-explosion-colors.js',import.meta.url),'utf8'),{context});
+  if(name.endsWith('ship-shockwave-shader.js')) return new vm.SyntheticModule(['createShipShockwave'],function(){
+    this.setExport('createShipShockwave',()=>{ringsCreated++;return {display:new Container(),update(){},destroy(){ringsDestroyed++;}};});
+  },{context});
   return new vm.SyntheticModule(['createShipFireball'],function(){this.setExport('createShipFireball',(_size,_seed,color)=>{
     lastColor=color; return {display:new Container(),update(){},destroy(){shaderDestroyed++;}};
   });},{context});
@@ -61,7 +64,8 @@ check(ticks.size===16,'simultaneous bursts bounded');
 hooks.get('canvasTearDown')();check(ticks.size===0&&timers.size===0,'teardown releases every effect');
 
 let actorColor, tokenColor;
-token.actor={getFlag:()=>actorColor,setFlag:async(_,key,value)=>{actorColor=value;}};
+let savedAnchors;
+token.actor={getFlag:(_,key)=>key==='shipVfxAnchors'?savedAnchors:actorColor,setFlag:async(_,key,value)=>{if(key==='shipVfxAnchors')savedAnchors=value;else actorColor=value;}};
 token.document.getFlag=()=>tokenColor;
 token.document.unsetFlag=async()=>{tokenColor=undefined;};
 check(api.getShipExplosionColor(token)==='classic','unsaved ships keep classic colors');
@@ -90,9 +94,36 @@ api.drawShipExplosionParticles(new Graphics(),api.buildShipExplosionParticles(1)
 check(fills.length>600 && fills.some(f=>f.color===0x71ff36 && f.alpha<.1)
   && fills.some(f=>f.color===0xe0ffd0 && f.alpha>.8),'green sparks have dim halos and bright cores');
 
+savedAnchors={settings:{explosion:{renderer:'jb2a',color:'green',shockwave:true}}};
+check(!api.useNativeShipExplosion(token),'per-ship JB2A overrides native world default');
+savedAnchors.settings.explosion.renderer='native';
+check(api.useNativeShipExplosion(token),'per-ship native renderer resolves');
+check(api.getShipExplosionColor(token)==='green','editor palette overrides legacy color');
+const draft=api.previewShipDestruction(token,{renderer:'native',color:'inherit',shockwave:false});
+check(lastColor==='classic','unsaved inherited palette previews the legacy default, not the saved editor override');draft.stop();
+const withRing=api.playNativeShipExplosion(token);
+check(ringsCreated===1 && broadcast.at(-1).shockwave===true,'enabled shockwave accompanies native explosion and broadcasts');
+withRing.stop();check(ringsDestroyed===1,'combined effect releases shockwave');
+api.playNativeShipExplosion(token,{secondary:true});check(ringsCreated===1,'small secondary bursts do not create shockwaves');
+api.playNativeShipExplosion(token,{secondary:true,shockwave:true});
+check(ringsCreated===1 && broadcast.at(-1).shockwave===false,'explicit ring request still cannot add shockwaves to secondary bursts');
+api.playShipExplosionFromSocket({...event,id:'secondary-ring-packet',secondary:true,shockwave:true});
+check(ringsCreated===1,'receivers also suppress shockwaves on secondary explosion packets');
+hooks.get('canvasTearDown')();
+const beforeShader=shaderDestroyed;
+const ringOnly=api.playNativeShipShockwave(token,{preview:true,broadcast:false});
+check(ringsCreated===2,'independent shockwave preview starts');
+tick(1801);await ringOnly.finished;
+check(ringsDestroyed===2 && shaderDestroyed===beforeShader,'shockwave-only playback creates no fireball and expires');
+savedAnchors.settings.explosion.shockwave=false;
+api.playNativeShipExplosion(token);check(ringsCreated===2,'unchecked toggle creates no ring');
+hooks.get('canvasTearDown')();
+await api.saveShipExplosionColor(token,'purple');
+check(savedAnchors.settings.explosion.color==='purple' && savedAnchors.settings.explosion.renderer==='native','test-panel color save preserves editor renderer settings');
+
 // Exercise the actual CombatHUD method in isolation, including missing Sequencer.
 const combat=await readFile(new URL('../scripts/combat/combat-hud-core.js',import.meta.url),'utf8');
-const method=combat.slice(combat.indexOf('  static async fireDestructionEffect(token) {'),combat.indexOf('  // ── Status',combat.indexOf('  static async fireDestructionEffect(token) {')));
+const method=combat.slice(combat.indexOf('  static async fireDestructionEffect(token,'),combat.indexOf('  // ── Status',combat.indexOf('  static async fireDestructionEffect(token,')));
 for(const deletion of [false,true]){
   let deleted=0,updates=[],played=0;
   const document={id:'ship',getFlag:()=>false,parent:{tokens:{has:()=>true}},update:async x=>updates.push(x),delete:async()=>{deleted++;}};
@@ -103,5 +134,36 @@ for(const deletion of [false,true]){
   check(played===1,'native runs without Sequencer');
   check(deleted===(deletion?1:0),'respects deletion setting');
   check(updates.length===(deletion?1:0),'kept tokens retain alpha');
+}
+for(const native of [false,true]){
+  let finishHull,deleted=0,played=0;const updates=[];
+  const meltdown={finished:new Promise(resolve=>{finishHull=resolve;})};
+  class Sequence {
+    effect(){return this;} file(){return this;} atLocation(){return this;} scaleToObject(){return this;}
+    zIndex(){return this;} wait(){return this;} play(){played++;}
+  }
+  const document={id:'ship',width:1,getFlag:()=>false,parent:{tokens:{has:()=>true}},update:async x=>updates.push(x),delete:async()=>{deleted++;}};
+  const c=vm.createContext({console,meltdown,game:{user:{isGM:true},settings:{get:(_,key)=>key==='deleteTokenOnDestruction'}},
+    useNativeShipExplosion:()=>native,getShipExplosionSettings:()=>({shockwave:false}),
+    playNativeShipExplosion:()=>{played++;return {finished:Promise.resolve()};},
+    SHIP_EXPLOSION_DURATION_MS:3200,setTimeout:f=>f(),window:{Sequence},token:{id:'ship',document},canvas:{tokens:{get:()=>true}}});
+  const pending=vm.runInContext(`class CombatHUD { static async _stopBreachTrailFX(){} static async _clearHullDecalsForDestruction(){} ${method} }; CombatHUD.fireDestructionEffect(token,{meltdown});`,c);
+  for(let i=0;i<20;i++)await Promise.resolve();
+  check(played===1 && deleted===0,'explosion plays while deletion waits for overlapping dissolve');
+  check(updates.length===0,'active meltdown prevents premature token fade or hide');
+  finishHull(true);await pending;
+  check(deleted===1,'token deletion follows dissolve completion');
+}
+for(const shockwave of [false,true]) {
+  let ringCalls=0, played=0;
+  class Sequence {
+    effect(){return this;} file(){return this;} atLocation(){return this;} scaleToObject(){return this;}
+    zIndex(){return this;} wait(){return this;} play(){played++;}
+  }
+  const c=vm.createContext({console,game:{user:{isGM:true},settings:{get:()=>false}},
+    useNativeShipExplosion:()=>false,getShipExplosionSettings:()=>({shockwave}),playNativeShipShockwave:()=>{ringCalls++;},
+    setTimeout:f=>f(),window:{Sequence},token:{document:{width:1,getFlag:()=>false}},canvas:{tokens:{get:()=>null}}});
+  await vm.runInContext(`class CombatHUD { static async _stopBreachTrailFX(){} static async _clearHullDecalsForDestruction(){} ${method} }; CombatHUD.fireDestructionEffect(token);`,c);
+  check(played===1 && ringCalls===(shockwave?1:0),'JB2A playback respects independent shockwave toggle');
 }
 console.log(`PASS: ${checks} ship explosion lifecycle and integration checks`);

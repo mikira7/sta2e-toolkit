@@ -1,6 +1,7 @@
 /** Native starship breakup: brief fireball, fast sparks, tumbling metal plates. */
 import { createShipFireball } from "./ship-explosion-shader.js";
-import { normalizeShipExplosionColor, shipExplosionPalette } from "./ship-explosion-colors.js";
+import { normalizeShipExplosionColor, shipExplosionPalette, getShipExplosionSettings, normalizeShipExplosionSettings, resolveShipExplosionRenderer } from "./ship-explosion-colors.js";
+import { createShipShockwave } from "./ship-shockwave-shader.js";
 
 const MODULE = "sta2e-toolkit";
 export const SHIP_EXPLOSION_ACTION = "shipExplosionVfx";
@@ -9,7 +10,8 @@ const active = new Set(), seen = new Set();
 let hooked = false;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-export function getShipExplosionColor(token) {
+export function getShipExplosionColor(token, settings = getShipExplosionSettings(token)) {
+  if (settings.color !== "inherit") return settings.color;
   return normalizeShipExplosionColor(token?.document?.getFlag?.(MODULE, "shipExplosionColor")
     ?? token?.actor?.getFlag?.(MODULE, "shipExplosionColor"));
 }
@@ -17,17 +19,22 @@ export function getShipExplosionColor(token) {
 export async function saveShipExplosionColor(token, color) {
   if (!game.user?.isGM) throw new Error("Only the GM can save a ship explosion color.");
   if (!token?.document) throw new Error("Select a ship first.");
-  // Actor storage carries the choice to future tokens of this ship.
+  // Linked actors share this choice; synthetic actors retain it on this token.
   const document = token.actor ?? token.document;
   await document.setFlag(MODULE, "shipExplosionColor", normalizeShipExplosionColor(color));
+  const anchors = document.getFlag?.(MODULE, "shipVfxAnchors");
+  if (anchors?.settings?.explosion) await document.setFlag(MODULE, "shipVfxAnchors", {
+    ...anchors, settings: { ...anchors.settings, explosion: { ...anchors.settings.explosion, color: normalizeShipExplosionColor(color) } },
+  });
   if (token.actor && token.document.getFlag?.(MODULE, "shipExplosionColor") != null) {
     await token.document.unsetFlag(MODULE, "shipExplosionColor");
   }
 }
 
-export function useNativeShipExplosion() {
-  try { return game.settings.get(MODULE, "shipExplosionRenderer") === "native"; }
-  catch { return false; }
+export function useNativeShipExplosion(token) { return resolveShipExplosionRenderer(token) === "native"; }
+
+export function playNativeShipShockwave(token, options = {}) {
+  return playNativeShipExplosion(token, { ...options, shockwave: true, shockwaveOnly: true });
 }
 
 function randomFrom(seed) {
@@ -111,17 +118,18 @@ export function playShipExplosionFromSocket(event) {
   // Bound simultaneous effects as well as particles per burst.
   if (active.size >= 16) active.values().next().value.stop();
   const size = clamp(event.size, 8, 4000), secondary = event.secondary === true;
-  const duration = secondary ? 1600 : SHIP_EXPLOSION_DURATION_MS;
+  const shockwaveOnly = event.shockwaveOnly === true;
+  const duration = shockwaveOnly ? 1800 : secondary ? 1600 : SHIP_EXPLOSION_DURATION_MS;
   const container = new PIXI.Container(), graphics = new PIXI.Graphics(), sparks = new PIXI.Graphics();
   const color = normalizeShipExplosionColor(event.color);
   sparks.blendMode = PIXI.BLEND_MODES?.ADD ?? "add";
   const ticker = canvas.app.ticker;
-  let fireball, timer, stopped = false, resolveFinished;
+  let fireball, shockwave, timer, stopped = false, resolveFinished;
   const handle = { preview: event.preview === true, finished: new Promise(resolve => { resolveFinished = resolve; }), stop };
   function stop() {
     if (stopped) return;
     stopped = true; clearTimeout(timer); ticker.remove(tick); active.delete(handle);
-    fireball?.destroy(); container.destroy({ children: true }); resolveFinished();
+    fireball?.destroy(); shockwave?.destroy(); container.destroy({ children: true }); resolveFinished();
   }
   const start = performance.now(), particles = buildShipExplosionParticles(event.seed, secondary);
   function tick() {
@@ -131,16 +139,20 @@ export function playShipExplosionFromSocket(event) {
       const elapsed = performance.now() - start;
       if (elapsed >= duration) { stop(); return; }
       const seconds = elapsed / 1000 * (secondary ? 2 : 1);
-      fireball.update(seconds);
-      drawShipExplosionParticles(graphics, particles, seconds, size, color, sparks);
+      shockwave?.update(elapsed / 1000);
+      fireball?.update(seconds);
+      if (!shockwaveOnly) drawShipExplosionParticles(graphics, particles, seconds, size, color, sparks);
     } catch (error) { console.warn("STA2e Toolkit | Ship explosion stopped:", error); stop(); }
   }
   try {
     container.position.set(event.x, event.y); container.zIndex = 950000; container.eventMode = "none";
     const layer = canvas.tokens ?? canvas.interface;
     layer.sortableChildren = true; layer.addChild(container);
-    fireball = createShipFireball(size, event.seed % 10000, color);
-    container.addChild(graphics); container.addChild(fireball.display); container.addChild(sparks);
+    if (event.shockwave === true && !secondary) {
+      shockwave = createShipShockwave(size, color); container.addChild(shockwave.display);
+    }
+    if (!shockwaveOnly) fireball = createShipFireball(size, event.seed % 10000, color);
+    container.addChild(graphics); if (fireball) container.addChild(fireball.display); container.addChild(sparks);
     active.add(handle); ticker.add(tick);
     timer = setTimeout(stop, duration + 250);
     tick();
@@ -149,7 +161,7 @@ export function playShipExplosionFromSocket(event) {
 }
 
 /** Cosmetic only. Destruction/deletion stays in CombatHUD. Preview is local. */
-export function playNativeShipExplosion(token, { secondary = false, broadcast = true, preview = false, color } = {}) {
+export function playNativeShipExplosion(token, { secondary = false, broadcast = true, preview = false, color, shockwave, shockwaveOnly = false } = {}) {
   if (!token?.center || !globalThis.canvas?.scene) return null;
   const grid = canvas.grid?.size ?? 100;
   const width = token.w ?? (token.document?.width ?? 1)*grid;
@@ -159,6 +171,7 @@ export function playNativeShipExplosion(token, { secondary = false, broadcast = 
   const event = { action: SHIP_EXPLOSION_ACTION, id: globalThis.crypto.randomUUID(),
     sceneId: canvas.scene.id, tokenId: token.id, hidden: token.document?.hidden === true,
     color: color == null ? getShipExplosionColor(token) : normalizeShipExplosionColor(color),
+    shockwave: !secondary && (shockwave ?? getShipExplosionSettings(token).shockwave) === true, shockwaveOnly,
     x: token.center.x + (secondary ? (Math.random()-.5)*width*.55 : 0),
     y: token.center.y + (secondary ? (Math.random()-.5)*height*.55 : 0),
     size: size*(secondary ? .24 : 1), seed: Math.floor(Math.random()*4294967296), secondary, preview };
@@ -172,4 +185,23 @@ export function previewShipExplosion({ color } = {}) {
   if (!token) { ui.notifications.warn("Select a starship token to preview its explosion."); return null; }
   stopShipExplosionPreviews();
   return playNativeShipExplosion(token, { broadcast: false, preview: true, color });
+}
+
+/** Editor preview obeys unsaved renderer/color settings without touching documents. */
+export function previewShipDestruction(token, settings, { shockwaveOnly = false } = {}) {
+  settings = normalizeShipExplosionSettings(settings);
+  const options = { preview: true, broadcast: false, color: getShipExplosionColor(token, settings),
+    shockwave: settings.shockwave };
+  if (shockwaveOnly) return playNativeShipShockwave(token, options);
+  if (resolveShipExplosionRenderer(token, settings) === "native") return playNativeShipExplosion(token, options);
+  if (!globalThis.Sequence) { ui.notifications.warn("JB2A preview requires Sequencer and the JB2A animation pack."); return null; }
+  const name=`sta2e-explosion-preview-${globalThis.crypto.randomUUID()}`;
+  const patron=game.settings.get(MODULE,"jb2aTier")==="patron";
+  const file=patron ? "jb2a.explosion.01.orange" : "modules/JB2A_DnD5e/Library/Generic/Explosion/Explosion_01_Orange_400x400.webm";
+  const sequence=new Sequence();
+  sequence.effect().file(file).atLocation(token).scaleToObject(1.8).name(name).locally();
+  sequence.wait(100).effect().file(patron ? "jb2a.explosion.08.orange" : file).atLocation(token).scaleToObject(2.4).name(name).locally();
+  Promise.resolve(sequence.play()).catch(error=>console.warn("STA2e Toolkit | JB2A preview failed:",error));
+  const ring=settings.shockwave ? playNativeShipShockwave(token,options) : null;
+  return {stop(){ring?.stop();globalThis.Sequencer?.EffectManager?.endEffects({name});}};
 }

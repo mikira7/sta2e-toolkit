@@ -1,0 +1,92 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Hull meltdown sequence</title>
+<style>body{background:#090e19;color:#d5e4f6;font:15px system-ui;margin:24px}button,select{padding:8px;margin:8px}input[type=range]{width:300px}canvas{max-width:100%;border:1px solid #283850}#result{color:#9cdeb0}</style>
+<script src="/vendor/pixi.js"></script>
+<h1>Hull burn-through + overlapping explosion</h1><p>The final blast erupts three seconds in, while the charred hull is still dissolving. Isolated preview; no world data changes.</p>
+<button id="replay">Replay sequence</button><label>Time <input id="time" type="range" min="0" max="6200" value="0" step="10"></label>
+<label>Color <select id="color"></select></label><p id="phase"></p><pre id="result">Loading…</pre>
+<script type="module">
+import {createShipMeltdownFilter} from '../scripts/ship-meltdown-shader.js';
+import {SHIP_MELTDOWN_BLAST_MS,SHIP_MELTDOWN_DURATION_MS} from '../scripts/ship-meltdown-vfx.js';
+import {createShipFireball} from '../scripts/ship-explosion-shader.js';
+import {createShipShockwave} from '../scripts/ship-shockwave-shader.js';
+import {SHIP_EXPLOSION_COLORS} from '../scripts/ship-explosion-colors.js';
+import {buildShipExplosionParticles,drawShipExplosionParticles} from '../scripts/ship-explosion-vfx.js';
+const result=document.querySelector('#result');
+try {
+  const app=new PIXI.Application({width:1100,height:680,backgroundColor:0x060b15,antialias:true,preserveDrawingBuffer:true});
+  document.body.appendChild(app.view);globalThis.canvas={app};
+  const g=new PIXI.Graphics();
+  // Transparent token art with a saucer, engineering hull, pylons and nacelles.
+  g.lineStyle(13,0x697e91).moveTo(-30,28).lineTo(-108,99).moveTo(30,28).lineTo(108,99);
+  g.lineStyle(2,0xaab8c7).beginFill(0x657383).drawRoundedRect(-27,-5,54,144,22).endFill();
+  for(const side of [-1,1]){
+    const x=side*110;
+    g.lineStyle(2,0xa2b4c7).beginFill(0x758696).drawRoundedRect(x-14,25,28,151,12).endFill();
+    g.lineStyle(0).beginFill(0x57b3e7).drawRoundedRect(x-7,53,14,100,4).endFill();
+    g.beginFill(0xff7844).drawEllipse(x,35,9,7).endFill();
+  }
+  g.lineStyle(2,0xc6d0d9).beginFill(0x748694).drawEllipse(0,-42,104,79).endFill();
+  g.lineStyle(1,0x899fae).beginFill(0x9ba9b2).drawEllipse(0,-46,91,67).endFill();
+  g.lineStyle(2,0x61788c).drawEllipse(0,-46,70,52).drawEllipse(0,-46,42,31);
+  for(let i=0;i<32;i++){
+    const a=i*Math.PI*2/32;g.lineStyle(1,0xd9e5e8).moveTo(Math.cos(a)*80,-46+Math.sin(a)*59).lineTo(Math.cos(a)*85,-46+Math.sin(a)*63);
+  }
+  g.lineStyle(1,0xd8e8f1).beginFill(0x637b90).drawEllipse(0,-46,18,12).endFill();
+  const texture=app.renderer.generateTexture(g,{region:new PIXI.Rectangle(-155,-150,310,360)});g.destroy();
+  const holder=new PIXI.Container();holder.position.set(550,315);app.stage.addChild(holder);
+  const ship=new PIXI.Sprite(texture);ship.anchor.set(.5);holder.addChild(ship);
+  const effects=new PIXI.Container();effects.position.set(550,315);app.stage.addChild(effects);
+  const debris=new PIXI.Graphics(),sparks=new PIXI.Graphics();sparks.blendMode=PIXI.BLEND_MODES.ADD;
+  let meltdown,fireball,ring;
+  let color='classic';
+  const choose=id=>{
+    meltdown?.destroy();ship.filters=null;fireball?.destroy();ring?.destroy();
+    color=id;meltdown=createShipMeltdownFilter(ship,id,71);ship.filters=[meltdown.filter];
+    fireball=createShipFireball(180,281,id);ring=createShipShockwave(180,id);
+    effects.addChild(ring.display);effects.addChild(debris);effects.addChild(fireball.display);effects.addChild(sparks);
+  };
+  choose('classic');
+  let checks=0;const assert=(v,msg)=>{if(!v)throw Error(msg);checks++;};
+  const measure=t=>{
+    meltdown.update(t);const pixels=app.renderer.extract.pixels(holder);
+    let alpha=0,light=0;for(let i=0;i<pixels.length;i+=4){alpha+=pixels[i+3];light+=(pixels[i]+pixels[i+1]+pixels[i+2])*pixels[i+3]/255;}
+    return {alpha,light,pixels};
+  };
+  assert(meltdown.filter instanceof PIXI.Filter,'Token uses a real shader filter');
+  const original=measure(0),hot=measure(.4),dissolved=measure(.85),gone=measure(1);
+  assert(original.alpha>100000,'Original hull remains visible at start');
+  let intact=0,charred=0,molten=0;
+  for(let i=0;i<original.pixels.length;i+=4){
+    const a=original.pixels,b=hot.pixels;
+    if(a[i+3]<240 || b[i+3]<240)continue;
+    const before=a[i]+a[i+1]+a[i+2],after=b[i]+b[i+1]+b[i+2];
+    if(Math.abs(before-after)<8)intact++;
+    if(after<before*.4)charred++;
+    if(b[i]>180 && b[i]>b[i+1]*1.3)molten++;
+  }
+  assert(intact>500,'Intact plating remains around the spreading wounds');
+  assert(charred>100,'Burned regions develop dark charred interiors');
+  assert(molten>50,'Breach edges glow molten orange');
+  assert(dissolved.alpha<original.alpha*.6,'Hull erodes after heating');
+  assert(gone.alpha===0,'Hull fully dissolves by the end of meltdown');
+  const atBlast=measure(SHIP_MELTDOWN_BLAST_MS/SHIP_MELTDOWN_DURATION_MS);
+  assert(atBlast.alpha>original.alpha*.15 && atBlast.alpha<original.alpha*.9,'Explosion starts while some hull has dissolved and some remains');
+  const again=measure(0);assert(Math.abs(again.alpha-original.alpha)<10,'Preview can restore original silhouette');
+  assert(app.renderer.gl.getError()===app.renderer.gl.NO_ERROR,'No WebGL errors');
+  result.textContent=`PASS: ${checks} token rendering checks · PIXI ${PIXI.VERSION}`;
+  const particles=buildShipExplosionParticles(768),slider=document.querySelector('#time'),phase=document.querySelector('#phase');
+  function sample(ms){
+    meltdown.update(ms/SHIP_MELTDOWN_DURATION_MS);
+    const seconds=Math.max(0,(ms-SHIP_MELTDOWN_BLAST_MS)/1000);effects.visible=ms>=SHIP_MELTDOWN_BLAST_MS;
+    fireball.update(seconds);ring.update(seconds);drawShipExplosionParticles(debris,particles,seconds,180,color,sparks);
+    phase.textContent=`${(ms/1000).toFixed(2)} s — ${ms<1800?'Molten breaches spreading':ms<SHIP_MELTDOWN_BLAST_MS?'Charred hull burning away':ms<SHIP_MELTDOWN_DURATION_MS?'Final explosion / hull still dissolving':'Debris dispersing'}`;
+  }
+  let start=performance.now(),playing=true;
+  slider.oninput=()=>{playing=false;sample(Number(slider.value));};
+  document.querySelector('#replay').onclick=()=>{start=performance.now();playing=true;};
+  const colors=document.querySelector('#color');for(const [id,p]of Object.entries(SHIP_EXPLOSION_COLORS))colors.add(new Option(p.label,id));
+  colors.onchange=()=>{choose(colors.value);sample(Number(slider.value));};
+  const endMs=SHIP_MELTDOWN_BLAST_MS+3200;
+  app.ticker.add(()=>{if(!playing)return;const ms=Math.min(endMs,performance.now()-start);slider.value=ms;sample(ms);if(ms>=endMs)playing=false;});
+}catch(error){result.textContent=`FAIL: ${error.stack}`;}
+</script></html>

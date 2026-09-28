@@ -4,7 +4,9 @@
 
 import { getStationOfficers } from "../crew-manifest.js";
 import { spawnEngineTrail } from "../engine-trail-vfx.js";
-import { getSceneZones, getZonePathWithCosts } from "../zone-data.js";
+import {
+  getRangeContext, measureMovement, isMovementMeasured, dynamicReachRadius,
+} from "../zone-dynamic.js";
 import {
   playWarpFlash,
   playWarpCorridor,
@@ -139,10 +141,17 @@ export async function promptShipCardDestination({ overlayId, title, color, token
 
       let lineColor = 0xffffff;
       let labelText = "";
-      const zones = getSceneZones();
-      if (zones.length && maxZones != null) {
-        const info = getZonePathWithCosts(origin, cursorPt, zones);
-        const zn = info?.zoneCount ?? -1;
+      // Drawn zones, or Dynamic Zones on a scene with no zone grid.
+      const rangeCtx = getRangeContext();
+      if (rangeCtx.mode && maxZones != null) {
+        const info = measureMovement(origin, cursorPt, rangeCtx);
+        const zn = isMovementMeasured(info) ? info.zoneCount : -1;
+        if (rangeCtx.mode === "dynamic") {
+          // No zone borders on the map to read the limit off, so draw it: the
+          // ring is exactly how far `maxZones` zones reaches from the ship.
+          _tetherGfx.lineStyle(2, 0x00cc44, 0.55);
+          _tetherGfx.drawCircle(origin.x, origin.y, dynamicReachRadius(maxZones, rangeCtx.radius));
+        }
         if (zn >= 0) {
           const withinRange = zn <= maxZones;
           lineColor = withinRange ? 0x00cc44 : 0xff3333;

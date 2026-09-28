@@ -11,6 +11,7 @@ import { CampaignManager } from "./campaign-manager.js";
 import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
 import { SHIP_EXPLOSION_ACTION, playShipExplosionFromSocket, previewShipExplosion } from "./ship-explosion-vfx.js";
+import { SHIP_MELTDOWN_ACTION, SHIP_MELTDOWN_STOP_ACTION, playShipMeltdownFromSocket, stopShipMeltdownFromSocket, previewShipMeltdown, playShipMeltdown } from "./ship-meltdown-vfx.js";
 import { NativeTractorBeamVFX, registerTractorBeamVfxHooks } from "./tractor-beam-vfx.js";
 import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { registerDestructibleObjects, isDestructible, requestObjectOperation } from "./destructible-objects.js";
@@ -67,10 +68,10 @@ import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
 import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
-import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
+import { getSceneZones, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
 import {
   isDynamicZonesEnabled, getDynamicZoneDistanceBetweenPoints,
-  getDefaultDynamicZoneRadius,
+  getDefaultDynamicZoneRadius, getRangeContext, measureMovement, isMovementMeasured,
 } from "./zone-dynamic.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerRegionPadConfig } from "./region-pad-config.js";
@@ -1111,6 +1112,8 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openTextFormatter = openTextFormatter;
   game.sta2eToolkit.openVfxTestPanel = _openVfxTestPanel;
   game.sta2eToolkit.previewShipExplosion = previewShipExplosion;
+  game.sta2eToolkit.previewShipMeltdown = previewShipMeltdown;
+  game.sta2eToolkit.playShipMeltdown = playShipMeltdown;
   game.sta2eToolkit.testTractorBeamVFX = options => NativeTractorBeamVFX.testSelectedToTargeted(options);
   game.sta2eToolkit.stopTractorBeamVFX = () => NativeTractorBeamVFX.stopActive();
   game.sta2eToolkit.testShieldBubbleVFX = options => testShieldBubble(options);
@@ -1419,6 +1422,8 @@ Hooks.once("ready", async () => {
       playShipExplosionFromSocket(msg);
       return;
     }
+    if (msg.action === SHIP_MELTDOWN_ACTION) { playShipMeltdownFromSocket(msg); return; }
+    if (msg.action === SHIP_MELTDOWN_STOP_ACTION) { stopShipMeltdownFromSocket(msg); return; }
 
     // Engine trail VFX broadcast — the impulse/warp runners execute on the
     // responsible GM only; these mirror the client-local PIXI trail on every
@@ -3208,11 +3213,12 @@ Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
 
   // ── Combat movement warnings ──────────────────────────────────────────────
   if (!game.combat?.active) return;
-  if (!zones.length) return;
 
-  const info = getZoneDistance(origin, dest, zones);
-  if (!info.fromZone || !info.toZone || info.zoneCount < 0) return;
-  if (info.fromZone.id === info.toZone.id && info.zoneCount === 0) return; // moved within same zone (Close/Contact) — no log
+  // Drawn zones, or Dynamic Zones on a scene with no zone grid (a straight-line
+  // move measured in zone-widths from where the token started).
+  const info = measureMovement(origin, dest, getRangeContext());
+  if (!isMovementMeasured(info)) return;
+  if (info.zoneCount === 0) return; // moved within the same zone (Close/Contact) — no log
 
   const actor  = canvas.tokens?.get(tokenDoc.id)?.actor ?? null;
   if (!actor) return;

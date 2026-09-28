@@ -1272,6 +1272,36 @@
   </div>
   {{/if}}
 
+  {{#unless isDestructibleTab}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading"><span>Ship Destruction</span></div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-explosion-renderer">Explosion Effect</label>
+        <select id="sta2e-explosion-renderer" data-explosion-setting="renderer">
+          {{#each explosionRendererOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+        </select>
+      </div>
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-explosion-palette">Native Color</label>
+        <select id="sta2e-explosion-palette" data-explosion-setting="color">
+          {{#each explosionColorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+        </select>
+      </div>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-explosion-setting="shockwave" {{#if explosionSettings.shockwave}}checked{{/if}} /> Final explosion shockwave with mist</label>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-explosion-setting="meltdown" {{#if explosionSettings.meltdown}}checked{{/if}} /> Hull meltdown before breach / engine destruction</label>
+    </div>
+    <div class="sta2e-anchor-value">Only the final detonation creates a shockwave: an expanding energy ring with turbulent mist trailing behind it. Smaller hull bursts never create rings. Works with native or JB2A explosions. Native Color applies to the native fireball, sparks, and shockwave; JB2A keeps its own colors.</div>
+    <div class="sta2e-vfx-preview-bar">
+      <button type="button" data-action="previewExplosion"><i class="fas fa-burst"></i> Preview Explosion</button>
+      <button type="button" data-action="previewShockwave"><i class="fas fa-circle-notch"></i> Preview Shockwave Only</button>
+      <button type="button" data-action="previewMeltdown"><i class="fas fa-fire"></i> Preview Hull Meltdown</button>
+    </div>
+    <div class="sta2e-anchor-value">Previews use unsaved choices, stay local, and leave the ship intact. Save to apply these settings to this ship.</div>
+    <div class="sta2e-anchor-value">Hull meltdown burns through the token art over five seconds. The final explosion starts three seconds in, while the hull is still dissolving. It runs only when a ship is being destroyed with a warp-core breach or destroyed engines. Its standalone preview restores the ship afterward.</div>
+  </div>
+  {{/unless}}
+
   {{!-- Only rendered for ships that have a gated style available (the Timeship
         trait); everyone else has nothing to choose between. Ship-level, so it
         sits outside the tab blocks like the shield settings below. --}}

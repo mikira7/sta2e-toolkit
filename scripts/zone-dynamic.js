@@ -26,7 +26,7 @@
 
 import {
   getSceneZones, getZonesForToken, getZoneDistanceBetweenTokens,
-  tokenFootprint, rangeBandFor,
+  getZonePathWithCosts, tokenFootprint, rangeBandFor, rangeBandColor,
 } from "./zone-data.js";
 
 const MODULE = "sta2e-toolkit";
@@ -113,6 +113,64 @@ export function getDynamicZoneDistanceBetweenPoints(pointA, pointB, radius = get
     fromZone: null, toZone: null, path: [],
     dynamic: true, distancePx: d,
   };
+}
+
+// ── Movement ────────────────────────────────────────────────────────────────
+//
+// A move is measured centre to centre, straight line, with the same bands as
+// range: staying within R of where you started is still your own zone, and
+// each zone further out is another 2R. So a move of `n` zones reaches
+// R × (2n + 1) — Impulse's 2 zones is 5R, a ground Move of 1 zone is 3R.
+// Dynamic moves carry no Momentum cost: there is no terrain to charge for.
+
+/** How far from its start a token can go while crossing at most `zones` zones. */
+export function dynamicReachRadius(zones, radius) {
+  return radius * (2 * Math.max(0, zones) + 1);
+}
+
+/**
+ * Point-to-point movement under whichever system the scene uses — the drawn
+ * zone path with per-step costs, or a straight-line dynamic measurement.
+ * @returns {object|null} null when no zone system applies. A drawn result with
+ *   an end outside every zone has null fromZone/toZone, as getZonePathWithCosts
+ *   always has; a dynamic result has `dynamic: true` and null zones by design.
+ */
+export function measureMovement(from, to, ctx = getRangeContext()) {
+  if (!from || !to || !ctx?.mode) return null;
+  if (ctx.mode === "drawn") return getZonePathWithCosts(from, to, ctx.zones);
+  return getDynamicZoneDistanceBetweenPoints(from, to, ctx.radius);
+}
+
+/** True when a movement result is usable — a dynamic one needs no named zones. */
+export function isMovementMeasured(info) {
+  if (!info || !(info.zoneCount >= 0)) return false;
+  return info.dynamic === true || (!!info.fromZone && !!info.toZone);
+}
+
+const _hexInt = hex => parseInt(String(hex).replace("#", ""), 16) || 0xffffff;
+
+/**
+ * Draw zone-boundary rings round a start point onto a caller-owned legacy-API
+ * PIXI.Graphics (lineStyle / drawCircle — what the drag overlays already use).
+ * Ring `i` is the outer edge of "i zones moved", coloured by its range band.
+ *
+ * @param {PIXI.Graphics} gfx
+ * @param {{x:number,y:number}} center
+ * @param {number} radius
+ * @param {object} [opts]
+ * @param {number} [opts.count=3]        rings to draw (Close, Medium, Long)
+ * @param {number} [opts.activeIndex=-1] ring drawn heavier — the cursor's band
+ * @param {(i:number) => number} [opts.colorFor] ring colour override
+ */
+export function drawDynamicZoneRings(gfx, center, radius, { count = 3, activeIndex = -1, colorFor = null } = {}) {
+  if (!gfx || !center || !(radius > 0)) return;
+  for (let i = 0; i < count; i++) {
+    const color = colorFor ? colorFor(i) : _hexInt(rangeBandColor(rangeBandFor(i)));
+    const active = i === activeIndex;
+    gfx.lineStyle(active ? 3 : 1.5, color, active ? 0.9 : 0.4);
+    gfx.drawCircle(center.x, center.y, dynamicReachRadius(i, radius));
+  }
+  gfx.lineStyle(0);
 }
 
 /**

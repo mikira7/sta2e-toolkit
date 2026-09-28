@@ -55,7 +55,9 @@ import { playGroundPhaserCone } from "../ground-phaser-vfx.js";
 import { fireGroundEnergyVFX } from "../ground-energy-vfx.js";
 import { isDestructible, getDestructibleConfig, destructibleDifficulty, requestObjectOperation } from "../destructible-objects.js";
 import { objectDamageRow } from "../destructible-combat.js";
-import { playNativeShipExplosion, useNativeShipExplosion, SHIP_EXPLOSION_DURATION_MS } from "../ship-explosion-vfx.js";
+import { playNativeShipExplosion, playNativeShipShockwave, useNativeShipExplosion, SHIP_EXPLOSION_DURATION_MS } from "../ship-explosion-vfx.js";
+import { getShipExplosionSettings } from "../ship-explosion-colors.js";
+import { playShipMeltdown } from "../ship-meltdown-vfx.js";
 import {
   STATION_SLOTS,
   getCrewManifest,
@@ -10662,7 +10664,7 @@ export class CombatHUD {
     catch (err) { console.warn("STA2e Toolkit | Destruction hull decal clear failed:", err); }
   }
 
-  static async fireDestructionEffect(token) {
+  static async fireDestructionEffect(token, { meltdown = null } = {}) {
     if (!token?.document) return;
     if (token?.document?.getFlag("sta2e-toolkit", "breachTrailDestruction")) {
       try { await token.document.unsetFlag("sta2e-toolkit", "breachTrailDestruction"); }
@@ -10676,26 +10678,32 @@ export class CombatHUD {
       if (path) AudioHelper.play({ src: path, volume: 1, autoplay: true, loop: false }, true);
     } catch {}
 
-    if (useNativeShipExplosion()) {
+    if (useNativeShipExplosion(token)) {
       const document = token.document;
       const deleteAfter = game.settings.get("sta2e-toolkit", "deleteTokenOnDestruction");
       try {
         const effect = playNativeShipExplosion(token);
         // Let the flash envelop the hull before hiding it. No Sequencer needed.
         await new Promise(resolve => setTimeout(resolve, 180));
-        if (deleteAfter && game.user.isGM) await document.update({ alpha: 0 });
+        if (deleteAfter && game.user.isGM && !meltdown) await document.update({ alpha: 0 });
         if (effect) await effect.finished;
         else await new Promise(resolve => setTimeout(resolve, SHIP_EXPLOSION_DURATION_MS));
       } catch (error) {
         console.warn("STA2e Toolkit | Native ship destruction failed:", error);
       } finally {
+        // Let the burning hull finish dissolving under the fireball.
+        if (meltdown) await meltdown.finished;
         // Keep the original scene document even if the GM switches scenes.
         if (deleteAfter && game.user.isGM && document.parent?.tokens?.has(document.id)) await document.delete();
       }
       return;
     }
 
-    if (!window.Sequence) return;
+    if (!window.Sequence) {
+      if (getShipExplosionSettings(token).shockwave) playNativeShipShockwave(token);
+      if (meltdown) await meltdown.finished;
+      return;
+    }
     const patron = (() => {
       try { return game.settings.get("sta2e-toolkit", "jb2aTier") === "patron"; }
       catch { return false; }
@@ -10726,14 +10734,14 @@ export class CombatHUD {
     // ── Timing constants ───────────────────────────────────────────────────
     // Fade starts immediately, explosion fires at peak of fade.
     // Total animation duration before token is deleted.
-    const FADE_MS      = deleteAfter ? 600 : 0;
+    const FADE_MS      = deleteAfter && !meltdown ? 600 : 0;
     const FLAMES_MS    = flamesFile ? 1800 : 0; // flames linger (patron)
     const SMOKE_MS     = 1200;  // smoke ring dissipates
     const TOTAL_MS     = FADE_MS + Math.max(FLAMES_MS, SMOKE_MS) + 500;
 
     try {
       // ── Step 1: Fade the token out smoothly ───────────────────────────────
-      if (deleteAfter) {
+      if (deleteAfter && !meltdown) {
         const originalAlpha = token.document.alpha ?? 1;
         const steps = 12;
         const stepDelay = FADE_MS / steps;
@@ -10745,6 +10753,7 @@ export class CombatHUD {
       }
 
       // ── Step 2: Play explosion sequence at token location ─────────────────
+      if (getShipExplosionSettings(token).shockwave) playNativeShipShockwave(token);
       const s = new window.Sequence();
 
       s.effect()
@@ -10788,6 +10797,7 @@ export class CombatHUD {
 
       // ── Step 3: Wait for animation to finish then delete the token ────────
       await new Promise(r => setTimeout(r, TOTAL_MS));
+      if (meltdown) await meltdown.finished;
 
       if (deleteAfter && game.user.isGM && canvas.tokens.get(token.id)) {
         await token.document.delete();
@@ -10795,6 +10805,7 @@ export class CombatHUD {
 
     } catch(e) {
       console.warn("STA2e Toolkit | Destruction effect failed:", e);
+      if (meltdown) await meltdown.finished;
       try {
         if (deleteAfter && game.user.isGM && canvas.tokens.get(token.id)) {
           await token.document.delete();
@@ -14357,7 +14368,7 @@ export class CombatHUD {
    * @param {Actor}  actor
    * @param {Token}  token
    * @param {object} opts
-   * @param {boolean} opts.vaporize   Apply the vaporize TMFX before the final explosion.
+   * @param {boolean} opts.vaporize   Play hull meltdown before the final explosion (if enabled).
    * @param {string}  opts.reason     Shown on the card / final destruction message.
    * @param {boolean} opts.autoThroes Skip the confirm step and go straight to death throes.
    * @param {object}  opts.warpCoreBlast Optional same-zone warp-core blast payload.
@@ -14577,7 +14588,7 @@ export class CombatHUD {
 
   /** Single secondary hull-impact explosion at a random spot inside the token. */
   static _playSecondaryExplosion(token) {
-    if (useNativeShipExplosion()) {
+    if (useNativeShipExplosion(token)) {
       playNativeShipExplosion(token, { secondary: true });
       return;
     }
@@ -14654,7 +14665,7 @@ export class CombatHUD {
   }
 
   /**
-   * Stop the death throes and run the final destruction: optional vaporize FX,
+   * Stop the death throes and run the final destruction: optional hull meltdown,
    * the explosion sequence, status update and token removal.
    */
   static async _finalizeShipDestruction(data, { postChat = true } = {}) {
@@ -14690,17 +14701,25 @@ export class CombatHUD {
 
     if (token) {
       await CombatHUD._clearHullDecalsForDestruction(token);
-      if (vaporize) await CombatHUD._applyVaporizeFX(token, "orange", 1000);
-      if (data.warpCoreBlast) {
-        await CombatHUD._applyWarpCoreBlastDamage(token, {
-          ...data.warpCoreBlast,
-          sourceTokenId: data.warpCoreBlast.sourceTokenId ?? token.id,
-          sourceActorId: data.warpCoreBlast.sourceActorId ?? actor?.id ?? actorId ?? null,
-          sourceName: data.warpCoreBlast.sourceName ?? actor?.name ?? data.shipName ?? null,
-          excludeSource: data.warpCoreBlast.excludeSource !== false,
-        });
+      const meltdown = vaporize && getShipExplosionSettings(token).meltdown
+        ? playShipMeltdown(token) : null;
+      try {
+        if (meltdown) await meltdown.detonationReady;
+        if (data.warpCoreBlast) {
+          await CombatHUD._applyWarpCoreBlastDamage(token, {
+            ...data.warpCoreBlast,
+            sourceTokenId: data.warpCoreBlast.sourceTokenId ?? token.id,
+            sourceActorId: data.warpCoreBlast.sourceActorId ?? actor?.id ?? actorId ?? null,
+            sourceName: data.warpCoreBlast.sourceName ?? actor?.name ?? data.shipName ?? null,
+            excludeSource: data.warpCoreBlast.excludeSource !== false,
+          });
+        }
+        await CombatHUD.fireDestructionEffect(token, { meltdown });
+      } finally {
+        // Hold the fully dissolved hull through the blast, then restore only
+        // our filter if the world setting keeps the destroyed token.
+        meltdown?.stop();
       }
-      await CombatHUD.fireDestructionEffect(token);
     }
   }
 
