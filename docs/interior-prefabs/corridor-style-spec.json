@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "status": "style-and-geometry-study-not-runtime-art",
+  "metresPerUnit": 1.5,
+  "wallThickness": 0.1,
+  "styleSelection": "Keep both as selectable styles (user preference)",
+  "styles": [
+    {"id":"galaxy","label":"Galaxy class","study":"galaxy-corridor-study-v1.png","materials":"Warm taupe panels, muted mauve carpet, darker runner, restrained wood-toned rail, rounded profiles, soft diffused lighting and small LCARS stations."},
+    {"id":"intrepid","label":"Intrepid class","study":"intrepid-corridor-study-v1.png","materials":"Cool grey panels, graphite bases, slate carpet, narrow lighter edge bands, chamfered ribs, inset neutral-white lamps and amber LCARS stations."}
+  ],
+  "connectors": {
+    "room":{"width":1.2},
+    "corridor":{"width":2},
+    "alcove":{"width":2,"description":"Full-width open recess, no door between corridor and standing area"}
+  },
+  "pieces": [
+    {
+      "id":"H10-J","name":"Corridor with Jefferies access recess","category":"corridor",
+      "footprint":[[0,0],[4,0],[4,2.1],[0,2.1]],
+      "ports":[{"id":"west","type":"corridor","at":[0,1.05],"facing":180},{"id":"east","type":"corridor","at":[4,1.05],"facing":0},{"id":"south-alcove","type":"alcove","at":[2,2.1],"facing":90}],
+      "clearFloor":[[0,0.05],[4,0.05],[4,2.05],[0,2.05]],
+      "fixtures":[]
+    },
+    {
+      "id":"J01-A","name":"2 × 2 Jefferies access alcove","category":"access","zone":"inboard",
+      "footprint":[[0,0],[2.1,0],[2.1,2.1],[0,2.1]],
+      "ports":[{"id":"mouth","type":"alcove","at":[1.05,0],"facing":270}],
+      "clearFloor":[[0.05,0.05],[2.05,0.05],[2.05,2.05],[0.05,2.05]],
+      "fixtures":[],
+      "serviceAccess":{"kind":"rear-wall-hatch","at":[1.05,2.1],"width":0.8,"facing":90,"state":"closed","destination":"Reserved for a future Jefferies route or vertical shaft; not an open passage into empty space"},
+      "notes":"Exactly 3 × 3 m clear floor. Hatch, release panel and ribs stay in the wall band; no furniture, ladder or console consumes the standing area. Not a turbolift."
+    }
+  ],
+  "placementRule":"Replace one straight corridor spacer with H10-J and connect J01-A to its inboard alcove port. Prefer a spacer between cabins, separate from the turbolift bay. Check footprint clearance before placement.",
+  "productionRules":[
+    "Generate each corridor master in both styles against the same approved geometry.",
+    "Final map assets must be truly orthographic overhead, with ceiling removed and no perspective foreshortening.",
+    "Ribs, light strips and carpet borders must align across straight pieces, bends and caps and leave 3 m clear passage width.",
+    "Do not paint the current uniform shared carpet overlay over the new runner and edge-band art; provide style-specific floor layers.",
+    "Room doorway leaves stay separate and use native Foundry animation; the alcove mouth has no door leaf.",
+    "Access hatch remains a closed visual feature until a real route, shaft or destination exists. Do not export an orphan hatch door.",
+    "Study boards are not production assets and must not be substituted into the runtime puzzle library."
+  ]
+}

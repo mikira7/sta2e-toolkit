@@ -3,7 +3,11 @@ import { normalizeInteriorAssets } from "./interior-assets.js";
 import { normalizeInteriorBrush, interiorBrushRooms } from "./interior-brush.js";
 import { buildInteriorSection, addInteriorHullWindows, compactInteriorLifts } from "./interior-section.js";
 import { addInteriorRoomDetails } from "./interior-room-details.js";
-export const INTERIOR_VERSION = 4;
+import { MEASURED_CABINS, isMeasuredCabin, connectMeasuredCabins } from "./interior-measured-cabins.js";
+export const INTERIOR_VERSION = 6;
+export const INTERIOR_HULL_PROFILES = {generic:"Adaptive section",galaxy:"Galaxy • broad saucer arc",intrepid:"Intrepid • forward shoulder arc"};
+export const INTERIOR_JUNCTIONS = {none:"Continuous passageway",mixed:"Three- and four-way branches",tee:"Three-way branches",cross:"Four-way branches"};
+export const INTERIOR_CABINS = {...MEASURED_CABINS,auto:"Adaptive quarters",standard:"Study • standard cabin",officer:"Study • officer cabin"};
 export const INTERIOR_ERAS = {
   ent: "Enterprise • 22nd century", tos: "Original Series • 23rd century",
   movies: "Movie era • late 23rd century", tng: "TNG / DS9 / Voyager • 24th century",
@@ -37,7 +41,10 @@ export function normalizeInteriorRecipe(input = {}) {
     faction, era: eras.includes(input.era) ? input.era : "tng",
     type: input.type === "station" ? "station" : "starship",
     size: choice(input.size, INTERIOR_SIZES, "medium"), purpose: choice(input.purpose, INTERIOR_PURPOSES, "mixed"),
-    plan: choice(input.plan, INTERIOR_PLANS, "auto"),
+    plan: isMeasuredCabin(input.cabinLayout)?"section":choice(input.plan, INTERIOR_PLANS, "auto"),
+    hullProfile: choice(input.hullProfile, INTERIOR_HULL_PROFILES, "generic"),
+    junctions: choice(input.junctions, INTERIOR_JUNCTIONS, "mixed"),
+    cabinLayout: choice(input.cabinLayout, INTERIOR_CABINS, "auto"),
     curved: input.curved !== false,
     hullWindows: input.hullWindows !== false,
     jefferies: input.jefferies !== false,
@@ -226,9 +233,10 @@ export function generateInterior(input = {}) {
   compactInteriorLifts(rooms,interiorEdges(rooms));
   for(const room of rooms)if(room.hullBoundary)room.windowEligible=["quarters","lounge","office","briefing"].includes(room.kind);
   const edges=connectInteriorRooms(rooms,rng,false,plan==="section");
-  for(const room of rooms)if(plan==="section"||room.kind==="quarters")addInteriorRoomDetails(room,edges);
+  for(const room of rooms)if(plan==="section"||room.kind==="quarters")addInteriorRoomDetails(room,edges,recipe);
   const layout={recipe,plan,width,height,rooms,edges,entry,...(structure?{structure}:{})};
   addInteriorHullWindows(layout);
+  connectMeasuredCabins(rooms,edges,recipe);
   const errors=validateInterior(layout);
   if (errors.length) throw new Error(`Interior generation failed: ${errors.join("; ")}`);
   return layout;
@@ -239,13 +247,13 @@ function connectInteriorRooms(rooms,rng,painted=false,corridorAccessOnly=false) 
   for (const edge of edges) {
     if (edge.rooms.length!==2) { edge.kind="wall"; continue; }
     const pair=edge.rooms.slice().sort().join("/"), rs=edge.rooms.map(id=>byId.get(id));
-    edge.kind=rs.every(r=>["corridor","jefferies"].includes(r.kind)) ? "open" : "wall";
+    edge.kind=(rs.every(r=>r.kind==="corridor")||rs.every(r=>r.kind==="jefferies")) ? "open" : "wall";
     if (!shared.has(pair)) shared.set(pair,[]);
     shared.get(pair).push(edge);
   }
   for (const group of shared.values()) {
     const rs=group[0].rooms.map(id=>byId.get(id));
-    if (rs.every(r=>["corridor","jefferies"].includes(r.kind))) continue;
+    if (rs.every(r=>r.kind==="jefferies") || rs.every(r=>r.kind==="corridor")) continue;
     if(rs.some(r=>r.kind==="jefferies")) {
       const edge=group.slice().sort((a,b)=>Math.hypot(b.b.x-b.a.x,b.b.y-b.a.y)-Math.hypot(a.b.x-a.a.x,a.b.y-a.a.y))[0];
       if(Math.hypot(edge.b.x-edge.a.x,edge.b.y-edge.a.y)>=.8)edge.kind="hatch";
@@ -285,6 +293,8 @@ export function validateInterior(layout) {
 export function interiorWallSegments(layout) {
   return layout.edges.flatMap(e=>{
     if(e.kind==="open") return [];
+    if(e.exactDoor)return [{a:e.a,b:e.b,door:true}];
+    if(e.exactWindow)return [{a:e.a,b:e.b,door:false,window:true,hull:true}];
     if(e.window) {
       const length=Math.hypot(e.b.x-e.a.x,e.b.y-e.a.y);
       if(length<=1.2)return [{a:e.a,b:e.b,door:false,window:true,hull:true}];

@@ -1,0 +1,96 @@
+{
+  "method": "built-in image_gen",
+  "status": "art-candidates-awaiting-fit-verification",
+  "requests": [
+    {
+      "id": "Q01-A",
+      "prompt": "Use case: sketch-to-render.\nAsset type: Q01-A standard crew quarters, fixed-footprint modular Star Trek TNG Starfleet VTT room master.\nInput image 1 is the authoritative drawing guide. Image 2 is MATERIAL AND FURNITURE STYLE ONLY; do not copy its arrangement.\nRender the guide as polished photorealistic overhead battlemap art, keeping the EXACT outline, canvas margins, scale, fixture positions, doorway gaps and bathroom footprint. Square 1536x1536 canvas. The square room occupies x268..1268 and y268..1268, with genuinely transparent alpha outside; do not enlarge or crop the room. Physical room 7.5m square.\nCamera exactly vertical orthographic, no isometric tilt or visible tall wall sides. Thin warm pearl-gray cut wall tops as in the guide, restrained dark recessed trim. Muted warm gray/lavender fine carpet. Satin pearl hardware, slate-blue bedding and sofa. Subtle amber/lavender LCARS desk controls. Even diffuse neutral lighting and small contact shadows.\nReplace the guide's labelled rectangles with realistic fixtures at the same positions: bed at upper left, desk with chair at left middle, low oval glass coffee table and horizontal sofa lower right. The bathroom is attached to the TOP and RIGHT exterior walls, occupying x868..1268,y268..708. Warm neutral non-slip bathroom floor. Basin at top-left of bathroom, compact sonic shower at top-right, toilet lower-right. Preserve the bathroom's open LEFT door gap from y368 to608 at x868. No tub in this standard cabin.\nPreserve exactly one exterior entrance: bottom wall OPEN gap x648..888 at y1268. Door jambs and shallow sill only, no closed door leaf anywhere. The north-wall cyan segment x388..688 is hull glazing, seen strictly from above, no starfield.\nRemove ALL text and guide labels. No grid, dimensions, people, logos, captions, extra rooms, extra furniture or objects crossing a doorway. Do not relocate fixtures or thicken the guide's walls. Keep outside transparent, not an opaque checkerboard.",
+      "references": [
+        "docs/interior-prefabs/art-guides/Q01-A-guide.png",
+        "assets/interiors/room-quarters.png"
+      ]
+    },
+    {
+      "id": "Q03-L",
+      "prompt": "Use case: sketch-to-render. Asset: Q03-L officer quarters, one pre-rendered modular Star Trek TNG Starfleet room.\nImage 1 is the exact layout and silhouette reference; image 2 is only the established materials/rendering style.\nCreate polished overhead battlemap art by replacing each labelled rectangle in image 1 with its named realistic fixture. Preserve the L-shaped footprint: top edge runs only TWO THIRDS of the room width, then steps DOWN one third, then RIGHT one third; the TOP-RIGHT quarter-corner is missing and TRANSPARENT. Do not fill this missing corner with a room or floor. On a square canvas the footprint vertices as percentages are (10.9375,10.9375),(63.0208,10.9375),(63.0208,36.9792),(89.0625,36.9792),(89.0625,89.0625),(10.9375,89.0625). Preserve these margins; no crop.\nExact straight-down orthographic camera, realistic physical materials, no isometric perspective. Warm muted gray-lavender carpet, pearl-gray thin wall tops, slate-blue bed and sofa, warm neutral bathroom flooring. Soft neutral overhead light. Preserve all wall lines and OPEN door gaps in the guide. The entrance is centred on the bottom edge, 1.8m wide. No door leaves.\nLarge perimeter bathroom in upper LEFT, shares both outer walls: sonic shower top-left, toilet top-right, basin middle-left, separate horizontal bathtub bottom-left. Bathroom door is centred in its RIGHT partition. Keep the bathroom's floor division and walls exactly as drawn. Bed on the right below the missing corner, desk lower left with chair below it, horizontal sofa bottom-right with oval glass table above it. Small amber/lavender/blue LCARS desk interface.\nAll furniture wholly within its original rectangle; no extra fixtures or blockage of circulation. Render thin hull glazing only at the cyan segment of the TOP wall, not inside the bathroom. No exterior scenery. Remove labels, text, grids and guide marks. Genuinely transparent alpha outside the L-shaped footprint including its missing corner. No black backdrop, opaque checkerboard, logos or watermarks. Keep all wall outlines, door locations and scale fixed.",
+      "references": [
+        "docs/interior-prefabs/art-guides/Q03-L-guide.png",
+        "assets/interiors/prefabs/starfleet-tng/Q01-A-v1.png"
+      ]
+    },
+    {
+      "id": "T01-A",
+      "prompt": "Use case: sketch-to-render. Asset: T01-A compact turbolift cabin, modular Star Trek TNG overhead VTT puzzle piece.\nImage 1 is the exact geometry. Image 2 is the matching rendering and materials reference only.\nRender ONLY the small faceted eight-sided lift cabin in the guide. Preserve its exact footprint, relative canvas size and centred position. Its envelope is 3.6 by 3.6 metres; it is a compact elevator, no surrounding room or lobby, no corridors. Topmost horizontal facet is a completely OPEN doorway. Preserve this open entrance, no closed leaf, no wall across that facet, and no inward-curving obstruction. All remaining seven facets have thin pearl-gray cut wall tops. Keep the cabin floor entirely walkable, subtle muted lavender-gray nonslip floor, a restrained concentric/octagonal floor inset. One small flush amber/lavender LCARS control strip on the RIGHT interior wall where the guide's console rectangle is. A thin perimeter handrail tucked immediately along the walls, barely visible from above.\nExact vertical orthographic camera, no isometric angle, no visible tall vertical walls. Soft neutral overhead light, realistic brushed metal, refined TNG production design, very subtle contact shadows. Transparent alpha everywhere outside the footprint, including the guide's large margin. No labels, no grid, no furniture, no windows, no people, no text, no ceiling, no backdrop, no exterior cast shadow. Match the second image's wall cross section and understated materials.",
+      "references": [
+        "docs/interior-prefabs/art-guides/T01-A-guide.png",
+        "assets/interiors/prefabs/starfleet-tng/Q01-A-v1.png"
+      ]
+    },
+    {
+      "id": "H02-A",
+      "prompt": "Use case: sketch-to-render. Asset: one modular Star Trek TNG Starfleet corridor battlemap tile. Image 1 is the authoritative outline and opening guide. Image 2 supplies matching materials/rendering only. Strict vertical 90-degree orthographic architectural camera, zero perspective, walls CUT FLUSH at floor plane: show thin wall cap strips only, no visible vertical wall faces, no roof beams. Photorealistic finely woven charcoal warm-gray carpet, warm pearl-gray wall caps with shallow graphite recessed trim, restrained warm-white guide strips immediately inside the sidewalls. Even diffuse light and tiny contact shadows; same color and brightness at every connector. Preserve guide proportions and all wall gaps. Ends that connect to another corridor are fully open floor, no crossbar, wall, door, threshold or curb across them. Continue carpet and parallel guidance trim right to those edges so another piece can abut it. No extra branches or rooms, no furniture, no labels, no arrows, no text, no grid, no logos. Genuinely transparent alpha outside the silhouette, no external cast shadow, no black background or checkerboard. Keep the guide's location and scale within the square canvas.\nSpecific geometry: Straight horizontal segment: 6m long by 3.15m wall-centre span (3m clear inside). Solid walls along top and bottom, the complete LEFT and RIGHT short edges are open corridor connectors. NO side doorway. Sparse fine carpet seam across the midpoint, no bulky embellishments.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H02-A-guide.png",
+        "assets/interiors/prefabs/starfleet-tng/Q01-A-v1.png"
+      ]
+    },
+    {
+      "id": "H08-A",
+      "prompt": "Use case: sketch-to-render. Asset: one modular Star Trek TNG Starfleet corridor battlemap tile. Image 1 is the authoritative outline and opening guide. Image 2 supplies matching materials/rendering only. Strict vertical 90-degree orthographic architectural camera, zero perspective, walls CUT FLUSH at floor plane: show thin wall cap strips only, no visible vertical wall faces, no roof beams. Photorealistic finely woven charcoal warm-gray carpet, warm pearl-gray wall caps with shallow graphite recessed trim, restrained warm-white guide strips immediately inside the sidewalls. Even diffuse light and tiny contact shadows; same color and brightness at every connector. Preserve guide proportions and all wall gaps. Ends that connect to another corridor are fully open floor, no crossbar, wall, door, threshold or curb across them. Continue carpet and parallel guidance trim right to those edges so another piece can abut it. No extra branches or rooms, no furniture, no labels, no arrows, no text, no grid, no logos. Genuinely transparent alpha outside the silhouette, no external cast shadow, no black background or checkerboard. Keep the guide's location and scale within the square canvas.\nSpecific geometry: Straight horizontal segment: 6m long by 3.15m wall-centre span (3m clear inside). Complete LEFT and RIGHT edges are open corridor connectors. Exactly ONE room doorway: centred gap in TOP wall, 30% of segment length (1.8m); shallow doorway sill and two small jambs, no door leaf. Solid BOTTOM wall, no opening there. Preserve guide.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H08-A-guide.png",
+        "assets/interiors/prefabs/starfleet-tng/H02-A-v1.png"
+      ]
+    },
+    {
+      "id": "H04-A",
+      "prompt": "Use case: sketch-to-render. Convert this exact flat diagram into a Star Trek TNG modular corridor battlemap. Treat as a MATERIAL REPLACEMENT EDIT. Preserve every outline, wall centre line, opening, relative dimension, transparent margin and canvas framing. Do not zoom or reframe. The grey area becomes fine smooth charcoal warm-gray carpet with very subtle fine-grained texture, never coarse knitted fabric. The thin white strips become satin pearl-gray wall cut caps of exactly the same thickness. Add only tiny recessed graphite trim immediately inside the walls. Camera perfectly vertical and orthographic: no vertical wall faces, no perspective, no shadow outside the outline. Uniform neutral diffuse light, restrained realistic materials. The L-shaped footprint and missing bottom-left corner are immutable. Preserve the fully open LEFT end on upper arm and fully open BOTTOM end on right arm. No extra openings. Wall trim must turn with the guide's right-angle walls. Open corridor ends have no wall, door, curb or threshold across them. No text, grid, furniture, people, labels, black backdrop, opaque checkerboard or added rooms. Preserve actual transparent alpha outside the guide's footprint.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H04-A-guide.png"
+      ]
+    },
+    {
+      "id": "H07-A",
+      "prompt": "Use case: sketch-to-render. Convert this exact flat diagram into a Star Trek TNG modular corridor battlemap. Treat as a MATERIAL REPLACEMENT EDIT. Preserve every outline, wall centre line, opening, relative dimension, transparent margin and canvas framing. Do not zoom or reframe. The grey area becomes fine smooth charcoal warm-gray carpet with very subtle fine-grained texture, never coarse knitted fabric. The thin white strips become satin pearl-gray wall cut caps of exactly the same thickness. Add only tiny recessed graphite trim immediately inside the walls. Camera perfectly vertical and orthographic: no vertical wall faces, no perspective, no shadow outside the outline. Uniform neutral diffuse light, restrained realistic materials. The shallow rectangular footprint has solid bottom/left/right walls and completely OPEN top edge. Preserve width to depth ratio 2.1 to 1. No door leaf or threshold across the open end. Open corridor ends have no wall, door, curb or threshold across them. No text, grid, furniture, people, labels, black backdrop, opaque checkerboard or added rooms. Preserve actual transparent alpha outside the guide's footprint.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H07-A-guide.png"
+      ]
+    },
+    {
+      "id": "F01-A",
+      "prompt": "Use case: sketch-to-render. Asset: solid structural infill block for modular Star Trek TNG Starfleet overhead ship interior. Reference image 1 is exact square footprint and margin, image 2 is matching pearl-gray wall material style. Render one square 3m by 3m non-walkable technical volume, thin pearl-gray cut perimeter enclosing dense flush graphite structural honeycomb, subdued tightly packed conduits and closed unlabelled access plates. This is a sealed structural void between rooms, NO walkable floor, doors, windows or furniture. Exact vertical orthographic camera, no tall vertical sides, even neutral light, no text, no logo, no grid, no extra silhouette details, no cast shadow outside. Keep exact square outline. Genuinely transparent alpha outside the square and preserve guide's canvas margins.",
+      "references": [
+        "docs/interior-prefabs/art-guides/F01-A-guide.png",
+        "assets/interiors/prefabs/starfleet-tng/Q01-A-v1.png"
+      ]
+    },
+    {
+      "id": "H02-A-v2",
+      "prompt": "Use case: sketch-to-render. Render this drawing as one Star Trek TNG overhead corridor tile. Treat this as a material replacement edit: keep every silhouette pixel, transparent margin, wall position, aspect ratio and opening EXACTLY as shown. Do not reframe. Change the grey floor region into fine charcoal woven carpet, and the two thin white top/bottom strips into satin pearl-gray metal wall caps. Exact flat overhead plan, no visible vertical faces. Subtle dark inner-edge trim, soft diffuse light. Both left and right edges fully open, no threshold. No door, furniture, label, border, extra detail, glow or ground shadow. Preserve transparent alpha outside, same canvas. The guide is almost twice as wide as tall, not a long narrow strip. Preserve that shape. Wall caps remain as thin as the original drawing.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H02-A-guide.png"
+      ]
+    },
+    {
+      "id": "H08-A-v2",
+      "prompt": "Use case: sketch-to-render. Convert this exact flat diagram into a Star Trek TNG modular corridor battlemap. Treat as a MATERIAL REPLACEMENT EDIT. Preserve every outline, wall centre line, opening, relative dimension, transparent margin and canvas framing. Do not zoom or reframe. The grey area becomes fine smooth charcoal warm-gray carpet with very subtle fine-grained texture, never coarse knitted fabric. The thin white strips become satin pearl-gray wall cut caps of exactly the same thickness. Add only tiny recessed graphite trim immediately inside the walls. Camera perfectly vertical and orthographic: no vertical wall faces, no perspective, no shadow outside the outline. Uniform neutral diffuse light, restrained realistic materials. One centred opening in the TOP wall, width 30% of segment length. Bottom wall is uninterrupted. Left and right ends entirely open. Doorway floor extends right to the outline, no bars or door leaf. Preserve the guide's door gap. Open corridor ends have no wall, door, curb or threshold across them. No text, grid, furniture, people, labels, black backdrop, opaque checkerboard or added rooms. Preserve actual transparent alpha outside the guide's footprint.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H08-A-guide.png"
+      ]
+    },
+    {
+      "id": "H09-A-v2",
+      "prompt": "Use case: sketch-to-render. Convert this exact flat diagram into a Star Trek TNG modular corridor battlemap. Treat as a MATERIAL REPLACEMENT EDIT. Preserve every outline, wall centre line, opening, relative dimension, transparent margin and canvas framing. Do not zoom or reframe. The grey area becomes fine smooth charcoal warm-gray carpet with very subtle fine-grained texture, never coarse knitted fabric. The thin white strips become satin pearl-gray wall cut caps of exactly the same thickness. Add only tiny recessed graphite trim immediately inside the walls. Camera perfectly vertical and orthographic: no vertical wall faces, no perspective, no shadow outside the outline. Uniform neutral diffuse light, restrained realistic materials. TWO opposing centred door gaps in the TOP and BOTTOM walls, each width 30% of segment length. Left and right ends entirely open. Doorway floor extends to outline, no bars or door leaves. Preserve both guide door gaps. Open corridor ends have no wall, door, curb or threshold across them. No text, grid, furniture, people, labels, black backdrop, opaque checkerboard or added rooms. Preserve actual transparent alpha outside the guide's footprint.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H09-A-guide.png"
+      ]
+    },
+    {
+      "id": "T01-A-v2",
+      "prompt": "Use case: sketch-to-render. Edit this exact geometry guide into a realistic Star Trek TNG compact lift floorplan. Strict material replacement: preserve the small centred octagon's silhouette, proportions, position, transparent canvas margin, and top opening exactly. Do not enlarge. Convert floor to fine smooth gray-lavender carpet with subtle octagonal flush inset. White strips become pearl-gray cut wall caps of exactly the same width. The right-side console rectangle becomes one flush amber/lavender control panel; remove its label. Camera exactly perpendicular to floor. No vertical wall surfaces may be visible at all: walls are sliced at floor level; no tall barriers, no handrail, no perspective. The complete top horizontal facet is OPEN floor right to its edge, no step, sill, bar or closed door across it. No extra furniture, room, lobby, windows, people, labels, grid or other object. Even neutral lighting, shallow contact shadow only inside footprint. Genuine transparent alpha outside, no outer shadow. Keep all guide dimensions.",
+      "references": [
+        "docs/interior-prefabs/art-guides/T01-A-guide.png"
+      ]
+    }
+  ]
+}

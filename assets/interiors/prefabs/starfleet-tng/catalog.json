@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "status": "experimental-fixed-starter-needs-live-foundry-validation",
+  "runtime": {"manifest":"starter-scene.json","entry":"Scenes > Assembled Interior","scope":"Fixed habitation assembly with quarter-turn rotations; offline-tested export, live validation pending."},
+  "productionReady": false,
+  "geometry": "../../../../docs/interior-prefabs/starter-kit.json",
+  "generationMethod": "built-in image_gen; originals copied without raster edits",
+  "registeredProof": {"anchors":"registration-anchors.json","report":"registration-report.json","open":"registered-assembly.png","closed":"registered-assembly-closed.png","doors":"registered-door-layer.svg","note":"Exact outline clips and shared corridor floor finish are applied during scene rendering; source PNGs remain unchanged."},
+  "pieces": [
+    {"id":"Q01-A","file":"Q01-A-v2.png","promptId":"Q01-A-v2","promptFile":"correction-prompts.json","note":"Smaller furnishings follow the guide more closely; perimeter shower bathroom and both door gaps retained. Wall thickness remains an art issue."},
+    {"id":"Q03-L","file":"Q03-L-v2.png","promptId":"Q03-L-v2","promptFile":"correction-prompts.json","note":"L-shaped suite with separate tub/shower, smaller bed and open bathroom entrance. Exact furniture and wall clearances still need approval."},
+    {"id":"T01-A","file":"T01-A-v2.png","promptId":"T01-A-v2","note":"Second pass removes tall wall faces and lobby; doorway kept open. Wall thickness and outline still require calibration."},
+    {"id":"H02-A","file":"H02-A-v3.png","promptId":"H02-A-v3","promptFile":"correction-prompts.json","note":"Derived from the side-door corridor with its doorway closed; closer wall and carpet style. Requires exact seam checks."},
+    {"id":"H08-A","file":"H08-A-v2.png","promptId":"H08-A-v2","note":"Single north doorway and both open ends retained; thin edge fringe and wall thickness need cleanup."},
+    {"id":"H09-A","file":"H09-A-v2.png","promptId":"H09-A-v2","note":"Opposed doorways retained; thin edge fringe and wall thickness need cleanup."},
+    {"id":"H04-A","file":"H04-A-v2.png","promptId":"H04-A-v2","promptFile":"correction-prompts.json","note":"Square envelope restored with thin wall caps; connection positions and edge fringes still require checking."},
+    {"id":"H07-A","file":"H07-A-v2.png","promptId":"H07-A-v2","promptFile":"correction-prompts.json","note":"Corrected shallow proportions and thinner walls; the open top floor edge is slightly recessed."},
+    {"id":"F01-A","file":"F01-A-v1.png","promptId":"F01-A","note":"Sealed mechanical infill with no walkable space; needs registration to the officer suite notch."}
+  ],
+  "superseded": ["T01-A-v1.png", "H02-A-v1.png", "H08-A-v1.png", "H02-A-v2.png", "H04-A-v1.png", "H07-A-v1.png", "Q01-A-v1.png", "Q03-L-v1.png"],
+  "acceptanceRemaining": [
+    "Approve remaining room-wall cross-sections and visual furniture clearances at physical scale; registration residuals are not a clearance certificate.",
+    "Validate joins for every allowed placement and rotation beyond the starter assembly; current masks and shared finish are implemented in the proof renderer.",
+    "Replace simple proof door leaves with final state artwork and split hull glazing from cabin backgrounds.",
+    "Validate the experimental fixed starter in live Foundry, including token movement, player vision, door reload and dialog behavior, before expanding to arbitrary prefab generation."
+  ]
+}

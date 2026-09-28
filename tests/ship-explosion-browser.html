@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Native starship explosion</title>
+<style>body{margin:24px;background:#090e19;color:#d5e4f6;font:15px system-ui}button,input{margin:8px;padding:8px}canvas{max-width:100%;border:1px solid #283850}label{color:#ffbe78}</style>
+<script src="/vendor/pixi.js"></script>
+<h1>Native starship explosion</h1>
+<p>Volumetric fire and smoke · internal light and shadow · sparks and tumbling hull plates</p>
+<button id="replay">Replay</button><label>Time <input id="time" type="range" min="0" max="3200" value="0" step="10"><span id="stamp">0 ms</span></label>
+<label>Explosion color <select id="color"></select></label>
+<pre id="result">Checking renderer…</pre>
+<script type="module">
+import { createShipFireball } from '../scripts/ship-explosion-shader.js';
+import { SHIP_EXPLOSION_COLORS } from '../scripts/ship-explosion-colors.js';
+import { buildShipExplosionParticles, drawShipExplosionParticles, playShipExplosionFromSocket } from '../scripts/ship-explosion-vfx.js';
+const result = document.querySelector('#result');
+try {
+  const app = new PIXI.Application({ width: 1100, height: 650, backgroundColor: 0x060b15, preserveDrawingBuffer: true });
+  document.body.appendChild(app.view); globalThis.canvas = { app };
+  let checks = 0;
+  const assert = (v,msg) => { if (!v) throw Error(msg); checks++; };
+  let color='classic', fireball = createShipFireball(155, 281, color);
+  assert(fireball.display instanceof PIXI.Mesh, 'Uses a WebGL shader');
+  const root = new PIXI.Container(), debris = new PIXI.Graphics(), sparks=new PIXI.Graphics(); root.position.set(550,325);
+  sparks.blendMode=PIXI.BLEND_MODES.ADD;
+  app.stage.addChild(root); root.addChild(debris); root.addChild(fireball.display); root.addChild(sparks);
+  const setColor=id=>{ color=id; fireball.destroy(); fireball=createShipFireball(155,281,id); root.addChildAt(fireball.display,1); };
+  const particles = buildShipExplosionParticles(768);
+  const sample = t => {
+    fireball.update(t); drawShipExplosionParticles(debris, particles, t, 155, color, sparks);
+    app.renderer.render(app.stage);
+  };
+  const brightness = stage => {
+    const pixels = app.renderer.extract.pixels(stage);
+    let sum=0; for (let i=0;i<pixels.length;i+=4) sum+=(pixels[i]+pixels[i+1]+pixels[i+2])*pixels[i+3]/255;
+    return sum;
+  };
+  // Extract the parent to preserve the normalized shader quad's display scale.
+  debris.visible=false; sparks.visible=false;
+  sample(.38); const peak = brightness(root);
+  assert(peak > 100000, 'Fireball has visible light');
+  const plumePixels=app.renderer.extract.pixels(root);
+  let bluePixels=0, warmPixels=0;
+  for(let i=0;i<plumePixels.length;i+=4) {
+    if(plumePixels[i+3]<60) continue;
+    if(plumePixels[i+2]>plumePixels[i]*1.2) bluePixels++;
+    if(plumePixels[i]>plumePixels[i+2]*1.2) warmPixels++;
+  }
+  assert(bluePixels>100 && warmPixels>100,'Distinct blue plasma and warm fire pockets');
+  sample(.65); const rolledPixels=app.renderer.extract.pixels(root);
+  let changed=0;
+  for(let i=0;i<plumePixels.length;i++) if(Math.abs(plumePixels[i]-rolledPixels[i])>25) changed++;
+  assert(changed>1000,'Plume shape and texture evolve over time');
+  sample(1.2); assert(brightness(root) < peak*.35, 'Cooling plumes fade quickly');
+  for(const id of ['green','blue','red','purple']) {
+    setColor(id); sample(.38);
+    const pixels=app.renderer.extract.pixels(root), sums=[0,0,0];
+    for(let i=0;i<pixels.length;i+=4) for(let c=0;c<3;c++) sums[c]+=pixels[i+c]*pixels[i+3]/255;
+    assert(id==='green' ? sums[1]>sums[0]*1.4 && sums[1]>sums[2]*1.4
+      : id==='blue' ? sums[2]>sums[0]*1.4 : id==='red' ? sums[0]>sums[1]*1.4
+      : sums[0]>sums[1]*1.2 && sums[2]>sums[1]*1.2, `${id} palette reaches rendered pixels`);
+  }
+  setColor('classic'); debris.visible=true; sparks.visible=true;
+  sample(.6);
+  assert(sparks.geometry.graphicsData.length>500,'Hundreds of sparks have layered halos');
+  assert(brightness(sparks)>10000,'Additive sparks produce visible light');
+  sample(1.5); assert(!fireball.display.visible, 'Orb is gone while debris travels');
+  assert(brightness(debris)>10000, 'Fragments remain after the fireball');
+  sample(3.2); assert(debris.geometry.graphicsData.length === 0 && sparks.geometry.graphicsData.length===0, 'All fragments and sparks expire');
+  assert(app.renderer.gl.getError() === app.renderer.gl.NO_ERROR, 'No WebGL errors');
+  const alternate = { app: {} }; globalThis.canvas = alternate;
+  const fallback = createShipFireball(100, 1);
+  assert(fallback.display instanceof PIXI.Graphics, 'Graphics fallback works without WebGL');
+  fallback.update(.2); app.stage.addChild(fallback.display); app.renderer.render(app.stage);
+  fallback.destroy(); globalThis.canvas = { app };
+  const effects = new PIXI.Container(); effects.get=()=>null; app.stage.addChild(effects);
+  globalThis.canvas={app,ready:true,scene:{id:'fixture'},tokens:effects};
+  globalThis.game={user:{isGM:true}}; globalThis.Hooks={on(){}};
+  for(let i=0;i<3;i++){
+    const handle=playShipExplosionFromSocket({id:'cleanup'+i,sceneId:'fixture',x:0,y:0,size:100,seed:1});
+    assert(handle && effects.children.length===1,'Live renderer attaches to canvas');
+    handle.stop(); await handle.finished;
+    assert(effects.children.length===0,'Live renderer releases its PIXI children');
+  }
+  effects.destroy(); globalThis.canvas={app};
+  result.textContent = `PASS: ${checks} rendering checks · PIXI ${PIXI.VERSION}`;
+  let start=performance.now(), playing=true;
+  const slider = document.querySelector('#time'), stamp=document.querySelector('#stamp');
+  const colorSelect=document.querySelector('#color');
+  for(const [id,preset] of Object.entries(SHIP_EXPLOSION_COLORS)) colorSelect.add(new Option(preset.label,id));
+  colorSelect.onchange=()=>{setColor(colorSelect.value);sample(Number(slider.value)/1000);};
+  document.querySelector('#replay').onclick=()=>{start=performance.now();playing=true;};
+  slider.oninput=()=>{playing=false;sample(Number(slider.value)/1000);stamp.textContent=slider.value+' ms';};
+  app.ticker.add(()=>{
+    if (!playing) return;
+    const t=Math.min(3200,performance.now()-start);sample(t/1000);slider.value=t;stamp.textContent=Math.round(t)+' ms';
+    if(t>=3200)playing=false;
+  });
+} catch(error) { result.textContent=`FAIL: ${error.stack}`; }
+</script></html>

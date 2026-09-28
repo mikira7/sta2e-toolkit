@@ -1,0 +1,637 @@
+{
+  "schemaVersion": 1,
+  "status": "approximate-measured-anchors-for-fitting-proof",
+  "notes": "Bounding-box anchors come from alpha>=240 envelope measurements; additional door/corner anchors are approximate visual measurements in source PNG coordinates. These are not a clearance certification. A single uniform scale is fitted to all anchors. Original PNG pixels remain unchanged.",
+  "pieces": [
+    {
+      "id": "Q01-A",
+      "file": "Q01-A-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            219,
+            219
+          ]
+        },
+        {
+          "units": [
+            5,
+            0
+          ],
+          "pixels": [
+            1035,
+            219
+          ]
+        },
+        {
+          "units": [
+            5,
+            5
+          ],
+          "pixels": [
+            1035,
+            1035
+          ]
+        },
+        {
+          "units": [
+            0,
+            5
+          ],
+          "pixels": [
+            219,
+            1035
+          ]
+        },
+        {
+          "units": [
+            1.9,
+            5
+          ],
+          "pixels": [
+            529,
+            1035
+          ]
+        },
+        {
+          "units": [
+            3.1,
+            5
+          ],
+          "pixels": [
+            727,
+            1035
+          ]
+        },
+        {
+          "units": [
+            3,
+            0.5
+          ],
+          "pixels": [
+            711,
+            309
+          ]
+        },
+        {
+          "units": [
+            3,
+            1.7
+          ],
+          "pixels": [
+            711,
+            500
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Q03-L",
+      "file": "Q03-L-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            136,
+            137
+          ]
+        },
+        {
+          "units": [
+            6,
+            0
+          ],
+          "pixels": [
+            1119,
+            137
+          ]
+        },
+        {
+          "units": [
+            6,
+            6
+          ],
+          "pixels": [
+            1119,
+            1118
+          ]
+        },
+        {
+          "units": [
+            0,
+            6
+          ],
+          "pixels": [
+            136,
+            1118
+          ]
+        },
+        {
+          "units": [
+            4,
+            2
+          ],
+          "pixels": [
+            788,
+            466
+          ]
+        },
+        {
+          "units": [
+            2.4,
+            6
+          ],
+          "pixels": [
+            529,
+            1118
+          ]
+        },
+        {
+          "units": [
+            3.6,
+            6
+          ],
+          "pixels": [
+            726,
+            1118
+          ]
+        },
+        {
+          "units": [
+            2.4,
+            0.8
+          ],
+          "pixels": [
+            528,
+            267
+          ]
+        },
+        {
+          "units": [
+            2.4,
+            2
+          ],
+          "pixels": [
+            528,
+            465
+          ]
+        }
+      ]
+    },
+    {
+      "id": "T01-A",
+      "file": "T01-A-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0.3,
+            0
+          ],
+          "pixels": [
+            429,
+            430
+          ]
+        },
+        {
+          "units": [
+            2.7,
+            0
+          ],
+          "pixels": [
+            826,
+            430
+          ]
+        },
+        {
+          "units": [
+            2.7,
+            2.4
+          ],
+          "pixels": [
+            826,
+            826
+          ]
+        },
+        {
+          "units": [
+            0.3,
+            2.4
+          ],
+          "pixels": [
+            429,
+            826
+          ]
+        },
+        {
+          "units": [
+            0.9,
+            0
+          ],
+          "pixels": [
+            530,
+            430
+          ]
+        },
+        {
+          "units": [
+            2.1,
+            0
+          ],
+          "pixels": [
+            725,
+            430
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H02-A",
+      "file": "H02-A-v3.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            302,
+            453
+          ]
+        },
+        {
+          "units": [
+            4,
+            0
+          ],
+          "pixels": [
+            954,
+            453
+          ]
+        },
+        {
+          "units": [
+            4,
+            2.1
+          ],
+          "pixels": [
+            954,
+            801
+          ]
+        },
+        {
+          "units": [
+            0,
+            2.1
+          ],
+          "pixels": [
+            302,
+            801
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H08-A",
+      "file": "H08-A-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            301,
+            454
+          ]
+        },
+        {
+          "units": [
+            4,
+            0
+          ],
+          "pixels": [
+            953,
+            454
+          ]
+        },
+        {
+          "units": [
+            4,
+            2.1
+          ],
+          "pixels": [
+            953,
+            800
+          ]
+        },
+        {
+          "units": [
+            0,
+            2.1
+          ],
+          "pixels": [
+            301,
+            800
+          ]
+        },
+        {
+          "units": [
+            1.4,
+            0
+          ],
+          "pixels": [
+            530,
+            454
+          ]
+        },
+        {
+          "units": [
+            2.6,
+            0
+          ],
+          "pixels": [
+            724,
+            454
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H09-A",
+      "file": "H09-A-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            301,
+            457
+          ]
+        },
+        {
+          "units": [
+            4,
+            0
+          ],
+          "pixels": [
+            953,
+            457
+          ]
+        },
+        {
+          "units": [
+            4,
+            2.1
+          ],
+          "pixels": [
+            953,
+            797
+          ]
+        },
+        {
+          "units": [
+            0,
+            2.1
+          ],
+          "pixels": [
+            301,
+            797
+          ]
+        },
+        {
+          "units": [
+            1.4,
+            0
+          ],
+          "pixels": [
+            529,
+            457
+          ]
+        },
+        {
+          "units": [
+            2.6,
+            0
+          ],
+          "pixels": [
+            725,
+            457
+          ]
+        },
+        {
+          "units": [
+            1.4,
+            2.1
+          ],
+          "pixels": [
+            529,
+            797
+          ]
+        },
+        {
+          "units": [
+            2.6,
+            2.1
+          ],
+          "pixels": [
+            725,
+            797
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H04-A",
+      "file": "H04-A-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            294,
+            293
+          ]
+        },
+        {
+          "units": [
+            4.1,
+            0
+          ],
+          "pixels": [
+            962,
+            293
+          ]
+        },
+        {
+          "units": [
+            4.1,
+            4.1
+          ],
+          "pixels": [
+            962,
+            961
+          ]
+        },
+        {
+          "units": [
+            0,
+            4.1
+          ],
+          "pixels": [
+            294,
+            961
+          ]
+        },
+        {
+          "units": [
+            2,
+            2.1
+          ],
+          "pixels": [
+            626,
+            632
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H07-A",
+      "file": "H07-A-v2.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            457,
+            547
+          ]
+        },
+        {
+          "units": [
+            2.1,
+            0
+          ],
+          "pixels": [
+            797,
+            547
+          ]
+        },
+        {
+          "units": [
+            2.1,
+            1
+          ],
+          "pixels": [
+            797,
+            707
+          ]
+        },
+        {
+          "units": [
+            0,
+            1
+          ],
+          "pixels": [
+            457,
+            707
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F01-A",
+      "file": "F01-A-v1.png",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "anchors": [
+        {
+          "units": [
+            0,
+            0
+          ],
+          "pixels": [
+            181,
+            186
+          ]
+        },
+        {
+          "units": [
+            2,
+            0
+          ],
+          "pixels": [
+            1074,
+            186
+          ]
+        },
+        {
+          "units": [
+            2,
+            2
+          ],
+          "pixels": [
+            1074,
+            1071
+          ]
+        },
+        {
+          "units": [
+            0,
+            2
+          ],
+          "pixels": [
+            181,
+            1071
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,7 +14,8 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
-import { getSceneZones, getZoneDistanceBetweenTokens, rangeBandColor } from "./zone-data.js";
+import { rangeBandColor } from "./zone-data.js";
+import { getRangeContext, measureTokenRange } from "./zone-dynamic.js";
 import { evaluateWeaponRange, getStarshipWeapons } from "./weapon-range.js";
 import { isStarSystemActor, getStarSystemData } from "./star-system-sheet.js";
 
@@ -510,12 +511,13 @@ function _showLabel(hoveredToken) {
   // ── Zone mode ──────────────────────────────────────────────────────────────
   if (_isZonesActive()) {
     try {
-      const zones = getSceneZones();
-      if (zones.length > 0) {
+      const rangeCtx = getRangeContext();
+      if (rangeCtx.mode) {
         // Token-aware: multi-zone tokens (flags.sta2e-toolkit.multiZone)
         // measure from/to their nearest occupied zone, matching weapon range.
-        const zInfo = getZoneDistanceBetweenTokens(source, hoveredToken, zones);
-        if (zInfo.zoneCount >= 0) {
+        // Dynamic Zones measure hull edge to hull edge against the radius.
+        const zInfo = measureTokenRange(source, hoveredToken, rangeCtx);
+        if (zInfo && zInfo.zoneCount >= 0) {
           const bandColor = _hex(rangeBandColor(zInfo.rangeBand));
           const mainText  = zInfo.rangeBand;
 
@@ -526,6 +528,8 @@ function _showLabel(hoveredToken) {
             parts.push(`${zInfo.fromZone.name} → ${zInfo.toZone.name}`);
           } else if (zInfo.fromZone?.name) {
             parts.push(zInfo.fromZone.name);
+          } else if (zInfo.dynamic) {
+            parts.push("Dynamic zones");
           }
           const subText = parts.length ? parts.join("  ·  ") : null;
 

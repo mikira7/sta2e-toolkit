@@ -21,7 +21,7 @@
 
 import { normalizeTalentName, findRoleAbilityTalent } from "./combat-definitions.js";
 import { isUnarmedWeapon } from "../weapon-configs.js";
-import { getSceneZones, getZonesForToken } from "../zone-data.js";
+import { tokensSharingZone } from "../zone-dynamic.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -305,9 +305,9 @@ export function meleeAttackAttribute(actor) {
 /**
  * Ground tokens within Close range of `originToken`, excluding it.
  *
- * Close range is "the same zone" (zone-data.js:22 — zoneCount 0). When the
- * scene has no zones drawn, fall back to roughly the same room: two grid
- * squares out. This mirrors `CombatHUD._getGroundAreaSecondaryTargets`
+ * Close range is "the same zone" (zone-data.js:22 — zoneCount 0), or within
+ * the Dynamic Zone radius on a scene using those. When neither applies, fall
+ * back to roughly the same room: two grid squares out. This mirrors `CombatHUD._getGroundAreaSecondaryTargets`
  * (combat-hud-core.js:4080) — the rule is duplicated rather than imported to
  * keep this module free of a cycle back into the 23k-line HUD.
  *
@@ -317,19 +317,16 @@ export function meleeAttackAttribute(actor) {
 export function tokensWithinClose(originToken) {
   if (!originToken) return [];
 
-  const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-  const zones = zonesEnabled ? getSceneZones() : [];
-  const originZones = zones.length ? getZonesForToken(originToken, zones) : [];
-  const originZoneIds = new Set(originZones.map(z => z.id));
-  const usingZones = originZones.length > 0;
+  const eligible = t => !!t.actor && !_isShipToken(t);
+  // Drawn zones, or Dynamic Zones on a scene with no zone grid.
+  const shared = tokensSharingZone(originToken, eligible);
+  if (shared.usingZones) return shared.targets;
 
   const RADIUS_PX = (canvas?.grid?.size ?? 100) * 2;
   const origin = _center(originToken);
 
   return (canvas.tokens?.placeables ?? []).filter(t => {
-    if (t.id === originToken.id) return false;
-    if (!t.actor || _isShipToken(t)) return false;
-    if (usingZones) return getZonesForToken(t, zones).some(z => originZoneIds.has(z.id));
+    if (t.id === originToken.id || !eligible(t)) return false;
     const c = _center(t);
     return Math.hypot(c.x - origin.x, c.y - origin.y) <= RADIUS_PX;
   });

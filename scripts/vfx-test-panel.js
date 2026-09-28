@@ -16,6 +16,9 @@ import {
   saveTractorBeamVfxWorldSettings,
 } from "./tractor-beam-vfx.js";
 
+import { previewShipExplosion, stopShipExplosionPreviews, getShipExplosionColor, saveShipExplosionColor } from "./ship-explosion-vfx.js";
+import { SHIP_EXPLOSION_COLORS } from "./ship-explosion-colors.js";
+
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 function _firstTarget() {
@@ -55,6 +58,8 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
     window: { title: "STA2e - VFX Test Panel", resizable: false },
     position: { width: 420, height: 720 },
     actions: {
+      previewExplosion: VFXTestPanel._onPreviewExplosion,
+      saveExplosion: VFXTestPanel._onSaveExplosion,
       play: VFXTestPanel._onPlay,
       stop: VFXTestPanel._onStop,
       saveClient: VFXTestPanel._onSaveClient,
@@ -84,6 +89,10 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
     const colorAuto = this._values.colorMode !== "custom";
 
     return {
+      explosionColors: Object.entries(SHIP_EXPLOSION_COLORS).map(([id, preset]) => ({
+        id, label: preset.label, selected: id === getShipExplosionColor(source),
+      })),
+      canSaveExplosion: game.user?.isGM === true,
       values: foundry.utils.deepClone(this._values),
       previewShader: (this._values.renderer ?? getTractorBeamAnimationRenderer()) === "shader",
       previewPixi: (this._values.renderer ?? getTractorBeamAnimationRenderer()) !== "shader",
@@ -156,7 +165,21 @@ export class VFXTestPanel extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
   }
 
+  static _onPreviewExplosion() {
+    previewShipExplosion({ color: this.element?.querySelector('[name="explosionColor"]')?.value });
+  }
+
+  static async _onSaveExplosion() {
+    const token = canvas.tokens?.controlled?.[0];
+    if (!token) return ui.notifications.warn("Select a ship to save its explosion color.");
+    try {
+      await saveShipExplosionColor(token, this.element?.querySelector('[name="explosionColor"]')?.value);
+      ui.notifications.info(`Explosion color saved for ${token.name ?? "this ship"}.`);
+    } catch (error) { ui.notifications.error(error.message); }
+  }
+
   static _onStop(_event, _target) {
+    stopShipExplosionPreviews();
     const defaults = getTractorBeamVfxDefaults();
     this._values = _readForm(this.element, defaults);
     NativeTractorBeamVFX.stopActive();

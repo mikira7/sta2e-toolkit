@@ -12,10 +12,18 @@ import {
   getZoneDistanceBetweenTokens as _getZoneDistanceBetweenTokens,
   isMultiZoneToken as _isMultiZoneToken,
 } from "./zone-data.js";
+import {
+  getRangeContext as _getRangeContext,
+  measureTokenRange as _measureTokenRange,
+  tokensSharingZone as _tokensSharingZone,
+} from "./zone-dynamic.js";
 import { TransporterVFX } from "./transporter-vfx.js";
 import { openInteriorGenerator as _openInteriorGenerator } from "./interior-generator.js";
 import { generateInterior as _generateInterior } from "./interior-layout.js";
 import { createInteriorScene as _createInteriorScene } from "./interior-scene.js";
+import { openPrefabInteriorGenerator as _openPrefabInteriorGenerator } from "./interior-prefab-generator.js";
+import { createPrefabInteriorScene as _createPrefabInteriorScene } from "./interior-prefab-scene.js";
+import { loadPuzzleLibrary, generatePuzzle, createPuzzleScene } from "./interior-prefab-puzzle.js";
 import { previewTransporterShader } from "./transporter-shader.js";
 import { refreshTurnMarkerSizes as _refreshTurnMarkerSizes } from "./combat/initiative-turn-marker.js";
 import {
@@ -36,6 +44,18 @@ export class ToolkitAPI {
 
   /** GM only. Save artwork and create a new scene from a reproducible recipe. */
   createInteriorScene(recipe = {}, options = {}) { return _createInteriorScene(recipe, options); }
+
+  /** GM only. Preview the fixed Starfleet habitation starter. */
+  openPrefabInteriorGenerator(recipe = {}) { return _openPrefabInteriorGenerator(recipe); }
+
+  /** GM only. Create the fitted starter with native walls, windows and working doors. */
+  createPrefabInteriorScene(recipe = {}, options = {}) { return _createPrefabInteriorScene(recipe, options); }
+
+  /** Deterministic puzzle-piece geometry for the current habitation library. */
+  async generatePrefabLayout(recipe = {}) { return generatePuzzle(await loadPuzzleLibrary(), recipe); }
+
+  /** GM only. Render and save an automatically assembled habitation scene. */
+  createAssembledInteriorScene(recipe = {}, options = {}) { return createPuzzleScene(recipe, options); }
 
   constructor({ campaignStore, hud, dateEditor, campaignManager }) {
     this.campaignStore = campaignStore;
@@ -572,6 +592,29 @@ export class ToolkitAPI {
    * @returns {{ zoneCount: number, rangeBand: string, momentumCost: number, fromZone: object|null, toZone: object|null, path: string[] }}
    */
   getZoneDistance(tokenA, tokenB) {
+    // Dynamic Zones (a scene with no zone grid) answer in the same shape,
+    // with `dynamic: true` and `distancePx`, and null fromZone/toZone.
+    const ctx = _getRangeContext();
+    if (ctx.mode === "dynamic") return _measureTokenRange(tokenA, tokenB, ctx);
     return _getZoneDistanceBetweenTokens(tokenA, tokenB, getSceneZones());
+  }
+
+  /**
+   * Tokens sharing a zone with `token` — the same drawn zone, or within the
+   * Dynamic Zone radius of its footprint. Empty when the scene uses neither.
+   * @param {Token} token
+   * @returns {Token[]}
+   */
+  getTokensInZone(token) {
+    return _tokensSharingZone(token?.object ?? token).targets;
+  }
+
+  /**
+   * How this scene measures range.
+   * @returns {{mode: "drawn"|"dynamic"|null, radius: number}}
+   */
+  getZoneMode(scene = canvas?.scene) {
+    const { mode, radius } = _getRangeContext(scene);
+    return { mode, radius };
   }
 }

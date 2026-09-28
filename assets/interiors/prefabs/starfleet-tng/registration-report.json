@@ -1,0 +1,410 @@
+{
+  "status": "registered-proof-not-foundry-approved",
+  "date": "2026-09-22",
+  "method": "Least-squares uniform translation and scale from recorded anchors; exact polygon clip during scene rendering; plain underlay fills transparent raster edge holes; no source raster edits. Shared corridor finish is a world-aligned texture layer masked by exact corridor and wall geometry.",
+  "corridorFinish": {
+    "source": "assets/interiors/floor-room-carpet.png",
+    "sha256": "c143a17b848277983ce7d375c9cea1712a470dc4f4ea69e4c8d41bb26cac291e",
+    "repeatUnits": 2,
+    "wallThicknessUnits": 0.1
+  },
+  "doors": [
+    {
+      "id": "crew/entry",
+      "a": [
+        2.6,
+        0
+      ],
+      "b": [
+        1.4,
+        0
+      ]
+    },
+    {
+      "id": "crew/bathroom",
+      "a": [
+        2.5,
+        -4.5
+      ],
+      "b": [
+        2.5,
+        -3.3
+      ]
+    },
+    {
+      "id": "officer/entry",
+      "a": [
+        10.6,
+        0
+      ],
+      "b": [
+        9.4,
+        0
+      ]
+    },
+    {
+      "id": "officer/bathroom",
+      "a": [
+        9.4,
+        -5.2
+      ],
+      "b": [
+        9.4,
+        -4
+      ]
+    },
+    {
+      "id": "lift/entry",
+      "a": [
+        1.4,
+        2.1
+      ],
+      "b": [
+        2.6,
+        2.1
+      ]
+    }
+  ],
+  "placements": [
+    {
+      "id": "crew",
+      "piece": "Q01-A",
+      "at": [
+        -0.5,
+        -5
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "officer",
+      "piece": "Q03-L",
+      "at": [
+        7,
+        -6
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "lift",
+      "piece": "T01-A",
+      "at": [
+        0.5,
+        2.1
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "hall-west",
+      "piece": "H09-A",
+      "at": [
+        0,
+        0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "hall-middle",
+      "piece": "H02-A",
+      "at": [
+        4,
+        0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "hall-east",
+      "piece": "H08-A",
+      "at": [
+        8,
+        0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "bend",
+      "piece": "H04-A",
+      "at": [
+        12,
+        0
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "cap-west",
+      "piece": "H07-A",
+      "at": [
+        0,
+        0
+      ],
+      "rotation": 90
+    },
+    {
+      "id": "cap-south",
+      "piece": "H07-A",
+      "at": [
+        14,
+        4.1
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "infill",
+      "piece": "F01-A",
+      "at": [
+        11,
+        -6
+      ],
+      "rotation": 0
+    }
+  ],
+  "pieces": [
+    {
+      "id": "Q01-A",
+      "file": "Q01-A-v2.png",
+      "promptId": "Q01-A-v2",
+      "promptFile": "correction-prompts.json",
+      "note": "Smaller furnishings follow the guide more closely; perimeter shower bathroom and both door gaps retained. Wall thickness remains an art issue.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          220.62981480112387,
+          221.31937564690236
+        ],
+        "pixelsPerUnit": 162.90292769480996,
+        "maxResidualUnits": 0.03957518686047333,
+        "residuals": [
+          0.01740145895056387,
+          0.014265364537791923,
+          0.005195925714070813,
+          0.011238673953728273,
+          0.00869752194591991,
+          0.009851528241824139,
+          0.03957518686047333,
+          0.014793375023076982
+        ]
+      },
+      "sha256": "56f7c6249b42c1ee121549f08de153857f9b4d939a9a229f9ec88eeff0d1e784"
+    },
+    {
+      "id": "Q03-L",
+      "file": "Q03-L-v2.png",
+      "promptId": "Q03-L-v2",
+      "promptFile": "correction-prompts.json",
+      "note": "L-shaped suite with separate tub/shower, smaller bed and open bathroom entrance. Exact furniture and wall clearances still need approval.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          136.07404744787942,
+          136.94192826903122
+        ],
+        "pixelsPerUnit": 163.59453630481661,
+        "maxResidualUnits": 0.018846877056440402,
+        "residuals": [
+          0.0005752201381201753,
+          0.008313084091925481,
+          0.008869465768056426,
+          0.003144985548233767,
+          0.018846877056440402,
+          0.0036094282889813523,
+          0.006781157161458548,
+          0.006582725789270971,
+          0.006824516743829186
+        ]
+      },
+      "sha256": "cff5b4585a2c01182d6b143ada3ac7654179271db118271086406ed60cd4a455"
+    },
+    {
+      "id": "T01-A",
+      "file": "T01-A-v2.png",
+      "promptId": "T01-A-v2",
+      "note": "Second pass removes tall wall faces and lobby; doorway kept open. Wall thickness and outline still require calibration.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          379.9364406779661,
+          429.96610169491527
+        ],
+        "pixelsPerUnit": 165.04237288135593,
+        "maxResidualUnits": 0.009244900588386958,
+        "residuals": [
+          0.0027291773588536436,
+          0.0027291773588531457,
+          0.0027522656294234355,
+          0.002752265629423929,
+          0.009244900588386513,
+          0.009244900588386958
+        ]
+      },
+      "sha256": "8af061ea817d6ebacda9bd48ba97fdc5780e7056516e435eb700bbc0bdd35cf6"
+    },
+    {
+      "id": "H02-A",
+      "file": "H02-A-v3.png",
+      "promptId": "H02-A-v3",
+      "promptFile": "correction-prompts.json",
+      "note": "Derived from the side-door corridor with its doorway closed; closer wall and carpet style. Requires exact seam checks.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          300.827045565899,
+          455.234198922097
+        ],
+        "pixelsPerUnit": 163.5864772170505,
+        "maxResidualUnits": 0.015425382745665874,
+        "residuals": [
+          0.015425382745665807,
+          0.015425382745665737,
+          0.015425382745665803,
+          0.015425382745665874
+        ]
+      },
+      "sha256": "8f768e5e1d925e6c95189b8cb482d576de60df07a37ff7a8fef0a8ebaefa564a"
+    },
+    {
+      "id": "H08-A",
+      "file": "H08-A-v2.png",
+      "promptId": "H08-A-v2",
+      "note": "Single north doorway and both open ends retained; thin edge fringe and wall thickness need cleanup.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          300.1681415929202,
+          454.9421828908554
+        ],
+        "pixelsPerUnit": 163.4159292035399,
+        "maxResidualUnits": 0.012604715848321287,
+        "residuals": [
+          0.007691171760890257,
+          0.007691171760890049,
+          0.012604715848321162,
+          0.012604715848321287,
+          0.008630849146136538,
+          0.008630849146136375
+        ]
+      },
+      "sha256": "725c4cf1d4baf31973d5a88e6e6ce38a3a5f238932e0789dc495e86941b16837"
+    },
+    {
+      "id": "H09-A",
+      "file": "H09-A-v2.png",
+      "promptId": "H09-A-v2",
+      "note": "Opposed doorways retained; thin edge fringe and wall thickness need cleanup.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          301.6991622239145,
+          456.21706016755513
+        ],
+        "pixelsPerUnit": 162.65041888804274,
+        "maxResidualUnits": 0.006453579305565515,
+        "residuals": [
+          0.006453579305565325,
+          0.006453579305565121,
+          0.006453579305565313,
+          0.006453579305565515,
+          0.005432996151336703,
+          0.005432996151336703,
+          0.00543299615133693,
+          0.00543299615133693
+        ]
+      },
+      "sha256": "a299275b6efc7f496d0d3ac2759dc5c744afd2c02ca3c163179afdacb771c44e"
+    },
+    {
+      "id": "H04-A",
+      "file": "H04-A-v2.png",
+      "promptId": "H04-A-v2",
+      "promptFile": "correction-prompts.json",
+      "note": "Square envelope restored with thin wall caps; connection positions and edge fringes still require checking.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          295.25182012847966,
+          292.39350463954327
+        ],
+        "pixelsPerUnit": 162.9157744468237,
+        "maxResidualUnits": 0.03390271032851652,
+        "residuals": [
+          0.008538174599346342,
+          0.008288690005216747,
+          0.008417315258830467,
+          0.008663096424078592,
+          0.03390271032851652
+        ]
+      },
+      "sha256": "035bfc11ec6cdf3677406122221932bdfc344d968ed4610a66bdf745435e6b9c"
+    },
+    {
+      "id": "H07-A",
+      "file": "H07-A-v2.png",
+      "promptId": "H07-A-v2",
+      "promptFile": "correction-prompts.json",
+      "note": "Corrected shallow proportions and thinner walls; the open top floor edge is slightly recessed.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          457.36968576709796,
+          546.2236598890943
+        ],
+        "pixelsPerUnit": 161.55268022181144,
+        "maxResidualUnits": 0.005322518695475101,
+        "residuals": [
+          0.0053225186954750005,
+          0.005322518695475057,
+          0.005322518695475101,
+          0.005322518695475046
+        ]
+      },
+      "sha256": "826aa593525dd1d40a91d7743d2a526a482ad854f8a5e2bc4bc5b1374693952f"
+    },
+    {
+      "id": "F01-A",
+      "file": "F01-A-v1.png",
+      "promptId": "F01-A",
+      "note": "Sealed mechanical infill with no walkable space; needs registration to the officer suite notch.",
+      "canvas": [
+        1254,
+        1254
+      ],
+      "registration": {
+        "origin": [
+          183,
+          184
+        ],
+        "pixelsPerUnit": 444.5,
+        "maxResidualUnits": 0.006363165634974618,
+        "residuals": [
+          0.006363165634974557,
+          0.006363165634974461,
+          0.006363165634974523,
+          0.006363165634974618
+        ]
+      },
+      "sha256": "a48a13ff3ec115e90f0badbb4b7e1339700fb2e9237f69775fa59c1a15f34c36"
+    }
+  ]
+}

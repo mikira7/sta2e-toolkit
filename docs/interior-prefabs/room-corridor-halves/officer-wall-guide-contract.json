@@ -1,0 +1,129 @@
+{
+  "piece": "Q03-R-HC-IN",
+  "canvas": [
+    1507,
+    688
+  ],
+  "pixelsPerUnit": 110,
+  "origin": [
+    11,
+    11
+  ],
+  "footprint": [
+    [
+      0,
+      0
+    ],
+    [
+      13.5,
+      0
+    ],
+    [
+      13.5,
+      6.05
+    ],
+    [
+      0,
+      6.05
+    ]
+  ],
+  "entranceWallY": 5,
+  "halfCorridorFloor": [
+    5.05,
+    6.05
+  ],
+  "wallBand": [
+    4.95,
+    5.05
+  ],
+  "floorBands": [
+    {
+      "from": 5.05,
+      "to": 5.15,
+      "role": "neutral border"
+    },
+    {
+      "from": 5.15,
+      "to": 5.3,
+      "role": "accent"
+    },
+    {
+      "from": 5.3,
+      "to": 6.05,
+      "role": "runner"
+    }
+  ],
+  "note": "Visible ribs, seams and lamps are shallow overhead details inside the existing wall band; no tilted camera or corridor-width loss.",
+  "anchors": [
+    {
+      "name": "door-0-a",
+      "units": [
+        2.100006,
+        5
+      ]
+    },
+    {
+      "name": "door-0-b",
+      "units": [
+        3.299994,
+        5
+      ]
+    },
+    {
+      "name": "door-1-a",
+      "units": [
+        5.5,
+        3.6
+      ]
+    },
+    {
+      "name": "door-1-b",
+      "units": [
+        5.5,
+        4.8
+      ]
+    },
+    {
+      "name": "door-2-a",
+      "units": [
+        8.5,
+        1.099999
+      ]
+    },
+    {
+      "name": "door-2-b",
+      "units": [
+        8.5,
+        2.300001
+      ]
+    },
+    {
+      "name": "door-3-a",
+      "units": [
+        10.5,
+        3.6
+      ]
+    },
+    {
+      "name": "door-3-b",
+      "units": [
+        10.5,
+        4.8
+      ]
+    },
+    {
+      "name": "door-4-a",
+      "units": [
+        6.7,
+        3.4
+      ]
+    },
+    {
+      "name": "door-4-b",
+      "units": [
+        7.9,
+        3.4
+      ]
+    }
+  ]
+}

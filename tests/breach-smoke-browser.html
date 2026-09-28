@@ -1,0 +1,51 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Breach smoke renderer checks</title>
+<style>body{background:#080d17;color:#c7d9ef;font:15px system-ui;margin:20px}canvas{max-width:100%}</style>
+<script src="/vendor/pixi.js"></script>
+<h1>Breach smoke renderer checks</h1><pre id="result">Loading…</pre>
+<script type="module">
+import { createBreachSmokeRenderer } from '../scripts/breach-smoke-shader.js';
+const result = document.querySelector('#result');
+try {
+  const app = new PIXI.Application({ width: 960, height: 420, backgroundColor: 0x080d17, preserveDrawingBuffer: true });
+  app.stop(); document.body.appendChild(app.view);
+  globalThis.canvas = { app };
+  let checks = 0;
+  const assert = (v, msg) => { if (!v) throw Error(msg); checks++; };
+  for (let row=0; row<2; row++) {
+    const effect = createBreachSmokeRenderer(row === 1);
+    assert(effect.display instanceof PIXI.Mesh, 'Expected shader mesh');
+    app.stage.addChild(effect.display);
+    effect.update(Array.from({length:40}, (_,i) => ({ x: 800-i*15, y: 90+row*210+Math.sin(i*.14)*26,
+      size: 16, age: 120+i*65, life: 3400, seed: i*3.4, angle: Math.PI })),
+      [{ x: 815, y: 90+row*210, angle: Math.PI, length: 260, width: 28 }], 1.5);
+  }
+  app.renderer.render(app.stage);
+  const pixels = app.renderer.extract.pixels(app.stage);
+  let visible = 0;
+  for (let i=3; i<pixels.length; i+=4) if (pixels[i]>8) visible++;
+  assert(visible > 10000, 'Smoke must render visible pixels');
+  assert(app.renderer.gl.getError() === app.renderer.gl.NO_ERROR, 'No WebGL errors');
+  const coreBrightness = [];
+  for (const plasma of [false, true]) {
+    const testStage = new PIXI.Container(), core = createBreachSmokeRenderer(plasma);
+    testStage.addChild(core.display);
+    core.update([], [{ x: 20, y: 60, angle: 0, length: 180, width: 24 }], 1.5);
+    const corePixels = app.renderer.extract.pixels(testStage);
+    let brightness = 0;
+    for (let i=0; i<corePixels.length; i+=4) brightness += (corePixels[i] + corePixels[i+1] + corePixels[i+2]) * corePixels[i+3]/255;
+    assert(brightness > 100000, 'Vent renders even before the first puff is emitted');
+    coreBrightness.push(brightness);
+    core.destroy(); testStage.destroy();
+  }
+  assert(coreBrightness[1] > coreBrightness[0] * 1.15, 'Plasma has a brighter luminous core than smoke');
+  const fallbackVersion = PIXI.VERSION;
+  // No GL renderer selects the portable Graphics path.
+  globalThis.canvas = { app: {} };
+  const fallback = createBreachSmokeRenderer(true);
+  assert(fallback.display instanceof PIXI.Graphics, 'Fallback uses Graphics');
+  fallback.update([{ x: 40, y: 350, size: 25, age: 1000, life: 3000, seed: 0 }],
+    [{ x: 30, y: 350, angle: -Math.PI/2, length: 90, width: 12 }]);
+  app.stage.addChild(fallback.display); app.renderer.render(app.stage); fallback.destroy();
+  result.textContent = `PASS: ${checks} rendering checks · PIXI ${fallbackVersion} · ${visible} visible smoke pixels\nTop: nacelle smoke. Bottom: warp plasma.`;
+} catch (error) { result.textContent = `FAIL: ${error.stack}`; }
+</script></html>

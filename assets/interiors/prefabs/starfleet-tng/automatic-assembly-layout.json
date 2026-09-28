@@ -1,0 +1,1803 @@
+{
+  "schemaVersion": 1,
+  "id": "habitation-puzzle-v1",
+  "status": "procedural-habitation",
+  "recipe": {
+    "kit": "habitation-puzzle-v1",
+    "seed": "aurora",
+    "cabins": 3,
+    "mix": "mixed",
+    "shape": "bent",
+    "rotation": 0,
+    "gridSize": 100
+  },
+  "width": 28,
+  "height": 22,
+  "metresPerUnit": 1.5,
+  "entry": [
+    4,
+    8.05
+  ],
+  "walls": [
+    {
+      "key": "puzzle-0",
+      "a": [
+        2,
+        7
+      ],
+      "b": [
+        3.4,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-1",
+      "a": [
+        3.4,
+        7
+      ],
+      "b": [
+        4.6,
+        7
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-2",
+      "a": [
+        4.6,
+        7
+      ],
+      "b": [
+        6,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-3",
+      "a": [
+        6,
+        7
+      ],
+      "b": [
+        6,
+        7.050001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-4",
+      "a": [
+        6,
+        9.049999
+      ],
+      "b": [
+        6,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-5",
+      "a": [
+        2,
+        9.1
+      ],
+      "b": [
+        6,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-6",
+      "a": [
+        2,
+        9.049999
+      ],
+      "b": [
+        2,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-7",
+      "a": [
+        2,
+        7
+      ],
+      "b": [
+        2,
+        7.050001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-8",
+      "a": [
+        1,
+        1
+      ],
+      "b": [
+        3.4,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-9",
+      "a": [
+        3.4,
+        1
+      ],
+      "b": [
+        3.6,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-10",
+      "a": [
+        3.6,
+        1
+      ],
+      "b": [
+        4.6,
+        1
+      ],
+      "door": false,
+      "window": true
+    },
+    {
+      "key": "puzzle-11",
+      "a": [
+        4.6,
+        1
+      ],
+      "b": [
+        5,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-12",
+      "a": [
+        5,
+        3
+      ],
+      "b": [
+        5,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-13",
+      "a": [
+        5,
+        3
+      ],
+      "b": [
+        7,
+        3
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-14",
+      "a": [
+        7,
+        3
+      ],
+      "b": [
+        7,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-15",
+      "a": [
+        5.999999,
+        7
+      ],
+      "b": [
+        7,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-16",
+      "a": [
+        4.6,
+        7
+      ],
+      "b": [
+        5.999999,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-17",
+      "a": [
+        2.000001,
+        7
+      ],
+      "b": [
+        3.4,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-18",
+      "a": [
+        1,
+        7
+      ],
+      "b": [
+        2.000001,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-19",
+      "a": [
+        1,
+        3.800002
+      ],
+      "b": [
+        1,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-20",
+      "a": [
+        1,
+        3.800002
+      ],
+      "b": [
+        1,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-21",
+      "a": [
+        3.4,
+        1.799999
+      ],
+      "b": [
+        3.4,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-22",
+      "a": [
+        3.4,
+        3.000001
+      ],
+      "b": [
+        3.4,
+        1.799999
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-23",
+      "a": [
+        3.4,
+        3.8
+      ],
+      "b": [
+        3.4,
+        3.000001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-24",
+      "a": [
+        1,
+        3.8
+      ],
+      "b": [
+        3.4,
+        3.8
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-25",
+      "a": [
+        5,
+        1
+      ],
+      "b": [
+        7,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-26",
+      "a": [
+        7,
+        3
+      ],
+      "b": [
+        7,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-27",
+      "a": [
+        6,
+        7
+      ],
+      "b": [
+        7,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-28",
+      "a": [
+        7,
+        7
+      ],
+      "b": [
+        9,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-29",
+      "a": [
+        9,
+        7
+      ],
+      "b": [
+        10,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-30",
+      "a": [
+        10,
+        7
+      ],
+      "b": [
+        10,
+        7.050001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-31",
+      "a": [
+        10,
+        9.049999
+      ],
+      "b": [
+        10,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-32",
+      "a": [
+        6,
+        9.1
+      ],
+      "b": [
+        10,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-33",
+      "a": [
+        10,
+        7
+      ],
+      "b": [
+        11.4,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-34",
+      "a": [
+        12.6,
+        7
+      ],
+      "b": [
+        11.4,
+        7
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-35",
+      "a": [
+        12.6,
+        7
+      ],
+      "b": [
+        14,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-36",
+      "a": [
+        14,
+        7
+      ],
+      "b": [
+        14,
+        7.050001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-37",
+      "a": [
+        14,
+        9.049999
+      ],
+      "b": [
+        14,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-38",
+      "a": [
+        12.6,
+        9.1
+      ],
+      "b": [
+        14,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-39",
+      "a": [
+        12.6,
+        9.1
+      ],
+      "b": [
+        11.4,
+        9.1
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-40",
+      "a": [
+        10,
+        9.1
+      ],
+      "b": [
+        11.4,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-41",
+      "a": [
+        9,
+        1
+      ],
+      "b": [
+        11.4,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-42",
+      "a": [
+        11.4,
+        1
+      ],
+      "b": [
+        11.6,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-43",
+      "a": [
+        12.6,
+        1
+      ],
+      "b": [
+        11.6,
+        1
+      ],
+      "door": false,
+      "window": true
+    },
+    {
+      "key": "puzzle-44",
+      "a": [
+        12.6,
+        1
+      ],
+      "b": [
+        13,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-45",
+      "a": [
+        13,
+        3
+      ],
+      "b": [
+        13,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-46",
+      "a": [
+        13,
+        3
+      ],
+      "b": [
+        15,
+        3
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-47",
+      "a": [
+        15,
+        3
+      ],
+      "b": [
+        15,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-48",
+      "a": [
+        13.999999,
+        7
+      ],
+      "b": [
+        15,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-49",
+      "a": [
+        12.6,
+        7
+      ],
+      "b": [
+        13.999999,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-50",
+      "a": [
+        10.000001,
+        7
+      ],
+      "b": [
+        11.4,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-51",
+      "a": [
+        9,
+        7
+      ],
+      "b": [
+        10.000001,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-52",
+      "a": [
+        9,
+        3.800002
+      ],
+      "b": [
+        9,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-53",
+      "a": [
+        9,
+        3.800002
+      ],
+      "b": [
+        9,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-54",
+      "a": [
+        11.4,
+        1.799999
+      ],
+      "b": [
+        11.4,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-55",
+      "a": [
+        11.4,
+        3.000001
+      ],
+      "b": [
+        11.4,
+        1.799999
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-56",
+      "a": [
+        11.4,
+        3.8
+      ],
+      "b": [
+        11.4,
+        3.000001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-57",
+      "a": [
+        9,
+        3.8
+      ],
+      "b": [
+        11.4,
+        3.8
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-58",
+      "a": [
+        13,
+        1
+      ],
+      "b": [
+        15,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-59",
+      "a": [
+        15,
+        3
+      ],
+      "b": [
+        15,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-60",
+      "a": [
+        12.6,
+        9.1
+      ],
+      "b": [
+        13.2,
+        9.7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-61",
+      "a": [
+        13.2,
+        9.7
+      ],
+      "b": [
+        13.2,
+        10.9
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-62",
+      "a": [
+        12.6,
+        11.5
+      ],
+      "b": [
+        13.2,
+        10.9
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-63",
+      "a": [
+        12.6,
+        11.5
+      ],
+      "b": [
+        11.4,
+        11.5
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-64",
+      "a": [
+        10.8,
+        10.9
+      ],
+      "b": [
+        11.4,
+        11.5
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-65",
+      "a": [
+        10.8,
+        9.7
+      ],
+      "b": [
+        10.8,
+        10.9
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-66",
+      "a": [
+        10.8,
+        9.7
+      ],
+      "b": [
+        11.4,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-67",
+      "a": [
+        14,
+        7
+      ],
+      "b": [
+        15,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-68",
+      "a": [
+        15,
+        7
+      ],
+      "b": [
+        17.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-69",
+      "a": [
+        17.5,
+        7
+      ],
+      "b": [
+        18,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-70",
+      "a": [
+        18,
+        7
+      ],
+      "b": [
+        18,
+        7.050001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-71",
+      "a": [
+        18,
+        9.049999
+      ],
+      "b": [
+        18,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-72",
+      "a": [
+        14,
+        9.1
+      ],
+      "b": [
+        18,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-73",
+      "a": [
+        18,
+        7
+      ],
+      "b": [
+        19.4,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-74",
+      "a": [
+        19.4,
+        7
+      ],
+      "b": [
+        20.6,
+        7
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-75",
+      "a": [
+        20.6,
+        7
+      ],
+      "b": [
+        22,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-76",
+      "a": [
+        22,
+        7
+      ],
+      "b": [
+        22,
+        7.050001
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-77",
+      "a": [
+        22,
+        9.049999
+      ],
+      "b": [
+        22,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-78",
+      "a": [
+        18,
+        9.1
+      ],
+      "b": [
+        22,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-79",
+      "a": [
+        17.5,
+        2
+      ],
+      "b": [
+        18.1,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-80",
+      "a": [
+        18.1,
+        2
+      ],
+      "b": [
+        19.6,
+        2
+      ],
+      "door": false,
+      "window": true
+    },
+    {
+      "key": "puzzle-81",
+      "a": [
+        19.6,
+        2
+      ],
+      "b": [
+        20.500001,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-82",
+      "a": [
+        20.500001,
+        2
+      ],
+      "b": [
+        22.5,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-83",
+      "a": [
+        22.5,
+        4.2
+      ],
+      "b": [
+        22.5,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-84",
+      "a": [
+        22.5,
+        4.2
+      ],
+      "b": [
+        22.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-85",
+      "a": [
+        22,
+        7
+      ],
+      "b": [
+        22.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-86",
+      "a": [
+        17.5,
+        2
+      ],
+      "b": [
+        17.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-87",
+      "a": [
+        20.5,
+        2.500001
+      ],
+      "b": [
+        20.5,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-88",
+      "a": [
+        20.5,
+        3.699999
+      ],
+      "b": [
+        20.5,
+        2.500001
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "puzzle-89",
+      "a": [
+        20.5,
+        4.2
+      ],
+      "b": [
+        20.5,
+        3.699999
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-90",
+      "a": [
+        20.5,
+        4.2
+      ],
+      "b": [
+        22.5,
+        4.2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-91",
+      "a": [
+        1,
+        9.1
+      ],
+      "b": [
+        2,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-92",
+      "a": [
+        1,
+        7
+      ],
+      "b": [
+        1,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-93",
+      "a": [
+        1,
+        7
+      ],
+      "b": [
+        2,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-94",
+      "a": [
+        22,
+        7
+      ],
+      "b": [
+        22.499999,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-95",
+      "a": [
+        22.499999,
+        7
+      ],
+      "b": [
+        26.1,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-96",
+      "a": [
+        26.1,
+        7
+      ],
+      "b": [
+        26.1,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-97",
+      "a": [
+        26.049999,
+        11.1
+      ],
+      "b": [
+        26.1,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-98",
+      "a": [
+        24,
+        11.1
+      ],
+      "b": [
+        24.050001,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-99",
+      "a": [
+        24,
+        9.1
+      ],
+      "b": [
+        24,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-100",
+      "a": [
+        22,
+        9.1
+      ],
+      "b": [
+        24,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-101",
+      "a": [
+        26.1,
+        11.1
+      ],
+      "b": [
+        26.1,
+        15.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-102",
+      "a": [
+        26.049999,
+        15.1
+      ],
+      "b": [
+        26.1,
+        15.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-103",
+      "a": [
+        24,
+        15.1
+      ],
+      "b": [
+        24.050001,
+        15.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-104",
+      "a": [
+        24,
+        11.1
+      ],
+      "b": [
+        24,
+        15.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-105",
+      "a": [
+        26.1,
+        19.1
+      ],
+      "b": [
+        26.1,
+        15.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-106",
+      "a": [
+        26.049999,
+        19.1
+      ],
+      "b": [
+        26.1,
+        19.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-107",
+      "a": [
+        24,
+        19.1
+      ],
+      "b": [
+        24.050001,
+        19.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-108",
+      "a": [
+        24,
+        19.1
+      ],
+      "b": [
+        24,
+        15.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-109",
+      "a": [
+        26.1,
+        19.1
+      ],
+      "b": [
+        26.1,
+        20.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-110",
+      "a": [
+        24,
+        20.1
+      ],
+      "b": [
+        26.1,
+        20.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "puzzle-111",
+      "a": [
+        24,
+        19.1
+      ],
+      "b": [
+        24,
+        20.1
+      ],
+      "door": false,
+      "window": false
+    }
+  ],
+  "lights": [
+    {
+      "at": [
+        4,
+        7.7
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        4.5,
+        5
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        2.2,
+        2.4
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        8,
+        7.7
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        12,
+        7.7
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        12.5,
+        5
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        10.2,
+        2.4
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        12,
+        10.3
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        16,
+        7.7
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        20,
+        7.7
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        19.5,
+        5
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        21.5,
+        3
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        1.3,
+        8.05
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        23,
+        8
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        25.05,
+        10
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        25.4,
+        13.1
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        25.4,
+        17.1
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        25.05,
+        19.8
+      ],
+      "radius": 7
+    }
+  ],
+  "placements": [
+    {
+      "id": "piece-0",
+      "piece": "H08-A",
+      "at": [
+        2,
+        7
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "piece-1",
+      "piece": "Q03-L",
+      "rotation": 0,
+      "at": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "piece-2",
+      "piece": "F01-A",
+      "at": [
+        5,
+        1
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "piece-3",
+      "piece": "H02-A",
+      "rotation": 0,
+      "at": [
+        6,
+        7
+      ]
+    },
+    {
+      "id": "piece-4",
+      "piece": "H09-A",
+      "rotation": 0,
+      "at": [
+        10,
+        7
+      ]
+    },
+    {
+      "id": "piece-5",
+      "piece": "Q03-L",
+      "rotation": 0,
+      "at": [
+        9,
+        1
+      ]
+    },
+    {
+      "id": "piece-6",
+      "piece": "F01-A",
+      "at": [
+        13,
+        1
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "piece-7",
+      "piece": "T01-A",
+      "rotation": 0,
+      "at": [
+        10.5,
+        9.1
+      ]
+    },
+    {
+      "id": "piece-8",
+      "piece": "H02-A",
+      "rotation": 0,
+      "at": [
+        14,
+        7
+      ]
+    },
+    {
+      "id": "piece-9",
+      "piece": "H08-A",
+      "rotation": 0,
+      "at": [
+        18,
+        7
+      ]
+    },
+    {
+      "id": "piece-10",
+      "piece": "Q01-A",
+      "rotation": 0,
+      "at": [
+        17.5,
+        2
+      ]
+    },
+    {
+      "id": "piece-11",
+      "piece": "H07-A",
+      "rotation": 90,
+      "at": [
+        2,
+        7
+      ]
+    },
+    {
+      "id": "piece-12",
+      "piece": "H04-A",
+      "rotation": 0,
+      "at": [
+        22,
+        7
+      ]
+    },
+    {
+      "id": "piece-13",
+      "piece": "H02-A",
+      "rotation": 90,
+      "at": [
+        26.1,
+        11.1
+      ]
+    },
+    {
+      "id": "piece-14",
+      "piece": "H02-A",
+      "rotation": 90,
+      "at": [
+        26.1,
+        15.1
+      ]
+    },
+    {
+      "id": "piece-15",
+      "piece": "H07-A",
+      "rotation": 0,
+      "at": [
+        24,
+        19.1
+      ]
+    }
+  ],
+  "pieces": [
+    {
+      "id": "Q01-A",
+      "file": "Q01-A-v2.png",
+      "sha256": "56f7c6249b42c1ee121549f08de153857f9b4d939a9a229f9ec88eeff0d1e784"
+    },
+    {
+      "id": "Q03-L",
+      "file": "Q03-L-v2.png",
+      "sha256": "cff5b4585a2c01182d6b143ada3ac7654179271db118271086406ed60cd4a455"
+    },
+    {
+      "id": "T01-A",
+      "file": "T01-A-v2.png",
+      "sha256": "8af061ea817d6ebacda9bd48ba97fdc5780e7056516e435eb700bbc0bdd35cf6"
+    },
+    {
+      "id": "H02-A",
+      "file": "H02-A-v3.png",
+      "sha256": "8f768e5e1d925e6c95189b8cb482d576de60df07a37ff7a8fef0a8ebaefa564a"
+    },
+    {
+      "id": "H08-A",
+      "file": "H08-A-v2.png",
+      "sha256": "725c4cf1d4baf31973d5a88e6e6ce38a3a5f238932e0789dc495e86941b16837"
+    },
+    {
+      "id": "H09-A",
+      "file": "H09-A-v2.png",
+      "sha256": "a299275b6efc7f496d0d3ac2759dc5c744afd2c02ca3c163179afdacb771c44e"
+    },
+    {
+      "id": "H04-A",
+      "file": "H04-A-v2.png",
+      "sha256": "035bfc11ec6cdf3677406122221932bdfc344d968ed4610a66bdf745435e6b9c"
+    },
+    {
+      "id": "H07-A",
+      "file": "H07-A-v2.png",
+      "sha256": "826aa593525dd1d40a91d7743d2a526a482ad854f8a5e2bc4bc5b1374693952f"
+    },
+    {
+      "id": "F01-A",
+      "file": "F01-A-v1.png",
+      "sha256": "a48a13ff3ec115e90f0badbb4b7e1339700fb2e9237f69775fa59c1a15f34c36"
+    }
+  ],
+  "background": {
+    "sha256": "assembled-from-pinned-pieces"
+  }
+}

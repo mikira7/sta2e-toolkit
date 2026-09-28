@@ -21,7 +21,7 @@ const TOKEN_ALPHA_MASK_CACHE = new Map();
 const TOKEN_ALPHA_MASK_MAX_SIZE = 96;
 const TOKEN_ALPHA_THRESHOLD = 32;
 const ARRAY_CURVE_SAMPLE_STEPS = 48;
-const SHIP_VFX_ANCHORS_VERSION = 15;
+const SHIP_VFX_ANCHORS_VERSION = 16;
 const DEFAULT_WEAPON_EMITTER_FACING_DEG = 0;
 const DEFAULT_WEAPON_EMITTER_ARC_WIDTH_DEG = 90;
 const WEAPON_EMITTER_MIN_ARC_WIDTH_DEG = 60;
@@ -930,6 +930,15 @@ function _tabIdForWeapon(weapon) {
   return `weapon:${_weaponId(weapon)}`;
 }
 
+export function normalizeBreachEmitter(anchor) {
+  const point = _normalizeAnchor(anchor, "Breach vent");
+  return point ? { ...point, facingDeg: _normalizeDegrees(anchor?.facingDeg, 0), layer: "below" } : null;
+}
+
+export function normalizeBreachTrailSettings(settings = {}) {
+  return { length: _clampNumber(settings?.length, 1, 0.5, 5) };
+}
+
 export function normalizeShipVfxAnchors(data = {}) {
   const tractorEmitters = Array.isArray(data?.anchors?.tractorEmitters)
     ? data.anchors.tractorEmitters.map(anchor => _normalizeAnchor(anchor)).filter(Boolean)
@@ -981,6 +990,8 @@ export function normalizeShipVfxAnchors(data = {}) {
       tractorEmitters,
       weaponEmitters,
       engineEmitters,
+      breachEmitters: (Array.isArray(data?.anchors?.breachEmitters) ? data.anchors.breachEmitters : [])
+        .map(normalizeBreachEmitter).filter(Boolean).slice(0, 4),
       pointDefenseEmitters,
       deflectorEmitters,
       hitLocations,
@@ -992,6 +1003,7 @@ export function normalizeShipVfxAnchors(data = {}) {
       weaponVfx,
       shieldImpact: normalizeShipShieldImpactSettings(data?.settings?.shieldImpact),
       engineTrail: normalizeShipEngineTrailSettings(data?.settings?.engineTrail),
+      breachTrail: normalizeBreachTrailSettings(data?.settings?.breachTrail),
       tractorBeam: normalizeShipTractorBeamSettings(data?.settings?.tractorBeam),
       pointDefense: normalizePointDefenseSettings(data?.settings?.pointDefense),
       deflector: normalizeShipDeflectorSettings(data?.settings?.deflector),
@@ -1040,6 +1052,15 @@ export function getShipEngineEmitters(actorOrToken, kind = null) {
     if (derived.length) return derived;
   }
   return all.filter(anchor => anchor.kind === wanted);
+}
+
+/** Breach directions are independent of engine/warp-curve tangents. */
+export function getShipBreachEmitters(actorOrToken) {
+  return getShipVfxAnchors(actorOrToken).anchors.breachEmitters;
+}
+
+export function getShipBreachTrailSettings(actorOrToken) {
+  return getShipVfxAnchors(actorOrToken).settings.breachTrail;
 }
 
 export function getShipWarpCurves(actorOrToken) {
@@ -2383,6 +2404,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     if (this._activeTab === "hitLocations") return "hitLocations";
     if (this._activeTab === "pointDefense" && hasPointDefenseSystem(this.actor)) return "pointDefense";
     if (this._activeTab === "deflector") return "deflector";
+    if (this._activeTab === "breach") return "breach";
     if (this._activeTab === "engineImpulse" || this._activeTab === "engineWarp") return this._activeTab;
     if (this._weaponForTab(this._activeTab)) return this._activeTab;
     this._activeTab = "tractor";
@@ -2392,6 +2414,17 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   _isEngineTab() {
     const tab = this._resolveActiveTab();
     return tab === "engineImpulse" || tab === "engineWarp";
+  }
+
+  _isBreachTab() { return this._resolveActiveTab() === "breach"; }
+
+  _readBreachSettingsFromForm() {
+    const current = normalizeBreachTrailSettings(this._anchors.settings?.breachTrail);
+    if (!this._isBreachTab()) return current;
+    const length = this.element?.querySelector('[data-breach-setting="length"]')?.value ?? current.length;
+    const settings = normalizeBreachTrailSettings({ length });
+    this._anchors.settings.breachTrail = settings;
+    return settings;
   }
 
   _isTractorTab() {
@@ -2613,6 +2646,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     if (this._resolveActiveTab() === "hitLocations") return `${_systemLabel(this._activeHitSystem)} Hit Location`;
     if (this._resolveActiveTab() === "engineImpulse") return "Impulse Trail";
     if (this._resolveActiveTab() === "engineWarp") return "Warp Trail";
+    if (this._isBreachTab()) return "Breach Exhaust";
     return this._weaponForTab()?.name ?? "Weapon";
   }
 
@@ -2811,10 +2845,29 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   async _previewActive({ silent = false } = {}) {
+    if (this._isBreachTab()) return this._previewActiveBreach({ silent });
     if (this._isEngineTab()) return this._previewActiveEngine({ silent });
     if (this._isPointDefenseTab()) return this._previewActivePointDefense({ silent });
     if (this._isDeflectorTab()) return this._previewActiveDeflector({ silent });
     return this._previewActiveWeapon({ silent });
+  }
+
+  async _previewActiveBreach({ silent = false } = {}) {
+    const token = this._previewSourceToken();
+    if (!token) {
+      if (!silent) ui.notifications.warn("STA2e Toolkit: Select or place a token for this ship to preview breach exhaust.");
+      return;
+    }
+    this._readEmitterArcFromForm();
+    const settings = this._readBreachSettingsFromForm();
+    const { startNativeBreachTrail, getBreachTrailRenderer, getBreachTrailPreviewDuration } = await import("./breach-trail-vfx.js");
+    this._breachPreview?.destroy();
+    const mode = getBreachTrailRenderer();
+    this._breachPreview = startNativeBreachTrail(token, {
+      preview: true, mode: mode === "plasma" ? "plasma" : "smoke",
+      emitters: this._activeEmitters(), settings,
+      duration: getBreachTrailPreviewDuration(token, mode === "plasma" ? "plasma" : "smoke", settings),
+    });
   }
 
   /**
@@ -3015,6 +3068,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   }
 
   _activeEmitters() {
+    if (this._isBreachTab()) return this._anchors.anchors.breachEmitters ?? [];
     if (this._resolveActiveTab() === "tractor") return this._anchors.anchors.tractorEmitters ?? [];
     if (this._resolveActiveTab() === "pointDefense") return this._anchors.anchors.pointDefenseEmitters ?? [];
     if (this._resolveActiveTab() === "deflector") return this._anchors.anchors.deflectorEmitters ?? [];
@@ -3035,6 +3089,12 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       Number.isInteger(this._selectedEmitterIndex) ? this._selectedEmitterIndex : 0,
       Math.max(0, emitters.length - 1),
     ));
+
+    if (this._isBreachTab()) {
+      this._anchors = normalizeShipVfxAnchors({ ...this._anchors, textureSrc: this.textureSrc,
+        anchors: { ...this._anchors.anchors, breachEmitters: emitters } });
+      return;
+    }
 
     if (this._resolveActiveTab() === "tractor") {
       this._anchors = normalizeShipVfxAnchors({
@@ -3251,7 +3311,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isPointDefenseTab = this._isPointDefenseTab();
     const isDeflectorTab = this._isDeflectorTab();
     // The dish's facing drives the forward wash, so it gets an arrow too.
-    const showFacingArrow = isWeaponEmitterTab || isEngineTab || isDeflectorTab;
+    const showFacingArrow = isWeaponEmitterTab || isEngineTab || isDeflectorTab || this._isBreachTab();
     const engineColor = isEngineTab
       ? resolveEngineTrailColorHex(this.actor, this._activeEngineKind(), this._activeEngineModeSettings())
       : null;
@@ -3277,7 +3337,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       selected: (showFacingArrow || isPointDefenseTab) && index === this._selectedEmitterIndex,
       showFacingArrow,
       showArcWidth: isWeaponEmitterTab,
-      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, (isEngineTab || isDeflectorTab) ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
+      facingDeg: Math.round(_normalizeDegrees(anchor.facingDeg, (isEngineTab || isDeflectorTab || this._isBreachTab()) ? defaultFacing : _defaultEmitterFacingDeg(anchor))),
       arcWidthDeg: _normalizeEmitterArcWidth(anchor.arcWidthDeg, arcMin),
       layerLabel: _normalizeEmitterLayer(anchor.layer) === "below" ? "Below" : "Above",
       pairGroupLabel: isWeaponEmitterTab ? _normalizePairGroup(anchor.pairGroup) : "",
@@ -3298,14 +3358,14 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
     const isDeflectorTab = this._isDeflectorTab();
-    if (!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab && !isDeflectorTab) return null;
+    if (!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab && !isDeflectorTab && !this._isBreachTab()) return null;
     const selected = this._selectedEmitter();
     if (!selected?.anchor) return null;
     this._emitterFormIndex = selected.index;
     const layer = _normalizeEmitterLayer(selected.anchor.layer);
     const defaultFacing = isEngineTab
       ? DEFAULT_ENGINE_EMITTER_FACING_DEG
-      : (isDeflectorTab ? DEFAULT_DEFLECTOR_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor));
+      : (this._isBreachTab() ? 0 : (isDeflectorTab ? DEFAULT_DEFLECTOR_EMITTER_FACING_DEG : _defaultEmitterFacingDeg(selected.anchor)));
     const minArcWidthDeg = isWeaponEmitterTab
       ? _emitterArcMinForWeapon(_weaponImg(this._weaponForTab()), _weaponName(this._weaponForTab()))
       : WEAPON_EMITTER_MIN_ARC_WIDTH_DEG;
@@ -3391,7 +3451,7 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     const isEngineTab = this._isEngineTab();
     const isPointDefenseTab = this._isPointDefenseTab();
     const isDeflectorTab = this._isDeflectorTab();
-    if ((!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab && !isDeflectorTab) || !this.element) return null;
+    if ((!isWeaponEmitterTab && !isEngineTab && !isPointDefenseTab && !isDeflectorTab && !this._isBreachTab()) || !this.element) return null;
     // Write back to the emitter the form was rendered for, not to whatever is
     // selected right now. Clicking another marker moves the selection on
     // pointerdown, which lands before the blur/change of the control the user
@@ -3403,7 +3463,9 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     if (!current) return null;
     const facingDeg = this.element.querySelector('[data-emitter-setting="facingDeg"]')?.value ?? current.facingDeg;
     const layer = this.element.querySelector('[data-emitter-setting="layer"]')?.value ?? current.layer;
-    if (isPointDefenseTab) {
+    if (this._isBreachTab()) {
+      emitters[index] = normalizeBreachEmitter({ ...current, facingDeg });
+    } else if (isPointDefenseTab) {
       emitters[index] = _normalizePointDefenseEmitter({ ...current, layer });
     } else if (isDeflectorTab) {
       emitters[index] = _normalizeDeflectorEmitter({ ...current, facingDeg, layer });
@@ -3513,6 +3575,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
 
   _tabContext() {
     const tabs = [
+      { id: "breach", label: "Breach Exhaust", title: "Smoke and plasma vent locations and directions", icon: "fas fa-cloud",
+        count: (this._anchors.anchors.breachEmitters ?? []).length, active: this._isBreachTab() },
       { id: "destructible", label: "Destructible Object", title: "Procedural artwork, Integrity and fractures", icon: "fas fa-meteor", count: "", active: this._resolveActiveTab() === "destructible" },
       {
         id: "tractor",
@@ -3704,6 +3768,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       deflectorHint: DEFLECTOR_TYPE_HINTS[activeDeflectorType] ?? "",
       isEngineTab,
       engineKind,
+      isBreachTab: this._isBreachTab(),
+      breachTrailSettings: normalizeBreachTrailSettings(this._anchors.settings?.breachTrail),
       engineKindLabel: engineKind === "warp" ? "Warp" : "Impulse",
       activeEngineTrailSettings,
       activeEngineModeSettings,
@@ -3972,6 +4038,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
     el.querySelectorAll("[data-anchor-tab]").forEach(button => {
       button.addEventListener("click", event => {
         event.preventDefault();
+        this._breachPreview?.destroy();
+        window.clearTimeout(this._previewTimer);
         this._activeTab = event.currentTarget.dataset.anchorTab || "tractor";
         this._opaqueState = null;
         this._pendingCurvePoints = [];
@@ -4135,6 +4203,19 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       });
       input.addEventListener("change", () => {
         this._readEmitterArcFromForm();
+        this._scheduleAutoPreview();
+        this.render({ force: true });
+      });
+    });
+
+    el.querySelectorAll("[data-breach-setting]").forEach(input => {
+      input.addEventListener("input", () => {
+        const settings = this._readBreachSettingsFromForm();
+        el.querySelector('[data-breach-length-value]')?.replaceChildren(document.createTextNode(`${settings.length}×`));
+        this._scheduleAutoPreview();
+      });
+      input.addEventListener("change", () => {
+        this._readBreachSettingsFromForm();
         this._scheduleAutoPreview();
         this.render({ force: true });
       });
@@ -4388,10 +4469,17 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       }
 
       const activeEmitters = this._activeEmitters();
+      if (this._isBreachTab() && activeEmitters.length >= 4) {
+        ui.notifications.warn("STA2e Toolkit: Breach exhaust supports up to four vents. Drag or remove an existing point.");
+        return;
+      }
       const activeLabel = this._activeTabLabel();
       const pointKind = this._resolveActiveTab() === "hitLocations" ? "hit location" : "emitter";
       const anchor = { x, y, label: `${activeLabel} ${pointKind} ${activeEmitters.length + 1}` };
-      if (this._isPointDefenseTab()) {
+      if (this._isBreachTab()) {
+        anchor.facingDeg = 0;
+        anchor.layer = "below";
+      } else if (this._isPointDefenseTab()) {
         anchor.layer = "above";
       } else if (this._isDeflectorTab()) {
         anchor.facingDeg = DEFAULT_DEFLECTOR_EMITTER_FACING_DEG;
@@ -4598,6 +4686,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       try { await saveObjectPanel(this); } catch (err) { ui.notifications.error(err.message); }
       return;
     }
+    this._readEmitterArcFromForm();
+    this._readBreachSettingsFromForm();
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
@@ -4653,6 +4743,8 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
   // exported from one ship drops cleanly onto any other ship using the same
   // (or same-proportioned) art — handy for fleets of one class.
   static _onExport(_event, _target) {
+    this._readEmitterArcFromForm();
+    this._readBreachSettingsFromForm();
     this._readWeaponSettingsFromForm();
     this._readEngineSettingsFromForm();
     this._readTractorSettingsFromForm();
@@ -4767,6 +4859,12 @@ export class ShipVfxAnchorEditor extends HandlebarsApplicationMixin(ApplicationV
       this.render({ force: true });
     }, { once: true });
     input.click();
+  }
+
+  async close(options) {
+    this._breachPreview?.destroy();
+    window.clearTimeout(this._previewTimer);
+    return super.close(options);
   }
 
   static _onClose(_event, _target) {

@@ -1,4 +1,4 @@
-import { refreshTrekFx, registerTrekFx, clearTrekFx } from '../scripts/trek-fx.js';
+import { refreshTrekFx, registerTrekFx, clearTrekFx, setTrekFx } from '../scripts/trek-fx.js';
 import { TREK_FX_SECTION } from '../scripts/trek-fx-hud.js';
 const output = document.querySelector('#results');
 window.addEventListener('error', e => output.textContent += `\nERROR: ${e.message}`);
@@ -64,6 +64,31 @@ document.querySelector('#checks').onclick=async()=>{
     token.mesh.filters=null;foreign.destroy();fixtures[3].flags.blueDissolve=true;fixtures[3].flags.startedAt=0;
     renderAt(2500);
     check(app.renderer.gl.getError()===app.renderer.gl.NO_ERROR,'no WebGL errors');
+    // PIXI can still have the Trek program bound when Foundry tears down a scene.
+    // Recreating filters must not replace that program behind ShaderSystem's cache.
+    const gl=app.renderer.gl;
+    for(let cycle=0;cycle<3;cycle++) {
+      app.renderer.shader.bind(fixtures[2].token.mesh.filters[0],true);
+      for(const fn of hooks.get('canvasTearDown')??[])fn();
+      for(const fn of hooks.get('canvasReady')??[])fn();
+      const restored=fixtures[2].token.mesh.filters[0];
+      app.renderer.shader.bind(restored,true);
+      check(gl.getParameter(gl.CURRENT_PROGRAM)===restored.program.glPrograms[app.renderer.CONTEXT_UID].program,
+        'scene switch keeps PIXI and WebGL on the same shader program');
+      renderAt(1000);const before=pixels(storm);renderAt(1200);const after=pixels(storm);
+      check(before.some((v,i)=>v!==after[i]),'bombardment animates after scene switch');
+      app.renderer.shader.bind(restored,true);
+      await clearTrekFx(fixtures[2].token);
+      await setTrekFx(fixtures[2].token,'particleStorm',true);
+      const reset=storm.filters[0];
+      app.renderer.shader.bind(reset,true);
+      check(gl.getParameter(gl.CURRENT_PROGRAM)===reset.program.glPrograms[app.renderer.CONTEXT_UID].program,
+        'clear and re-enable keeps PIXI and WebGL on the same shader program');
+      renderAt(1000);const resetBefore=pixels(storm);renderAt(1200);const resetAfter=pixels(storm);
+      check(resetBefore.some((v,i)=>v!==resetAfter[i]),'bombardment animates after clear and re-enable');
+    }
+    renderAt(2500);
+    check(gl.getError()===gl.NO_ERROR,'no WebGL errors after repeated scene switches');
     output.textContent=`PASS: ${count} rendering checks · PIXI ${PIXI.VERSION}. Midpoint preview below.`;
   } catch(error){output.textContent=`FAIL: ${error.stack}`;}
 };

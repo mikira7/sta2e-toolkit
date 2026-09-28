@@ -55,6 +55,7 @@ import { playGroundPhaserCone } from "../ground-phaser-vfx.js";
 import { fireGroundEnergyVFX } from "../ground-energy-vfx.js";
 import { isDestructible, getDestructibleConfig, destructibleDifficulty, requestObjectOperation } from "../destructible-objects.js";
 import { objectDamageRow } from "../destructible-combat.js";
+import { playNativeShipExplosion, useNativeShipExplosion, SHIP_EXPLOSION_DURATION_MS } from "../ship-explosion-vfx.js";
 import {
   STATION_SLOTS,
   getCrewManifest,
@@ -92,10 +93,12 @@ import {
   getCollisionDamage,
 } from "../token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonesForToken } from "../zone-data.js";
+import { getRangeContext, tokensSharingZone } from "../zone-dynamic.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "../weapon-range.js";
 import { makeSpendContext, speciesExtraDieBonusMomentum, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
 import { createTracker, getActiveTracker } from "../momentum-tracker.js";
 import { clearHullDecals, hasHullDecals } from "../hull-decals.js";
+import { getBreachTrailRenderer, startNativeBreachTrail, stopNativeBreachTrail } from "../breach-trail-vfx.js";
 import { handleExtendedTaskRollResult, postTaskRequestCard } from "../task-maker.js";
 import {
   NativeTractorBeamVFX,
@@ -3321,10 +3324,10 @@ export class CombatHUD {
   static _shipWeaponRangeSummary(weapon, sourceToken, targets = Array.from(game.user.targets ?? [])) {
     if (weapon?.type !== "starshipweapon2e" || !sourceToken || !targets?.length) return null;
     try {
-      const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-      const zones = zonesEnabled ? getSceneZones() : [];
-      if (!zones.length) return null;
-      return getWeaponRangeSummary(weapon, sourceToken, targets, zones);
+      // Drawn zones, or Dynamic Zones on a scene with no zone grid.
+      const rangeCtx = getRangeContext();
+      if (!rangeCtx.mode) return null;
+      return getWeaponRangeSummary(weapon, sourceToken, targets, rangeCtx);
     } catch (err) {
       console.warn("STA2e Toolkit | weapon range summary failed:", err);
       return null;
@@ -3353,10 +3356,9 @@ export class CombatHUD {
     let choices = candidates.map(token => ({ token, rangeLabel: weapon ? "Range unavailable" : null }));
 
     if (weapon) {
-      const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-      const zones = zonesEnabled ? getSceneZones() : [];
-      if (zones.length) {
-        const summary = getWeaponRangeSummary(weapon, sourceToken, candidates, zones);
+      const rangeCtx = getRangeContext();
+      if (rangeCtx.mode) {
+        const summary = getWeaponRangeSummary(weapon, sourceToken, candidates, rangeCtx);
         choices = summary.results
           .filter(result => result.within)
           .map(result => ({
@@ -4087,26 +4089,13 @@ export class CombatHUD {
 
   static _warpCoreBlastTargets(originToken, sourceTokenId = null, { excludeSource = false } = {}) {
     if (!originToken) return { targets: [], usingZones: false, zoneNames: [] };
-    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-    const zones = zonesEnabled ? getSceneZones() : [];
-    const originZones = zones.length ? getZonesForToken(originToken, zones) : [];
-    const originZoneIds = new Set(originZones.map(z => z.id));
-    if (!originZoneIds.size) {
-      return { targets: [], usingZones: false, zoneNames: [] };
-    }
-
-    const targets = (canvas.tokens?.placeables ?? []).filter(t => {
-      if (!t || t.id === originToken.id) return false;
+    // Drawn zones, or Dynamic Zones on a scene with no zone grid.
+    const { targets, usingZones, zoneNames } = tokensSharingZone(originToken, t => {
       if (excludeSource && sourceTokenId && t.id === sourceTokenId) return false;
-      if (!CombatHUD._isWarpCoreBlastShipTarget(t)) return false;
-      return getZonesForToken(t, zones).some(z => originZoneIds.has(z.id));
+      return CombatHUD._isWarpCoreBlastShipTarget(t);
     });
-
-    return {
-      targets,
-      usingZones: true,
-      zoneNames: originZones.map(z => z.name ?? z.label ?? z.id).filter(Boolean),
-    };
+    if (!usingZones) return { targets: [], usingZones: false, zoneNames: [] };
+    return { targets, usingZones, zoneNames };
   }
 
   static async _applyWarpCoreBlastDamage(originToken, data = {}) {
@@ -4170,26 +4159,23 @@ export class CombatHUD {
     if (!primaryToken) return { targets: [], usingZones: false, zoneName: null };
 
     const RADIUS_PX = 250;
-    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
-    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-    const zones = zonesEnabled ? getSceneZones() : [];
-    // Multi-zone tokens (flags.sta2e-toolkit.multiZone) occupy every zone
-    // their footprint overlaps; normal tokens resolve to their center zone.
-    const primaryZones  = zones.length ? getZonesForToken(primaryToken, zones) : [];
-    const primaryZoneIds = new Set(primaryZones.map(z => z.id));
-    const usingZones = primaryZones.length > 0;
+    const eligible = t => t.id !== attackerTokenId
+      && (isDestructible(t) || CombatHUD._isShipToken(t));
+    // Drawn zones (multi-zone tokens occupy every zone their footprint
+    // overlaps), or Dynamic Zones on a scene with no zone grid.
+    const shared = tokensSharingZone(primaryToken, eligible);
+    if (shared.usingZones) {
+      return { targets: shared.targets, usingZones: true, zoneName: shared.zoneNames[0] ?? null };
+    }
 
+    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
     const targets = (canvas.tokens?.placeables ?? []).filter(t => {
-      if (t.id === primaryTokenId || t.id === attackerTokenId) return false;
-      if (!isDestructible(t) && !CombatHUD._isShipToken(t)) return false;
-      if (usingZones) {
-        return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
-      }
+      if (t.id === primaryTokenId || !eligible(t)) return false;
       const center = CombatHUD._centerOfToken(t);
       return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
     });
 
-    return { targets, usingZones, zoneName: primaryZones[0]?.name ?? null };
+    return { targets, usingZones: false, zoneName: null };
   }
 
   /**
@@ -4212,25 +4198,23 @@ export class CombatHUD {
 
     // Roughly "same room" when no zones are drawn — two grid squares out.
     const RADIUS_PX = (canvas?.grid?.size ?? 100) * 2;
-    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
-    const zonesEnabled = canvas?.scene?.getFlag(MODULE, "zonesEnabled") !== false;
-    const zones = zonesEnabled ? getSceneZones() : [];
-    const primaryZones   = zones.length ? getZonesForToken(primaryToken, zones) : [];
-    const primaryZoneIds = new Set(primaryZones.map(z => z.id));
-    const usingZones = primaryZones.length > 0;
     const excluded = new Set([primaryTokenId, attackerTokenId, ...excludeTokenIds].filter(Boolean));
+    const eligible = t => !excluded.has(t.id)
+      && !!t.actor && (isDestructible(t) || !CombatHUD._isShipToken(t));
+    // Drawn zones, or Dynamic Zones on a scene with no zone grid.
+    const shared = tokensSharingZone(primaryToken, eligible);
+    if (shared.usingZones) {
+      return { targets: shared.targets, usingZones: true, zoneName: shared.zoneNames[0] ?? null };
+    }
 
+    const primaryCenter = CombatHUD._centerOfToken(primaryToken);
     const targets = (canvas.tokens?.placeables ?? []).filter(t => {
-      if (excluded.has(t.id)) return false;
-      if (!t.actor || (!isDestructible(t) && CombatHUD._isShipToken(t))) return false;
-      if (usingZones) {
-        return getZonesForToken(t, zones).some(z => primaryZoneIds.has(z.id));
-      }
+      if (!eligible(t)) return false;
       const center = CombatHUD._centerOfToken(t);
       return Math.hypot(center.x - primaryCenter.x, center.y - primaryCenter.y) <= RADIUS_PX;
     });
 
-    return { targets, usingZones, zoneName: primaryZones[0]?.name ?? null };
+    return { targets, usingZones: false, zoneName: null };
   }
 
   static _weaponFromPayload(attackerToken, payload, itemType) {
@@ -10679,12 +10663,37 @@ export class CombatHUD {
   }
 
   static async fireDestructionEffect(token) {
+    if (!token?.document) return;
+    if (token?.document?.getFlag("sta2e-toolkit", "breachTrailDestruction")) {
+      try { await token.document.unsetFlag("sta2e-toolkit", "breachTrailDestruction"); }
+      catch (error) { console.warn("STA2e Toolkit | Could not clear destruction exhaust flag:", error); }
+    }
+    await CombatHUD._stopBreachTrailFX(token);
     await CombatHUD._clearHullDecalsForDestruction(token);
 
     try {
       const path = game.settings.get("sta2e-toolkit", "sndShipDestroyed");
       if (path) AudioHelper.play({ src: path, volume: 1, autoplay: true, loop: false }, true);
     } catch {}
+
+    if (useNativeShipExplosion()) {
+      const document = token.document;
+      const deleteAfter = game.settings.get("sta2e-toolkit", "deleteTokenOnDestruction");
+      try {
+        const effect = playNativeShipExplosion(token);
+        // Let the flash envelop the hull before hiding it. No Sequencer needed.
+        await new Promise(resolve => setTimeout(resolve, 180));
+        if (deleteAfter && game.user.isGM) await document.update({ alpha: 0 });
+        if (effect) await effect.finished;
+        else await new Promise(resolve => setTimeout(resolve, SHIP_EXPLOSION_DURATION_MS));
+      } catch (error) {
+        console.warn("STA2e Toolkit | Native ship destruction failed:", error);
+      } finally {
+        // Keep the original scene document even if the GM switches scenes.
+        if (deleteAfter && game.user.isGM && document.parent?.tokens?.has(document.id)) await document.delete();
+      }
+      return;
+    }
 
     if (!window.Sequence) return;
     const patron = (() => {
@@ -13040,23 +13049,27 @@ export class CombatHUD {
   }
 
   // ── Persistent warp core breach smoke trail ────────────────────────────────
-  // Uses Sequencer .persist() + .attachTo() so the effect follows the token
-  // as it moves. Named with the token id so it can be stopped precisely.
+  // Native exhaust leaves scene-space puffs; the legacy animation uses Sequencer.
 
   static _breachEffectName(token) {
     return `sta2e-breach-trail-${token.id}`;
   }
 
   /**
-   * Play a persistent JB2A steam effect on the token to indicate warp core
-   * breach imminent. Uses Sequencer .persist() + .attachTo() so the effect
-   * follows the token as it moves. Stays until _stopBreachTrailFX is called.
+   * Play the selected persistent breach exhaust until explicitly stopped.
    */
   static async _startBreachTrailFX(token) {
-    if (!window.Sequencer) return;
+    if (!token) return;
     try {
       if (!game.settings.get("sta2e-toolkit", "breachTrailFX")) return;
     } catch { return; }
+
+    if (getBreachTrailRenderer() !== "jb2a") {
+      try { return startNativeBreachTrail(token); }
+      catch (error) { console.warn("STA2e Toolkit | Native breach trail failed:", error); return; }
+    }
+    stopNativeBreachTrail(token);
+    if (!window.Sequencer) return;
 
     const effectName = CombatHUD._breachEffectName(token);
 
@@ -13105,6 +13118,8 @@ export class CombatHUD {
    * Stop the persistent warp core breach steam effect on this token.
    */
   static async _stopBreachTrailFX(token) {
+    if (!token) return;
+    stopNativeBreachTrail(token);
     if (!window.Sequencer) return;
     try {
       await Sequencer.EffectManager.endEffects({ name: CombatHUD._breachEffectName(token) });
@@ -14496,6 +14511,15 @@ export class CombatHUD {
     };
     map.set(tokenId, state);
 
+    // Keep cosmetic venting separate from the rules flag: a detonated reactor
+    // must no longer roll breach checks while its destruction animation runs.
+    if (getBreachTrailRenderer() !== "jb2a") {
+      try {
+        await token.document.setFlag("sta2e-toolkit", "breachTrailDestruction", true);
+        await CombatHUD._startBreachTrailFX(token);
+      } catch (error) { console.warn("STA2e Toolkit | Destruction exhaust failed:", error); }
+    }
+
     // Ships often lock rotation — unlock so the tumble is visible.
     try {
       await token.document.update({ lockRotation: false }, { animate: false, sta2eDeathThroes: true });
@@ -14553,6 +14577,10 @@ export class CombatHUD {
 
   /** Single secondary hull-impact explosion at a random spot inside the token. */
   static _playSecondaryExplosion(token) {
+    if (useNativeShipExplosion()) {
+      playNativeShipExplosion(token, { secondary: true });
+      return;
+    }
     if (!window.Sequence) return;
     const patron = (() => {
       try { return game.settings.get("sta2e-toolkit", "jb2aTier") === "patron"; }
@@ -14635,6 +14663,12 @@ export class CombatHUD {
 
     const token = tokenId ? canvas.tokens?.get(tokenId) : null;
     const actor = token?.actor ?? game.actors.get(actorId) ?? null;
+
+    if (token) {
+      try { await token.document.unsetFlag("sta2e-toolkit", "breachTrailDestruction"); }
+      catch (error) { console.warn("STA2e Toolkit | Could not clear destruction exhaust flag:", error); }
+      await CombatHUD._stopBreachTrailFX(token);
+    }
 
     if (actor) {
       await CombatHUD.setShipStatus(actor, "destroyed");

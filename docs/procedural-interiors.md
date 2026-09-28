@@ -1,5 +1,35 @@
 # Procedural interiors
 
+Version 6 reuses the **approved SVG cabin plans** as native procedural geometry. Choose **Cabin arrangement → SVG plans • mixed accommodation**, or an individual SVG plan. These choices use hull-section architecture and keep each plan at its measured size. The [cabin review](interior-previews/measured-cabin-layouts.html) shows all six interiors, with expandable deck-placement diagrams.
+
+| Choice | Preserved layout | Envelope |
+|---|---|---|
+| Q01-B | Compact single cabin, wardrobe, private head | 7.5 × 7.5 m |
+| Q02-R | Standard rectangular single cabin, wardrobe, private head | 6 × 9 m |
+| Q04-P | Two junior-officer cabins, two corridor entrances, shared central head with two private doors | 18 × 6 m |
+| Q03-R | One-bedroom suite, living/dining/work areas, master walk-in closet, passage-accessed head | 20.25 × 7.5 m |
+| Q05-F2 | Two-bedroom family suite, independent bedroom doors, master walk-in closet, shared head | 26.25 × 7.5 m |
+| Q05-F3 | Three-bedroom family suite with the same shared facilities | 30.75 × 7.5 m |
+
+These layouts come directly from `docs/interior-prefabs/cabin-revisions/catalog.json`, which also produces the approved SVGs. The guide builder emits `scripts/interior-cabin-plans.js` for synchronous browser use; a parity test prevents divergence. Bedroom, closet and bathroom partitions export as native walls and 1.8 m door openings. Replicator service-wall solids also export collision boundaries. Fixtures retain their recorded dimensions and positions and render as procedural symbols, with no new AI artwork or imported room images.
+
+Curved decks reserve larger bays around rigid rectangular cabins and use straight corridor frontages between curved sections. Cabins are not stretched or bent. Inboard cabins omit windows; exterior cabins use only the SVG's declared window openings. Exact cabin plans retain only their approved public entrances, with maintenance access supplied by the corridor's Jefferies alcove and other service bays. The paired head has two ordinary lockable Foundry doors, without an automatic privacy interlock. Mixed accommodation cycles through the six plans as quarters are placed; include enough quarters to see all six.
+
+API values for `cabinLayout`: `svg-mixed`, `Q01-B`, `Q02-R`, `Q04-P`, `Q03-R`, `Q05-F2`, `Q05-F3`. Selecting one sets `plan: "section"`; painted layouts still retain their cells. Existing `auto`, `standard`, and `officer` values retain their previous adaptive/study behavior. Existing scenes are untouched.
+
+Verification: `node --experimental-vm-modules tests/interior-measured-cabins.mjs --review` checks 120 decks, catalog equality, rigid dimensions, public and internal door positions, closet/head geometry, windows, non-crossing room boundaries, collision export, and recipe round trips. The source-plan walking-clearance checks remain in `tests/interior-cabin-revisions.mjs`.
+
+Version 5 adds procedural layout studies based on the existing Galaxy and Intrepid cabin references; no new generated artwork is required. In **Generate Interior**, select **Hull section / curved passageway**, then use **Hull-section curve**, **Hull-section intersections**, and **Cabin arrangement**. A [four-plan layout review](interior-previews/section-designs.html) compares the two hull profiles with standard and officer cabins using procedural symbols.
+
+- **Galaxy** fixes the passageway inner radius at 96 squares (144 m); **Intrepid** uses 52 squares (78 m) for a tighter forward-shoulder section. These are original local design radii, not measured canonical ship blueprints or complete saucer outlines. Adaptive sections retain the earlier size-dependent curve. Curve sampling and native walls share the same geometry; the curved checkbox still allows faceted versions.
+- **Three-way**, **four-way**, and **mixed** intersections reserve separate radial bays between rooms. Inboard branches lead toward the service route; outboard branches terminate at the hull and provide side access to adjoining rooms. Mixed medium and large sections contain both types; small mixed sections contain a T junction. The continuous-passageway option omits branches.
+- With Jefferies access enabled, hull sections include an open corridor-facing alcove with an exact **2 × 1 square** footprint (3 × 1.5 m), connected by a native closed hatch to the rear maintenance network. This is same-deck access, not automated vertical travel. Lift-only sections omit maintenance access.
+- **Standard cabin** uses a shower-only head, sleeping space opposite the wet area, a side work area, and seating with a low table where it fits. **Officer cabin** reserves a wider hull-section bay and a larger head with a separate tub. These adapt the cabin study's functional arrangement to the actual room boundary; they do not import the artwork or reproduce the later multi-bedroom suite catalog. Adaptive quarters remain selectable. Outside hull sections, existing room sizes still determine whether a tub and lounge furniture fit.
+
+Recipe fields: `hullProfile: "generic" | "galaxy" | "intrepid"`, `junctions: "none" | "tee" | "cross" | "mixed"`, and `cabinLayout: "auto" | "standard" | "officer"`. Defaults are generic, mixed, and auto. These choices are saved with scenes. Painted layouts keep their cell geometry. Existing scenes are not modified; reloading an older recipe uses the new defaults unless explicitly overridden.
+
+Run `node --experimental-vm-modules tests/interior-section-designs.mjs --review` to validate 144 combinations and refresh the local layout review. Checks cover actual open junction arms, measured alcove sides, service hatches, bathroom variations, deterministic regeneration, and fixed radii.
+
 Planned complete-room puzzle kit: [production inventory and fitting rules](interior-prefab-production-plan.md). This is a pre-production checklist; the existing generator and room images are not yet a fixed-footprint prefab system.
 
 Open **Scenes → Generate Interior**, or use **Generate Interior** in the STA2e Toolkit widget. Only the GM can create scenes.

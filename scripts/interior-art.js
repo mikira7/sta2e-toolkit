@@ -2,6 +2,7 @@
 import { interiorStyle, interiorWallSegments, interiorSeedHash } from "./interior-layout.js";
 import { loadInteriorAssets, interiorAssetPaths, INTERIOR_ASSET_LIBRARY } from "./interior-assets.js";
 import { interiorRoomKitPlacement } from "./interior-kit.js";
+import { renderMeasuredCabin } from "./interior-measured-cabins.js";
 export const escapeInteriorText = text => String(text).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const n = x => Number(x.toFixed(3));
 const path = points => `M${points.map(p=>`${n(p.x)},${n(p.y)}`).join("L")}Z`;
@@ -99,7 +100,7 @@ export function renderInteriorSVG(layout, { labels = layout.recipe.labels, asset
       if(!r.guidePaths&&f.h<3) for(let x=-f.w/2+.6;x<f.w/2;x+=2) out.push(line(x,-f.h/2+.2,x,f.h/2-.2,p.panel,.07,'opacity=".3"'));
       out.push(`<path d="M-.18 .2L0 0L.18 .2M-.18 .35L0 .15L.18 .35" stroke="${p.light}" stroke-width=".045" fill="none" opacity=".65"/></g>`);
     } else {
-      const quarters=r.architecture?.type==="quarters"?r.architecture:null;
+      const measured=r.architecture?.type==="measured-quarters",quarters=["quarters","measured-quarters"].includes(r.architecture?.type)?r.architecture:null;
       const w=quarters?.w??Math.max(4,f.w-.9), h=quarters?.h??Math.max(4,f.h-.9), left=-w/2, top=-h/2, fit=quarters?1:Math.min(1,(f.w-.2)/w,(f.h-.2)/h);
       out.push(`<g transform="translate(${n(f.x)} ${n(f.y)}) rotate(${n(f.rotation)}) scale(${n(Math.max(.05,fit))})">`);
       // A frame fits entirely inside its compartment; keep the bottom approach clear.
@@ -135,7 +136,8 @@ export function renderInteriorSVG(layout, { labels = layout.recipe.labels, asset
         for(let i=0;i<rows;i++)out.push(biobed(left+.2,top+.3+i*2.3),biobed(-left-1.3,top+.3+i*2.3));
         out.push(console(-left-1.6,-top-.8,1.4));
       } else if(r.kind==="quarters") {
-        if(quarters) {
+        if(measured)out.push(renderMeasuredCabin(r,p,labels));
+        else if(quarters) {
           const b=quarters.bathroom;
           out.push(`<g data-bathroom="${r.id}" data-bathroom-style="${b.tub?"suite":"standard"}"><path d="${path(b.polygon)}" fill="#637b80"/>`);
           for(const fixture of b.fixtures) {

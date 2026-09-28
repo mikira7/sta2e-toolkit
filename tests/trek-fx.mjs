@@ -6,13 +6,14 @@ const hooks=new Map(), ticks=new Set();
 const timers=new Map();let serial=0;
 const documents=new Map();
 const scene={tokens:{get:id=>documents.get(id),[Symbol.iterator]:()=>documents.values()}};
+const sharedProgram={glPrograms:{}};let compiles=0;
 class Filter {
-  constructor(v,f,uniforms){this.uniforms=uniforms;this.program={glPrograms:{0:{program:{}}}};}
+  constructor(v,f,uniforms){this.uniforms=uniforms;this.program=sharedProgram;}
   destroy(){this.destroyed=true;}
 }
 const ticker={add:fn=>ticks.add(fn),remove:fn=>ticks.delete(fn)};
 const game={user:{id:'gm',isGM:true},users:{activeGM:{id:'gm'}},scenes:[scene],time:{serverTime:12000}};
-const canvas={app:{ticker,renderer:{resolution:2,CONTEXT_UID:0,shader:{generateProgram(){}},gl:{LINK_STATUS:1,getProgramParameter:()=>true}}},tokens:{placeables:[]}};
+const canvas={app:{ticker,renderer:{resolution:2,CONTEXT_UID:0,shader:{generateProgram(filter){compiles++;filter.program.glPrograms[canvas.app.renderer.CONTEXT_UID]={program:{}};}},gl:{LINK_STATUS:1,getProgramParameter:()=>true}}},tokens:{placeables:[]}};
 const context=vm.createContext({console,game,canvas,PIXI:{Filter},
   setTimeout:(fn,ms)=>{const id=++serial;timers.set(id,{fn,at:game.time.serverTime+ms});return id;},
   clearTimeout:id=>timers.delete(id),
@@ -86,5 +87,13 @@ const player=token('player',true);await player.document.update({'blueDissolve':t
 game.user.isGM=false;fire('updateToken',player.document);await advance(7000);
 assert.equal(player.document.deletions,0);assert.equal(timers.size,0);fire('canvasTearDown');
 assert.equal(ticks.size,0);
+assert.equal(compiles,1,'scene changes and toggles reuse the shared GL program');
+canvas.app.renderer.CONTEXT_UID=1;
+fire('canvasReady');
+assert.equal(compiles,2,'a new WebGL context compiles its own program');
+fire('canvasTearDown');fire('canvasReady');
+assert.equal(compiles,2,'returning to the new context reuses its program');
+fire('canvasTearDown');
 console.log('PASS: existing FX lifecycle plus 6.5-second removal, cancellation, clear, restart, scene changes, GM election/takeover, reload recovery, preview isolation, and player deletion prevention.');
+console.log('PASS: shared shader program reuse across scene changes, toggles, and renderer contexts.');
 

@@ -701,6 +701,55 @@ async function loadRenderer(env) {
   await mod.evaluate();
   const A = mod.namespace;
 
+  check('breach length defaults, clamps invalid input, and survives save/export normalization', () => {
+    assert.equal(A.normalizeBreachTrailSettings().length, 1);
+    assert.equal(A.normalizeBreachTrailSettings({ length: 'bad' }).length, 1);
+    assert.equal(A.normalizeBreachTrailSettings({ length: 100 }).length, 5);
+    assert.equal(A.normalizeBreachTrailSettings({ length: -1 }).length, 0.5);
+    const editor = Object.create(A.ShipVfxAnchorEditor.prototype);
+    editor._activeTab = 'breach';
+    editor._anchors = A.normalizeShipVfxAnchors();
+    editor.element = { querySelector: () => ({ value: '3.25' }) };
+    assert.equal(editor._readBreachSettingsFromForm().length, 3.25);
+    const saved = A.normalizeShipVfxAnchors(JSON.parse(JSON.stringify(editor._anchors)));
+    assert.equal(saved.settings.breachTrail.length, 3.25);
+    editor._activeTab = 'tractor';
+    editor.element = { querySelector: () => ({ value: '1' }) };
+    assert.equal(editor._readBreachSettingsFromForm().length, 3.25);
+  });
+
+  check('breach anchors normalize, round-trip, and default aft independently of engines', () => {
+    const legacy = A.normalizeShipVfxAnchors({ anchors: { engineEmitters: [{ x: 0.2, y: 0.8, kind: 'warp', facingDeg: 0 }] } });
+    assert.equal(legacy.anchors.breachEmitters.length, 0);
+    const saved = A.normalizeShipVfxAnchors({ ...legacy, anchors: { ...legacy.anchors,
+      breachEmitters: [{ x: 0.3, y: 0.6 }, { x: 2, y: -1, facingDeg: -90 }, { x: 'invalid', y: 0 }] } });
+    assert.equal(saved.anchors.breachEmitters.length, 2);
+    assert.equal(saved.anchors.breachEmitters[0].facingDeg, 0);
+    assert.equal(saved.anchors.breachEmitters[1].facingDeg, 270);
+    assert.equal(saved.anchors.breachEmitters[1].x, 1);
+    assert.equal(saved.anchors.breachEmitters[1].y, 0);
+    assert.equal(saved.anchors.engineEmitters[0].facingDeg, 0);
+    assert.equal(JSON.stringify(A.normalizeShipVfxAnchors(saved)), JSON.stringify(saved));
+  });
+
+  check('breach editor exposes arrows, saves selected directions, and clears only breach points', () => {
+    const editor = Object.create(A.ShipVfxAnchorEditor.prototype);
+    editor._activeTab = 'breach'; editor._selectedEmitterIndex = 0;
+    editor._anchors = A.normalizeShipVfxAnchors({ anchors: { engineEmitters: [{ x: 0.1, y: 0.9, kind: 'warp' }] } });
+    editor._setActiveEmitters([{ x: 0.25, y: 0.7 }, { x: 0.75, y: 0.7, facingDeg: 90 }]);
+    assert.equal(editor._activeTabLabel(), 'Breach Exhaust');
+    assert.equal(editor._activeEmitterArcControls().facingDeg, 0);
+    assert.ok(editor._markerContext(editor._activeEmitters()).every(p => p.showFacingArrow));
+    editor.element = { querySelector: s => s.includes('facingDeg') ? { value: '270' } : null };
+    editor._selectedEmitterIndex = 1; // Selection changed before the old form's blur.
+    editor._readEmitterArcFromForm();
+    assert.equal(editor._activeEmitters()[0].facingDeg, 270);
+    assert.equal(editor._activeEmitters()[1].facingDeg, 90);
+    editor._setActiveEmitters([]);
+    assert.equal(editor._activeEmitters().length, 0);
+    assert.equal(editor._anchors.anchors.engineEmitters.length, 1);
+  });
+
   check('an empty flag gains the deflector block with defaults', () => {
     const out = A.normalizeShipVfxAnchors({});
     assert.equal(out.anchors.deflectorEmitters.length, 0);
@@ -711,7 +760,7 @@ async function loadRenderer(env) {
   check('a v14 flag with no deflector key normalizes rather than throwing', () => {
     const legacy = { version: 14, anchors: { engineEmitters: [] }, settings: { engineTrail: {} } };
     const out = A.normalizeShipVfxAnchors(legacy);
-    assert.equal(out.version, 15);
+    assert.equal(out.version, 16);
     assert.ok(out.settings.deflector.beam);
   });
 

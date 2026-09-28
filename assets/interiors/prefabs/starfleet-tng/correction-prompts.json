@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-22",
+  "method": "built-in image_gen",
+  "requests": [
+    {
+      "id": "H04-A-v2",
+      "prompt": "Use case: sketch-to-render. This is a precision material replacement of a fixed modular VTT floorplan, not a new composition. Preserve the input drawing's exact silhouette, aspect ratio, canvas margins, wall-strip thickness, and all opening positions. No reframing, zooming, perspective or rescaling of the drawing within the canvas. Replace dark gray fill with very fine smooth charcoal warm-gray carpet and white strips with understated pearl-gray satin wall caps. Star Trek TNG Starfleet materials. Thin caps only, walls sliced at floor level; do not add tall wall faces, baseboards or thick inner trim. Neutral even overhead lighting, subtle material texture, no cast shadow outside. True transparent alpha outside the guide, no text, labels, grid, furniture, checkerboard, exterior shadows or bright fringe. The L shape has a SQUARE outer envelope; its overall width and height must be identical. Keep vertices, as fractions of full square canvas: (0.233073,0.233073),(0.766927,0.233073),(0.766927,0.766927),(0.49349,0.766927),(0.49349,0.50651),(0.233073,0.50651). The two arms have the SAME width. Upper arm extends left, right arm extends down. Open left edge of upper arm and open bottom edge of right arm. Do not shorten the right arm or shift the inner corner. Material detail must remain INSIDE this exact fixed drawing.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H04-A-guide.png"
+      ]
+    },
+    {
+      "id": "H07-A-v2",
+      "prompt": "Use case: sketch-to-render. This is a precision material replacement of a fixed modular VTT floorplan, not a new composition. Preserve the input drawing's exact silhouette, aspect ratio, canvas margins, wall-strip thickness, and all opening positions. No reframing, zooming, perspective or rescaling of the drawing within the canvas. Replace dark gray fill with very fine smooth charcoal warm-gray carpet and white strips with understated pearl-gray satin wall caps. Star Trek TNG Starfleet materials. Thin caps only, walls sliced at floor level; do not add tall wall faces, baseboards or thick inner trim. Neutral even overhead lighting, subtle material texture, no cast shadow outside. True transparent alpha outside the guide, no text, labels, grid, furniture, checkerboard, exterior shadows or bright fringe. The shallow U-shaped corridor end cap has width-to-depth ratio EXACTLY 2.1:1. Entire TOP edge is open. Bottom, left and right edges have only the guide's very thin white wall strips. Keep guide footprint between fractions x0.36328125..0.63671875, y0.434895833..0.565104167 of the square canvas. Do not thicken the walls or add anything across the top opening.",
+      "references": [
+        "docs/interior-prefabs/art-guides/H07-A-guide.png"
+      ]
+    },
+    {
+      "id": "H02-A-v3",
+      "prompt": "Use case: precise-object-edit. Edit this corridor image only by closing the centred doorway gap in the top wall. Continue the existing top pearl-gray wall cap seamlessly through that gap, same thickness, shading and exact alignment as the rest of the top wall. Keep EVERY other pixel, carpet texture, canvas framing, lower wall, open left/right ends, transparency, scale and appearance unchanged. The final image is a simple straight horizontal corridor with continuous top and bottom walls and open left/right ends. No other changes.",
+      "references": [
+        "assets/interiors/prefabs/starfleet-tng/H08-A-v2.png"
+      ]
+    },
+    {
+      "id": "Q01-A-v2",
+      "prompt": "Use case: sketch-to-render. Render the supplied guide as photorealistic Star Trek TNG crew quarters for a modular VTT map. STRICT fixed-plan rendering: preserve the drawing's exact outline, canvas framing, wall strip widths, door gaps, bathroom shape and all fixture rectangles. No zooming, no new furniture. Replace each labelled rectangle with exactly one realistic object fitting wholly inside that rectangle, never enlarge the rectangle. Remove every label. No bedside tables, cabinets or items beyond those explicitly drawn. Materials: fine smooth muted warm gray-lavender carpet; satin pearl-gray furniture and thin cut wall caps; slate-blue upholstery/bedding; subtle amber/lavender LCARS desk control. Bathroom warm neutral non-slip floor, white built-in sanitary fixtures. Keep all walking space empty. Camera perfectly vertical orthographic, no isometric tilt or vertical wall faces. Neutral diffuse overhead lighting, small contact shadows contained inside the floor silhouette. Genuinely transparent outside the footprint, clean alpha edge without colored halo. No door leaves or bars across the openings: empty door gaps continue the adjacent floor surface to the edge. No text, grid, logos, people or backdrop. The cyan line is a narrow hull window viewed exactly from above, no scenery. Standard cabin: exact square guide footprint. Perimeter bathroom in upper-right shares both outer walls; basin at its upper-left, sonic shower upper-right, toilet lower-right; open bathroom doorway in its left wall. No tub. Bed upper-left, desk and separate chair on left, horizontal sofa lower-right and low oval table above it. All objects must stay inside their original labelled rectangles, including bed frame. Preserve the open entrance centred in bottom wall and cyan window on top wall. Outer room corners stay at fractions (0.174479,0.174479) and (0.825521,0.825521) of the entire canvas.",
+      "references": [
+        "docs/interior-prefabs/art-guides/Q01-A-guide.png"
+      ]
+    },
+    {
+      "id": "Q03-L-v2",
+      "prompt": "Use case: sketch-to-render. Render the supplied guide as photorealistic Star Trek TNG crew quarters for a modular VTT map. STRICT fixed-plan rendering: preserve the drawing's exact outline, canvas framing, wall strip widths, door gaps, bathroom shape and all fixture rectangles. No zooming, no new furniture. Replace each labelled rectangle with exactly one realistic object fitting wholly inside that rectangle, never enlarge the rectangle. Remove every label. No bedside tables, cabinets or items beyond those explicitly drawn. Materials: fine smooth muted warm gray-lavender carpet; satin pearl-gray furniture and thin cut wall caps; slate-blue upholstery/bedding; subtle amber/lavender LCARS desk control. Bathroom warm neutral non-slip floor, white built-in sanitary fixtures. Keep all walking space empty. Camera perfectly vertical orthographic, no isometric tilt or vertical wall faces. Neutral diffuse overhead lighting, small contact shadows contained inside the floor silhouette. Genuinely transparent outside the footprint, clean alpha edge without colored halo. No door leaves or bars across the openings: empty door gaps continue the adjacent floor surface to the edge. No text, grid, logos, people or backdrop. The cyan line is a narrow hull window viewed exactly from above, no scenery. Officer suite: preserve TRUE L footprint with transparent TOP-RIGHT missing corner. Perimeter bathroom attached to outer TOP and LEFT walls; sonic shower top-left, toilet top-right, basin middle-left, separate horizontal tub at bottom-left, open doorway in RIGHT bathroom partition. Bed on right directly below missing corner. Desk lower-left with chair below. Horizontal sofa lower-right with oval table above. Preserve bottom centre open entrance. Do not enlarge any object, bathtub or bathroom. Keep L-shape vertices as fractions of full canvas: (0.109375,0.109375),(0.630208,0.109375),(0.630208,0.369792),(0.890625,0.369792),(0.890625,0.890625),(0.109375,0.890625).",
+      "references": [
+        "docs/interior-prefabs/art-guides/Q03-L-guide.png"
+      ]
+    }
+  ]
+}

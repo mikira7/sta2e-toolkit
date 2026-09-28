@@ -298,6 +298,19 @@
 
   </div>
 
+  <fieldset>
+    <legend>Starship explosion</legend>
+    <p>Preview the native fireball, sparks, and hull debris on your selected ship. The ship stays intact; only you see this preview.</p>
+    <label for="sta2e-explosion-color">Explosion color</label>
+    <select id="sta2e-explosion-color" name="explosionColor">
+      {{#each explosionColors}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+    </select>
+    <button type="button" data-action="previewExplosion"><i class="fas fa-burst"></i> Preview Ship Explosion</button>
+    {{#if canSaveExplosion}}<button type="button" data-action="saveExplosion"><i class="fas fa-save"></i> Save Color to Selected Ship</button>{{/if}}
+    <p>Saved colors apply to this ship's explosions and smaller hull bursts, including future tokens of its actor.</p>
+    <p>Enable it for combat in Module Settings → Starship Explosion Animation.</p>
+  </fieldset>
+
   <div class="sta2e-vfx-actions">
     <button type="button" data-action="saveClient"><i class="fas fa-user-gear"></i> Save Client</button>
     <button type="button" data-action="saveWorld"><i class="fas fa-globe"></i> Save World</button>

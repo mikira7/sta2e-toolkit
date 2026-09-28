@@ -1238,6 +1238,40 @@
   </div>
   {{/if}}
 
+  {{#if isBreachTab}}
+  <div class="sta2e-vfx-settings">
+    <div class="sta2e-vfx-settings-heading"><span>Breach Exhaust Vents</span></div>
+    <div class="sta2e-anchor-value">Click the ship image to place up to four vents. Drag a point to move it; select a point to set its direction. These points apply to both native smoke and plasma.</div>
+    <div class="sta2e-anchor-value">With no vents saved, smoke uses nacelle locations and flows aft, ignoring warp curve directions. Plasma uses an aft hull vent. Clear this tab to restore those defaults.</div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-breach-length">Trail Length</label>
+        <input id="sta2e-breach-length" type="range" min="0.5" max="5" step="0.25" value="{{breachTrailSettings.length}}" data-breach-setting="length" />
+      </div>
+      <div class="sta2e-vfx-settings-row"><label>Length Multiplier</label><span class="sta2e-anchor-value" data-breach-length-value>{{breachTrailSettings.length}}×</span></div>
+    </div>
+    <div class="sta2e-anchor-value">1× is the standard length for this ship's size. Higher values extend the cone and keep the trail visible longer as the ship moves. Applies to native smoke and plasma; 0.5×–5×.</div>
+    <div class="sta2e-anchor-value">Exhaust automatically scales to the displayed ship size, including token texture scaling. Large plumes drift more slowly and linger longer to stay visible beyond the hull. The plasma glow follows the same flow timing as the gas. Trail Length adjusts the plume's reach.</div>
+    {{#if showEmitterArcSettings}}
+    <div class="sta2e-vfx-settings-heading"><span>Vent {{activeEmitterArcControls.displayIndex}} Direction</span></div>
+    <div class="sta2e-anchor-value">The ship faces down. Exhaust direction: 0° up (aft, default), 90° right, 180° down (fore), 270° left. The arrow shows where gas travels.</div>
+    <div class="sta2e-vfx-settings-grid">
+      <div class="sta2e-vfx-settings-row">
+        <label for="sta2e-breach-facing">Exhaust Direction</label>
+        <input id="sta2e-breach-facing" type="range" min="0" max="359" step="1" value="{{activeEmitterArcControls.facingDeg}}" data-emitter-setting="facingDeg" />
+      </div>
+      <div class="sta2e-vfx-settings-row"><label>Direction Value</label><span class="sta2e-anchor-value" data-emitter-facing-value>{{activeEmitterArcControls.facingDeg}} deg</span></div>
+    </div>
+    {{/if}}
+    <div class="sta2e-vfx-preview-bar">
+      <div class="sta2e-vfx-preview-status" title="{{previewSourceName}}">Source: {{previewSourceName}}</div>
+      <label class="sta2e-vfx-preview-check"><input type="checkbox" data-auto-preview {{#if autoPreview}}checked{{/if}} /> Auto</label>
+      <button type="button" data-action="preview"><i class="fas fa-play"></i> Preview</button>
+    </div>
+    <div class="sta2e-anchor-value">Preview uses unsaved points and length, running longer for large smoke plumes (up to 30 seconds). With JB2A selected, preview shows native smoke. Save to apply changes to active breaches.</div>
+  </div>
+  {{/if}}
+
   {{!-- Only rendered for ships that have a gated style available (the Timeship
         trait); everyone else has nothing to choose between. Ship-level, so it
         sits outside the tab blocks like the shield settings below. --}}

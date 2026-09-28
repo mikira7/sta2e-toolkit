@@ -1,13 +1,16 @@
-import { INTERIOR_FACTIONS, INTERIOR_ERAS, INTERIOR_SIZES, INTERIOR_PURPOSES, INTERIOR_PLANS, INTERIOR_ROOM_TYPES, normalizeInteriorRecipe, generateInterior, validateInterior, interiorWallSegments } from "./interior-layout.js";
+import { INTERIOR_FACTIONS, INTERIOR_ERAS, INTERIOR_SIZES, INTERIOR_PURPOSES, INTERIOR_PLANS, INTERIOR_HULL_PROFILES, INTERIOR_JUNCTIONS, INTERIOR_CABINS, INTERIOR_ROOM_TYPES, normalizeInteriorRecipe, generateInterior, validateInterior, interiorWallSegments } from "./interior-layout.js";
 import { interiorBrushControls, bindInteriorBrushEditor } from "./interior-brush-editor.js";
 import { INTERIOR_ROOM_KITS } from "./interior-kit.js";
 import { renderInteriorSVG, escapeInteriorText as esc } from "./interior-art.js";
 import { INTERIOR_ASSET_SLOTS, INTERIOR_ASSET_LIBRARY, interiorAssetPaths, loadInteriorAssets } from "./interior-assets.js";
 import { createInteriorScene, INTERIOR_FLAG } from "./interior-scene.js";
+import { openPrefabInteriorGenerator } from "./interior-prefab-generator.js";
+import { registerPrefabDoorHooks } from "./interior-prefab-scene.js";
+import { isMeasuredCabin } from "./interior-measured-cabins.js";
 
 let activeDialog=null;
 const options=(catalog,selected)=>Object.entries(catalog).map(([id,value])=>`<option value="${esc(id)}" ${id===selected?"selected":""}>${esc(value.label??value)}</option>`).join("");
-const SIMPLE_FIELDS=["seed","faction","era","type","plan","size","purpose","gridSize","lighting","labels","curved","hullWindows","jefferies","roomKit"];
+const SIMPLE_FIELDS=["seed","faction","era","type","plan","hullProfile","junctions","cabinLayout","size","purpose","gridSize","lighting","labels","curved","hullWindows","jefferies","roomKit"];
 function readInteriorForm(root,brush=null) {
   const field=k=>root.querySelector(`[name="${k}"]`);
   return normalizeInteriorRecipe({
@@ -40,6 +43,11 @@ export async function openInteriorGenerator(input={}) {
     ${label("Faction",`<select name="faction">${options(INTERIOR_FACTIONS,initial.faction)}</select>`)}
     ${label("Era",`<select name="era"></select>`)}
     ${label("Deck architecture",`<select name="plan">${options(INTERIOR_PLANS,initial.plan)}</select>`)}
+    ${label("Hull-section curve",`<select name="hullProfile">${options(INTERIOR_HULL_PROFILES,initial.hullProfile)}</select>`)}
+    ${label("Hull-section intersections",`<select name="junctions">${options(INTERIOR_JUNCTIONS,initial.junctions)}</select>`)}
+    ${label("Cabin arrangement",`<select name="cabinLayout">${options(INTERIOR_CABINS,initial.cabinLayout)}</select>`)}
+    <p class="interior-help">SVG cabin plans reuse the measured single cabins, junior-officer pair with shared head, and one-, two- or three-bedroom suites with closets. These choices switch to hull sections and reserve full-size rectangular bays. Mixed accommodation cycles through the plans as quarters are placed. Include Crew quarters in your room selection.</p>
+    <p class="interior-help">Galaxy and Intrepid use fixed design radii for encounter sections, not canonical full-deck plans. Branches and 2 × 1 access alcoves apply to hull sections. Standard and officer cabin studies guide sleeping, work and lounge placement.</p>
     <label class="interior-row"><input type="checkbox" name="curved" ${initial.curved?"checked":""}> Curved hull and passageways</label>
     <label class="interior-row"><input type="checkbox" name="hullWindows" ${initial.hullWindows?"checked":""}> Windows in exterior cabins and lounges</label>
     <label class="interior-row"><input type="checkbox" name="jefferies" ${initial.jefferies?"checked":""}> Jefferies tubes and access hatches</label>
@@ -106,6 +114,7 @@ export async function openInteriorGenerator(input={}) {
         brushEditor=bindInteriorBrushEditor(root,{initial:initial.brush,getLayout:()=>generateInterior(readInteriorForm(root,brushEditor?.getBrush()??null)),onChange:preview});
         root.querySelectorAll("input,select").forEach(el=>el.addEventListener("change",()=>{
           if(el.name==="faction") {const current=field("era").value;eras(INTERIOR_FACTIONS[field("faction").value].eras.includes(current)?current:"tng");}
+          if(isMeasuredCabin(field("cabinLayout").value))field("plan").value="section";
           preview();
         }));
         root.querySelector("[data-reroll]").addEventListener("click",()=>{field("seed").value=foundry.utils.randomID(10);preview();});
@@ -156,6 +165,7 @@ export async function openInteriorGenerator(input={}) {
 }
 
 export function registerInteriorGeneratorHooks() {
+  registerPrefabDoorHooks();
   Hooks.on("renderSceneDirectory",(_app,html)=>{
     if(!game.user?.isGM)return;
     const root=html instanceof HTMLElement?html:html?.[0];
@@ -165,5 +175,11 @@ export function registerInteriorGeneratorHooks() {
     button.innerHTML='<i class="fas fa-dungeon"></i> Generate Interior';
     button.addEventListener("click",()=>openInteriorGenerator().catch(error=>console.error("STA2e | Interior generator",error)));
     header.append(button);
+    const starter=document.createElement("button");starter.type="button";starter.dataset.sta2ePrefab="";
+    starter.innerHTML='<i class="fas fa-puzzle-piece"></i> Assembled Interior';
+    starter.addEventListener("click",()=>openPrefabInteriorGenerator().catch(error=>{
+      console.error("STA2e | Assembled interior",error);ui.notifications.error(error.message);
+    }));
+    header.append(starter);
   });
 }

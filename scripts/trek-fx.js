@@ -272,7 +272,11 @@ export function refreshTrekFx(token) {
       const renderer = canvas.app.renderer;
       filter.resolution = Math.min(renderer.resolution ?? 1, 1);
       // Compile before attaching, so an unsupported shader cannot blank the token.
-      renderer.shader.generateProgram(filter);
+      // PIXI shares Program objects between all filters with these sources. Never
+      // replace an existing GL program: ShaderSystem may still have the old handle
+      // bound and compares the shared Program identity when deciding to rebind.
+      // Recompiling here breaks uniforms after scene switches or off/on toggles.
+      if (!filter.program.glPrograms?.[renderer.CONTEXT_UID]) renderer.shader.generateProgram(filter);
       const program = filter.program.glPrograms[renderer.CONTEXT_UID]?.program;
       if (!program || !renderer.gl.getProgramParameter(program, renderer.gl.LINK_STATUS)) {
         throw new Error("Trek FX shader failed to link.");

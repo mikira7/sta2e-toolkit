@@ -10,6 +10,7 @@ import { DateEditor } from "./date-editor.js";
 import { CampaignManager } from "./campaign-manager.js";
 import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
+import { SHIP_EXPLOSION_ACTION, playShipExplosionFromSocket, previewShipExplosion } from "./ship-explosion-vfx.js";
 import { NativeTractorBeamVFX, registerTractorBeamVfxHooks } from "./tractor-beam-vfx.js";
 import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { registerDestructibleObjects, isDestructible, requestObjectOperation } from "./destructible-objects.js";
@@ -24,6 +25,11 @@ import { AlertHUD } from "./alert-hud.js";
 import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, promptWarpFleeStyle, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
 import { buildWeaponContext, refreshToolkitSpriteCache } from "./weapon-configs.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
+import { registerBreachTrailHooks } from "./breach-trail-vfx.js";
+registerBreachTrailHooks(
+  token => CombatHUD._startBreachTrailFX(token),
+  token => CombatHUD._stopBreachTrailFX(token),
+);
 import {
   DEFLECTOR_VFX_ACTION,
   STOP_DEFLECTOR_VFX_ACTION,
@@ -62,6 +68,10 @@ import { applyWildcardName } from "./wildcard-namer.js";
 import { ZoneOverlay } from "./zone-layer.js";
 import { ZoneEditState, ZoneToolbar } from "./zone-editor.js";
 import { getSceneZones, getZoneDistance, getZoneAtPoint, getZoneMeasurement } from "./zone-data.js";
+import {
+  isDynamicZonesEnabled, getDynamicZoneDistanceBetweenPoints,
+  getDefaultDynamicZoneRadius,
+} from "./zone-dynamic.js";
 import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerRegionPadConfig } from "./region-pad-config.js";
 import { registerRegionSplineTool } from "./region-spline-tool.js";
@@ -1100,6 +1110,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openCharacterCreator = openCharacterCreator;
   game.sta2eToolkit.openTextFormatter = openTextFormatter;
   game.sta2eToolkit.openVfxTestPanel = _openVfxTestPanel;
+  game.sta2eToolkit.previewShipExplosion = previewShipExplosion;
   game.sta2eToolkit.testTractorBeamVFX = options => NativeTractorBeamVFX.testSelectedToTargeted(options);
   game.sta2eToolkit.stopTractorBeamVFX = () => NativeTractorBeamVFX.stopActive();
   game.sta2eToolkit.testShieldBubbleVFX = options => testShieldBubble(options);
@@ -1403,6 +1414,11 @@ Hooks.once("ready", async () => {
   // the GM changes time, campaign data, or theme we emit this to sync players.
   _toolkitSocketHandler = async (msg) => {
     if (!msg?.action) return;
+
+    if (msg.action === SHIP_EXPLOSION_ACTION) {
+      playShipExplosionFromSocket(msg);
+      return;
+    }
 
     // Engine trail VFX broadcast — the impulse/warp runners execute on the
     // responsible GM only; these mirror the client-local PIXI trail on every
@@ -2454,7 +2470,6 @@ Hooks.on("canvasReady", async () => {
   // State is stored on the token document (not the actor) so each wildcard
   // instance is independent.
   setTimeout(() => {
-    if (!window.Sequencer) return;
     for (const token of canvas.tokens?.placeables ?? []) {
       const breachFlag = token.document?.getFlag("sta2e-toolkit", "warpBreachImminent");
       if (breachFlag === true) {
@@ -2500,6 +2515,10 @@ Hooks.on("renderSceneConfig", (app, html) => {
   const hideBorders   = scene.getFlag("sta2e-toolkit", "zoneHideBorders")   ?? false;
   const defaultColor  = scene.getFlag("sta2e-toolkit", "zoneDefaultColor")  ?? scene.getFlag("sta2e-toolkit", "zonePlayBorderColor") ?? "";
   const movementLog   = scene.getFlag("sta2e-toolkit", "zoneMovementLog")   ?? false;
+  const dynamicOn     = scene.getFlag("sta2e-toolkit", "dynamicZones")      === true;
+  const dynamicRadius = scene.getFlag("sta2e-toolkit", "dynamicZoneRadius") ?? "";
+  const dynamicDefault = getDefaultDynamicZoneRadius();
+  const hasDrawnZones = getSceneZones(scene).length > 0;
 
   const section = document.createElement("fieldset");
   section.className = "sta2e-zones-fieldset";
@@ -2540,6 +2559,18 @@ Hooks.on("renderSceneConfig", (app, html) => {
       <p class="notes">Post a chat message when a token moves between zones on this scene.</p>
     </div>
     <div class="form-group">
+      <label>Dynamic Zones</label>
+      <input type="checkbox" name="sta2e-zones-dynamic" ${dynamicOn ? "checked" : ""}/>
+      <p class="notes">For scenes without a zone grid. Every token carries its own zone — a band of pixels around its footprint — so weapon range, Area attacks and "within Close range" work without drawing zones.${hasDrawnZones ? " <strong>This scene has drawn zones, which take priority while they exist.</strong>" : ""}</p>
+    </div>
+    <div class="form-group">
+      <label>Dynamic Zone Radius (px)</label>
+      <div class="form-fields">
+        <input type="number" name="sta2e-zones-dynamic-radius" min="1" step="1" value="${dynamicRadius}" placeholder="${dynamicDefault}"/>
+      </div>
+      <p class="notes sta2e-dynamic-zone-bands"></p>
+    </div>
+    <div class="form-group">
       <label>Zone Editor</label>
       <button type="button" id="sta2e-open-zone-editor" style="width:auto;padding:2px 10px;">
         <i class="fas fa-vector-square"></i> Open Zone Editor
@@ -2550,6 +2581,22 @@ Hooks.on("renderSceneConfig", (app, html) => {
   section.querySelector("#sta2e-open-zone-editor")?.addEventListener("click", () => {
     game.sta2eToolkit?.zoneToolbar?.toggle();
   });
+
+  // ── Dynamic zone radius → live band readout ──────────────────────────────
+  const radiusInput = section.querySelector("[name='sta2e-zones-dynamic-radius']");
+  const bandsNote   = section.querySelector(".sta2e-dynamic-zone-bands");
+  const renderBands = () => {
+    const v = Number(radiusInput?.value);
+    const r = radiusInput?.value !== "" && Number.isFinite(v) && v > 0 ? v : dynamicDefault;
+    const grid = scene.grid?.size || 100;
+    const sq = n => `${n}px (${Math.round((n / grid) * 10) / 10} sq)`;
+    if (bandsNote) {
+      bandsNote.innerHTML = `Measured hull edge to hull edge. Blank uses the world default (${dynamicDefault}px). ` +
+        `Close ≤ ${sq(r)} · Medium ≤ ${sq(r * 3)} · Long ≤ ${sq(r * 5)} · Extreme beyond.`;
+    }
+  };
+  radiusInput?.addEventListener("input", renderBands);
+  renderBands();
 
   // ── Default color picker ↔ text sync ─────────────────────────────────────
   const colorPicker = section.querySelector("[name='sta2e-zones-default-color']");
@@ -2592,6 +2639,10 @@ Hooks.on("renderSceneConfig", (app, html) => {
     const showFillChk    = form.querySelector("[name='sta2e-zones-show-fill']")?.checked ?? false;
     const hideBordersChk = form.querySelector("[name='sta2e-zones-hide-borders']")?.checked ?? false;
     const log            = form.querySelector("[name='sta2e-zones-movement-log']")?.checked ?? false;
+    const dynamicChk     = form.querySelector("[name='sta2e-zones-dynamic']")?.checked ?? false;
+    const radiusRaw      = form.querySelector("[name='sta2e-zones-dynamic-radius']")?.value ?? "";
+    const radiusNum      = Number(radiusRaw);
+    const radiusVal      = radiusRaw !== "" && Number.isFinite(radiusNum) && radiusNum > 0 ? Math.round(radiusNum) : null;
     // Default color: use text field value if valid hex, else empty (use built-in default)
     const colorRaw       = (form.querySelector("[name='sta2e-zones-default-color-text']")?.value ?? "").trim();
     const colorVal       = /^#[0-9a-fA-F]{6}$/.test(colorRaw) ? colorRaw : "";
@@ -2601,6 +2652,8 @@ Hooks.on("renderSceneConfig", (app, html) => {
     await scene.setFlag("sta2e-toolkit", "zoneHideBorders",    hideBordersChk).catch(() => {});
     await scene.setFlag("sta2e-toolkit", "zoneDefaultColor",   colorVal).catch(() => {});
     await scene.setFlag("sta2e-toolkit", "zoneMovementLog",    log).catch(() => {});
+    await scene.setFlag("sta2e-toolkit", "dynamicZones",       dynamicChk).catch(() => {});
+    await scene.setFlag("sta2e-toolkit", "dynamicZoneRadius",  radiusVal).catch(() => {});
   }, { once: true });
 });
 
@@ -4832,19 +4885,26 @@ Hooks.once("ready", () => {
       const sceneOn    = perScene !== false;
       if (game.settings.get("sta2e-toolkit", "zoneRulerOverride") && sceneOn && zoneOrigin) {
         const zones = getSceneZones();
+        let zoneInfo = null;
         if (zones.length > 0) {
           // Plain ruler measurements are multi-zone aware: an endpoint on a
           // token flagged multiZone measures to its nearest occupied zone.
           // When a token is being dragged (this.token), its own movement
           // stays center-based, but other multi-zone tokens under the
           // endpoints are still respected.
-          const zoneInfo = getZoneMeasurement(
+          const drawn = getZoneMeasurement(
             zoneOrigin,
             { x: waypoint.x, y: waypoint.y },
             zones,
             { exclude: this.token ?? null }
           );
-          if (zoneInfo.fromZone && zoneInfo.toZone && zoneInfo.zoneCount >= 0) {
+          if (drawn.fromZone && drawn.toZone) zoneInfo = drawn;
+        } else if (isDynamicZonesEnabled()) {
+          // Dynamic Zones: straight-line pixels against the scene's radius.
+          zoneInfo = getDynamicZoneDistanceBetweenPoints(zoneOrigin, { x: waypoint.x, y: waypoint.y });
+        }
+        if (zoneInfo) {
+          if (zoneInfo.zoneCount >= 0) {
             const parts = [];
             parts.push(`${zoneInfo.zoneCount} zone${zoneInfo.zoneCount !== 1 ? "s" : ""}`);
             parts.push(zoneInfo.rangeBand);

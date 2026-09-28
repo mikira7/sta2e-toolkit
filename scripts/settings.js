@@ -364,6 +364,15 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register("sta2e-toolkit", "dynamicZoneRadiusDefault", {
+    name:    "STA2E.Settings.DynamicZoneRadiusDefault.Name",
+    hint:    "STA2E.Settings.DynamicZoneRadiusDefault.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    default: 300,
+  });
+
   game.settings.register("sta2e-toolkit", "zoneBorderStyleDefault", {
     name:    "STA2E.Settings.ZoneBorderStyleDefault.Name",
     hint:    "STA2E.Settings.ZoneBorderStyleDefault.Hint",
@@ -1014,6 +1023,16 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register("sta2e-toolkit", "shipExplosionRenderer", {
+    name: "Starship Explosion Animation",
+    hint: "Choose JB2A or a native Trek-style fireball with sparks and tumbling hull debris. Native also replaces the smaller destruction hull bursts and needs no JB2A or Sequencer. Preview from the VFX Test Panel.",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: { jb2a: "JB2A", native: "Native — Trek fireball and debris" },
+    default: "jb2a",
+  });
+
   game.settings.register("sta2e-toolkit", "deleteTokenOnDestruction", {
     name:    "STA2E.Settings.DeleteTokenOnDestruction.Name",
     hint:    "STA2E.Settings.DeleteTokenOnDestruction.Hint",
@@ -1182,6 +1201,20 @@ export function registerSettings() {
     config:  true,
     type:    Boolean,
     default: true,
+  });
+
+  game.settings.register("sta2e-toolkit", "breachTrailRenderer", {
+    name: "Ship Damage — Warp Core Breach Trail Style",
+    hint: "JB2A uses the configured animation. Set native vent locations and directions in Ship VFX Anchors → Breach Exhaust. Without custom vents, smoke flows aft from Warp anchor locations (or an aft hull vent), and plasma flows aft from the underside vent. Native trails linger as the ship moves and tumbles, including during destruction; no JB2A or Sequencer required.",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      jb2a: "JB2A animation",
+      smoke: "Native smoke — warp nacelles",
+      plasma: "Native warp plasma — underside vent",
+    },
+    default: "jb2a",
   });
 
   // ── Dice So Nice integration ─────────────────────────────────────────────

@@ -1,0 +1,522 @@
+{
+  "status": "drawing-guides-only",
+  "canvas": [
+    1536,
+    1536
+  ],
+  "pixelsPerUnit": 200,
+  "metresPerUnit": 1.5,
+  "pieces": [
+    {
+      "id": "Q01-A",
+      "name": "Standard quarters",
+      "origin": [
+        268,
+        268
+      ],
+      "footprintPixels": [
+        [
+          268,
+          268
+        ],
+        [
+          1268,
+          268
+        ],
+        [
+          1268,
+          1268
+        ],
+        [
+          268,
+          1268
+        ]
+      ],
+      "ports": [
+        {
+          "id": "entry",
+          "type": "room",
+          "at": [
+            2.5,
+            5
+          ],
+          "facing": 90,
+          "pixels": [
+            768,
+            1268
+          ],
+          "widthPixels": 240
+        }
+      ],
+      "guide": "Q01-A-guide.png",
+      "mask": "Q01-A-mask.svg"
+    },
+    {
+      "id": "Q03-L",
+      "name": "Officer quarters — L",
+      "origin": [
+        168,
+        168
+      ],
+      "footprintPixels": [
+        [
+          168,
+          168
+        ],
+        [
+          968,
+          168
+        ],
+        [
+          968,
+          568
+        ],
+        [
+          1368,
+          568
+        ],
+        [
+          1368,
+          1368
+        ],
+        [
+          168,
+          1368
+        ]
+      ],
+      "ports": [
+        {
+          "id": "entry",
+          "type": "room",
+          "at": [
+            3,
+            6
+          ],
+          "facing": 90,
+          "pixels": [
+            768,
+            1368
+          ],
+          "widthPixels": 240
+        }
+      ],
+      "guide": "Q03-L-guide.png",
+      "mask": "Q03-L-mask.svg"
+    },
+    {
+      "id": "T01-A",
+      "name": "Compact turbolift",
+      "origin": [
+        468,
+        528
+      ],
+      "footprintPixels": [
+        [
+          648,
+          528
+        ],
+        [
+          888,
+          528
+        ],
+        [
+          1008,
+          648
+        ],
+        [
+          1008,
+          888
+        ],
+        [
+          888,
+          1008
+        ],
+        [
+          648,
+          1008
+        ],
+        [
+          528,
+          888
+        ],
+        [
+          528,
+          648
+        ]
+      ],
+      "ports": [
+        {
+          "id": "entry",
+          "type": "room",
+          "at": [
+            1.5,
+            0
+          ],
+          "facing": 270,
+          "pixels": [
+            768,
+            528
+          ],
+          "widthPixels": 240
+        }
+      ],
+      "guide": "T01-A-guide.png",
+      "mask": "T01-A-mask.svg"
+    },
+    {
+      "id": "H02-A",
+      "name": "Straight corridor",
+      "origin": [
+        368,
+        558
+      ],
+      "footprintPixels": [
+        [
+          368,
+          558
+        ],
+        [
+          1168,
+          558
+        ],
+        [
+          1168,
+          978
+        ],
+        [
+          368,
+          978
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180,
+          "pixels": [
+            368,
+            768
+          ],
+          "widthPixels": 400
+        },
+        {
+          "id": "east",
+          "type": "corridor",
+          "at": [
+            4,
+            1.05
+          ],
+          "facing": 0,
+          "pixels": [
+            1168,
+            768
+          ],
+          "widthPixels": 400
+        }
+      ],
+      "guide": "H02-A-guide.png",
+      "mask": "H02-A-mask.svg"
+    },
+    {
+      "id": "H08-A",
+      "name": "One room doorway",
+      "origin": [
+        368,
+        558
+      ],
+      "footprintPixels": [
+        [
+          368,
+          558
+        ],
+        [
+          1168,
+          558
+        ],
+        [
+          1168,
+          978
+        ],
+        [
+          368,
+          978
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180,
+          "pixels": [
+            368,
+            768
+          ],
+          "widthPixels": 400
+        },
+        {
+          "id": "east",
+          "type": "corridor",
+          "at": [
+            4,
+            1.05
+          ],
+          "facing": 0,
+          "pixels": [
+            1168,
+            768
+          ],
+          "widthPixels": 400
+        },
+        {
+          "id": "north-room",
+          "type": "room",
+          "at": [
+            2,
+            0
+          ],
+          "facing": 270,
+          "pixels": [
+            768,
+            558
+          ],
+          "widthPixels": 240
+        }
+      ],
+      "guide": "H08-A-guide.png",
+      "mask": "H08-A-mask.svg"
+    },
+    {
+      "id": "H09-A",
+      "name": "Opposed room doorways",
+      "origin": [
+        368,
+        558
+      ],
+      "footprintPixels": [
+        [
+          368,
+          558
+        ],
+        [
+          1168,
+          558
+        ],
+        [
+          1168,
+          978
+        ],
+        [
+          368,
+          978
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180,
+          "pixels": [
+            368,
+            768
+          ],
+          "widthPixels": 400
+        },
+        {
+          "id": "east",
+          "type": "corridor",
+          "at": [
+            4,
+            1.05
+          ],
+          "facing": 0,
+          "pixels": [
+            1168,
+            768
+          ],
+          "widthPixels": 400
+        },
+        {
+          "id": "north-room",
+          "type": "room",
+          "at": [
+            2,
+            0
+          ],
+          "facing": 270,
+          "pixels": [
+            768,
+            558
+          ],
+          "widthPixels": 240
+        },
+        {
+          "id": "south-room",
+          "type": "room",
+          "at": [
+            2,
+            2.1
+          ],
+          "facing": 90,
+          "pixels": [
+            768,
+            978
+          ],
+          "widthPixels": 240
+        }
+      ],
+      "guide": "H09-A-guide.png",
+      "mask": "H09-A-mask.svg"
+    },
+    {
+      "id": "H04-A",
+      "name": "Right-angle bend",
+      "origin": [
+        358.00000000000006,
+        358.00000000000006
+      ],
+      "footprintPixels": [
+        [
+          358.00000000000006,
+          358.00000000000006
+        ],
+        [
+          1178,
+          358.00000000000006
+        ],
+        [
+          1178,
+          1178
+        ],
+        [
+          758,
+          1178
+        ],
+        [
+          758,
+          778
+        ],
+        [
+          358.00000000000006,
+          778
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180,
+          "pixels": [
+            358.00000000000006,
+            568
+          ],
+          "widthPixels": 400
+        },
+        {
+          "id": "south",
+          "type": "corridor",
+          "at": [
+            3.05,
+            4.1
+          ],
+          "facing": 90,
+          "pixels": [
+            968,
+            1178
+          ],
+          "widthPixels": 400
+        }
+      ],
+      "guide": "H04-A-guide.png",
+      "mask": "H04-A-mask.svg"
+    },
+    {
+      "id": "H07-A",
+      "name": "Corridor end cap",
+      "origin": [
+        558,
+        668
+      ],
+      "footprintPixels": [
+        [
+          558,
+          668
+        ],
+        [
+          978,
+          668
+        ],
+        [
+          978,
+          868
+        ],
+        [
+          558,
+          868
+        ]
+      ],
+      "ports": [
+        {
+          "id": "north",
+          "type": "corridor",
+          "at": [
+            1.05,
+            0
+          ],
+          "facing": 270,
+          "pixels": [
+            768,
+            668
+          ],
+          "widthPixels": 400
+        }
+      ],
+      "guide": "H07-A-guide.png",
+      "mask": "H07-A-mask.svg"
+    },
+    {
+      "id": "F01-A",
+      "name": "Structural notch infill",
+      "origin": [
+        568,
+        568
+      ],
+      "footprintPixels": [
+        [
+          568,
+          568
+        ],
+        [
+          968,
+          568
+        ],
+        [
+          968,
+          968
+        ],
+        [
+          568,
+          968
+        ]
+      ],
+      "ports": [],
+      "guide": "F01-A-guide.png",
+      "mask": "F01-A-mask.svg"
+    }
+  ]
+}

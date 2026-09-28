@@ -1,4 +1,4 @@
-import { getZoneDistanceBetweenTokens } from "./zone-data.js";
+import { measureTokenRange } from "./zone-dynamic.js";
 
 export const WEAPON_RANGE_WARNING = "Outside listed range; traits may extend this.";
 
@@ -71,20 +71,26 @@ export function evaluateWeaponRange(weapon, zoneInfo) {
   };
 }
 
-export function evaluateWeaponRangeBetweenTokens(weapon, sourceToken, targetToken, zones) {
-  if (!sourceToken || !targetToken || !zones?.length) {
-    return evaluateWeaponRange(weapon, null);
-  }
+/**
+ * @param {object|object[]} rangeCtx  from getRangeContext() — drawn zones or
+ *   Dynamic Zones. A bare zones array is still accepted as drawn zones.
+ */
+export function evaluateWeaponRangeBetweenTokens(weapon, sourceToken, targetToken, rangeCtx) {
+  const ctx = Array.isArray(rangeCtx)
+    ? { mode: rangeCtx.length ? "drawn" : null, zones: rangeCtx, radius: 0 }
+    : rangeCtx;
   // Token-aware: multi-zone tokens (flags.sta2e-toolkit.multiZone) measure
   // from their nearest occupied zone; normal tokens use their center.
-  const zoneInfo = getZoneDistanceBetweenTokens(sourceToken, targetToken, zones);
+  // Dynamic zones measure footprint edge to edge against the scene radius.
+  const zoneInfo = measureTokenRange(sourceToken, targetToken, ctx);
+  if (!zoneInfo) return evaluateWeaponRange(weapon, null);
   return { ...evaluateWeaponRange(weapon, zoneInfo), zoneInfo };
 }
 
-export function getWeaponRangeSummary(weapon, sourceToken, targets, zones) {
+export function getWeaponRangeSummary(weapon, sourceToken, targets, rangeCtx) {
   const results = Array.from(targets ?? []).map(target => ({
     target,
-    ...evaluateWeaponRangeBetweenTokens(weapon, sourceToken, target, zones),
+    ...evaluateWeaponRangeBetweenTokens(weapon, sourceToken, target, rangeCtx),
   }));
   const warnings = results.filter(result => result.known && !result.within);
   return {

@@ -58,7 +58,7 @@ function livingOutline(poly,x,y) {
   return out.filter((v,i)=>!close(v,out[(i+1)%out.length]));
 }
 
-export function buildQuartersArchitecture(room,edges=[]) {
+export function buildQuartersArchitecture(room,edges=[],recipe={}) {
   const f=room.frame,a=f.rotation*Math.PI/180,c=Math.cos(a),s=Math.sin(a);
   const local=v=>p((v.x-f.x)*c+(v.y-f.y)*s,-(v.x-f.x)*s+(v.y-f.y)*c);
   const world=v=>p(f.x+v.x*c-v.y*s,f.y+v.x*s+v.y*c);
@@ -70,6 +70,7 @@ export function buildQuartersArchitecture(room,edges=[]) {
   let chosen;
   // Large suites reserve enough standing space for a separate tub and sonic shower.
   for(const luxury of [true,false]) {
+    if(luxury&&recipe.cabinLayout==="standard")continue;
     if(luxury&&(roomArea<49||f.w<6.3||f.h<5))continue;
     const w=luxury?3:2,h=luxury?2.8:2.4;
     for(const [sx,sy]of [[1,1],[-1,1],[1,-1],[-1,-1]]) {
@@ -111,13 +112,17 @@ export function buildQuartersArchitecture(room,edges=[]) {
       if(blocked.some(v=>v.x>x-.6&&v.x<x+w+.6&&v.y>y-.6&&v.y<y+h+.6))continue;
       if(furniture.some(v=>x<v.x+v.w+.3&&x+w>v.x-.3&&y<v.y+v.h+.3&&y+h>v.y-.3))continue;
       const sofa=furniture.find(v=>v.kind==="couch");
-      const score=kind==="bed"?y+x*.15:kind==="desk"?y-x*.15:kind==="coffee"&&sofa?Math.hypot(x+w/2-sofa.x-sofa.w/2,y+h/2-sofa.y+.9):-y+x*.1;
+      // Reference studies: sleeping opposite the wet area, work along that side wall,
+      // and seating with a low table on the other side of the central entrance route.
+      const study=recipe.cabinLayout!==undefined&&recipe.cabinLayout!=="auto";
+      const px=(x+w/2)*sx,py=(y+h/2)*sy;
+      const score=study?(kind==="bed"?px-py:kind==="desk"?px+Math.abs(py):kind==="couch"?-px+py:kind==="coffee"&&sofa?Math.hypot(x+w/2-sofa.x-sofa.w/2,y+h/2-sofa.y-sofa.h/2):0):kind==="bed"?y+x*.15:kind==="desk"?y-x*.15:kind==="coffee"&&sofa?Math.hypot(x+w/2-sofa.x-sofa.w/2,y+h/2-sofa.y+.9):-y+x*.1;
       if(!best||score<best.score)best={kind,...r,score};
     }
     if(best)furniture.push(best);
   };
   place("bed",1,1.9);place("desk",1.8,1.85);
   if(roomArea>35){place("couch",2.1,1.1);place("coffee",1.2,.7);}
-  return {type:"quarters",w:f.w,h:f.h,fit:1,ensuite:true,walls,livingPolygon:living,furniture,
+  return {type:"quarters",arrangement:recipe.cabinLayout??"auto",w:f.w,h:f.h,fit:1,ensuite:true,walls,livingPolygon:living,furniture,
     bathroom:{polygon:chosen.bath.map(unflip),usable:rectangle(u).map(unflip),fixtures,tub:chosen.luxury,area:area(chosen.bath),door:bathroomDoor}};
 }

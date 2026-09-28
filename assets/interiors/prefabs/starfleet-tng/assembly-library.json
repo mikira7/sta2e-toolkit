@@ -1,0 +1,988 @@
+{
+  "id": "habitation-puzzle-v1",
+  "schemaVersion": 1,
+  "metresPerUnit": 1.5,
+  "wallThickness": 0.1,
+  "connectors": {
+    "room": {
+      "width": 1.2,
+      "description": "1.8 m clear room doorway"
+    },
+    "corridor": {
+      "width": 2,
+      "description": "3 m clear corridor end"
+    }
+  },
+  "pieces": [
+    {
+      "id": "Q01-A",
+      "name": "Standard quarters",
+      "category": "room",
+      "zone": "outboard",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          0,
+          5
+        ]
+      ],
+      "ports": [
+        {
+          "id": "entry",
+          "type": "room",
+          "at": [
+            2.5,
+            5
+          ],
+          "facing": 90
+        }
+      ],
+      "windows": [
+        [
+          [
+            0.6,
+            0
+          ],
+          [
+            2.1,
+            0
+          ]
+        ]
+      ],
+      "bathroom": {
+        "polygon": [
+          [
+            3,
+            0
+          ],
+          [
+            5,
+            0
+          ],
+          [
+            5,
+            2.2
+          ],
+          [
+            3,
+            2.2
+          ]
+        ],
+        "tub": false
+      },
+      "partitions": [
+        {
+          "a": [
+            3,
+            0
+          ],
+          "b": [
+            3,
+            2.2
+          ],
+          "door": {
+            "at": [
+              3,
+              1.1
+            ],
+            "width": 1.2
+          }
+        },
+        {
+          "a": [
+            3,
+            2.2
+          ],
+          "b": [
+            5,
+            2.2
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "kind": "bed",
+          "rect": [
+            0.3,
+            0.3,
+            0.8,
+            1.4
+          ]
+        },
+        {
+          "kind": "desk",
+          "rect": [
+            0.3,
+            2.35,
+            1.25,
+            0.55
+          ]
+        },
+        {
+          "kind": "chair",
+          "rect": [
+            0.7,
+            3.05,
+            0.45,
+            0.45
+          ]
+        },
+        {
+          "kind": "sofa",
+          "rect": [
+            3.15,
+            3.65,
+            1.55,
+            0.65
+          ]
+        },
+        {
+          "kind": "table",
+          "rect": [
+            3.4,
+            2.85,
+            1,
+            0.5
+          ]
+        },
+        {
+          "kind": "shower",
+          "rect": [
+            4.05,
+            0.15,
+            0.8,
+            0.8
+          ]
+        },
+        {
+          "kind": "basin",
+          "rect": [
+            3.15,
+            0.15,
+            0.65,
+            0.4
+          ]
+        },
+        {
+          "kind": "toilet",
+          "rect": [
+            4.3,
+            1.4,
+            0.5,
+            0.65
+          ]
+        }
+      ],
+      "accessPoints": [
+        [
+          2.5,
+          4.3
+        ],
+        [
+          2.35,
+          1.1
+        ],
+        [
+          3.55,
+          1.25
+        ],
+        [
+          1.85,
+          1.1
+        ]
+      ],
+      "notes": "7.5 m square; 9.9 m² perimeter bathroom. Door/bathroom positions are fixed.",
+      "art": {
+        "file": "Q01-A-v2.png",
+        "sha256": "56f7c6249b42c1ee121549f08de153857f9b4d939a9a229f9ec88eeff0d1e784",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            220.62981480112387,
+            221.31937564690236
+          ],
+          "pixelsPerUnit": 162.90292769480996,
+          "maxResidualUnits": 0.03957518686047333,
+          "residuals": [
+            0.01740145895056387,
+            0.014265364537791923,
+            0.005195925714070813,
+            0.011238673953728273,
+            0.00869752194591991,
+            0.009851528241824139,
+            0.03957518686047333,
+            0.014793375023076982
+          ]
+        }
+      }
+    },
+    {
+      "id": "Q03-L",
+      "name": "Officer quarters — L",
+      "category": "room",
+      "zone": "outboard",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          6,
+          2
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          0,
+          6
+        ]
+      ],
+      "ports": [
+        {
+          "id": "entry",
+          "type": "room",
+          "at": [
+            3,
+            6
+          ],
+          "facing": 90
+        }
+      ],
+      "windows": [
+        [
+          [
+            2.6,
+            0
+          ],
+          [
+            3.6,
+            0
+          ]
+        ]
+      ],
+      "bathroom": {
+        "polygon": [
+          [
+            0,
+            0
+          ],
+          [
+            2.4,
+            0
+          ],
+          [
+            2.4,
+            2.8
+          ],
+          [
+            0,
+            2.8
+          ]
+        ],
+        "tub": true
+      },
+      "partitions": [
+        {
+          "a": [
+            2.4,
+            0
+          ],
+          "b": [
+            2.4,
+            2.8
+          ],
+          "door": {
+            "at": [
+              2.4,
+              1.4
+            ],
+            "width": 1.2
+          }
+        },
+        {
+          "a": [
+            0,
+            2.8
+          ],
+          "b": [
+            2.4,
+            2.8
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "kind": "bed",
+          "rect": [
+            4.75,
+            2.35,
+            0.85,
+            1.4
+          ]
+        },
+        {
+          "kind": "desk",
+          "rect": [
+            0.3,
+            4,
+            1.3,
+            0.65
+          ]
+        },
+        {
+          "kind": "chair",
+          "rect": [
+            0.75,
+            4.85,
+            0.45,
+            0.45
+          ]
+        },
+        {
+          "kind": "sofa",
+          "rect": [
+            3.95,
+            5.05,
+            1.7,
+            0.65
+          ]
+        },
+        {
+          "kind": "table",
+          "rect": [
+            4.15,
+            4.2,
+            1.1,
+            0.5
+          ]
+        },
+        {
+          "kind": "shower",
+          "rect": [
+            0.15,
+            0.15,
+            0.85,
+            0.75
+          ]
+        },
+        {
+          "kind": "toilet",
+          "rect": [
+            1.65,
+            0.15,
+            0.55,
+            0.65
+          ]
+        },
+        {
+          "kind": "basin",
+          "rect": [
+            0.15,
+            1.2,
+            0.6,
+            0.4
+          ]
+        },
+        {
+          "kind": "tub",
+          "rect": [
+            0.2,
+            2.05,
+            1.55,
+            0.7
+          ]
+        }
+      ],
+      "accessPoints": [
+        [
+          3,
+          5.3
+        ],
+        [
+          3.05,
+          1.4
+        ],
+        [
+          1.75,
+          1.4
+        ],
+        [
+          3.7,
+          3.1
+        ]
+      ],
+      "notes": "9 × 9 m envelope with a real 3 × 3 m missing corner; 15.12 m² bathroom. F01 fills the notch.",
+      "art": {
+        "file": "Q03-L-v2.png",
+        "sha256": "cff5b4585a2c01182d6b143ada3ac7654179271db118271086406ed60cd4a455",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            136.07404744787942,
+            136.94192826903122
+          ],
+          "pixelsPerUnit": 163.59453630481661,
+          "maxResidualUnits": 0.018846877056440402,
+          "residuals": [
+            0.0005752201381201753,
+            0.008313084091925481,
+            0.008869465768056426,
+            0.003144985548233767,
+            0.018846877056440402,
+            0.0036094282889813523,
+            0.006781157161458548,
+            0.006582725789270971,
+            0.006824516743829186
+          ]
+        }
+      }
+    },
+    {
+      "id": "T01-A",
+      "name": "Compact turbolift",
+      "category": "room",
+      "zone": "inboard",
+      "footprint": [
+        [
+          0.9,
+          0
+        ],
+        [
+          2.1,
+          0
+        ],
+        [
+          2.7,
+          0.6
+        ],
+        [
+          2.7,
+          1.8
+        ],
+        [
+          2.1,
+          2.4
+        ],
+        [
+          0.9,
+          2.4
+        ],
+        [
+          0.3,
+          1.8
+        ],
+        [
+          0.3,
+          0.6
+        ]
+      ],
+      "ports": [
+        {
+          "id": "entry",
+          "type": "room",
+          "at": [
+            1.5,
+            0
+          ],
+          "facing": 270
+        }
+      ],
+      "fixtures": [
+        {
+          "kind": "console",
+          "rect": [
+            2.3,
+            0.85,
+            0.2,
+            0.55
+          ]
+        }
+      ],
+      "accessPoints": [
+        [
+          1.5,
+          0.7
+        ],
+        [
+          1.5,
+          1.3
+        ]
+      ],
+      "notes": "One cabin directly off the passageway. No lobby or exterior-window option.",
+      "art": {
+        "file": "T01-A-v2.png",
+        "sha256": "8af061ea817d6ebacda9bd48ba97fdc5780e7056516e435eb700bbc0bdd35cf6",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            379.9364406779661,
+            429.96610169491527
+          ],
+          "pixelsPerUnit": 165.04237288135593,
+          "maxResidualUnits": 0.009244900588386958,
+          "residuals": [
+            0.0027291773588536436,
+            0.0027291773588531457,
+            0.0027522656294234355,
+            0.002752265629423929,
+            0.009244900588386513,
+            0.009244900588386958
+          ]
+        }
+      }
+    },
+    {
+      "id": "H02-A",
+      "name": "Straight corridor",
+      "category": "corridor",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          2.1
+        ],
+        [
+          0,
+          2.1
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180
+        },
+        {
+          "id": "east",
+          "type": "corridor",
+          "at": [
+            4,
+            1.05
+          ],
+          "facing": 0
+        }
+      ],
+      "fixtures": [],
+      "notes": "6 m run with 3 m clear width.",
+      "art": {
+        "file": "H02-A-v3.png",
+        "sha256": "8f768e5e1d925e6c95189b8cb482d576de60df07a37ff7a8fef0a8ebaefa564a",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            300.827045565899,
+            455.234198922097
+          ],
+          "pixelsPerUnit": 163.5864772170505,
+          "maxResidualUnits": 0.015425382745665874,
+          "residuals": [
+            0.015425382745665807,
+            0.015425382745665737,
+            0.015425382745665803,
+            0.015425382745665874
+          ]
+        }
+      }
+    },
+    {
+      "id": "H08-A",
+      "name": "One room doorway",
+      "category": "corridor",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          2.1
+        ],
+        [
+          0,
+          2.1
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180
+        },
+        {
+          "id": "east",
+          "type": "corridor",
+          "at": [
+            4,
+            1.05
+          ],
+          "facing": 0
+        },
+        {
+          "id": "north-room",
+          "type": "room",
+          "at": [
+            2,
+            0
+          ],
+          "facing": 270
+        }
+      ],
+      "fixtures": [],
+      "notes": "One fixed side opening. Other side remains a solid wall.",
+      "art": {
+        "file": "H08-A-v2.png",
+        "sha256": "725c4cf1d4baf31973d5a88e6e6ce38a3a5f238932e0789dc495e86941b16837",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            300.1681415929202,
+            454.9421828908554
+          ],
+          "pixelsPerUnit": 163.4159292035399,
+          "maxResidualUnits": 0.012604715848321287,
+          "residuals": [
+            0.007691171760890257,
+            0.007691171760890049,
+            0.012604715848321162,
+            0.012604715848321287,
+            0.008630849146136538,
+            0.008630849146136375
+          ]
+        }
+      }
+    },
+    {
+      "id": "H09-A",
+      "name": "Opposed room doorways",
+      "category": "corridor",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          2.1
+        ],
+        [
+          0,
+          2.1
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180
+        },
+        {
+          "id": "east",
+          "type": "corridor",
+          "at": [
+            4,
+            1.05
+          ],
+          "facing": 0
+        },
+        {
+          "id": "north-room",
+          "type": "room",
+          "at": [
+            2,
+            0
+          ],
+          "facing": 270
+        },
+        {
+          "id": "south-room",
+          "type": "room",
+          "at": [
+            2,
+            2.1
+          ],
+          "facing": 90
+        }
+      ],
+      "fixtures": [],
+      "notes": "Both side openings are deliberate. Used between quarters and an inboard lift.",
+      "art": {
+        "file": "H09-A-v2.png",
+        "sha256": "a299275b6efc7f496d0d3ac2759dc5c744afd2c02ca3c163179afdacb771c44e",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            301.6991622239145,
+            456.21706016755513
+          ],
+          "pixelsPerUnit": 162.65041888804274,
+          "maxResidualUnits": 0.006453579305565515,
+          "residuals": [
+            0.006453579305565325,
+            0.006453579305565121,
+            0.006453579305565313,
+            0.006453579305565515,
+            0.005432996151336703,
+            0.005432996151336703,
+            0.00543299615133693,
+            0.00543299615133693
+          ]
+        }
+      }
+    },
+    {
+      "id": "H04-A",
+      "name": "Right-angle bend",
+      "category": "corridor",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          4.1,
+          0
+        ],
+        [
+          4.1,
+          4.1
+        ],
+        [
+          2,
+          4.1
+        ],
+        [
+          2,
+          2.1
+        ],
+        [
+          0,
+          2.1
+        ]
+      ],
+      "ports": [
+        {
+          "id": "west",
+          "type": "corridor",
+          "at": [
+            0,
+            1.05
+          ],
+          "facing": 180
+        },
+        {
+          "id": "south",
+          "type": "corridor",
+          "at": [
+            3.05,
+            4.1
+          ],
+          "facing": 90
+        }
+      ],
+      "fixtures": [],
+      "notes": "True L-shaped footprint; full-width turn, not a square junction image.",
+      "art": {
+        "file": "H04-A-v2.png",
+        "sha256": "035bfc11ec6cdf3677406122221932bdfc344d968ed4610a66bdf745435e6b9c",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            295.25182012847966,
+            292.39350463954327
+          ],
+          "pixelsPerUnit": 162.9157744468237,
+          "maxResidualUnits": 0.03390271032851652,
+          "residuals": [
+            0.008538174599346342,
+            0.008288690005216747,
+            0.008417315258830467,
+            0.008663096424078592,
+            0.03390271032851652
+          ]
+        }
+      }
+    },
+    {
+      "id": "H07-A",
+      "name": "Corridor end cap",
+      "category": "corridor",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          2.1,
+          0
+        ],
+        [
+          2.1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "ports": [
+        {
+          "id": "north",
+          "type": "corridor",
+          "at": [
+            1.05,
+            0
+          ],
+          "facing": 270
+        }
+      ],
+      "fixtures": [],
+      "notes": "Rotate this piece to close either end of the sample passageway.",
+      "art": {
+        "file": "H07-A-v2.png",
+        "sha256": "826aa593525dd1d40a91d7743d2a526a482ad854f8a5e2bc4bc5b1374693952f",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            457.36968576709796,
+            546.2236598890943
+          ],
+          "pixelsPerUnit": 161.55268022181144,
+          "maxResidualUnits": 0.005322518695475101,
+          "residuals": [
+            0.0053225186954750005,
+            0.005322518695475057,
+            0.005322518695475101,
+            0.005322518695475046
+          ]
+        }
+      }
+    },
+    {
+      "id": "F01-A",
+      "name": "Structural notch infill",
+      "category": "structure",
+      "footprint": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "ports": [],
+      "fixtures": [],
+      "notes": "Non-walkable technical volume filling the officer cabin's missing corner. Not an orphan room.",
+      "art": {
+        "file": "F01-A-v1.png",
+        "sha256": "a48a13ff3ec115e90f0badbb4b7e1339700fb2e9237f69775fa59c1a15f34c36",
+        "canvas": [
+          1254,
+          1254
+        ],
+        "registration": {
+          "origin": [
+            183,
+            184
+          ],
+          "pixelsPerUnit": 444.5,
+          "maxResidualUnits": 0.006363165634974618,
+          "residuals": [
+            0.006363165634974557,
+            0.006363165634974461,
+            0.006363165634974523,
+            0.006363165634974618
+          ]
+        }
+      }
+    }
+  ],
+  "corridorFinish": {
+    "source": "assets/interiors/floor-room-carpet.png",
+    "sha256": "c143a17b848277983ce7d375c9cea1712a470dc4f4ea69e4c8d41bb26cac291e",
+    "repeatUnits": 2,
+    "wallThicknessUnits": 0.1,
+    "file": "../../floor-room-carpet.png"
+  }
+}

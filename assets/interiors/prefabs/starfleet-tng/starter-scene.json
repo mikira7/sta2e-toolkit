@@ -1,0 +1,1347 @@
+{
+  "schemaVersion": 1,
+  "id": "habitation-starter-v1",
+  "status": "experimental-fixed-assembly",
+  "style": "starfleet-tng",
+  "width": 20,
+  "height": 13,
+  "metresPerUnit": 1.5,
+  "background": {
+    "file": "registered-assembly.png",
+    "sha256": "d19d0dddb2b4cd0c4044bdf666476e409cc8b683ae2771adb3289276fbe85ec8",
+    "pixels": [
+      2000,
+      1300
+    ]
+  },
+  "sourceHashes": {
+    "geometry": "a41f5e69aba8f3fb888be61168176a0125cf9609568f2684b4106680960c4d92",
+    "walls": "5a43ebecbe43a0b71d375c050519a176808f244c0eec29bdd56a55848716138d"
+  },
+  "entry": [
+    4,
+    8.05
+  ],
+  "walls": [
+    {
+      "key": "wall-0-0",
+      "a": [
+        1.5,
+        2
+      ],
+      "b": [
+        2.1,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-0-1",
+      "a": [
+        2.1,
+        2
+      ],
+      "b": [
+        3.6,
+        2
+      ],
+      "door": false,
+      "window": true
+    },
+    {
+      "key": "wall-0-2",
+      "a": [
+        3.6,
+        2
+      ],
+      "b": [
+        4.5,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-1-0",
+      "a": [
+        4.5,
+        2
+      ],
+      "b": [
+        6.5,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-2-0",
+      "a": [
+        6.5,
+        2
+      ],
+      "b": [
+        6.5,
+        4.2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-3-0",
+      "a": [
+        6.5,
+        4.2
+      ],
+      "b": [
+        6.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-4-0",
+      "a": [
+        6.5,
+        7
+      ],
+      "b": [
+        6,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-5-0",
+      "a": [
+        6,
+        7
+      ],
+      "b": [
+        4.6,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-6-0",
+      "a": [
+        3.4,
+        7
+      ],
+      "b": [
+        2,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-7-0",
+      "a": [
+        2,
+        7
+      ],
+      "b": [
+        1.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-8-0",
+      "a": [
+        1.5,
+        7
+      ],
+      "b": [
+        1.5,
+        2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-9-0",
+      "a": [
+        4.5,
+        2.5
+      ],
+      "b": [
+        4.5,
+        3.7
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "wall-10-0",
+      "a": [
+        4.5,
+        2
+      ],
+      "b": [
+        4.5,
+        2.5
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-11-0",
+      "a": [
+        4.5,
+        3.7
+      ],
+      "b": [
+        4.5,
+        4.2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-12-0",
+      "a": [
+        4.5,
+        4.2
+      ],
+      "b": [
+        6.5,
+        4.2
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-13-0",
+      "a": [
+        9,
+        1
+      ],
+      "b": [
+        11.4,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-14-0",
+      "a": [
+        11.4,
+        1
+      ],
+      "b": [
+        11.6,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-14-1",
+      "a": [
+        11.6,
+        1
+      ],
+      "b": [
+        12.6,
+        1
+      ],
+      "door": false,
+      "window": true
+    },
+    {
+      "key": "wall-14-2",
+      "a": [
+        12.6,
+        1
+      ],
+      "b": [
+        13,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-15-0",
+      "a": [
+        13,
+        1
+      ],
+      "b": [
+        13,
+        3
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-16-0",
+      "a": [
+        13,
+        3
+      ],
+      "b": [
+        15,
+        3
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-17-0",
+      "a": [
+        15,
+        3
+      ],
+      "b": [
+        15,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-18-0",
+      "a": [
+        15,
+        7
+      ],
+      "b": [
+        14,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-19-0",
+      "a": [
+        14,
+        7
+      ],
+      "b": [
+        12.6,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-20-0",
+      "a": [
+        11.4,
+        7
+      ],
+      "b": [
+        10,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-21-0",
+      "a": [
+        10,
+        7
+      ],
+      "b": [
+        9,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-22-0",
+      "a": [
+        9,
+        7
+      ],
+      "b": [
+        9,
+        3.8
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-23-0",
+      "a": [
+        9,
+        3.8
+      ],
+      "b": [
+        9,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-24-0",
+      "a": [
+        11.4,
+        1.8
+      ],
+      "b": [
+        11.4,
+        3
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "wall-25-0",
+      "a": [
+        11.4,
+        1
+      ],
+      "b": [
+        11.4,
+        1.8
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-26-0",
+      "a": [
+        11.4,
+        3
+      ],
+      "b": [
+        11.4,
+        3.8
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-27-0",
+      "a": [
+        9,
+        3.8
+      ],
+      "b": [
+        11.4,
+        3.8
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-28-0",
+      "a": [
+        4.6,
+        9.1
+      ],
+      "b": [
+        5.2,
+        9.7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-29-0",
+      "a": [
+        5.2,
+        9.7
+      ],
+      "b": [
+        5.2,
+        10.9
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-30-0",
+      "a": [
+        5.2,
+        10.9
+      ],
+      "b": [
+        4.6,
+        11.5
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-31-0",
+      "a": [
+        4.6,
+        11.5
+      ],
+      "b": [
+        3.4,
+        11.5
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-32-0",
+      "a": [
+        3.4,
+        11.5
+      ],
+      "b": [
+        2.8,
+        10.9
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-33-0",
+      "a": [
+        2.8,
+        10.9
+      ],
+      "b": [
+        2.8,
+        9.7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-34-0",
+      "a": [
+        2.8,
+        9.7
+      ],
+      "b": [
+        3.4,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-35-0",
+      "a": [
+        6,
+        7
+      ],
+      "b": [
+        6,
+        7.05
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-36-0",
+      "a": [
+        6,
+        9.05
+      ],
+      "b": [
+        6,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-37-0",
+      "a": [
+        6,
+        9.1
+      ],
+      "b": [
+        4.6,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-38-0",
+      "a": [
+        3.4,
+        9.1
+      ],
+      "b": [
+        2,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-39-0",
+      "a": [
+        2,
+        9.1
+      ],
+      "b": [
+        2,
+        9.05
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-40-0",
+      "a": [
+        2,
+        7.05
+      ],
+      "b": [
+        2,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-41-0",
+      "a": [
+        6.5,
+        7
+      ],
+      "b": [
+        9,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-42-0",
+      "a": [
+        10,
+        7
+      ],
+      "b": [
+        10,
+        7.05
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-43-0",
+      "a": [
+        10,
+        9.05
+      ],
+      "b": [
+        10,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-44-0",
+      "a": [
+        10,
+        9.1
+      ],
+      "b": [
+        6,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-45-0",
+      "a": [
+        14,
+        7
+      ],
+      "b": [
+        14,
+        7.05
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-46-0",
+      "a": [
+        14,
+        9.05
+      ],
+      "b": [
+        14,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-47-0",
+      "a": [
+        14,
+        9.1
+      ],
+      "b": [
+        10,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-48-0",
+      "a": [
+        15,
+        7
+      ],
+      "b": [
+        18.1,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-49-0",
+      "a": [
+        18.1,
+        7
+      ],
+      "b": [
+        18.1,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-50-0",
+      "a": [
+        18.1,
+        11.1
+      ],
+      "b": [
+        18.05,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-51-0",
+      "a": [
+        16.05,
+        11.1
+      ],
+      "b": [
+        16,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-52-0",
+      "a": [
+        16,
+        11.1
+      ],
+      "b": [
+        16,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-53-0",
+      "a": [
+        16,
+        9.1
+      ],
+      "b": [
+        14,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-54-0",
+      "a": [
+        2,
+        9.1
+      ],
+      "b": [
+        1,
+        9.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-55-0",
+      "a": [
+        1,
+        9.1
+      ],
+      "b": [
+        1,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-56-0",
+      "a": [
+        1,
+        7
+      ],
+      "b": [
+        1.5,
+        7
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-57-0",
+      "a": [
+        18.1,
+        11.1
+      ],
+      "b": [
+        18.1,
+        12.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-58-0",
+      "a": [
+        18.1,
+        12.1
+      ],
+      "b": [
+        16,
+        12.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-59-0",
+      "a": [
+        16,
+        12.1
+      ],
+      "b": [
+        16,
+        11.1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-60-0",
+      "a": [
+        13,
+        1
+      ],
+      "b": [
+        15,
+        1
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-61-0",
+      "a": [
+        15,
+        1
+      ],
+      "b": [
+        15,
+        3
+      ],
+      "door": false,
+      "window": false
+    },
+    {
+      "key": "wall-62-0",
+      "a": [
+        4.6,
+        7
+      ],
+      "b": [
+        3.4,
+        7
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "wall-63-0",
+      "a": [
+        12.6,
+        7
+      ],
+      "b": [
+        11.4,
+        7
+      ],
+      "door": true,
+      "window": false
+    },
+    {
+      "key": "wall-64-0",
+      "a": [
+        3.4,
+        9.1
+      ],
+      "b": [
+        4.6,
+        9.1
+      ],
+      "door": true,
+      "window": false
+    }
+  ],
+  "lights": [
+    {
+      "at": [
+        3,
+        4.8
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        5.5,
+        3
+      ],
+      "radius": 4
+    },
+    {
+      "at": [
+        12.5,
+        4.2
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        10.2,
+        2.4
+      ],
+      "radius": 4
+    },
+    {
+      "at": [
+        4,
+        10.3
+      ],
+      "radius": 4
+    },
+    {
+      "at": [
+        4,
+        8.05
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        8,
+        8.05
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        12,
+        8.05
+      ],
+      "radius": 7
+    },
+    {
+      "at": [
+        16.8,
+        8.05
+      ],
+      "radius": 6
+    },
+    {
+      "at": [
+        17.05,
+        10.3
+      ],
+      "radius": 5
+    }
+  ],
+  "placements": [
+    {
+      "id": "crew",
+      "piece": "Q01-A",
+      "at": [
+        1.5,
+        2
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          1.5,
+          2
+        ],
+        [
+          6.5,
+          2
+        ],
+        [
+          6.5,
+          7
+        ],
+        [
+          1.5,
+          7
+        ]
+      ]
+    },
+    {
+      "id": "officer",
+      "piece": "Q03-L",
+      "at": [
+        9,
+        1
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          9,
+          1
+        ],
+        [
+          13,
+          1
+        ],
+        [
+          13,
+          3
+        ],
+        [
+          15,
+          3
+        ],
+        [
+          15,
+          7
+        ],
+        [
+          9,
+          7
+        ]
+      ]
+    },
+    {
+      "id": "lift",
+      "piece": "T01-A",
+      "at": [
+        2.5,
+        9.1
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          3.4,
+          9.1
+        ],
+        [
+          4.6,
+          9.1
+        ],
+        [
+          5.2,
+          9.7
+        ],
+        [
+          5.2,
+          10.9
+        ],
+        [
+          4.6,
+          11.5
+        ],
+        [
+          3.4,
+          11.5
+        ],
+        [
+          2.8,
+          10.9
+        ],
+        [
+          2.8,
+          9.7
+        ]
+      ]
+    },
+    {
+      "id": "hall-west",
+      "piece": "H09-A",
+      "at": [
+        2,
+        7
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          2,
+          7
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          6,
+          9.1
+        ],
+        [
+          2,
+          9.1
+        ]
+      ]
+    },
+    {
+      "id": "hall-middle",
+      "piece": "H02-A",
+      "at": [
+        6,
+        7
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          6,
+          7
+        ],
+        [
+          10,
+          7
+        ],
+        [
+          10,
+          9.1
+        ],
+        [
+          6,
+          9.1
+        ]
+      ]
+    },
+    {
+      "id": "hall-east",
+      "piece": "H08-A",
+      "at": [
+        10,
+        7
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          10,
+          7
+        ],
+        [
+          14,
+          7
+        ],
+        [
+          14,
+          9.1
+        ],
+        [
+          10,
+          9.1
+        ]
+      ]
+    },
+    {
+      "id": "bend",
+      "piece": "H04-A",
+      "at": [
+        14,
+        7
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          14,
+          7
+        ],
+        [
+          18.1,
+          7
+        ],
+        [
+          18.1,
+          11.1
+        ],
+        [
+          16,
+          11.1
+        ],
+        [
+          16,
+          9.1
+        ],
+        [
+          14,
+          9.1
+        ]
+      ]
+    },
+    {
+      "id": "cap-west",
+      "piece": "H07-A",
+      "at": [
+        2,
+        7
+      ],
+      "rotation": 90,
+      "polygon": [
+        [
+          2,
+          7
+        ],
+        [
+          2,
+          9.1
+        ],
+        [
+          1,
+          9.1
+        ],
+        [
+          1,
+          7
+        ]
+      ]
+    },
+    {
+      "id": "cap-south",
+      "piece": "H07-A",
+      "at": [
+        16,
+        11.1
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          16,
+          11.1
+        ],
+        [
+          18.1,
+          11.1
+        ],
+        [
+          18.1,
+          12.1
+        ],
+        [
+          16,
+          12.1
+        ]
+      ]
+    },
+    {
+      "id": "infill",
+      "piece": "F01-A",
+      "at": [
+        13,
+        1
+      ],
+      "rotation": 0,
+      "polygon": [
+        [
+          13,
+          1
+        ],
+        [
+          15,
+          1
+        ],
+        [
+          15,
+          3
+        ],
+        [
+          13,
+          3
+        ]
+      ]
+    }
+  ],
+  "pieces": [
+    {
+      "id": "Q01-A",
+      "file": "Q01-A-v2.png",
+      "sha256": "56f7c6249b42c1ee121549f08de153857f9b4d939a9a229f9ec88eeff0d1e784"
+    },
+    {
+      "id": "Q03-L",
+      "file": "Q03-L-v2.png",
+      "sha256": "cff5b4585a2c01182d6b143ada3ac7654179271db118271086406ed60cd4a455"
+    },
+    {
+      "id": "T01-A",
+      "file": "T01-A-v2.png",
+      "sha256": "8af061ea817d6ebacda9bd48ba97fdc5780e7056516e435eb700bbc0bdd35cf6"
+    },
+    {
+      "id": "H02-A",
+      "file": "H02-A-v3.png",
+      "sha256": "8f768e5e1d925e6c95189b8cb482d576de60df07a37ff7a8fef0a8ebaefa564a"
+    },
+    {
+      "id": "H08-A",
+      "file": "H08-A-v2.png",
+      "sha256": "725c4cf1d4baf31973d5a88e6e6ce38a3a5f238932e0789dc495e86941b16837"
+    },
+    {
+      "id": "H09-A",
+      "file": "H09-A-v2.png",
+      "sha256": "a299275b6efc7f496d0d3ac2759dc5c744afd2c02ca3c163179afdacb771c44e"
+    },
+    {
+      "id": "H04-A",
+      "file": "H04-A-v2.png",
+      "sha256": "035bfc11ec6cdf3677406122221932bdfc344d968ed4610a66bdf745435e6b9c"
+    },
+    {
+      "id": "H07-A",
+      "file": "H07-A-v2.png",
+      "sha256": "826aa593525dd1d40a91d7743d2a526a482ad854f8a5e2bc4bc5b1374693952f"
+    },
+    {
+      "id": "F01-A",
+      "file": "F01-A-v1.png",
+      "sha256": "a48a13ff3ec115e90f0badbb4b7e1339700fb2e9237f69775fa59c1a15f34c36"
+    }
+  ]
+}
