@@ -29,6 +29,8 @@ import {
   ARRAY_AREA_SHOT_CAP_DEFAULT,
 } from "./weapon-configs.js";
 import { environmentSoundKeys } from "./viewscreen-environments.js";
+import { SCENE_EFFECT_SOUNDS, SCENE_EFFECT_VOLUME, SCENE_EFFECT_VARIANTS,
+  getSceneSoundVariants, normalizeSceneSoundVariants } from "./scene-effect-audio.js";
 import { transporterShaderForm, saveTransporterShaderForm, wireTransporterShaderForm } from "./transporter-shader-ui.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -69,7 +71,8 @@ function _wireSoundPreview(scope) {
       // Custom rows: button and input share one <td class="ec-pair">.
       // Main rows:   the buttons sit alone in <td class="ec-btn-cell">.
       const cell  = btn.closest("td");
-      const input = cell?.querySelector("input[type='text']")
+      const input = btn.closest(".ec-scene-sound-choice")?.querySelector("input")
+        ?? cell?.querySelector("input[type='text']")
         ?? cell?.previousElementSibling?.querySelector("input");
       const src = input?.value?.trim();
       if (!src) {
@@ -84,6 +87,48 @@ function _wireSoundPreview(scope) {
         ui.notifications.error("Could not play that file — check the path.");
       }
     });
+  });
+}
+
+function _wireFilePickers(scope) {
+  scope.querySelectorAll(".ec-browse-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const input = btn.previousElementSibling
+        ?? btn.closest("td")?.previousElementSibling?.querySelector("input");
+      if (!input) return;
+      const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
+      new FP({type:btn.dataset.fpType??"audio",current:input.value||"",
+        callback:path=>{input.value=path;}}).render(true);
+    });
+  });
+}
+
+function _wireSceneSoundChoices(scope) {
+  scope.querySelectorAll("[data-scene-sound-list]").forEach(list => {
+    const add=list.parentElement.querySelector("[data-add-scene-sound]");
+    const refresh=()=>{add.disabled=list.children.length>=32;};
+    list.addEventListener("click",event=>{
+      if(event.target.closest("[data-remove-scene-sound]")) {
+        event.target.closest(".ec-scene-sound-choice")?.remove();refresh();
+      }
+    });
+    add.addEventListener("click",()=>{
+      if(list.children.length>=32)return;
+      const row=document.createElement("div");row.className="ec-scene-sound-choice";
+      const input=document.createElement("input");input.type="text";input.placeholder="path/to/sound.ogg";
+      input.setAttribute("aria-label","Additional sound choice");
+      row.append(input);
+      for(const [className,label,text]of [["ec-browse-btn","Browse audio","📁"],
+        ["ec-play-btn","Play this sound (you only)","▶"],["ec-remove-sound","Remove sound choice","×"]]) {
+        const btn=document.createElement("button");btn.type="button";btn.className=className;
+        btn.title=label;btn.setAttribute("aria-label",label);btn.textContent=text;
+        if(className==="ec-browse-btn")btn.dataset.fpType="audio";
+        if(className==="ec-remove-sound")btn.dataset.removeSceneSound="";
+        row.append(btn);
+      }
+      list.append(row);_wireFilePickers(row);_wireSoundPreview(row);refresh();input.focus();
+    });
+    refresh();
   });
 }
 
@@ -529,6 +574,19 @@ function buildTabDefs() {
         // the same table the renderer reads, so adding an environment brings its
         // own audio rows with it rather than needing an edit here.
         ...environmentSoundRows(),
+      ],
+    },
+    {
+      id: "sceneEffects", label: "Scene Effects", customKey: null,
+      rows: [
+        ...SCENE_EFFECT_SOUNDS.map(({ key, label, kind }) => ({
+          label, slot: kind === "coolant" ? "Loop" : "Sound", sndKey: key, animKey: null, sceneSoundKind: kind,
+          defaultHint: kind === "coolant" ? "Loops until the leak stops or you leave the scene. Blank is silent."
+            : "One random sound choice per effect type in a burst, shared by all scene viewers. Blank is silent.",
+        })),
+        { label: "Scene Effects — Sound Volume", slot: "%", sndKey: null, animKey: null,
+          delayKey: SCENE_EFFECT_VOLUME, unit: "%", step: 5, max: 100,
+          defaultHint: "0–100%. Applies to all scene effects. The play buttons audition files locally." },
       ],
     },
   ];
@@ -1164,6 +1222,7 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
       ...tab,
       rows: tab.rows.map(row => ({
         ...row,
+        extraSounds: row.sceneSoundKind ? getSceneSoundVariants()[row.sceneSoundKind] : null,
         soundValue: row.sndKey
           ? (() => { try { return game.settings.get(MODULE, row.sndKey) || ""; } catch { return ""; } })()
           : null,
@@ -1225,24 +1284,10 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     });
 
     // ── File pickers ────────────────────────────────────────────────────────
-    el.querySelectorAll(".ec-browse-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        // Custom rows: button and input share one <td class="ec-pair"> — sibling is the input.
-        // Main rows:   button is alone in <td class="ec-btn-cell"> — input is in the previous <td>.
-        const input = btn.previousElementSibling
-          ?? btn.closest("td")?.previousElementSibling?.querySelector("input");
-        if (!input) return;
-        const fpType = btn.dataset.fpType ?? "audio";
-        const FP = foundry.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
-        new FP({
-          type:     fpType,
-          current:  input.value || "",
-          callback: path => { input.value = path; },
-        }).render(true);
-      });
-    });
+    _wireFilePickers(el);
 
     _wireSoundPreview(el);
+    _wireSceneSoundChoices(el);
 
     // ── Torpedo count sliders — live value readout ────────────────────────────
     el.querySelectorAll(".ec-slider input[type='range']").forEach(range => {
@@ -1278,12 +1323,18 @@ export class EffectConfigMenu extends HandlebarsApplicationMixin(ApplicationV2) 
     for (const input of el.querySelectorAll("[data-delay-key]")) {
       const key = input.dataset.delayKey;
       if (!key) continue;
-      const val = parseInt(input.value) || 0;
+      const raw = parseInt(input.value) || 0;
+      const val = key === SCENE_EFFECT_VOLUME ? Math.min(100, Math.max(0, raw)) : raw;
       try { await game.settings.set(MODULE, key, val); }
       catch(e) { console.warn(`STA2e Toolkit | Could not save timing ${key}:`, e); }
     }
 
     // Sound settings
+    const sceneChoices={};
+    for(const list of el.querySelectorAll("[data-scene-sound-list]")) {
+      sceneChoices[list.dataset.sceneSoundKind]=Array.from(list.querySelectorAll("input"),input=>input.value);
+    }
+    if(Object.keys(sceneChoices).length)await game.settings.set(MODULE,SCENE_EFFECT_VARIANTS,normalizeSceneSoundVariants(sceneChoices));
     for (const input of el.querySelectorAll("[data-snd-key]")) {
       const key = input.dataset.sndKey;
       if (!key) continue;

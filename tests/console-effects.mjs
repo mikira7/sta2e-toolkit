@@ -6,6 +6,7 @@ import vm from "node:vm";
 let now = 0, nextId = 0, version = 7;
 const ticks = new Set(), timers = new Map(), hooks = new Map(), emitted = [], warnings = [], animations = [];
 const calls = [];
+const sounds=[];
 class Container {
   constructor() { this.children = []; this.position = { set: (x, y) => { this.x = x; this.y = y; } }; }
   addChild(...children) { for (const child of children) { this.children.push(child); child.parent = this; } return children[0]; }
@@ -52,8 +53,10 @@ const canvas = { ready: true, scene, interface: layer, grid: { size: 100 },
   app: { canvas: surface, renderer: { screen: { width: 800, height: 600 } },
     ticker: { add: fn => ticks.add(fn), remove: fn => ticks.delete(fn) } } };
 const game = { user: { id: "gm", isGM: true }, users: new Map([["gm", { isGM: true }], ["player", { isGM: false }]]),
-  socket: { emit: (channel, msg) => emitted.push({ channel, msg }) } };
+  socket: { emit: (channel, msg) => emitted.push({ channel, msg }) },
+  settings:{get:(_module,key)=>key==="sceneEffectSoundVolume"?80:`${key}.ogg`} };
 const context = vm.createContext({ console, game, canvas, document, Hooks, Math,
+  AudioHelper:{play(options,broadcast){const sound={options,broadcast,stops:0,stop(){this.stops++;}};sounds.push(sound);return sound;}},
   PIXI: { Container, Graphics, VERSION: "7", Text: class extends Container {} },
   ui: { notifications: { warn: msg => warnings.push(msg), info() {} } }, performance: { now: () => now },
   crypto: { randomUUID: () => `id-${++nextId}` },
@@ -91,6 +94,8 @@ assert.equal(api.triggerConsoleEffects({ count: 3, kind: "mixed", shake: true })
 assert.equal(emitted.length, 1); assert.equal(ticks.size, 3); assert.equal(animations.length, 1, "one shake per multi-console burst");
 const message = emitted[0].msg;
 assert.equal(message.locations.length, 3);
+assert.equal(sounds.length,new Set(message.locations.map(p=>p.kind)).size+1,"one sound per type plus one shake sound");
+assert.ok(sounds.every(sound=>sound.broadcast===false));
 assert.equal(new Set(message.locations.map(p => p.id)).size, 3);
 assert.ok(message.locations.every(p => ["electric", "explosion"].includes(p.kind)));
 assert.equal(api.handleConsoleEffectSocket(message), false, "deduplicates repeated delivery");
@@ -101,6 +106,8 @@ assert.equal(ticks.size, 3);
 tick(100); assert.ok(calls.length > 0, "native renderer draws arcs/fire/sparks");
 assert.ok(calls.filter(c => ["circle7", "move", "line"].includes(c[0])).every(c => c.slice(1).every(Number.isFinite)));
 tick(2500); assert.equal(ticks.size, 0); assert.equal(timers.size, 0); assert.equal(layer.children.length, 0);
+await new Promise(resolve=>setImmediate(resolve));
+assert.ok(sounds.filter(sound=>sound.options.src!=="sndSceneImpact.ogg").every(sound=>sound.stops===1),"natural burst completion stops console audio");
 
 assert.equal(api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", preview: true }), true);
 assert.equal(emitted.length, 1, "preview stays local");
@@ -108,6 +115,7 @@ assert.equal(layer.children[0].x, 110); assert.equal(layer.children[0].y, 200);
 tick(50); assert.ok(calls.some(c => c[0] === "stroke7"));
 api.stopConsoleEffects(); assert.equal(ticks.size, 0); assert.equal(animations[0].cancelled, true);
 assert.equal(emitted.at(-1).msg.action, api.CONSOLE_EFFECT_STOP_ACTION);
+await new Promise(resolve=>setImmediate(resolve));assert.equal(sounds.at(-1).stops,1,"Stop cancels local preview audio");
 
 game.user.isGM = false;
 assert.equal(api.handleConsoleEffectSocket({ ...message, id: "remote" }), true, "player receives all sender-selected locations");
@@ -128,6 +136,8 @@ assert.equal(ticks.size, 0); assert.equal(timers.size, 0); assert.equal(layer.ch
 for (let i = 0; i < 40; i++) api.triggerConsoleEffects({ ids: [ids[0]], preview: true });
 assert.equal(ticks.size, 32, "active effect count bounded");
 hook("canvasTearDown");
+await new Promise(resolve=>setImmediate(resolve));
+assert.ok(sounds.every(sound=>sound.stops===1),"teardown and effect limits release all sound handles");
 
 // The placement picker converts screen positions through the zoomed/panned canvas.
 let result = pick.pickConsolePosition();

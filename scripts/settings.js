@@ -27,8 +27,10 @@ import {
 import { SFX_SETTING, SfxBoardConfig } from "./sfx-board.js";
 import { environmentSoundKeys } from "./viewscreen-environments.js";
 import { VIEWSCREEN_PRESET_SETTING } from "./viewscreen-presets.js";
+import { registerSceneEffectAudioSettings } from "./scene-effect-audio.js";
 
 export function registerSettings() {
+  registerSceneEffectAudioSettings();
 
   // ── Wildcard Token Namer config menu button ────────────────────────────
   game.settings.registerMenu("sta2e-toolkit", "wildcardNamerMenu", {

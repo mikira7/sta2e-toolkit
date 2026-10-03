@@ -1,12 +1,14 @@
 /** Saved bridge-console anchors and transient, scene-scoped overload effects. */
 import { playCanvasShakeLocal, stopCanvasShake, normalizeShake } from "./scene-effects.js";
 import { createConsoleExplosionVolume, createConsoleElectricalBloom, clearConsoleCinematicTextures } from "./console-cinematic-vfx.js";
+import { playSceneEffectSound } from "./scene-effect-audio.js";
 
 const MODULE = "sta2e-toolkit";
 export const CONSOLE_LOCATIONS_FLAG = "consoleEffectLocations";
 export const CONSOLE_EFFECT_ACTION = "consoleOverloadVfx";
 export const CONSOLE_EFFECT_STOP_ACTION = "stopConsoleOverloadVfx";
 const active = new Set(), seen = new Set(), writes = new Map();
+const audioEvents = new Set();
 const bound = (value, fallback, min, max) => Number.isFinite(Number(value))
   ? Math.max(min, Math.min(max, Number(value))) : fallback;
 const validPoint = point => Number.isFinite(point?.x) && Number.isFinite(point?.y);
@@ -94,6 +96,7 @@ export function triggerConsoleEffects({ ids, count = 1, kind = "electric", durat
 
 export function stopConsoleEffectsLocal() {
   for (const handle of [...active]) handle.stop();
+  for (const audio of [...audioEvents]) audio.stop();
 }
 
 export function stopConsoleEffects() {
@@ -112,7 +115,15 @@ export function handleConsoleEffectSocket(event) {
   if (!globalThis.PIXI || !canvas.app?.ticker || !(canvas.interface ?? canvas.tokens)?.addChild) return false;
   seen.add(event.id); if (seen.size > 128) seen.delete(seen.values().next().value);
   let played = false;
-  for (const [i, point] of event.locations.entries()) played = playBurst(point, event, i) || played;
+  const audio = { remaining: 0, sounds: [], kinds: new Set(), stop() {
+    for (const sound of this.sounds) sound.stop(); this.sounds.length = 0; audioEvents.delete(this);
+  } };
+  audioEvents.add(audio);
+  for (const [i, point] of event.locations.entries()) {
+    if (playBurst(point, event, i, audio)) { played = true; audio.kinds.add(point.kind); }
+  }
+  for (const kind of audio.kinds) { const sound = playSceneEffectSound(kind, { seed: event.seed }); if (sound) audio.sounds.push(sound); }
+  if (!audio.remaining) audio.stop();
   if (played && event.shake === true) playCanvasShakeLocal(normalizeShake(event.shakeOptions), event.seed);
   return played;
 }
@@ -129,7 +140,7 @@ function line(g, points, width, color, alpha) {
 }
 
 /** Native PIXI arcs, hot sparks, fire and smoke; works without animation packs. */
-function playBurst(point, event, index) {
+function playBurst(point, event, index, audio) {
   if (active.size >= 32) active.values().next().value.stop();
   const container = new PIXI.Container(), smoke = new PIXI.Graphics(), glow = new PIXI.Graphics();
   container.eventMode = "none"; container.zIndex = 950001;
@@ -149,11 +160,12 @@ function playBurst(point, event, index) {
   if (volume) container.addChild(volume.display);
   if (bloom) container.addChild(bloom.display);
   container.addChild(glow);
-  let stopped = false, timer;
+  let stopped = false, timer, counted = false;
   const handle = { stop };
   function stop() {
     if (stopped) return;
     stopped = true; clearTimeout(timer); ticker.remove(tick); active.delete(handle);
+    if (counted && --audio.remaining === 0) audio.stop();
     volume?.destroy(); bloom?.destroy();
     container.parent?.removeChild(container); container.destroy({ children: true });
   }
@@ -229,7 +241,8 @@ function playBurst(point, event, index) {
   try {
     const layer = canvas.interface ?? canvas.tokens;
     layer.sortableChildren = true; layer.addChild(container);
-    active.add(handle); ticker.add(tick); timer = setTimeout(stop, duration + 250); tick();
+    active.add(handle); audio.remaining++; counted = true;
+    ticker.add(tick); timer = setTimeout(stop, duration + 250); tick();
     return true;
   } catch (error) { stop(); console.warn("STA2e Toolkit | Console effect failed:", error); return false; }
 }

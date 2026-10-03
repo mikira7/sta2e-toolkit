@@ -15,10 +15,15 @@ class Graphics {
 }
 const canvas={ready:true,scene,interface:layer,app:{ticker:{add:fn=>ticks.add(fn),remove:fn=>ticks.delete(fn)}}};
 const game={user:{isGM:true}};
+const sounds=[];
+game.settings={get:(_module,key)=>key==="sndSceneCoolant"?"coolant.ogg":80};
 const context=vm.createContext({console,canvas,game,PIXI:{VERSION:"7",Graphics},Date:{now:()=>now},Math,
+  AudioHelper:{play(options,broadcast){const sound={options,broadcast,stops:0,stop(){this.stops++;}};sounds.push(sound);return sound;}},
   Hooks:{on:(name,fn)=>hooks.set(name,fn)}});
 const mod=new vm.SourceTextModule(await readFile(new URL("../scripts/coolant-leak.js",import.meta.url),"utf8"),{context});
-await mod.link(()=>new vm.SyntheticModule(["createLocalVolume"],function(){this.setExport("createLocalVolume",options=>{
+await mod.link(async name=>name.endsWith("scene-effect-audio.js")
+  ? new vm.SourceTextModule(await readFile(new URL("../scripts/scene-effect-audio.js",import.meta.url),"utf8"),{context})
+  : new vm.SyntheticModule(["createLocalVolume"],function(){this.setExport("createLocalVolume",options=>{
   if(!filterAvailable)return null;
   volumes++;const display=new Graphics();latest={options,display,updates:[],destroyCount:0};const record=latest;
   return {display,update:values=>record.updates.push({...values}),destroy(){record.destroyCount++;destroyed++;display.parent?.removeChild(display);display.destroy();}};
@@ -43,6 +48,7 @@ await assert.rejects(api.startCoolantLeak(),/Place/);
 await api.setCoolantLeakConfig({x:230,y:410,size:90});
 assert.equal(saved.x,230);assert.equal(saved.y,410);assert.equal(saved.active,false);assert.equal(ticks.size,0);
 await api.startCoolantLeak();assert.equal(saved.active,true);assert.equal(saved.startedAt,now);
+assert.equal(sounds.length,1);assert.equal(sounds[0].options.loop,true);assert.equal(sounds[0].broadcast,false);
 assert.equal(ticks.size,1);assert.equal(layer.children.length,1);assert.equal(latest.display.x,230);
 assert.ok(latest.options.body.includes("stepIndex<16"));assert.ok(latest.options.body.includes("transmission=1.0-alpha"));
 const first=latest;tick(60000);assert.equal(ticks.size,1,"plume has no duration expiry");
@@ -73,9 +79,12 @@ assert.equal(latest.options.uniforms.uAngle,135*Math.PI/180);
 assert.equal(beforeRotation.destroyCount,1);assert.equal(ticks.size,1,"live rotation keeps one active plume");
 
 api.registerCoolantLeakHooks();hooks.get("canvasTearDown")();
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(sounds.length,1,"visual config changes do not restart loop");assert.equal(sounds[0].stops,1,"scene teardown stops loop");
 assert.equal(ticks.size,0);assert.equal(layer.children.length,0);assert.equal(saved.active,true,"leaving scene retains persisted running state");
 game.user.isGM=false;hooks.get("canvasReady")();
 assert.equal(ticks.size,1,"late player or returning viewer restores persisted plume");
+assert.equal(sounds.length,2,"returning viewers resume loop locally");
 assert.equal(latest.options.uniforms.uAngle,135*Math.PI/180,"returning players restore saved direction");
 assert.equal(latest.options.uniforms.uIsometric,1,"returning players restore scene projection");
 await assert.rejects(api.stopCoolantLeak(),/Only the GM/);
@@ -104,4 +113,5 @@ assert.equal(ticks.size,0,"remote flag removal clears plume");
 await api.setCoolantLeakConfig({size:999,density:99,speed:-2,active:true});
 assert.equal(saved.size,400);assert.equal(saved.density,2);assert.equal(saved.speed,.2);assert.equal(saved.active,false);
 assert.equal(destroyed,volumes,"every allocated GPU volume released exactly once");
+await new Promise(resolve=>setImmediate(resolve));assert.ok(sounds.every(sound=>sound.stops===1),"all coolant loops released on stop, flag deletion or scene changes");
 console.log("Coolant leak checks passed: scene persistence, GM writes, continuous lifetime, idempotence, live edits, late-player restoration, stop, source removal, serialized writes, fallback and scene teardown.");

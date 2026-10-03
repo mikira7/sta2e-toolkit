@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
 const animations = [], emitted = [], hooks = new Map();
+const sounds=[];
 const surface = {
   style: { transform: "scale(1.1)", translate: "3px 4px" },
   animate(frames, options) {
@@ -16,13 +17,16 @@ const game = {
   user: { id: "gm", isGM: true },
   users: new Map([["gm", { isGM: true }], ["player", { isGM: false }]]),
   socket: { emit: (channel, message) => emitted.push({ channel, message }) },
+  settings:{get:(_module,key)=>key==="sceneEffectSoundVolume"?70:`${key}.ogg`},
 };
 const canvas = { ready: true, scene: { id: "bridge" }, app: { canvas: surface } };
 let id = 0;
-const context = vm.createContext({ game, canvas, Math, crypto: { randomUUID: () => `id-${++id}` },
+const context = vm.createContext({ game, canvas, Math, console,
+  AudioHelper:{play(options,broadcast){const sound={options,broadcast,stops:0,stop(){this.stops++;}};sounds.push(sound);return sound;}},
+  crypto: { randomUUID: () => `id-${++id}` },
   Hooks: { on: (name, fn) => hooks.set(name, fn) } });
 const module = new vm.SourceTextModule(await readFile(new URL("../scripts/scene-effects.js", import.meta.url), "utf8"), { context });
-await module.link(() => { throw new Error("Unexpected import"); });
+await module.link(async()=>new vm.SourceTextModule(await readFile(new URL("../scripts/scene-effect-audio.js",import.meta.url),"utf8"),{context}));
 await module.evaluate();
 const api = module.namespace;
 const remote = { action: api.SCENE_SHAKE_ACTION, sceneId: "bridge", userId: "gm", id: "remote", seed: 42 };
@@ -34,11 +38,13 @@ assert.equal(animations.length, 0);
 assert.equal(api.broadcastCanvasShake(api.SHAKE_PRESETS.impact), true);
 assert.equal(emitted.length, 1);
 assert.equal(animations.length, 1, "sender plays locally exactly once");
+assert.equal(sounds.length,1);assert.equal(sounds[0].options.src,"sndSceneImpact.ogg");assert.equal(sounds[0].broadcast,false);
 assert.equal(api.handleSceneEffectSocket(emitted[0].message), false, "duplicate broadcasts ignored");
 const first = animations[0];
 assert.equal(first.options.composite, "add");
 assert.equal(api.previewCanvasShake(api.SHAKE_PRESETS.earthquake), true);
 assert.equal(emitted.length, 1, "preview never broadcasts");
+assert.equal(sounds[1].options.src,"sndSceneEarthquake.ogg");
 assert.equal(first.cancelled, true, "new shake cancels previous shake");
 const preview = animations.at(-1);
 first.onfinish();
@@ -50,6 +56,8 @@ assert.equal(surface.style.translate, "3px 4px", "underlying canvas styles untou
 
 game.user = { id: "player", isGM: false };
 assert.equal(api.broadcastCanvasShake(), false);
+await new Promise(resolve=>setImmediate(resolve));
+assert.ok(sounds.every(sound=>sound.stops===1),"completion, replacement and scene teardown stop every shake sound once");
 assert.equal(api.broadcastStopCanvasShake(), false);
 assert.equal(api.previewCanvasShake(), false);
 assert.equal(api.handleSceneEffectSocket(remote), true, "players receive GM shake");

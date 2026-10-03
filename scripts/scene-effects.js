@@ -1,8 +1,10 @@
 /** Scene-scoped, transient canvas effects. Camera coordinates are never changed. */
+import { playSceneEffectSound } from "./scene-effect-audio.js";
 export const SCENE_SHAKE_ACTION = "sceneCanvasShake";
 export const SCENE_SHAKE_STOP_ACTION = "stopSceneCanvasShake";
 const CHANNEL = "module.sta2e-toolkit";
 let active = null;
+let activeSound = null;
 const seen = new Set();
 
 export const SHAKE_PRESETS = {
@@ -48,6 +50,7 @@ export function shakeKeyframes(options, seed) {
 export function stopCanvasShake() {
   const previous = active;
   active = null;
+  activeSound?.stop(); activeSound = null;
   previous?.cancel();
 }
 
@@ -62,6 +65,7 @@ export function playCanvasShakeLocal(options, seed) {
     duration: cfg.duration * 1000, easing: "linear", composite: "add",
   });
   active = animation;
+  activeSound = playSceneEffectSound(cfg.mode, { seed });
   animation.onfinish = () => {
     if (active === animation) stopCanvasShake();
   };

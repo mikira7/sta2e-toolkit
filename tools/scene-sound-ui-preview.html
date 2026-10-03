@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Scene sound row layout preview</title>
+<style>body{margin:16px;background:#11141e;color:#c0c8e0;font-family:Arial}main{max-width:980px}button{box-sizing:border-box}#status{padding:10px;font-size:12px}</style>
+<main></main><div id="status">Loading actual settings template…</div>
+<script src="https://cdn.jsdelivr.net/npm/handlebars@4.7.8/dist/handlebars.min.js"></script>
+<script type="module">
+const status=document.querySelector('#status');
+window.addEventListener('error',event=>status.textContent=event.message);
+window.addEventListener('unhandledrejection',event=>status.textContent=String(event.reason));
+Handlebars.registerHelper('ne',(a,b)=>a!==b);Handlebars.registerHelper('eq',(a,b)=>a===b);
+const [template,source]=await Promise.all([fetch('../templates/effect-config.hbs').then(r=>r.text()),fetch('../scripts/effect-config.js').then(r=>r.text())]);
+const row={label:'Console — Electrical',slot:'Sound',sndKey:'sndSceneElectric',soundValue:'assets/audio/console-electric01.wav',
+  sceneSoundKind:'electric',extraSounds:['assets/audio/console-electric02.wav'],animValue:null,delayValue:null};
+document.querySelector('main').innerHTML=Handlebars.compile(template)({tabs:[{id:'sceneEffects',label:'Scene Effects',rows:[row]}]});
+globalThis.ui={notifications:{warn:message=>status.textContent=message,error:message=>status.textContent=message}};
+globalThis.foundry={audio:{AudioHelper:{play:options=>{status.textContent='Preview: '+options.src;}}},applications:{apps:{FilePicker:{implementation:class {
+  constructor(options){this.options=options;}render(){this.options.callback('assets/audio/browsed-choice.wav');status.textContent='Picked audio for this row';}
+}}}}};
+const functions=source.slice(source.indexOf('function _wireSoundPreview('),source.indexOf('// Shared default path fragments'));
+const wire=new Function(functions+';return {preview:_wireSoundPreview,pickers:_wireFilePickers,choices:_wireSceneSoundChoices};')();
+const main=document.querySelector('main');wire.preview(main);wire.pickers(main);wire.choices(main);
+status.textContent='Actual saved-row template and dynamic Add / Remove handlers loaded';
+</script></html>

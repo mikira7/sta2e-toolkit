@@ -2,6 +2,12 @@
 
 As GM, open **Toolkit → Scene Effects** while viewing a scene.
 
+Configure optional audio under **Toolkit settings → Sounds & Animations → Scene Effects**. Browse for separate sound files for bridge impact, earthquake, electrical bursts, explosions, and the coolant leak, then save. Preview buttons audition the typed file on the GM's client only. The shared **Sound Volume** setting is 0–100%; blank paths or zero volume are silent. No sound files are bundled.
+
+Use **+ Add sound choice** beneath any effect to add more files, each with its own browse, preview, and remove buttons. Save to keep the choices. Each playback randomly selects one file from the main path and up to 32 additional choices; blank entries and duplicate paths are skipped. Additional choices also work when the main path is blank. The shared effect seed makes every viewer select the same file. Coolant chooses one loop per activation and retains it through visual edits and late-player restoration; stopping and restarting can choose a different loop.
+
+Sounds accompany effects for clients viewing that scene; local effect previews remain local. A burst at multiple consoles plays each sound type once, avoiding stacked identical audio. Coolant audio loops until stopped, resumes for returning viewers, and continues through plume direction/size edits. Stop controls, natural transient completion, and scene teardown stop the associated audio, including files still loading. Changing the saved coolant sound or volume updates its running loop.
+
 The panel displays **Canvas Shake**, **Electrical**, **Explosion**, and **Coolant Leak** icon buttons. Click an icon to expand its settings and playback controls; click it again to collapse them.
 
 - **Bridge impact** starts with a jolt and quickly settles.
@@ -71,3 +77,5 @@ await game.sta2eToolkit.stopCoolantLeak();
 ```
 
 Validation: `node --experimental-vm-modules tests/coolant-leak.mjs`. For a visual check, open `tools/coolant-leak-preview.html` using the same local preview server.
+
+Audio validation: `node --experimental-vm-modules tests/scene-effect-audio.mjs`.

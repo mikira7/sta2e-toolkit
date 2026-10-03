@@ -1,5 +1,6 @@
 /** Persistent scene-flag driven warp-core coolant leak, replayed on every viewer. */
 import { createLocalVolume } from "./console-cinematic-vfx.js";
+import { syncCoolantLeakSound, stopCoolantLeakSound, SCENE_EFFECT_AUDIO_CHANGED } from "./scene-effect-audio.js";
 
 const MODULE = "sta2e-toolkit";
 export const COOLANT_LEAK_FLAG = "coolantLeak";
@@ -197,8 +198,9 @@ export function syncCoolantLeak() {
     detachCoolantLeak(); return false;
   }
   const key = JSON.stringify([scene.id,state]);
+  syncCoolantLeakSound(scene.id, state);
   if (live && key === liveKey) return true;
-  detachCoolantLeak();
+  detachCoolantLeak(false);
   if (!globalThis.PIXI || !canvas.app?.ticker || !(canvas.interface ?? canvas.tokens)?.addChild) return false;
   const ticker=canvas.app.ticker, layer=canvas.interface ?? canvas.tokens;
   let plume;
@@ -218,13 +220,15 @@ export function syncCoolantLeak() {
   } catch(error) { plume?.destroy();console.warn("STA2e Toolkit | Coolant plume failed:",error);return false; }
 }
 
-export function detachCoolantLeak() {
+export function detachCoolantLeak(stopAudio = true) {
+  if (stopAudio) stopCoolantLeakSound();
   const previous=live;live=null;liveKey=null;
   if (!previous)return;
   previous.ticker.remove(previous.tick);previous.plume.destroy();
 }
 
 export function registerCoolantLeakHooks() {
+  Hooks.on(SCENE_EFFECT_AUDIO_CHANGED,syncCoolantLeak);
   Hooks.on("canvasReady",syncCoolantLeak);
   Hooks.on("canvasTearDown",detachCoolantLeak);
   Hooks.on("updateScene",(scene,changes)=>{
