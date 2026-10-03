@@ -22,6 +22,8 @@ import { lcarsChatCard } from "./chat-card-frame.js";
 import { PaymentPrompt } from "./payment-prompt.js";
 import { CombatHUD } from "./combat-hud.js";
 import { readPool, setPool } from "./pool-service.js";
+import { regionMovementCost } from "./region-terrain.js";
+import { activeGmWhisperIds } from "./gm-authority.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const MODULE = "sta2e-toolkit";
@@ -94,69 +96,107 @@ export class ZoneMovementLog {
       y: (changes.y ?? tokenDoc.y) + th / 2,
     };
 
+    const scene = tokenDoc.parent ?? canvas?.scene;
+    // Region terrain (Difficult Terrain / Hazard behaviors) applies on every
+    // kind of scene — drawn zones, dynamic zones, or neither.
+    const rt = regionMovementCost(origin, dest, scene);
+    const hasRegion = rt.cost > 0 || rt.lingeringHazards.length > 0;
+
     const zones = getSceneZones();
-    if (!zones.length) return this._onDynamicMove(tokenDoc, origin, dest);
+    if (!zones.length) return this._onDynamicMove(tokenDoc, origin, dest, rt);
 
     const fromZone = getZoneAtPoint(origin.x, origin.y, zones);
     const toZone   = getZoneAtPoint(dest.x,   dest.y,   zones);
 
-    // Only log if zones actually differ
-    if (!fromZone || !toZone) return;
-    if (fromZone.id === toZone.id) return;
+    // A zone-to-zone move, or a Region crossing inside one zone (or off-grid)
+    const zoneMove = !!(fromZone && toZone && fromZone.id !== toZone.id);
+    if (!zoneMove && !hasRegion) return;
 
     const actor  = canvas.tokens?.get(tokenDoc.id)?.actor ?? null;
     const isNpc  = _isNpc(actor);
     const isShip = actor?.system?.systems !== undefined;
 
-    const info = getZonePathWithCosts(origin, dest, zones);
+    let info = zoneMove
+      ? getZonePathWithCosts(origin, dest, zones)
+      : { zoneCount: fromZone && toZone ? 0 : null, momentumCost: 0, steps: [] };
+    info = { ...info, momentumCost: (info.momentumCost ?? 0) + rt.cost };
 
     // Terrain hazards in the destination zone are folded into the movement card
-    const terrainHazards = (toZone.hazards ?? []).filter(h => h.category === "terrain");
+    const terrainHazards = zoneMove
+      ? (toZone.hazards ?? []).filter(h => h.category === "terrain").map(h => ({
+          ...h,
+          source:     { kind: "zone", zoneId: toZone.id, hazardId: h.id },
+          sourceName: toZone.name || "(unnamed)",
+        }))
+      : [];
+    terrainHazards.push(...rt.terrainHazards);
 
-    await this._postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, terrainHazards);
+    const from = fromZone ?? { id: "none-from", name: "Starting Position", hazards: [], momentumCost: 0 };
+    const to   = toZone   ?? { id: "none-to",   name: "New Position",      hazards: [], momentumCost: 0 };
+    await this._postMovementCard(tokenDoc, from, zoneMove ? to : { ...to, hazards: [], momentumCost: 0, isDifficult: false },
+      info, isNpc, isShip, terrainHazards, rt.entries);
 
-    // Non-terrain hazards (lingering) still resolve separately
-    const hazardZones = (info.steps ?? [])
-      .slice(1)
-      .map(step => zones.find(z => z.id === step.zoneId))
-      .filter(z => z?.hazards?.some(h => h.category !== "terrain"));
-
-    if (hazardZones.length > 0) {
-      const { ZoneHazard } = await import("./zone-hazard.js");
-      for (const hz of hazardZones) {
-        for (const hazard of hz.hazards) {
-          if (hazard.category === "terrain") continue;
-          await ZoneHazard.resolveHazard(tokenDoc, hz, hazard);
+    // Lingering hazards entered — zone steps after the start, plus Regions —
+    // go to the active GM on one HAZARD ENTRY card.
+    const entries = [];
+    if (zoneMove) {
+      for (const step of (info.steps ?? []).slice(1)) {
+        const z = zones.find(zz => zz.id === step.zoneId);
+        for (const h of z?.hazards ?? []) {
+          if (h.category !== "lingering") continue;
+          entries.push({
+            ref: { kind: "zone", zoneId: z.id, hazardId: h.id },
+            label: h.label || h.type, category: "lingering", sourceName: z.name || "(unnamed)",
+          });
         }
       }
     }
+    await this._postLingeringEntries(tokenDoc, entries, rt);
+  }
+
+  async _postLingeringEntries(tokenDoc, entries, rt) {
+    for (const hz of rt.lingeringHazards) {
+      entries.push({ ref: hz.source, label: hz.label, category: "lingering", sourceName: hz.sourceName });
+    }
+    if (!entries.length) return;
+    const { ZoneHazard } = await import("./zone-hazard.js");
+    await ZoneHazard.postHazardEntryCard(tokenDoc, entries, { reason: "entry" });
   }
 
   /**
-   * Dynamic Zones (a scene with no zone grid): log a move that left the
-   * token's own zone. There are no named zones, hazards or terrain costs to
-   * report, so the card carries only the distance in zones and its band.
+   * A scene with no zone grid. With Dynamic Zones on, log a move that left the
+   * token's own zone; either way, post when the move crossed Region terrain or
+   * entered a Region hazard — those need no zone grid at all.
    */
-  async _onDynamicMove(tokenDoc, origin, dest) {
+  async _onDynamicMove(tokenDoc, origin, dest, rt) {
     const ctx = getRangeContext();
-    if (ctx.mode !== "dynamic") return;
-    const info = measureMovement(origin, dest, ctx);
-    if (!isMovementMeasured(info) || info.zoneCount === 0) return;
+    const hasRegion = rt.cost > 0 || rt.lingeringHazards.length > 0;
+
+    let info = null;
+    if (ctx.mode === "dynamic") {
+      const measured = measureMovement(origin, dest, ctx);
+      if (isMovementMeasured(measured)) info = measured;
+    }
+    const zoneMove = !!info && info.zoneCount > 0;
+    if (!zoneMove && !hasRegion) return;
+    info = { ...(info ?? { zoneCount: null }), momentumCost: (info?.momentumCost ?? 0) + rt.cost };
 
     const actor  = canvas.tokens?.get(tokenDoc.id)?.actor ?? null;
     const isNpc  = _isNpc(actor);
     const isShip = actor?.system?.systems !== undefined;
     const fromZone = { id: "dynamic-from", name: "Starting Position", hazards: [], momentumCost: 0 };
     const toZone   = { id: "dynamic-to",   name: "New Position",      hazards: [], momentumCost: 0 };
-    await this._postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, []);
+    await this._postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, [...rt.terrainHazards], rt.entries);
+    await this._postLingeringEntries(tokenDoc, [], rt);
   }
 
   // ── Card rendering ────────────────────────────────────────────────────────
 
-  async _postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, terrainHazards = []) {
+  async _postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, terrainHazards = [], regionEntries = []) {
     const tokenName   = tokenDoc.name ?? "Unknown";
     const zn          = info.zoneCount;
-    const band        = info.rangeBand ?? rangeBandFor(zn);
+    const measured    = Number.isFinite(zn);
+    const band        = info.rangeBand ?? (measured ? rangeBandFor(zn) : "");
     const mom         = info.momentumCost;
     const isDifficult = toZone.isDifficult || toZone.momentumCost > 0;
     const hasOtherHazard = (toZone.hazards ?? []).some(h => h.category !== "terrain");
@@ -168,28 +208,31 @@ export class ZoneMovementLog {
     const fromName = fromZone.name || "(unnamed)";
     const toName   = toZone.name   || "(unnamed)";
 
+    const distance = measured ? `${zn} zone${zn !== 1 ? "s" : ""} · ${band}` : "Region terrain";
     const zoneRow = hasCost
-      ? `${zn} zone${zn !== 1 ? "s" : ""} · ${band} · +${cost} ${isNpc ? "Threat" : "Momentum"}`
-      : `${zn} zone${zn !== 1 ? "s" : ""} · ${band}`;
+      ? `${distance} · +${cost} ${isNpc ? "Threat" : "Momentum"}`
+      : distance;
 
-    // Warning flags above the cost row
+    // Warning flags above the cost row — one per crossed Region
+    const regionRows = regionEntries.map(e => `
+      <div style="color:${e.kind === "hazardous" ? LC.red : LC.yellow};font-size:0.75em;letter-spacing:0.06em;">
+        ⚠ ${e.kind === "hazardous" ? "Hazardous" : "Difficult"} Terrain — ${e.regionName}${e.label && e.label !== e.regionName ? ` (${e.label})` : ""} +${e.cost}
+      </div>`).join("");
     const warningRows = [
       isDifficult && !hasTerrain ? `<div style="color:${LC.yellow};font-size:0.75em;letter-spacing:0.06em;">⚠ Difficult Terrain</div>` : "",
       hasOtherHazard             ? `<div style="color:${LC.red};font-size:0.75em;letter-spacing:0.06em;">⚠ Hazardous Zone</div>` : "",
+      regionRows,
     ].join("");
 
-    // Hazardous terrain detail block shown inside the cost row
+    // Hazardous terrain notice shown inside the cost row. Resolution lives on
+    // the GM-only HAZARD ENTRY card, posted if the crossing is paid in Threat.
     const terrainBlock = hasTerrain ? `
   <div style="border:1px solid ${LC.yellow};border-radius:4px;padding:6px 8px;margin-bottom:4px;
     background:rgba(255,200,0,0.05);">
-    <div style="color:${LC.yellow};font-size:0.68em;font-weight:700;letter-spacing:1px;margin-bottom:4px;">
-      ⚠ HAZARDOUS TERRAIN
+    <div style="color:${LC.yellow};font-size:0.72em;font-weight:700;letter-spacing:0.06em;">
+      ⚠ Hazardous Terrain: ${terrainHazards.map(h => h.label || h.type).join(", ")}
     </div>
-    ${terrainHazards.map(h => `
-      <div style="color:${LC.textBright};font-size:0.78em;font-weight:700;">${h.label || h.type}</div>
-      ${h.description ? `<div style="color:${LC.textDim};font-size:0.72em;margin-top:1px;">${h.description}</div>` : ""}
-    `).join("")}
-    <div style="color:${LC.textDim};font-size:0.68em;margin-top:5px;font-style:italic;">
+    <div style="color:${LC.textDim};font-size:0.68em;margin-top:3px;font-style:italic;">
       ${isNpc
         ? "Threat spent for movement triggers the hazard."
         : "Using Threat instead of Momentum triggers the hazard."}
@@ -257,6 +300,8 @@ export class ZoneMovementLog {
 
     // Serialise terrain hazard info for button handlers (stored in flags)
     const terrainPayloads = terrainHazards.map(h => ({
+      source:            h.source ?? { kind: "zone", zoneId: toZone.id, hazardId: h.id },
+      sourceName:        h.sourceName ?? toZone.name ?? "(unnamed)",
       zoneId:            toZone.id,
       hazardId:          h.id,
       hazardLabel:       h.label || h.type,
@@ -270,7 +315,7 @@ export class ZoneMovementLog {
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Tracker" },
-      whisper: game.users.filter(u => u.isGM || u.id === game.user.id).map(u => u.id),
+      whisper: activeGmWhisperIds(game.user.id),
       flags: {
         [MODULE]: {
           type:            hasTerrain ? "zoneMovementTerrain" : "zoneMovement",

@@ -45,6 +45,8 @@ import {
   getZoneAtPoint,
 } from "./zone-data.js";
 import { stampHullDecal } from "./hull-decals.js";
+import { fireGroundMeleeVFX } from "./ground-melee-vfx.js";
+import { fireGroundGooVFX } from "./ground-goo-vfx.js";
 // scene-warp.js is deliberately import-free so it can be consulted from here
 // without closing a cycle — see its header.
 import { isSceneWeaponAutoRotateDisabled } from "./scene-warp.js";
@@ -618,12 +620,14 @@ function meleeEffect(subtype) {
   return animOverride("groundWeapons", "melee", "animHit")
     ?? (isPatron()
       ? ({ blade: "jb2a.sword.melee.01.white", dagger: "jb2a.dagger.melee.02",
-           heavy: "jb2a.greatclub.standard.white", bludgeon: "jb2a.mace.melee.01.white",
+           heavy: "jb2a.greatclub.standard.white", batleth: "jb2a.greatclub.standard.white", lirpa: "jb2a.greatclub.standard.white", bludgeon: "jb2a.mace.melee.01.white",
            unarmed: "jb2a.unarmed_strike.physical.01", ushaan: "jb2a.dagger.melee.02" }[subtype]
         ?? "jb2a.sword.melee.01.white")
       : ({ blade:    `${WM}/Group01/MeleeAttack01_ShortSword01_02_800x600.webm`,
            dagger:   `${WM}/Dagger02_01_Regular_White_800x600.webm`,
            heavy:    `${WM}/Halberd01_03_Regular_White_800x600.webm`,
+           batleth:  `${WM}/Halberd01_03_Regular_White_800x600.webm`,
+           lirpa:    `${WM}/Halberd01_03_Regular_White_800x600.webm`,
            bludgeon: `${WM}/Club01_05_Regular_White_800x600.webm`,
            unarmed:  `${WM}/Unarmed_Strike_01/Unarmed_Strike_01_Regular_White_200x200.webm`,
            ushaan:   `${WM}/Group01/MeleeAttack01_Chakram01_01_800x600.webm` }[subtype]
@@ -1037,6 +1041,17 @@ export function resolveGroundWeaponConfig(item) {
     };
   }
 
+  // Medical shotgun — a gel projectile, rather than an energy beam.
+  if (/medical[\s-]+shotgun/.test(name)) {
+    return {
+      name:item.name, type:"ground-goo", color:"blue",
+      get effect() { return groundBeamEffect("blue"); },
+      get impact() { return impactEffect("blue"); },
+      get sound() { return snd("sndGroundGenericHit"); },
+      get missSound() { return snd("sndGroundGenericHit"); },
+    };
+  }
+
   // ── Anesthetic Hypospray ──────────────────────────────────────────────────
   if (name.includes("hypospray") || name.includes("anesthetic")) {
     return {
@@ -1138,10 +1153,17 @@ export function resolveGroundWeaponConfig(item) {
 
   // ── Melee weapons ─────────────────────────────────────────────────────────
   if (range === "melee") {
-    const subtype = isUnarmedWeapon(item)
+    const compactName = name.replace(/[^a-z]/g, "");
+    const subtype = isNervePinchWeapon(item)
+      ? "nerve-pinch"
+      : isUnarmedWeapon(item)
       ? "unarmed"
-      : name.includes("ushaan")
+      : compactName.includes("batleth")
+        ? "batleth"
+      : compactName.includes("ushaan")
         ? "ushaan"
+        : compactName.includes("lirpa")
+          ? "lirpa"
         : (name.includes("knife") || name.includes("dagger"))
           ? "dagger"
           : (hands === 2 || name.includes("bat") || name.includes("heavy") || name.includes("maul") || name.includes("staff") || name.includes("lirpa") || name.includes("halberd"))
@@ -1151,7 +1173,9 @@ export function resolveGroundWeaponConfig(item) {
               : "bludgeon";
     return {
       name: item.name, type: `melee-${subtype}`, subtype, color: "white",
-      get effect()    { return meleeEffect(subtype); },
+      get useClassicMelee() { return subtype !== "nerve-pinch" && !!(animOverride("groundWeapons", "melee", "animHit")
+        || animOverride("groundWeapons", "melee", "animImpact")); },
+      get effect()    { return meleeEffect(subtype === "nerve-pinch" ? "unarmed" : subtype); },
       get impact()    { return animOverride("groundWeapons", "melee", "animImpact") ?? groundCrackEffect(); },
       get sound()     { return snd("sndGroundMeleeHit"); },
       get missSound() { return snd("sndGroundMeleeMiss"); },
@@ -1340,6 +1364,11 @@ export function getGroundWeaponSeverity(weapon) {
  * @param {Item} weapon - A characterweapon2e item
  * @returns {boolean}
  */
+export function isNervePinchWeapon(weapon) {
+  return weapon?.system?.range === "melee"
+    && /nervepinch/.test(String(weapon.name ?? "").toLowerCase().replace(/[^a-z]/g, ""));
+}
+
 export function isUnarmedWeapon(weapon) {
   if (!weapon) return false;
   if ((weapon.system?.range ?? "") !== "melee") return false;
@@ -3001,6 +3030,7 @@ async function fireGroundPhaserBoltJb2a(config, isHit, token, targets) {
   const era = normalizePhaserEra(config?.phaserEra);
   const animPath = groundPhaserBoltJb2aEffect(era);
   const travelMs = getTimingGroundBeamTravel();
+  const playback = [];
 
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
@@ -3016,13 +3046,14 @@ async function fireGroundPhaserBoltJb2a(config, isHit, token, targets) {
       // Safe here where it is not on the flown sprite: stretchTo anchors both
       // ends, so missed() moves the impact end rather than the launch point.
       if (typeof effect.missed === "function") effect = effect.missed();
-      s.play();
+      playback.push(s.play());
       continue;
     }
     s = effect.wait(travelMs);
     if (config.impact) s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
-    s.play();
+    playback.push(s.play());
   }
+  await Promise.all(playback);
 }
 
 /**
@@ -3032,6 +3063,7 @@ async function fireGroundPhaserBoltJb2a(config, isHit, token, targets) {
  */
 async function fireGroundPhaserBolt(config, isHit, token, targets) {
   const era = normalizePhaserEra(config?.phaserEra);
+  const playback = [];
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = withSound(seq(), soundPath).wait(50);
@@ -3045,8 +3077,9 @@ async function fireGroundPhaserBolt(config, isHit, token, targets) {
     if (isHit && config.impact) {
       s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
     }
-    s.play();
+    playback.push(s.play());
   }
+  await Promise.all(playback);
 }
 
 async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, selectedEmitter = null, finalDamage = 0) {
@@ -3389,6 +3422,7 @@ async function firePointDefenseTorpedoes(config, isHit, token, targets, {
 // Phaser uses FireballBeam (3800ms travel), others use short Bullet/LaserShot (~600ms)
 async function fireGroundBeam(config, isHit, token, targets) {
   const travelMs = config.color === "orange" ? getTimingBeamTravel() : getTimingGroundBeamTravel();
+  const playback = [];
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     const animPath  = isHit ? config.effect : (config.missEffect ?? config.effect);
@@ -3402,12 +3436,14 @@ async function fireGroundBeam(config, isHit, token, targets) {
       s.effect().file(animPath).scale(0.45)
        .atLocation(token).stretchTo(target).missed();
     }
-    s.play();
+    playback.push(s.play());
   }
+  await Promise.all(playback);
 }
 
 // Melee — strike effect plays at the attacker, no stretching to preserve full animation size
 async function fireMelee(config, isHit, token, targets) {
+  const playback = [];
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     // Flip animation when target is to the left of the attacker
@@ -3427,20 +3463,24 @@ async function fireMelee(config, isHit, token, targets) {
        .mirrorX(flipX)
        .missed();
     }
-    s.play();
+    playback.push(s.play());
   }
+  await Promise.all(playback);
 }
 
 async function fireGrenade(config, _isHit, _token, targets) {
+  const playback = [];
   for (const target of targets) {
-    withSound(seq(), config.sound).wait(200)
+    playback.push(withSound(seq(), config.sound).wait(200)
       .effect().file(config.explosion).atLocation(target).scaleToObject(2)
-      .play();
+      .play());
   }
+  await Promise.all(playback);
 }
 
 // Anesthetic Hypospray — boon/condition aura plays on the target
 async function fireHypospray(config, isHit, _token, targets) {
+  const playback = [];
   for (const target of targets) {
     const s = withSound(seq(), config.sound).wait(100);
     if (isHit) {
@@ -3450,8 +3490,9 @@ async function fireHypospray(config, isHit, _token, targets) {
         .scaleToObject(1.4)
         .fadeIn(200).fadeOut(400);
     }
-    s.play();
+    playback.push(s.play());
   }
+  await Promise.all(playback);
 }
 
 // ---------------------------------------------------------------------------
@@ -3568,7 +3609,7 @@ function applyArrayAreaShotCap(shotCount, config, salvoMode, spreadDeclared) {
   return Math.max(1, Math.min(cap.max, shotCount));
 }
 
-export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0, pointDefense = null } = {}) {
+export async function fireWeapon(config, isHit, token, targets, { spreadDeclared = false, salvoMode = "area", repeatCount = 1, weapon = null, targetSystem = null, shieldImpact = null, hullImpact = null, finalDamage = 0, pointDefense = null, useStun = null } = {}) {
   if (!config) return;
   config = withPhaserEraConfig(config, token, weapon);
   const shipRepeatCount = isHit ? normalizeRepeatCount(repeatCount) : 1;
@@ -3584,6 +3625,9 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
     spreadDeclared,
   );
   const selectedEmitter = await prepareShipEmitterFacing(config, token, targets, weapon);
+
+  if (await fireGroundMeleeVFX(config, isHit, token, targets)) return;
+  if (await fireGroundGooVFX(config, isHit, token, targets, {deadly:useStun === false})) return;
 
   if (await fireNativeWeaponVFX(config, isHit, token, targets, {
     spreadDeclared,
@@ -3645,11 +3689,17 @@ export async function fireWeapon(config, isHit, token, targets, { spreadDeclared
       else if (config.family === "ground-phaser-bolt" && config.groundFireMode === "bolt") await fireGroundPhaserBolt(config, isHit, token, targets);
       else await fireGroundBeam(config, isHit, token, targets);
       break;
+    case "ground-goo":
+      await fireGroundBeam(config, isHit, token, targets);
+      break;
     case "melee-blade":
     case "melee-dagger":
     case "melee-heavy":
+    case "melee-batleth":
+    case "melee-lirpa":
     case "melee-bludgeon":
     case "melee-unarmed":
+    case "melee-nerve-pinch":
     case "melee-ushaan":
       await fireMelee(config, isHit, token, targets);
       break;

@@ -12,3 +12,9 @@ node_modules/
 audit-report.html
 *.bck
 scripts/_sync_probe.txt
+
+# Local Constitution refit test build; exclude from GitHub updates.
+/assets/ships/constitution-refit/
+/tools/build-constitution-refit.py
+/tools/build-constitution-textures.py
+/tools/verify-constitution-refit.py

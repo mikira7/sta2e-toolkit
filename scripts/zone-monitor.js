@@ -9,6 +9,7 @@
 
 import { getLcTokens } from "./lcars-theme.js";
 import { getSceneZones, getZoneAtPoint } from "./zone-data.js";
+import { getRegionFeatures, regionHazardView, regionContainsToken } from "./region-terrain.js";
 import { clampHudPos, clampHudElement, onViewportResize } from "./hud-position.js";
 
 const MONITOR_ID         = "sta2e-zone-monitor";
@@ -103,7 +104,18 @@ export class ZoneMonitor {
 
     this._body.innerHTML = "";
 
+    // Region hazards (Hazard behaviors) render as zone-like sections, so the
+    // same Setup / Reset / per-token buttons drive them — and on a dynamic or
+    // zoneless scene they are the only way to fire an immediate hazard.
+    const regionSections = this._regionHazardSections(tokens);
+
     if (zones.length === 0) {
+      if (regionSections.length) {
+        for (const { zone, tokens: rt } of regionSections) {
+          this._body.appendChild(this._renderZoneSection(zone, rt, LC));
+        }
+        return;
+      }
       const empty = document.createElement("div");
       empty.style.cssText = `padding: 12px; font-size: 0.8em; opacity: 0.5; text-align: center;`;
       empty.textContent = "No zones in this scene.";
@@ -136,11 +148,37 @@ export class ZoneMonitor {
       this._body.appendChild(this._renderZoneSection(zone, zoneTokens, LC));
     }
 
+    for (const { zone, tokens: rt } of regionSections) {
+      if (!this._showEmptyZones && !rt.length) continue;
+      this._body.appendChild(this._renderZoneSection(zone, rt, LC));
+    }
+
     // "No Zone" section for tokens outside all zones
     if (noZoneTokens.length > 0) {
       const noZone = { id: "__nozone__", name: "No Zone", hazards: [], tags: [], momentumCost: 0 };
       this._body.appendChild(this._renderZoneSection(noZone, noZoneTokens, LC, true));
     }
+  }
+
+  /** One pseudo-zone per Region carrying Hazard behaviors, with its tokens. */
+  _regionHazardSections(tokens) {
+    const byRegion = new Map();
+    for (const f of getRegionFeatures(canvas?.scene, "hazard")) {
+      const id = f.region.id;
+      if (!byRegion.has(id)) byRegion.set(id, { region: f.region, hazards: [] });
+      byRegion.get(id).hazards.push(regionHazardView(f));
+    }
+    return [...byRegion.values()].map(({ region, hazards }) => ({
+      zone: {
+        id:           `region:${region.id}`,
+        name:         `${region.name || "Region"} (Region)`,
+        hazards,
+        tags:         [],
+        momentumCost: 0,
+        region,
+      },
+      tokens: tokens.filter(t => regionContainsToken(region, t.document)),
+    }));
   }
 
   _debouncedRefresh() {
@@ -420,7 +458,8 @@ export class ZoneMonitor {
       gearBtn.addEventListener("mouseleave", () => { gearBtn.style.opacity = "0.6"; });
       gearBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        game.sta2eToolkit?.zoneEditor?.openZoneProperties(zone.id);
+        if (zone.region) zone.region.sheet?.render(true);
+        else game.sta2eToolkit?.zoneEditor?.openZoneProperties(zone.id);
       });
       hdr.appendChild(gearBtn);
     }
@@ -504,7 +543,7 @@ export class ZoneMonitor {
           });
           resetBtn.addEventListener("click", async () => {
             const { ZoneHazard } = await import("./zone-hazard.js");
-            await ZoneHazard.resetHazard(zone.id, hazard.id);
+            await ZoneHazard.resetHazard(hazard.source ?? zone.id, hazard.id);
           });
           terrainRow.appendChild(resetBtn);
         }
@@ -539,7 +578,7 @@ export class ZoneMonitor {
           const firstToken = tokens[0];
           const isShip = firstToken?.actor?.system?.systems !== undefined;
           const { ZoneHazard } = await import("./zone-hazard.js");
-          await ZoneHazard.setupHazard(zone.id, hazard.id, hazard.label || hazard.type, hazard, isShip, "terrain");
+          await ZoneHazard.setupHazard(hazard.source ?? zone.id, hazard.id, hazard.label || hazard.type, hazard, isShip, "terrain");
         });
         terrainRow.appendChild(setupBtn);
 
@@ -607,7 +646,7 @@ export class ZoneMonitor {
           });
           resetBtn.addEventListener("click", async () => {
             const { ZoneHazard } = await import("./zone-hazard.js");
-            await ZoneHazard.resetHazard(zone.id, hazard.id);
+            await ZoneHazard.resetHazard(hazard.source ?? zone.id, hazard.id);
           });
           lingerRow.appendChild(resetBtn);
         }
@@ -640,7 +679,7 @@ export class ZoneMonitor {
             const firstToken = tokens[0];
             const isShip = firstToken?.actor?.system?.systems !== undefined;
             const { ZoneHazard } = await import("./zone-hazard.js");
-            await ZoneHazard.setupHazard(zone.id, hazard.id, hazard.label || hazard.type, hazard, isShip, "lingering");
+            await ZoneHazard.setupHazard(hazard.source ?? zone.id, hazard.id, hazard.label || hazard.type, hazard, isShip, "lingering");
           });
           lingerRow.appendChild(setupBtn);
         }
@@ -709,7 +748,7 @@ export class ZoneMonitor {
         });
         resetBtn.addEventListener("click", async () => {
           const { ZoneHazard } = await import("./zone-hazard.js");
-          await ZoneHazard.resetHazard(zone.id, hazard.id);
+          await ZoneHazard.resetHazard(hazard.source ?? zone.id, hazard.id);
         });
         immedRow.appendChild(resetBtn);
 

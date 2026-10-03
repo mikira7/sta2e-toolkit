@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 1,
+  "method": "Manually inspected raster wall centres and clear aperture endpoints in original 2035x773 images; measurements are approximate to 3 pixels. Fit uses only the four outer corners; doors are independent validation points.",
+  "maxResidualUnits": 0.1,
+  "candidates": [
+    {
+      "file": "galaxy/Q03-R-v5.png",
+      "piece": "Q03-R",
+      "corners": [
+        [
+          17,
+          15
+        ],
+        [
+          2017,
+          15
+        ],
+        [
+          2017,
+          752
+        ],
+        [
+          17,
+          752
+        ]
+      ],
+      "doors": [
+        {
+          "name": "entry",
+          "units": [
+            [
+              2.1,
+              5
+            ],
+            [
+              3.3,
+              5
+            ]
+          ],
+          "pixels": [
+            [
+              327,
+              752
+            ],
+            [
+              501,
+              752
+            ]
+          ]
+        },
+        {
+          "name": "passage",
+          "units": [
+            [
+              5.5,
+              3.6
+            ],
+            [
+              5.5,
+              4.8
+            ]
+          ],
+          "pixels": [
+            [
+              827,
+              548
+            ],
+            [
+              827,
+              719
+            ]
+          ]
+        },
+        {
+          "name": "master",
+          "units": [
+            [
+              6.7,
+              3.4
+            ],
+            [
+              7.9,
+              3.4
+            ]
+          ],
+          "pixels": [
+            [
+              1006,
+              514
+            ],
+            [
+              1183,
+              514
+            ]
+          ]
+        },
+        {
+          "name": "closet",
+          "units": [
+            [
+              8.5,
+              1.1
+            ],
+            [
+              8.5,
+              2.3
+            ]
+          ],
+          "pixels": [
+            [
+              1274,
+              175
+            ],
+            [
+              1274,
+              355
+            ]
+          ]
+        },
+        {
+          "name": "head",
+          "units": [
+            [
+              10.5,
+              3.6
+            ],
+            [
+              10.5,
+              4.8
+            ]
+          ],
+          "pixels": [
+            [
+              1574,
+              548
+            ],
+            [
+              1574,
+              719
+            ]
+          ]
+        }
+      ],
+      "remaining": [
+        "Repair the missing outer-wall cap above the upper-left replicator and remove edge fringe.",
+        "Refine the replicator into a visible serving recess, not a full-height display.",
+        "Validate rendered fixture clearances and native door states in a scene proof."
+      ],
+      "sourceSha256": "811e364a1daae831bb5d059dc014c9de670da69d2291b680aa979248dc896a24",
+      "geometrySha256": "bb2369ade91fa966c0f5882183f2e39df2766f45b5b2203a09fdf0e1465bff1b"
+    },
+    {
+      "file": "intrepid/Q03-R-v4.png",
+      "piece": "Q03-R",
+      "corners": [
+        [
+          20,
+          15
+        ],
+        [
+          2015,
+          15
+        ],
+        [
+          2015,
+          752
+        ],
+        [
+          20,
+          752
+        ]
+      ],
+      "doors": [
+        {
+          "name": "entry",
+          "units": [
+            [
+              2.1,
+              5
+            ],
+            [
+              3.3,
+              5
+            ]
+          ],
+          "pixels": [
+            [
+              330,
+              752
+            ],
+            [
+              506,
+              752
+            ]
+          ]
+        },
+        {
+          "name": "passage",
+          "units": [
+            [
+              5.5,
+              3.6
+            ],
+            [
+              5.5,
+              4.8
+            ]
+          ],
+          "pixels": [
+            [
+              830,
+              549
+            ],
+            [
+              830,
+              712
+            ]
+          ]
+        },
+        {
+          "name": "master",
+          "units": [
+            [
+              6.7,
+              3.4
+            ],
+            [
+              7.9,
+              3.4
+            ]
+          ],
+          "pixels": [
+            [
+              1007,
+              514
+            ],
+            [
+              1187,
+              514
+            ]
+          ]
+        },
+        {
+          "name": "closet",
+          "units": [
+            [
+              8.5,
+              1.1
+            ],
+            [
+              8.5,
+              2.3
+            ]
+          ],
+          "pixels": [
+            [
+              1274,
+              181
+            ],
+            [
+              1274,
+              351
+            ]
+          ]
+        },
+        {
+          "name": "head",
+          "units": [
+            [
+              10.5,
+              3.6
+            ],
+            [
+              10.5,
+              4.8
+            ]
+          ],
+          "pixels": [
+            [
+              1574,
+              549
+            ],
+            [
+              1574,
+              712
+            ]
+          ]
+        }
+      ],
+      "remaining": [
+        "Refine the replicator into a visible serving recess, not a full-height display.",
+        "Remove edge fringe and inspect narrow thresholds at final grid scale.",
+        "Validate rendered fixture clearances and native door states in a scene proof."
+      ],
+      "sourceSha256": "b553b39f42db17375e31a23e697e91e6782723f5170379684f51e18b53b6cdd8",
+      "geometrySha256": "bb2369ade91fa966c0f5882183f2e39df2766f45b5b2203a09fdf0e1465bff1b"
+    }
+  ]
+}

@@ -10,6 +10,10 @@ import { DateEditor } from "./date-editor.js";
 import { CampaignManager } from "./campaign-manager.js";
 import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
+import { SceneEffectsPanel } from "./scene-effects-panel.js";
+import { SCENE_SHAKE_ACTION, SCENE_SHAKE_STOP_ACTION, handleSceneEffectSocket, registerSceneEffectHooks, broadcastCanvasShake, broadcastStopCanvasShake } from "./scene-effects.js";
+import { CONSOLE_EFFECT_ACTION, CONSOLE_EFFECT_STOP_ACTION, handleConsoleEffectSocket, registerConsoleEffectHooks, triggerConsoleEffects, stopConsoleEffects } from "./console-effects.js";
+import { registerCoolantLeakHooks, syncCoolantLeak, startCoolantLeak, stopCoolantLeak, setCoolantLeakConfig } from "./coolant-leak.js";
 import { SHIP_EXPLOSION_ACTION, playShipExplosionFromSocket, previewShipExplosion } from "./ship-explosion-vfx.js";
 import { SHIP_MELTDOWN_ACTION, SHIP_MELTDOWN_STOP_ACTION, playShipMeltdownFromSocket, stopShipMeltdownFromSocket, previewShipMeltdown, playShipMeltdown } from "./ship-meltdown-vfx.js";
 import { NativeTractorBeamVFX, registerTractorBeamVfxHooks } from "./tractor-beam-vfx.js";
@@ -77,6 +81,11 @@ import { registerZoneTokenConfig } from "./zone-token-config.js";
 import { registerRegionPadConfig } from "./region-pad-config.js";
 import { registerRegionSplineTool } from "./region-spline-tool.js";
 import { registerWarpViewscreenBehavior } from "./warp-viewscreen-behavior.js";
+import { registerRegionTerrainBehaviors } from "./region-terrain-behaviors.js";
+import { isActiveGM } from "./gm-authority.js";
+import { REVEAL_FLAG } from "./region-terrain.js";
+import { CLOAK_HIT_SHIMMER_ACTION, playCloakHitShimmer } from "./cloak-hit-vfx.js";
+import { registerSensorContacts, syncSensorContactMarkers, resolveSensorReveal, resolveSensorSweep } from "./sensor-contacts.js";
 import { WarpViewscreenPanel } from "./warp-viewscreen-panel.js";
 import { SceneWarpPanel } from "./scene-warp-panel.js";
 import {
@@ -97,6 +106,7 @@ import { registerTokenToolkitHud } from "./token-toolkit-hud.js";
 import { registerTrekFx } from "./trek-fx.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
 import { playWarpStretch, stopWarpStretch, registerWarpStretch } from "./warp-stretch-vfx.js";
+import { registerRingDustWake } from "./ring-dust-wake-vfx.js";
 import { shipHasWarpEffectChoice } from "./warp-effect-styles.js";
 import {
   SHIP_BEAM_VFX_ACTION,
@@ -105,6 +115,8 @@ import {
 } from "./native-weapon-vfx.js";
 import { GROUND_PHASER_VFX_ACTION, playGroundPhaserVfxFromSocket } from "./ground-phaser-vfx.js";
 import { GROUND_ENERGY_VFX_ACTION, playGroundEnergyVfxFromSocket } from "./ground-energy-vfx.js";
+import { GROUND_MELEE_VFX_ACTION, playGroundMeleeVfxFromSocket } from "./ground-melee-vfx.js";
+import { GROUND_GOO_VFX_ACTION, playGroundGooVfxFromSocket } from "./ground-goo-vfx.js";
 import { BOLT_TRAVEL_VFX_ACTION, playBoltTravelLocal } from "./bolt-travel-vfx.js";
 import { registerGroundWeaponItemSheetFields } from "./ground-weapon-item-sheet.js";
 import {
@@ -333,14 +345,10 @@ function _canWriteWorldSettings() {
   return game.permissions?.SETTINGS_MODIFY?.includes(game.user.role) ?? game.user.isGM;
 }
 
+// The designated active GM (gm-authority.js), falling back to the lowest-id
+// connected GM. Assistant GMs never execute privileged socket work.
 function _isResponsibleGM() {
-  if (!game.user?.isGM) return false;
-  const users = game.users?.contents
-    ?? (typeof game.users?.filter === "function" ? game.users.filter(() => true) : []);
-  const activeGMs = users
-    .filter(user => user?.active && user.isGM)
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  return (activeGMs[0]?.id ?? game.user.id) === game.user.id;
+  return isActiveGM(game.user);
 }
 
 // Assigned partway through the `ready` hook below; used by emitToolkitSocket.
@@ -568,9 +576,14 @@ Hooks.once("init", () => {
   registerStarfieldSettingsCache();
   registerSceneWarpCache();
   registerSceneWarpDiceCoordination();
+  registerSceneEffectHooks();
+  registerConsoleEffectHooks();
+  registerCoolantLeakHooks();
   registerRegionPadConfig();
   registerRegionSplineTool();
   registerWarpViewscreenBehavior();
+  registerRegionTerrainBehaviors();
+  registerSensorContacts();
   registerTokenToolkitHud();
   registerTrekFx();
   registerHullDecals();
@@ -926,6 +939,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
   ZoneHazard.wireAvoidanceCard(message, html);
   // Wire terrain hazard card buttons (Spend / Add Threat / Skip)
   ZoneHazard.wireTerrainCard(message, html);
+  // Wire the GM-only HAZARD ENTRY card (zone and Region hazards)
+  ZoneHazard.wireHazardEntryCard(message, html);
   // Wire opposed-task card buttons (Defender / Attacker)
   wireOpposedTaskCard(message, html);
   // Wire GM task-maker request cards
@@ -967,6 +982,7 @@ Hooks.once("ready", async () => {
   const toolkitWidget   = new ToolkitWidget();
   const warpViewscreenPanel = new WarpViewscreenPanel();
   const sceneWarpPanel  = new SceneWarpPanel();
+  const sceneEffectsPanel = new SceneEffectsPanel();
   const sfxWidget       = new SfxWidget();
   const poolTracker     = new ToolkitPoolTracker();
   const traitManager    = new TraitManager();
@@ -1014,6 +1030,9 @@ Hooks.once("ready", async () => {
     // +1 for a larger vessel shooting at small craft. Resolved when the attack was
     // declared (combat-hud-core.js) so it survives the round-trip through settings.
     const smallCraftPenalty = pending.smallCraftPenalty ?? pending.rollerOpts?.smallCraftPenalty ?? 0;
+    // Revealed hidden vessel (+2) or a target inside a Sensor Shroud (+potency) —
+    // resolved when the attack was declared, like Small Craft.
+    const concealmentPenalty = pending.concealmentPenalty ?? 0;
     // +1 owed by a Major Action the attacker bought with Momentum this turn. In
     // ship combat the tracker activates the officer, not the ship, so check the
     // officer first and fall back to the ship actor for ground/solo attackers.
@@ -1031,10 +1050,10 @@ Hooks.once("ready", async () => {
       || getExtraActionDifficulty(_atkActor);
     const rawDifficulty = pending.overridePenalty
       ? clampedSuccesses + 1 + cumbersomePenalty + pointDefensePenalty + smallCraftPenalty
-        + extraActionPenalty
+        + concealmentPenalty + extraActionPenalty
       : clampedSuccesses + guardPenalty + chiefSecurityPenalty + defensiveTrainingPenalty
         + closeProtectionPenalty + pronePenalty + cumbersomePenalty + pointDefensePenalty
-        + smallCraftPenalty + extraActionPenalty;
+        + smallCraftPenalty + concealmentPenalty + extraActionPenalty;
     const difficulty = Math.max(0, rawDifficulty - attackPatternPenalty);
 
     // Build the taskContext string now that defender's actual successes are known
@@ -1059,6 +1078,7 @@ Hooks.once("ready", async () => {
       taskContext = pending.rollerOpts?.taskContext ?? null;
       if (taskContext && smallCraftPenalty) taskContext += ` · +${smallCraftPenalty} Small Craft`;
     }
+    if (taskContext && concealmentPenalty) taskContext += ` · +${concealmentPenalty} Concealment`;
 
     const finalRollerOpts = {
       ...pending.rollerOpts,
@@ -1104,6 +1124,16 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.openWarpViewscreenPanel = () => warpViewscreenPanel.toggle();
   game.sta2eToolkit.sceneWarpPanel     = sceneWarpPanel;
   game.sta2eToolkit.openSceneWarpPanel = () => sceneWarpPanel.toggle();
+  game.sta2eToolkit.sceneEffectsPanel = sceneEffectsPanel;
+  game.sta2eToolkit.openSceneEffectsPanel = () => sceneEffectsPanel.toggle();
+  game.sta2eToolkit.shakeCanvas = broadcastCanvasShake;
+  game.sta2eToolkit.stopCanvasShake = broadcastStopCanvasShake;
+  game.sta2eToolkit.playConsoleEffects = triggerConsoleEffects;
+  game.sta2eToolkit.stopConsoleEffects = stopConsoleEffects;
+  game.sta2eToolkit.startCoolantLeak = startCoolantLeak;
+  game.sta2eToolkit.stopCoolantLeak = stopCoolantLeak;
+  game.sta2eToolkit.setCoolantLeakConfig = setCoolantLeakConfig;
+  syncCoolantLeak();
   game.sta2eToolkit.sfxWidget       = sfxWidget;
   game.sta2eToolkit.poolTracker     = poolTracker;
   game.sta2eToolkit.traitManager    = traitManager;
@@ -1417,7 +1447,14 @@ Hooks.once("ready", async () => {
   // the GM changes time, campaign data, or theme we emit this to sync players.
   _toolkitSocketHandler = async (msg) => {
     if (!msg?.action) return;
-
+    if (msg.action === CONSOLE_EFFECT_ACTION || msg.action === CONSOLE_EFFECT_STOP_ACTION) {
+      handleConsoleEffectSocket(msg);
+      return;
+    }
+    if (msg.action === SCENE_SHAKE_ACTION || msg.action === SCENE_SHAKE_STOP_ACTION) {
+      handleSceneEffectSocket(msg);
+      return;
+    }
     if (msg.action === SHIP_EXPLOSION_ACTION) {
       playShipExplosionFromSocket(msg);
       return;
@@ -1529,6 +1566,19 @@ Hooks.once("ready", async () => {
       return;
     }
 
+    // A cloaked ship taking a hit shimmers into view for a moment. Cosmetic,
+    // ungated; the token stays hidden (cloak-hit-vfx.js).
+    if (msg.action === CLOAK_HIT_SHIMMER_ACTION) {
+      if (_vfxSceneOk(msg)) {
+        const cloakedTok = _vfxToken(msg);
+        if (cloakedTok) {
+          noteVfxReceived(msg.action);
+          playCloakHitShimmer(cloakedTok);
+        }
+      }
+      return;
+    }
+
     // Deflector dish effects. Cosmetic, so ungated by GM — every client runs its
     // own copy off the same parameters, reading the look from the actor flag
     // rather than from the payload, and plays its own sound locally.
@@ -1602,6 +1652,16 @@ Hooks.once("ready", async () => {
     if (msg.action === GROUND_ENERGY_VFX_ACTION) {
       noteVfxReceived(msg.action);
       playGroundEnergyVfxFromSocket(msg);
+      return;
+    }
+    if (msg.action === GROUND_MELEE_VFX_ACTION) {
+      noteVfxReceived(msg.action);
+      playGroundMeleeVfxFromSocket(msg);
+      return;
+    }
+    if (msg.action === GROUND_GOO_VFX_ACTION) {
+      noteVfxReceived(msg.action);
+      playGroundGooVfxFromSocket(msg);
       return;
     }
 
@@ -2117,6 +2177,15 @@ Hooks.once("ready", async () => {
       game.sta2eToolkit?.zoneOverlay?.refresh();
       game.sta2eToolkit?.zoneVisibility?.refresh();
       game.sta2eToolkit?.zoneMonitor?._debouncedRefresh();
+    }
+
+    // Sensors: Reveal / Sensor Sweep resolve on the active GM so no hidden
+    // vessel's identity reaches the rolling player's client (sensor-contacts.js).
+    else if (msg.action === "sensorReveal" && _isResponsibleGM()) {
+      resolveSensorReveal(msg).catch(err => console.error("STA2e Toolkit | Reveal failed:", err));
+    }
+    else if (msg.action === "sensorSweep" && _isResponsibleGM()) {
+      resolveSensorSweep(msg).catch(err => console.error("STA2e Toolkit | Sensor Sweep failed:", err));
     }
 
     else if (msg.action === "zoneMovementPayment" && _isResponsibleGM()) {
@@ -2714,6 +2783,9 @@ Hooks.once("setup", () => {
   // own rewrites of mesh.scale.
   registerWarpStretch();
 
+  // Planetary ring dust wake — each client follows replicated moves itself.
+  registerRingDustWake();
+
   // Patch Token._onDragLeftStart and _onDragLeftDrop to feed the ZoneDragRuler
   const TokenClass = foundry.canvas?.placeables?.Token ?? Token;
   if (!TokenClass?.prototype) return;
@@ -3151,6 +3223,22 @@ Hooks.on("preUpdateToken", (tokenDoc, changes, options) => {
   delete changes.rotation;
 });
 
+// Sensor reveals (region-terrain.js): a vessel that cloaks or decloaks is no
+// longer the contact the Reveal found, and any reveal change must re-run the
+// visibility test — Foundry does not re-test vision on a flag write.
+Hooks.on("updateToken", async (tokenDoc, changes) => {
+  const revealChanged = foundry.utils.hasProperty(changes, `flags.sta2e-toolkit.${REVEAL_FLAG}`)
+    || foundry.utils.hasProperty(changes, `flags.sta2e-toolkit.-=${REVEAL_FLAG}`);
+  if ("hidden" in changes && _isResponsibleGM() && tokenDoc.getFlag("sta2e-toolkit", REVEAL_FLAG)) {
+    await tokenDoc.unsetFlag("sta2e-toolkit", REVEAL_FLAG);
+    return;
+  }
+  if (revealChanged || "hidden" in changes) {
+    game.sta2eToolkit?.zoneVisibility?.refresh?.();
+    syncSensorContactMarkers();
+  }
+});
+
 Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
   if (_options?.sta2eDeathThroes) return;   // ship death-throes drift — skip zone logic
   if (_options?.sta2eWeaponReposition) return;   // cinematic firing nudge (in-zone) — skip zone logic
@@ -3187,6 +3275,11 @@ Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
 
   // All zone-based logic below is GM-only.
   if (!game.user.isGM) return;
+
+  // A Reveal holds only "until that vessel moves" (Reveal, core rules).
+  if (_isResponsibleGM() && tokenDoc.getFlag("sta2e-toolkit", REVEAL_FLAG)) {
+    await tokenDoc.unsetFlag("sta2e-toolkit", REVEAL_FLAG);
+  }
 
   const origin = gmOrigin;
   if (!origin) return;
@@ -4295,6 +4388,16 @@ function _applySheetRollerOverride(app, html) {
               ...cardData,
               speaker:  ChatMessage.getSpeaker({ token: shipToken }),
             });
+
+          } else if (taskKey === "reveal") {
+            // Resolved by the active GM — candidates never reach this client.
+            if (!shipToken) return;
+            const payload = {
+              action: "sensorReveal", sceneId: shipToken.document.parent?.id ?? canvas.scene?.id,
+              shipTokenId: shipToken.id, successes, passed, requesterUserId: game.user.id,
+            };
+            if (_isResponsibleGM()) await resolveSensorReveal(payload);
+            else game.socket.emit("module.sta2e-toolkit", payload);
 
           } else if (taskKey === "tractor-beam") {
             if (!passed) return;

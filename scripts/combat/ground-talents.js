@@ -20,7 +20,7 @@
  */
 
 import { normalizeTalentName, findRoleAbilityTalent } from "./combat-definitions.js";
-import { isUnarmedWeapon } from "../weapon-configs.js";
+import { isUnarmedWeapon, isNervePinchWeapon } from "../weapon-configs.js";
 import { tokensSharingZone } from "../zone-dynamic.js";
 
 const MODULE = "sta2e-toolkit";
@@ -35,6 +35,11 @@ export { isUnarmedWeapon };
  * of the exact match.
  */
 export const GROUND_TALENTS = Object.freeze({
+  nervePinch: {
+    label: "Nerve Pinch",
+    aliases: ["nerve pinch", "vulcan nerve pinch"],
+    effect: "May use Science or Medicine instead of Security for Nerve Pinch attacks.",
+  },
   appliedForce: {
     label: "Applied Force",
     aliases: ["applied force"],
@@ -126,6 +131,24 @@ export function hasGroundTalent(actor, key) {
     const normalized = normalizeTalentName(item?.name);
     return prefixes.some(p => normalized.startsWith(p));
   }) ?? null;
+}
+
+/** The talent changes the attack discipline only for a Nerve Pinch weapon. */
+export function nervePinchDisciplines(actor, weapon) {
+  return isNervePinchWeapon(weapon) && hasGroundTalent(actor, "nervePinch")
+    ? ["security", "science", "medicine"] : ["security"];
+}
+
+export async function chooseNervePinchDiscipline(actor, weapon) {
+  const disciplines = nervePinchDisciplines(actor, weapon);
+  if (disciplines.length === 1) return disciplines[0];
+  const choice = await foundry.applications.api.DialogV2.wait({
+    window: { title: "Nerve Pinch — Attack Discipline" },
+    content: "<p>Your Nerve Pinch talent lets you use Science or Medicine instead of Security. Choose the discipline for this attack.</p>",
+    buttons: disciplines.map(discipline => ({ action: discipline,
+      label: discipline[0].toUpperCase() + discipline.slice(1), default: discipline === "security" })),
+  });
+  return disciplines.includes(choice) ? choice : null;
 }
 
 /**

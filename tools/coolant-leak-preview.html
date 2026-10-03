@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Persistent coolant leak preview</title>
+<style>body{margin:0;background:#050b14;color:#c8e9ff;font:14px Arial}header{padding:12px}iframe{width:680px;height:500px;border:1px solid #345;margin:8px}button{background:#152e46;color:#c8e9ff;border:1px solid #468;padding:6px;margin-right:8px}canvas{display:block}#status{margin:8px}</style></head>
+<body><script type="module">
+const version=new URLSearchParams(location.search).get('version');
+if(!version){
+  document.body.innerHTML='<header>Persistent coolant leak — actual PIXI 7 and 8 WebGL rendering</header><iframe title="PIXI 7 coolant" src="?version=7.4.3"></iframe><iframe title="PIXI 8 coolant" src="?version=8.14.0"></iframe>';
+}else{
+  document.body.innerHTML='<header><b>PIXI '+version+'</b> <button id="start">Start / flow</button><button id="later">Later flow</button><button id="stop">Stop</button> <label>Direction <select id="direction"><option value="0">Up 0°</option><option value="45">Diagonal 45°</option><option value="90">Right 90°</option><option value="180">Down 180°</option><option value="270">Left 270°</option></select></label></header><div id="status">Loading…</div>';
+  const status=document.getElementById('status');
+  const viewLabel=document.createElement('label');viewLabel.textContent='Map view ';
+  const viewSelect=document.createElement('select');
+  viewSelect.innerHTML='<option value="top-down">Top down</option><option value="isometric">Isometric</option>';
+  viewLabel.append(viewSelect);document.querySelector('header').append(viewLabel);
+  window.addEventListener('error',e=>status.textContent='ERROR: '+e.message);
+  window.addEventListener('unhandledrejection',e=>status.textContent='ERROR: '+e.reason);
+  const script=document.createElement('script');script.src='https://pixijs.download/v'+version+'/pixi.min.js';
+  await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=reject;document.head.append(script)});
+  const v8=parseInt(version)>=8;
+  const app=v8?new PIXI.Application():new PIXI.Application({width:660,height:390,backgroundColor:0x091522,antialias:true});
+  if(v8)await app.init({width:660,height:390,background:0x091522,preference:'webgl',antialias:true});
+  app.stop();document.body.append(app.canvas??app.view);
+  const draw=new PIXI.Graphics();
+  const rect=(x,y,w,h,color)=>v8?draw.rect(x,y,w,h).fill(color):draw.beginFill(color).drawRect(x,y,w,h).endFill();
+  function drawMap(isometric){
+    draw.clear();
+    if(isometric){
+      for(let y=-200;y<600;y+=40)for(let x=-100;x<760;x+=80){
+        const sx=x+(Math.round(y/40)%2)*40,points=[sx,y,sx+39,y+19,sx,y+38,sx-39,y+19];
+        if(v8)draw.poly(points).fill(0x0c2031);else draw.beginFill(0x0c2031).drawPolygon(points).endFill();
+      }
+    }else for(let y=0;y<390;y+=40)for(let x=0;x<660;x+=40)rect(x,y,39,39,0x0c2031);
+    rect(100,294,215,32,0x597482);rect(345,294,215,32,0x597482);
+    for(let x of [120,200,400,480])rect(x,287,10,46,0x99b0ba);
+    rect(315,303,30,12,0x469db2);
+  }
+  drawMap(false);app.stage.addChild(draw);
+  const layer=new PIXI.Container();app.stage.addChild(layer);
+  const ticks=new Set();let clock=1700000000000,saved;
+  Date.now=()=>clock;
+  const scene={id:'preview',getFlag:()=>saved,setFlag:async(_m,_k,value)=>{saved=value}};
+  globalThis.canvas={ready:true,scene,interface:layer,app:{renderer:app.renderer,ticker:{add:f=>ticks.add(f),remove:f=>ticks.delete(f)}}};
+  globalThis.game={user:{isGM:true}};globalThis.Hooks={on(){}};
+  const {setCoolantLeakConfig,startCoolantLeak,stopCoolantLeak,getCoolantLeak}=await import('../scripts/coolant-leak.js');
+  await setCoolantLeakConfig({x:330,y:310,size:70,density:1.1,speed:1,seed:1456});
+  function render(){for(const tick of [...ticks])tick();if(v8)app.renderer.render({container:app.stage});else app.renderer.render(app.stage);
+    status.textContent=(getCoolantLeak().active?'LEAKING':'STOPPED')+' · '+ticks.size+' active plume';}
+  async function start(){await startCoolantLeak();clock=getCoolantLeak().startedAt+2500;render()}
+  document.getElementById('start').onclick=start;
+  document.getElementById('later').onclick=()=>{clock+=5000;render()};
+  document.getElementById('stop').onclick=async()=>{await stopCoolantLeak();render()};
+  document.getElementById('direction').onchange=async event=>{await setCoolantLeakConfig({angle:Number(event.target.value)});render()};
+  viewSelect.onchange=async()=>{await setCoolantLeakConfig({projection:viewSelect.value});drawMap(viewSelect.value==='isometric');render()};
+  await start();
+}
+</script></body></html>

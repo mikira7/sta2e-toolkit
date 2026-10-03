@@ -1,0 +1,543 @@
+{
+  "method": "built-in image_gen",
+  "guide": {
+    "path": "docs/interior-prefabs/cabin-style-guide.md",
+    "sha256": "715e113342082384b627bc209db9bdaf0c4b0b9a921f1889041f0d0732c0fa46",
+    "version": 1
+  },
+  "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+  "requests": [
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v1",
+      "file": "galaxy/Q03-R-HC-BASE-v1.png",
+      "style": "galaxy",
+      "piece": "Q03-R-HC-BASE",
+      "status": "needs-correction",
+      "references": [
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-BASE-guide.png",
+        "assets/interiors/prefabs/corridor-studies/galaxy-corridor-study-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin"
+      },
+      "prompt": "Use case: sketch-to-render.\nAsset: Q03-R-HC-BASE, a single production candidate for a Star Trek overhead tabletop officer cabin AND its attached half corridor. Image 1 is the exact geometry reference, not a mood board. Image 2 is MATERIAL AND LIGHTING REFERENCE ONLY: do not copy its layout, perspective, text, doorway or alcove.\nCamera exactly overhead orthographic, realistic detailed 3D battlemap finish, ceiling removed. Preserve Image 1 proportions and object locations precisely. Combined wall-centre footprint is 13.5 units wide by 6.05 high (2.2314:1); the room is 5 units deep and attached corridor extends 1.05 units below its entrance wall. Scale 1 unit=1.5 metres. Maintain equal physical scale horizontally and vertically. Transparent margins if needed.\nCRITICAL LAYERS: this is the BASE only. The entire TOP REAR WALL is intentionally absent, ending at a straight cut for a separate wall overlay. No windows, no top horizontal wall or border, no exterior scenery. Vertical partitions terminate at that top cut. Left and right ROOM walls exist. The lower entrance wall exists at y5, with its doorway. The half corridor floor below y5 extends uninterrupted across the entire width to y6.05 and has NO bottom wall, NO side endcaps, no centre stripe, no markings. It is ONE clear square of corridor on this side, not the full two-square corridor.\nTopology left to right: living/dining/work x0..5.5; master bedroom x5.5..8.5,y0..3.4; private closet x8.5..10.5,y0..3.4; head x10.5..13.5,y0..5. Passage under bedroom and closet y3.4..5. Five clear openings width1.2: entrance [2.7,5]; common/passage [5.5,4.2]; bedroom/passage [7.3,3.4]; bedroom/closet [8.5,1.7]; head/passage [10.5,4.2]. These are EMPTY openings with slim sills; no door leaves. Closet bottom wall has no door.\nInterpret the guide fixtures: oval glass dining table inside x1.2..2.1,y1.5..2.4, exactly two dining chairs at left and right facing table; sofa at upper common area x3.65..5.35,y.25...9; low rounded-rectangle wood coffee table below it x4.15..5,y1.7..2.2. Wood desk lower left x.2..1.8,y3.4..3.95; task chair BELOW desk faces UP toward it. A small leafy potted plant sits on the far-left corner of this desk, not on walking floor. No extra chairs or floor plants.\nMaster bed x5.75..6.95,y.25..1.65, wardrobe x5.65..6.2,y2.05..3.25. Hanging clothing storage along closet RIGHT wall atx10..10.4. Food replicator is a recessed serving niche in thick upper LEFT service wall, facing right; not a tall cabinet or freestanding console.\nHEAD: upper-left fixture x10.7..11.6,y.2..1.1 is a DRY SONIC SHOWER with flush emitter strips on its LEFT wall and a clear privacy screen. No hose, showerhead, faucet, water spray or rain head in shower. Upper-right x11.75..13.3,y.2..1 is an ivory OVAL bathtub in fitted surround, empty. Mid-left x10.7..11.25,y1.5..2.2 is the small basin. Toilet near right wall x12.75..13.4,y2..2.5 has cistern at RIGHT and bowl facing LEFT. Do not swap these fixtures.\nVisible wall sconces belong only to existing side/interior walls, small inset task light on desk; no hanging ceiling lamps and no fixtures on the omitted rear wall. Glass dining top has subtle tint, rim and support visible through it; room floor beneath glass is opaque. Plants and lights stay within existing furniture or wall footprints. Preserve all walking space.\nNo text, labels, grid, cyan lines, arrows, people, thick exaggerated walls, roof, perspective, black background or checkerboard pixels. True transparent alpha outside footprint and above absent rear wall. Do not depict guide orange doorway lines as doors.\n\nMaterials: Galaxy class: warm taupe/ivory wall caps and molded panels, muted mauve and warm-grey carpet, satin walnut desk and low coffee table, lightly bronze-tinted glass dining top, muted blue and cream upholstery, soft warm diffused lamps, restrained amber/lavender inset controls. Attached corridor uses mauve carpet and a narrow warm-grey edge band by the entrance wall, continuous plain carpet at its outer floor join. Rounded comfortable furniture, calm lived-in appearance.",
+      "review": {
+        "status": "needs-correction",
+        "strengths": [
+          "Glass dining top, wood desk and low table",
+          "Desk plant and integrated lighting",
+          "Distinct sonic shower, tub and basin",
+          "Attached half corridor present"
+        ],
+        "issues": [
+          "Room height and corridor proportion drift from measured guide",
+          "Walls and piers too thick for approved wall band",
+          "Replicator reads as a control panel rather than a serving niche",
+          "Rear-wall omission and door endpoints require exact registration review"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false,
+        "method": "manual visual inspection; transparency independently checked by inventory"
+      }
+    },
+    {
+      "id": "intrepid-Q03-R-HC-BASE-v1",
+      "file": "intrepid/Q03-R-HC-BASE-v1.png",
+      "style": "intrepid",
+      "piece": "Q03-R-HC-BASE",
+      "status": "needs-correction",
+      "references": [
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-BASE-guide.png",
+        "assets/interiors/prefabs/corridor-studies/intrepid-corridor-study-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin"
+      },
+      "prompt": "Use case: sketch-to-render.\nAsset: Q03-R-HC-BASE, a single production candidate for a Star Trek overhead tabletop officer cabin AND its attached half corridor. Image 1 is the exact geometry reference, not a mood board. Image 2 is MATERIAL AND LIGHTING REFERENCE ONLY: do not copy its layout, perspective, text, doorway or alcove.\nCamera exactly overhead orthographic, realistic detailed 3D battlemap finish, ceiling removed. Preserve Image 1 proportions and object locations precisely. Combined wall-centre footprint is 13.5 units wide by 6.05 high (2.2314:1); the room is 5 units deep and attached corridor extends 1.05 units below its entrance wall. Scale 1 unit=1.5 metres. Maintain equal physical scale horizontally and vertically. Transparent margins if needed.\nCRITICAL LAYERS: this is the BASE only. The entire TOP REAR WALL is intentionally absent, ending at a straight cut for a separate wall overlay. No windows, no top horizontal wall or border, no exterior scenery. Vertical partitions terminate at that top cut. Left and right ROOM walls exist. The lower entrance wall exists at y5, with its doorway. The half corridor floor below y5 extends uninterrupted across the entire width to y6.05 and has NO bottom wall, NO side endcaps, no centre stripe, no markings. It is ONE clear square of corridor on this side, not the full two-square corridor.\nTopology left to right: living/dining/work x0..5.5; master bedroom x5.5..8.5,y0..3.4; private closet x8.5..10.5,y0..3.4; head x10.5..13.5,y0..5. Passage under bedroom and closet y3.4..5. Five clear openings width1.2: entrance [2.7,5]; common/passage [5.5,4.2]; bedroom/passage [7.3,3.4]; bedroom/closet [8.5,1.7]; head/passage [10.5,4.2]. These are EMPTY openings with slim sills; no door leaves. Closet bottom wall has no door.\nInterpret the guide fixtures: oval glass dining table inside x1.2..2.1,y1.5..2.4, exactly two dining chairs at left and right facing table; sofa at upper common area x3.65..5.35,y.25...9; low rounded-rectangle wood coffee table below it x4.15..5,y1.7..2.2. Wood desk lower left x.2..1.8,y3.4..3.95; task chair BELOW desk faces UP toward it. A small leafy potted plant sits on the far-left corner of this desk, not on walking floor. No extra chairs or floor plants.\nMaster bed x5.75..6.95,y.25..1.65, wardrobe x5.65..6.2,y2.05..3.25. Hanging clothing storage along closet RIGHT wall atx10..10.4. Food replicator is a recessed serving niche in thick upper LEFT service wall, facing right; not a tall cabinet or freestanding console.\nHEAD: upper-left fixture x10.7..11.6,y.2..1.1 is a DRY SONIC SHOWER with flush emitter strips on its LEFT wall and a clear privacy screen. No hose, showerhead, faucet, water spray or rain head in shower. Upper-right x11.75..13.3,y.2..1 is an ivory OVAL bathtub in fitted surround, empty. Mid-left x10.7..11.25,y1.5..2.2 is the small basin. Toilet near right wall x12.75..13.4,y2..2.5 has cistern at RIGHT and bowl facing LEFT. Do not swap these fixtures.\nVisible wall sconces belong only to existing side/interior walls, small inset task light on desk; no hanging ceiling lamps and no fixtures on the omitted rear wall. Glass dining top has subtle tint, rim and support visible through it; room floor beneath glass is opaque. Plants and lights stay within existing furniture or wall footprints. Preserve all walking space.\nNo text, labels, grid, cyan lines, arrows, people, thick exaggerated walls, roof, perspective, black background or checkerboard pixels. True transparent alpha outside footprint and above absent rear wall. Do not depict guide orange doorway lines as doors.\n\nMaterials: Intrepid class: cool light-grey wall caps and fitted panels, graphite bases, slate-blue carpet, satin pale-oak desk and low coffee table, lightly smoke-tinted glass dining top, slate-blue and charcoal upholstery, neutral-white inset lamps, small amber inset controls. Attached corridor uses slate carpet and a narrow lighter edge band by the entrance wall, continuous plain carpet at its outer floor join. Softly chamfered refined furniture, calm lived-in appearance.",
+      "review": {
+        "status": "needs-correction",
+        "strengths": [
+          "Coherent Intrepid palette",
+          "Glass/wood furnishings and desk plant",
+          "Sonic shower and separate tub",
+          "Attached half corridor present"
+        ],
+        "issues": [
+          "Unapproved wall enclosure around desk",
+          "Room height and corridor proportion drift",
+          "Baked floor stripe at open centreline edge",
+          "Replicator serving niche not sufficiently readable",
+          "Wall thickness and rear-wall omission require registration review"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false,
+        "method": "manual visual inspection; transparency independently checked by inventory"
+      }
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v2",
+      "file": "galaxy/Q03-R-HC-BASE-v2.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "rejected",
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-HC-BASE-v1.png",
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-BASE-guide.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin"
+      },
+      "prompt": "Use case: precise-object-edit. Input 1 is the EDIT TARGET, the galaxy officer cabin base candidate. Input 2 is the EXACT approved geometry guide. Correct the target's structural geometry to match Input 2 while retaining its furniture materials, small desk plant, lamp style, sonic emitter shower, oval glass dining table, wooden coffee table, upholstery and lighting. Single task: make the target accurately conform to the blueprint.\nThe room is 13.5 units wide and 5 units high; the attached corridor half is only 1.05 units high, i.e. 17.36 percent of the combined footprint height, not a quarter. The room's entrance wall lies at 82.64 percent from top to bottom of the combined footprint. Width divided by total height is 2.2314; width divided by room height is 2.7. Retain these physical proportions with uniform scale in both axes; add transparent canvas margin if needed instead of squashing the room.\nAlign ALL wall centre lines and fixture rectangles to Input 2. Walls thin at .1 units, not the overly thick target piers. Empty room entrance x2.1..3.3 along y5. Common/passage opening x5.5,y3.6..4.8. Bedroom opening x6.7..7.9,y3.4. Private closet opening x8.5,y1.1..2.3. Head opening x10.5,y3.6..4.8. Closet bottom wall x8.5..10.5,y3.4 is continuous. No closed door leaves.\nDesk is freestanding against the left wall as shown in the guide, with NO added partitions around the work area. Keep chair below desk facing it. The entire rear/top horizontal wall band is OMITTED, including across the bathroom: no top connecting wall between piers, no top sill; a separate solid/window layer is installed later. Shower enclosure and bathtub own rims remain inside their footprints.\nThe half-corridor bottom edge is plain open carpet continuing to a future centreline join. NO decorative stripe at that edge, no bottom wall, no corridor side caps. One restrained floor band may remain ONLY next to the entrance wall. Remove any cyan guide edge or orange guide lines; preserve empty doorway sills as material.\nKeep true transparent exterior and original palette; glass tabletops reveal opaque floor beneath. No extra furniture, plants, fixtures, doors, grid, text, perspective or modern water-shower equipment. Do not remove the attached half-corridor floor.",
+      "review": {
+        "status": "rejected",
+        "issues": [
+          "Opaque checkerboard exterior",
+          "Missing required corridor-facing head wall",
+          "Cut-away rear floor instead of a narrow omitted wall band",
+          "Geometry correction unsuccessful"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false,
+        "method": "manual visual inspection; transparency independently checked by inventory"
+      }
+    },
+    {
+      "id": "intrepid-Q03-R-HC-BASE-v2",
+      "file": "intrepid/Q03-R-HC-BASE-v2.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "intrepid",
+      "status": "rejected",
+      "references": [
+        "assets/interiors/prefabs/production/intrepid/Q03-R-HC-BASE-v1.png",
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-BASE-guide.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin"
+      },
+      "prompt": "Use case: precise-object-edit. Input 1 is the EDIT TARGET, the intrepid officer cabin base candidate. Input 2 is the EXACT approved geometry guide. Correct the target's structural geometry to match Input 2 while retaining its furniture materials, small desk plant, lamp style, sonic emitter shower, oval glass dining table, wooden coffee table, upholstery and lighting. Single task: make the target accurately conform to the blueprint.\nThe room is 13.5 units wide and 5 units high; the attached corridor half is only 1.05 units high, i.e. 17.36 percent of the combined footprint height, not a quarter. The room's entrance wall lies at 82.64 percent from top to bottom of the combined footprint. Width divided by total height is 2.2314; width divided by room height is 2.7. Retain these physical proportions with uniform scale in both axes; add transparent canvas margin if needed instead of squashing the room.\nAlign ALL wall centre lines and fixture rectangles to Input 2. Walls thin at .1 units, not the overly thick target piers. Empty room entrance x2.1..3.3 along y5. Common/passage opening x5.5,y3.6..4.8. Bedroom opening x6.7..7.9,y3.4. Private closet opening x8.5,y1.1..2.3. Head opening x10.5,y3.6..4.8. Closet bottom wall x8.5..10.5,y3.4 is continuous. No closed door leaves.\nDesk is freestanding against the left wall as shown in the guide, with NO added partitions around the work area. Keep chair below desk facing it. The entire rear/top horizontal wall band is OMITTED, including across the bathroom: no top connecting wall between piers, no top sill; a separate solid/window layer is installed later. Shower enclosure and bathtub own rims remain inside their footprints.\nThe half-corridor bottom edge is plain open carpet continuing to a future centreline join. NO decorative stripe at that edge, no bottom wall, no corridor side caps. One restrained floor band may remain ONLY next to the entrance wall. Remove any cyan guide edge or orange guide lines; preserve empty doorway sills as material.\nKeep true transparent exterior and original palette; glass tabletops reveal opaque floor beneath. No extra furniture, plants, fixtures, doors, grid, text, perspective or modern water-shower equipment. Do not remove the attached half-corridor floor.",
+      "review": {
+        "status": "rejected",
+        "issues": [
+          "Opaque checkerboard exterior",
+          "Missing long corridor-facing passage wall",
+          "Unapproved desk enclosure persists",
+          "Cut-away rear floor and geometry drift"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false,
+        "method": "manual visual inspection; transparency independently checked by inventory"
+      }
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v3",
+      "file": "galaxy/Q03-R-HC-BASE-v3.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "rejected",
+      "references": [
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-BASE-guide.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin"
+      },
+      "prompt": "Use case: sketch-to-render. Convert this EXACT plan into one beautiful realistic overhead Star Trek Galaxy-class officer cabin game-map asset. The reference is a measured plan, not a loose sketch: trace its wall, floor and object outlines at the same positions and preserve its canvas aspect ratio. No perspective. Do not reinterpret the topology.\nRender the cream lines as thin ivory wall cut-tops, the orange short lines as OPEN empty door thresholds, and the large bottom purple strip as the attached half-corridor floor. The long horizontal wall immediately ABOVE that bottom strip is mandatory: keep all of it except the one small opening near its left end. Keep every vertical wall and closet wall shown. The missing horizontal wall at the very TOP of the image is deliberate: do not add it. Floor reaches the SAME STRAIGHT top edge across all compartments; do not cut away floor behind sofa or bed. The corridor's bottom and side edges are open floor, without walls or stripes. Ignore green dashed line and toilet arrow: do not render them.\nUse warm taupe panels, mauve/warm grey fine carpet, muted blue upholstered chairs and sofa, satin walnut desk and low table. Dining table at left is OVAL clear bronze-tinted GLASS, with its two chairs. Desk lower-left has chair below it facing up, a tiny plant on its left corner and inset reading lamp. No wall around the desk. Bedroom has bed and wardrobe in marked rectangles, private closet has right-wall hanging storage.\nBathroom right: upper-left square is a DRY SONIC SHOWER with left-wall emitter strips and glass screen, NO showerhead/hose; upper-right long rectangle is an oval ivory TUB; middle-left small rectangle is BASIN; right-wall toilet faces left. Keep each in its marked footprint. Upper left niche is a recessed food replicator serving shelf facing into dining area.\nNeutral soft illumination and subtle contact shadows, gentle wall sconces within existing wall footprints. No windows, no text, no grid, no outlines from the diagram. Truly transparent exterior, not a drawn checkerboard. Opaque detailed floor under transparent glass furniture. Keep every furniture item within its guide footprint. Deliver the combined cabin/half-corridor base only.",
+      "review": {
+        "status": "rejected",
+        "issues": [
+          "Added partition or raised border around dining area",
+          "Unrequested bedside furniture and floor plant",
+          "Coffee tabletop rendered as stone rather than wood",
+          "Orange guide lines retained across apertures",
+          "Room and corridor proportions still drift"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false,
+        "method": "manual visual inspection; transparency independently checked by inventory"
+      }
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v4",
+      "file": "galaxy/Q03-R-HC-BASE-v4.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "needs-correction",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 2,
+        "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e"
+      },
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-HC-BASE-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure"
+      },
+      "prompt": "Edit the supplied Galaxy cabin image. Local finish corrections only; keep the current camera, image extent, every real room wall, all five doorway openings, the rear-wall omission, half-corridor extent, furnishings and fixture positions EXACTLY unchanged.\n1. UNIFY CABIN FLOOR: all dry cabin floor including living/dining/work, private passage, master bedroom and walk-in closet must use ONE continuous muted mauve fine carpet, identical colour and texture scale. Remove contrasting rectangular floor patches; no rugs. Bathroom remains its existing pale non-slip floor. Keep furniture and shadows.\n2. RESTORE TWO-COLOUR CORRIDOR EDGE: the attached corridor is the strip at the bottom. Immediately below its room-facing horizontal wall, draw TWO adjacent continuous horizontal flat floor bands for the entire width: first a narrow warm grey/taupe border, then a dusty rose band twice as wide, then dark mauve carpet continuing down to the open bottom centre seam. Visually around 12 pixels and 24 pixels wide at this image size. The two bands must be clearly distinguishable. They extend through entrance frontage. Remove any light stripe along the very bottom edge: this is only HALF a corridor, the opposing wall's edging is in the other half. No wall or bevel at bottom or side edges. Both bands are flat floor, not a step.\n\nKeep glass dining tabletop and wooden desk/coffee table, sonic shower without hose/head, tub, bathroom fixtures, connected closet, recessed controls and all lamps except a lamp attached to the removed desk enclosure. No new objects or geometry. Maintain true transparent alpha outside the existing footprint, never black or checkerboard pixels. Preserve opaque room floor under glass. Do NOT attempt broader geometry corrections or change proportions in this edit.",
+      "review": {
+        "status": "needs-correction",
+        "strengths": [
+          "Continuous dry cabin carpet",
+          "Open desk area preserved or restored"
+        ],
+        "issues": [
+          "Two-band corridor edging still not sufficiently distinct",
+          "Previous physical registration problems remain"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false
+      }
+    },
+    {
+      "id": "intrepid-Q03-R-HC-BASE-v3",
+      "file": "intrepid/Q03-R-HC-BASE-v3.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "intrepid",
+      "status": "needs-correction",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 2,
+        "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e"
+      },
+      "references": [
+        "assets/interiors/prefabs/production/intrepid/Q03-R-HC-BASE-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure"
+      },
+      "prompt": "Edit the supplied Intrepid cabin image. Local finish corrections only; keep the current camera, image extent, every real room wall, all five doorway openings, the rear-wall omission, half-corridor extent, furnishings and fixture positions EXACTLY unchanged.\n1. UNIFY CABIN FLOOR: all dry cabin floor including living/dining/work, private passage, master bedroom and walk-in closet must use ONE continuous slate-blue fine carpet, identical colour and texture scale. Remove contrasting rectangular floor patches; no rugs. Bathroom remains its existing pale non-slip floor. Keep furniture and shadows.\n2. RESTORE TWO-COLOUR CORRIDOR EDGE: the attached corridor is the strip at the bottom. Immediately below its room-facing horizontal wall, draw TWO adjacent continuous horizontal flat floor bands for the entire width: first a narrow graphite border, then a light grey band twice as wide, then slate-blue carpet continuing down to the open bottom centre seam. Visually around 12 pixels and 24 pixels wide at this image size. The two bands must be clearly distinguishable. They extend through entrance frontage. Remove any light stripe along the very bottom edge: this is only HALF a corridor, the opposing wall's edging is in the other half. No wall or bevel at bottom or side edges. Both bands are flat floor, not a step.\n3. REMOVE DESK ENCLOSURE: at lower left, delete ONLY the unapproved inverted-L internal wall around the desk: its short horizontal segment above the desk and its vertical segment to the RIGHT of desk/chair. Replace their footprint with the same slate carpet. Keep the real outer LEFT wall and the real long horizontal entrance wall BELOW the chair. Keep desk, plant, desk lamp and chair exactly where they are; chair faces UP toward desk. The desk area must be fully open on its right into the living room. Do not remove any other walls.\nKeep glass dining tabletop and wooden desk/coffee table, sonic shower without hose/head, tub, bathroom fixtures, connected closet, recessed controls and all lamps except a lamp attached to the removed desk enclosure. No new objects or geometry. Maintain true transparent alpha outside the existing footprint, never black or checkerboard pixels. Preserve opaque room floor under glass. Do NOT attempt broader geometry corrections or change proportions in this edit.",
+      "review": {
+        "status": "needs-correction",
+        "strengths": [
+          "Continuous dry cabin carpet",
+          "Open desk area preserved or restored"
+        ],
+        "issues": [
+          "Two-band corridor edging still not sufficiently distinct",
+          "Previous physical registration problems remain"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false
+      }
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v5",
+      "file": "galaxy/Q03-R-HC-BASE-v5.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "appearance-corrected-registration-pending",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 2,
+        "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e"
+      },
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-HC-BASE-v4.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure"
+      },
+      "prompt": "Precise local image edit: change ONLY the long floor strip BELOW the front wall, at the bottom of this image. Everything above that strip must remain unchanged.\nThe corridor floor needs THREE clearly distinct horizontal colours in order from the wall downward:\nA. narrow warm taupe border, B. wider clearly LIGHT DUSTY ROSE accent band, C. DARK PLUM/MAUVE main carpet.\nThe first border occupies about 10% of this strip's depth; the accent band takes the next 20%; the remaining 70% is main carpet. All run uninterrupted from the left to right edge of the floor strip. The two border colours must be plainly distinct from each other AND from the main carpet; not merely shading or wall shadow. These are flat fine carpet bands, without bevels or raised rails.\nKeep the bottom centre-join edge entirely main carpet, no border there. No corridor side or bottom walls. Keep the exact image size, footprint, cabin and bathroom floors, all furniture and lights, open Intrepid desk area, all actual walls and every door opening unchanged. Preserve original true transparent exterior alpha; never paint checkerboard. Do not alter anything inside the cabin.",
+      "review": {
+        "status": "appearance-corrected-registration-pending",
+        "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+        "strengths": [
+          "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+          "Two adjacent contrasting floor bands beside the corridor wall",
+          "Plain carpet at the corridor centreline join",
+          "Open desk area with no surrounding wall",
+          "Existing cabin furniture and functional room divisions retained"
+        ],
+        "issues": [
+          "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+          "Replicator serving niche still needs detail review",
+          "Opaque black exterior: export transparency correction required"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false
+      }
+    },
+    {
+      "id": "intrepid-Q03-R-HC-BASE-v4",
+      "file": "intrepid/Q03-R-HC-BASE-v4.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "intrepid",
+      "status": "appearance-corrected-registration-pending",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 2,
+        "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e"
+      },
+      "references": [
+        "assets/interiors/prefabs/production/intrepid/Q03-R-HC-BASE-v3.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure"
+      },
+      "prompt": "Precise local image edit: change ONLY the long floor strip BELOW the front wall, at the bottom of this image. Everything above that strip must remain unchanged.\nThe corridor floor needs THREE clearly distinct horizontal colours in order from the wall downward:\nA. narrow DARK GRAPHITE border, B. wider PALE SILVER-GREY accent band, C. SLATE-BLUE main carpet.\nThe first border occupies about 10% of this strip's depth; the accent band takes the next 20%; the remaining 70% is main carpet. All run uninterrupted from the left to right edge of the floor strip. The two border colours must be plainly distinct from each other AND from the main carpet; not merely shading or wall shadow. These are flat fine carpet bands, without bevels or raised rails.\nKeep the bottom centre-join edge entirely main carpet, no border there. No corridor side or bottom walls. Keep the exact image size, footprint, cabin and bathroom floors, all furniture and lights, open Intrepid desk area, all actual walls and every door opening unchanged. Preserve original true transparent exterior alpha; never paint checkerboard. Do not alter anything inside the cabin.",
+      "review": {
+        "status": "appearance-corrected-registration-pending",
+        "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+        "strengths": [
+          "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+          "Two adjacent contrasting floor bands beside the corridor wall",
+          "Plain carpet at the corridor centreline join",
+          "Open desk area with no surrounding wall",
+          "Existing cabin furniture and functional room divisions retained"
+        ],
+        "issues": [
+          "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+          "Replicator serving niche still needs detail review",
+          "Opaque black exterior: export transparency correction required"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false
+      }
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v6",
+      "file": "galaxy/Q03-R-HC-BASE-v6.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "appearance-corrected-registration-pending",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 2,
+        "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e"
+      },
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-HC-BASE-v5.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure"
+      },
+      "prompt": "Use case: background-extraction. Remove ONLY the black exterior background around this complete overhead cabin-and-corridor rectangular asset, replacing it with actual transparent alpha. This is a cutout/export correction, not a redraw. Preserve the whole existing rectangular room and attached bottom corridor floor, their footprint, ALL internal pixels and colours, furniture, lamps, wall openings, uniform cabin carpet, and the TWO different wall-side corridor border colours exactly. Do not erase dark interior shadows, black controls, glass tabletops or any floor. All flooring remains opaque. Do not insert checkerboard pixels, black fill, white fill or a background scene. The output must have a real alpha channel that is zero outside the existing outer footprint. Keep the same dimensions and original position of the asset on its canvas.",
+      "review": {
+        "status": "appearance-corrected-registration-pending",
+        "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+        "strengths": [
+          "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+          "Two adjacent contrasting floor bands beside the corridor wall",
+          "Plain carpet at the corridor centreline join",
+          "Open desk area with no surrounding wall",
+          "Existing cabin furniture and functional room divisions retained"
+        ],
+        "issues": [
+          "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+          "Replicator serving niche still needs detail review"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false
+      }
+    },
+    {
+      "id": "intrepid-Q03-R-HC-BASE-v5",
+      "file": "intrepid/Q03-R-HC-BASE-v5.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "intrepid",
+      "status": "appearance-corrected-registration-pending",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 2,
+        "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e"
+      },
+      "references": [
+        "assets/interiors/prefabs/production/intrepid/Q03-R-HC-BASE-v4.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure"
+      },
+      "prompt": "Use case: background-extraction. Remove ONLY the black exterior background around this complete overhead cabin-and-corridor rectangular asset, replacing it with actual transparent alpha. This is a cutout/export correction, not a redraw. Preserve the whole existing rectangular room and attached bottom corridor floor, their footprint, ALL internal pixels and colours, furniture, lamps, wall openings, uniform cabin carpet, and the TWO different wall-side corridor border colours exactly. Do not erase dark interior shadows, black controls, glass tabletops or any floor. All flooring remains opaque. Do not insert checkerboard pixels, black fill, white fill or a background scene. The output must have a real alpha channel that is zero outside the existing outer footprint. Keep the same dimensions and original position of the asset on its canvas.",
+      "review": {
+        "status": "appearance-corrected-registration-pending",
+        "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+        "strengths": [
+          "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+          "Two adjacent contrasting floor bands beside the corridor wall",
+          "Plain carpet at the corridor centreline join",
+          "Open desk area with no surrounding wall",
+          "Existing cabin furniture and functional room divisions retained"
+        ],
+        "issues": [
+          "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+          "Replicator serving niche still needs detail review"
+        ],
+        "registrationPassed": false,
+        "runtimeReady": false
+      }
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v7",
+      "file": "galaxy/Q03-R-HC-BASE-v7.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "rejected",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 3,
+        "sha256": "324fe7cc194ce3ddda59f53c32a669c88ec84a5dba8aefcb349f8dbf8306e16d"
+      },
+      "references": [
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-galaxy-wall-guide.png",
+        "assets/interiors/prefabs/production/galaxy/Q03-R-HC-BASE-v6.png",
+        "assets/interiors/prefabs/corridor-studies/galaxy-corridor-study-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure",
+        "corridorWall": "Measured sci-fi panels, ribs, inset lamps and door controls; guide takes precedence over previous raster"
+      },
+      "prompt": "Use case: sketch-to-render. Produce a corrected overhead officer-cabin-plus-half-corridor master using these THREE inputs with strict roles:\nIMAGE 1 is the governing construction drawing. Preserve its canvas framing, floor proportions, wall centre lines, wall thickness, every gap and every furniture footprint. Transform this drawing into realistic artwork.\nIMAGE 2 is ONLY the cabin furnishings/material appearance reference. Its wall positions and compressed cabin depth are WRONG; do not reuse that geometry.\nIMAGE 3 is ONLY the corridor wall APPEARANCE reference. Transfer its warm sculpted panels, wood-toned horizontal rail, repeated inset vertical lamps, small LCARS door controls and soft-edged ribs to the long wall between room and attached corridor. Do not copy its perspective, alcove, lettering or full corridor width.\nThe construction image canvas is 1507x688. Room left wall centre x11, right wall centre x1496, rear edge y11. Room front/entrance wall centre y561, open corridor end y676.5. Those proportions are critical: the entrance wall must be at 81.54% of total canvas height, not the erroneous 76% in the previous render. Master bedroom bottom/closet bottom y385. Uniformly scale this whole reference only; no independent vertical squeeze.\nCorridor-facing wall solid spans x11..242 and x374..1496 along y561. Its single doorway x242..374 is OPEN. Do not remove the head-front wall or passage-front wall. Main partitions at x616,946,1166; retain the five exact doorway gaps from Image 1. Walls are thin measured top-down strips, with panel seams, shallow dark recesses and tiny inset lights represented INSIDE the band. No large piers. NO smooth blank hotel-style wall; its sci-fi detailing must remain readable. Orthographic overhead, no wall leaning or perspective.\nKeep ONE consistent muted mauve fine carpet throughout dry cabin rooms including closet. Pale separate head floor. Preserve two flat corridor wall-side bands shown in Image 1: taupe then dusty rose, followed by dark mauve runner. No band on bottom open centre seam. Cabin rear/top wall is absent for separate wall overlay; floor still reaches that top cut across all compartments. Do not add windows or rear walls.\nFurniture exactly as Image 1, rendered in Image 2 style: oval glass dining table/two chairs, wood coffee table, wood desk with plant and lamp, desk chair below facing desk, no desk enclosure. Bedroom bed and wardrobe; private closet entered only from bedroom, hanging storage on right. Head upper-left SONIC SHOWER with flush emitters and no hose/head; upper-right oval TUB; middle-left basin; right-wall toilet facing left. No extra objects.\nRetain exact geometry even if this requires smaller wall decorations. No arrows, grid, text, coloured diagram lines or border. Genuinely transparent exterior alpha; no drawn checkerboard. This is a realistic tabletop asset, not a coloured diagram.",
+      "review": {
+        "status": "rejected",
+        "strengths": [
+          "Corridor panel details reintroduced"
+        ],
+        "issues": [
+          "Room and corridor proportions still drift",
+          "Duplicate desk and stone furniture added",
+          "Wall thickness and door positions remain unregistered"
+        ],
+        "runtimeReady": false,
+        "registrationPassed": false
+      }
+    },
+    {
+      "id": "intrepid-Q03-R-HC-BASE-v6",
+      "file": "intrepid/Q03-R-HC-BASE-v6.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "intrepid",
+      "status": "planned",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 3,
+        "sha256": "324fe7cc194ce3ddda59f53c32a669c88ec84a5dba8aefcb349f8dbf8306e16d"
+      },
+      "references": [
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-intrepid-wall-guide.png",
+        "assets/interiors/prefabs/corridor-studies/intrepid-corridor-study-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure",
+        "corridorWall": "Measured sci-fi panels, ribs, inset lamps and door controls; guide takes precedence over previous raster"
+      },
+      "prompt": "Use case: sketch-to-render. Image 1 is the construction drawing to render EXACTLY. Image 2 is only a Intrepid corridor material reference. Make a detailed realistic orthographic overhead Star Trek officer cabin plus half corridor from IMAGE 1. Do not copy image 2's perspective, alcove, composition or text.\nLOCK THE DRAWING: retain the exact aspect, every wall position, doorway gap and furnishing rectangle. Room front wall is at 81.5% down the canvas. Entire room-to-corridor wall remains solid except the single entrance on the left. Room depth is 5 units, width13.5; attached corridor is only1.05 units deep. Wall thickness .1unit. All walls meet flush with no oversized endcaps, detached ends, off-axis corners or gaps. No top rear wall; room floor reaches the straight upper edge. Never stretch or squeeze these proportions.\nRender the thin corridor-facing wall with cool-grey panel bays, graphite inserts, chamfered ribs and narrow white lamps, plus a small amber door control. Preserve measured straight wall centres and the open door. Keep details within wall band; no tilted camera.\nAll dry rooms and closet share slate-blue carpet. Head pale non-slip floor. Corridor edge has two distinct bands, graphite then pale-grey before slate-blue runner, as the drawing shows. No bottom stripe/wall, no side caps.\nConvert objects ONLY where drawn: left oval GLASS dining table with two facing chairs, sofa top left living area, WOOD low coffee table below sofa, exactly ONE WOOD desk lower left with small plant and lamp, exactly ONE task chair below it facing up; no desk partitions. Bedroom double bed and wardrobe; closet hanging clothes right wall. Recessed food replicator serving niche at upper left exterior wall.\nHead: upper-left square DRY SONIC SHOWER, flush side-wall emitters, NO hose/head; upper-right long shape OVAL TUB; mid-left BASIN; right TOILET faces left. No other furniture.\nTrue transparent exterior alpha. No checkerboard, black backdrop, diagram arrows, grid, orange guide lines or text. Soft neutral light, realistic materials, identical scale for every part."
+    },
+    {
+      "id": "galaxy-Q03-R-HC-BASE-v8",
+      "file": "galaxy/Q03-R-HC-BASE-v8.png",
+      "piece": "Q03-R-HC-BASE",
+      "style": "galaxy",
+      "status": "planned",
+      "guide": {
+        "path": "docs/interior-prefabs/cabin-style-guide.md",
+        "version": 3,
+        "sha256": "324fe7cc194ce3ddda59f53c32a669c88ec84a5dba8aefcb349f8dbf8306e16d"
+      },
+      "references": [
+        "docs/interior-prefabs/room-corridor-halves/Q03-R-HC-galaxy-wall-guide.png",
+        "assets/interiors/prefabs/corridor-studies/galaxy-corridor-study-v1.png"
+      ],
+      "choices": {
+        "dining": "oval glass, two seats",
+        "coffee": "rounded rectangle wood",
+        "plant": "small tabletop plant on desk far-left corner",
+        "lights": "side/interior wall sconces and inset desk lamp",
+        "shower": "dry sonic booth with left-wall emitters",
+        "tub": "oval ivory inset basin",
+        "floor": "Continuous dry-area carpet; bathroom floor separate",
+        "corridor": "Two adjacent wall-side bands; plain centre seam",
+        "desk": "Open desk area; no enclosure",
+        "corridorWall": "Measured sci-fi panels, ribs, inset lamps and door controls; guide takes precedence over previous raster"
+      },
+      "prompt": "Use case: sketch-to-render. Image 1 is the construction drawing to render EXACTLY. Image 2 is only a Galaxy corridor material reference. Make a detailed realistic orthographic overhead Star Trek officer cabin plus half corridor from IMAGE 1. Do not copy image 2's perspective, alcove, composition or text.\nLOCK THE DRAWING: retain the exact aspect, every wall position, doorway gap and furnishing rectangle. Room front wall is at 81.5% down the canvas. Entire room-to-corridor wall remains solid except the single entrance on the left. Room depth is 5 units, width13.5; attached corridor is only1.05 units deep. Wall thickness .1unit. All walls meet flush with no oversized endcaps, detached ends, off-axis corners or gaps. No top rear wall; room floor reaches the straight upper edge. Never stretch or squeeze these proportions.\nRender the thin corridor-facing wall with warm taupe panel bays, wood-coloured rail inserts, soft rounded ribs and warm inset lamps, plus a small amber door control. Preserve measured straight wall centres and the open door. Keep details within wall band; no tilted camera.\nAll dry rooms and closet share muted mauve carpet. Head pale non-slip floor. Corridor edge has two distinct bands, taupe then dusty rose before dark mauve runner, as the drawing shows. No bottom stripe/wall, no side caps.\nConvert objects ONLY where drawn: left oval GLASS dining table with two facing chairs, sofa top left living area, WOOD low coffee table below sofa, exactly ONE WOOD desk lower left with small plant and lamp, exactly ONE task chair below it facing up; no desk partitions. Bedroom double bed and wardrobe; closet hanging clothes right wall. Recessed food replicator serving niche at upper left exterior wall.\nHead: upper-left square DRY SONIC SHOWER, flush side-wall emitters, NO hose/head; upper-right long shape OVAL TUB; mid-left BASIN; right TOILET faces left. No other furniture.\nTrue transparent exterior alpha. No checkerboard, black backdrop, diagram arrows, grid, orange guide lines or text. Soft neutral light, realistic materials, identical scale for every part."
+    }
+  ]
+}

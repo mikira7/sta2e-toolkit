@@ -2,6 +2,7 @@
 import { normalizeDestructible, UNIT_POLYGON, fracturePolygon, allocateByArea, objectDamage, imageOffsetToScene, seededRandom } from "./destructible-geometry.js";
 import { prepareObjectArt, loadObjectImage, measureRegion, cutRegion, uploadObjectArt } from "./destructible-art.js";
 import { playDestructibleVfx } from "./destructible-vfx.js";
+import { getActiveGM } from "./gm-authority.js";
 
 export const DESTRUCTIBLE_FLAG = "destructible";
 const MODULE = "sta2e-toolkit", SOCKET = `module.${MODULE}`, JOURNAL = "destructibleOperations";
@@ -28,7 +29,7 @@ export function fractureKind(type = "") {
   return /beam|phaser|disruptor/i.test(type) ? "beam" : "irregular";
 }
 function authority() {
-  return game.users?.activeGM ?? Array.from(game.users ?? []).filter(u => u.active && u.isGM).sort((a, b) => a.id.localeCompare(b.id))[0];
+  return getActiveGM() ?? game.users?.activeGM;
 }
 function initialState(doc, config) {
   return {

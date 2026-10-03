@@ -1267,6 +1267,15 @@
   letter-spacing: 0.08em;
 }
 
+.sta2e-ss-scene-dialog [hidden] { display: none !important; }
+.sta2e-ss-scene-dialog [data-starfield-options],
+.sta2e-ss-scene-dialog [data-nebula-options] { display: grid; gap: 8px; }
+.sta2e-ss-scene-dialog [data-starfield-options] { margin-top: 10px; }
+.sta2e-ss-scene-dialog [data-starfield-options] label { display: flex; align-items: center; gap: 8px; }
+.sta2e-ss-scene-dialog [data-starfield-options] input:not([type="checkbox"]),
+.sta2e-ss-scene-dialog [data-starfield-options] select { flex: 1; min-width: 0; }
+.sta2e-ss-scene-dialog [data-starfield-options] p { margin: 0; font-size: 12px; }
+
 .sta2e-ss-scene-bg-list {
   display: flex;
   flex-direction: column;

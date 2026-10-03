@@ -10,6 +10,41 @@ const length = Math.hypot(.30, .954);
 export const PLANET_LIGHT = { y: -.30 / length, z: .954 / length };
 export const isIceGiantTexture = texture => texture === "ice-hazy" || texture === "ice-stormy";
 
+/** Raised cloud decks share the band's advected height field. Lighting acts
+ * only on reflected sunlight, leaving hot-atmosphere emission untouched. */
+function gasCloudLighting(recipe, field) {
+  const strength = (recipe.gasCloudRelief ?? 70) / 100;
+  return (x, y, z, light, footprint = 0) => {
+    const surface = field(x, y, z);
+    let shade = 1;
+    const incidence = light ? x * (light.x ?? 0) + y * light.y + z * light.z : 0;
+    if (strength && incidence > 0) {
+      const horizontal = Math.sqrt(Math.max(0, 1 - incidence * incidence));
+      if (horizontal > .01) {
+        const direction = [((light.x ?? 0) - incidence * x) / horizontal, (light.y - incidence * y) / horizontal, (light.z - incidence * z) / horizontal];
+        const at = distance => {
+          const p = [x + direction[0] * distance, y + direction[1] * distance, z + direction[2] * distance];
+          const length = Math.hypot(...p);
+          return field(...p.map(v => v / length)).height;
+        };
+        const step = Math.max(.0035, Math.min(.015, footprint * .8));
+        const next = at(step);
+        const slope = (surface.height - next) / step;
+        const facing = clamp(1 + slope * horizontal * .8, .65, 1.20);
+        let shadow = 0;
+        if (incidence < .65) {
+          for (const distance of [Math.max(.006, step), Math.max(.018, step * 2)]) {
+            const obstruction = at(distance) - surface.height - distance * incidence / horizontal - distance * distance * .5;
+            shadow = Math.max(shadow, smooth(0, .0015 + footprint * .12, obstruction));
+          }
+        }
+        shade = 1 + (facing * (1 - shadow * .30) - 1) * strength * smooth(0, .06, incidence);
+      }
+    }
+    return { ...surface, shade };
+  };
+}
+
 /** Visible-light ice-giant atmosphere: low-contrast decks beneath haze, with
  * sparse high clouds and dark vortices. All detail is anchored to the sphere.
  */
@@ -30,7 +65,7 @@ function createIceGiantMaterial(recipe, { noise, fbm }, colors, rampAt) {
     dark: stormy && i === 0,
   }));
   const hazeColor = rampAt(.78), highCloud = blend(rampAt(1), colors.cloud, .5);
-  const sampleSurface = (x, y, z) => {
+  const field = (x, y, z) => {
     const lat = Math.asin(clamp(y, -1, 1)), lon = Math.atan2(z, x);
     // Rotate a spherical domain for zonal shear. It stays continuous at both
     // poles, unlike a longitude texture stretched into the polar pixel.
@@ -47,6 +82,7 @@ function createIceGiantMaterial(recipe, { noise, fbm }, colors, rampAt) {
     let color = rampAt(tone);
     color = blend(color, hazeColor, stormy ? .12 : .36);
     color = blend(color, highCloud, Math.pow(clamp((fine - .48) * 2), 2) * (stormy ? .045 : .01));
+    let stormHeight = 0;
     for (const storm of storms) {
       const v = (lat - storm.latitude) / storm.height;
       if (Math.abs(v) > 2.5) continue;
@@ -57,14 +93,18 @@ function createIceGiantMaterial(recipe, { noise, fbm }, colors, rampAt) {
       // Clouds feather into their surroundings, with fine breakup instead of
       // solid white ovals. The dark vortex stays beneath the overlying haze.
       const mask = Math.exp(-q * (storm.dark ? 1.2 : .85)) * edge;
+      stormHeight += mask * (storm.dark ? -.002 : .006) * (stormy ? 1 : .35);
       if (storm.dark) color = blend(color, rampAt(.03), mask * .62);
       else color = blend(color, highCloud, mask * (.4 + fine * .6) * (stormy ? .55 : .14));
     }
     const cap = smooth(.48, 1.35, lat) * (stormy ? .13 : .27);
     const capDetail = fbm(x * 12 + 11, y * 12 + 31, z * 12 + 53, 3);
     color = blend(color, hazeColor, cap * (.9 + capDetail * .2));
-    return { color, emission: null };
+    const billows = fbm(ax * 14 + 97, y * 14 + 37, az * 14 + 19, 2);
+    const height = .002 + (tone * .0015 + smooth(.38, .68, billows) * .0045 + stormHeight) * (stormy ? .85 : .28);
+    return { color, emission: null, height };
   };
+  const sampleSurface = gasCloudLighting(recipe, field);
   return { sample: (x, y, z) => sampleSurface(x, y, z).color, sampleSurface, belts, storms };
 }
 
@@ -98,7 +138,7 @@ export function createGasGiantMaterial(recipe, { noise, fbm }, colors) {
     strength: soft ? .2 : i === 0 ? .65 : .45,
   }));
   const lightCloud = blend(ramp.at(-1), colors.cloud, .18);
-  const sampleSurface = (x, y, z) => {
+  const field = (x, y, z) => {
     const latitude = Math.asin(clamp(y, -1, 1));
     const longitude = Math.atan2(z, x);
     let lat = latitude, lon = longitude, stormMask = 0, stormColor = null;
@@ -131,6 +171,7 @@ export function createGasGiantMaterial(recipe, { noise, fbm }, colors) {
       if (d < 2.3) tone -= belt.depth * Math.exp(-(d ** 4)) * 1.75;
     }
     const fine = fbm(Math.cos(advected + weather * .08) * 22 + 5, lat * 150 + 19, Math.sin(advected + weather * .08) * 22 + 61, 3);
+    const deckTone = tone;
     tone += (weather - .5) * (soft ? .05 : .16) + (fine - .5) * (soft ? .025 : .075);
     // The full color ramp spans dark belts, middle cloud decks, and pale zones.
     // Weather shifts locally between neighboring colors without erasing bands.
@@ -142,7 +183,13 @@ export function createGasGiantMaterial(recipe, { noise, fbm }, colors) {
     const polarHaze = smooth(1.15, Math.PI / 2, Math.abs(latitude));
     const polarDetail = fbm(x * 32 + 11, y * 32 + 31, z * 32 + 53, 3);
     color = blend(color, rampAt(.55 + polarDetail * .3), polarHaze);
-    if (!hot) return { color, emission: null };
+    const cloudRadius = Math.cos(lat);
+    const billows = fbm(Math.cos(advected) * cloudRadius * 14 + 97, Math.sin(lat) * 14 + 37, Math.sin(advected) * cloudRadius * 14 + 19, 2);
+    // Rounded convective billows supply height. The finer wind-stretched
+    // filaments remain albedo markings rather than corrugated geometry.
+    const height = .002 + (clamp(deckTone) * .003 + smooth(.30, .70, billows) * .007 + stormMask * .006) * (soft ? .45 : 1) * (1 - polarHaze)
+      + (polarDetail - .5) * .002 * polarHaze;
+    if (!hot) return { color, emission: null, height };
 
     // An artistic hot-atmosphere treatment: broad advected cloud plumes with
     // fine luminous filaments. Heat lives on the sphere, so both views agree.
@@ -158,8 +205,9 @@ export function createGasGiantMaterial(recipe, { noise, fbm }, colors) {
     const heat = clamp(.48 + (plumes - .5) * 2.2 + (hotTone - .65) * .28 + filaments * .26);
     color = rampAt(heat);
     const glow = recipe.hotGlow / 100 * (.15 + smooth(.25, .85, heat) * .85);
-    return { color, emission: rampAt(Math.min(1, heat + .13)).map(v => v * glow) };
+    return { color, emission: rampAt(Math.min(1, heat + .13)).map(v => v * glow), height };
   };
+  const sampleSurface = gasCloudLighting(recipe, field);
   return { sample: (x, y, z) => sampleSurface(x, y, z).color, sampleSurface, belts, storms };
 }
 

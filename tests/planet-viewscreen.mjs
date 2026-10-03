@@ -82,6 +82,19 @@ try {
   assert(basic.starSpread > 200, "Star coordinates are distributed independently");
   assert.equal(basic.a.size, 500); assert.equal(basic.a.phase, 0); assert.equal(basic.a.direction, 360);
   assert.equal(basic.invalid.preset, "full");
+  const nativeHorizon = await page.evaluate(async () => {
+    const settings = view.normalizePlanetView({ preset: "horizon", background: "__black" });
+    const actual = await view.renderPlanetView(bodies[0], settings, { preview: true });
+    const recipe = generator.normalizePlanetRecipe(bodies[0].procedural, bodies[0]); recipe.phaseAngle = settings.phase;
+    const rendered = await generator.renderPlanetPixelsAsync(recipe, 640, { view: "portrait", lightDirection: settings.direction,
+      viewport: { width: 640, height: 360, radius: 360 * settings.size / 100 * .48, cx: 640 * settings.x / 100, cy: 360 * settings.y / 100 } });
+    const texture = document.createElement("canvas"); texture.width = 640; texture.height = 360;
+    texture.getContext("2d").putImageData(new ImageData(rendered.pixels, 640, 360), 0, 0);
+    const expected = document.createElement("canvas"); expected.width = 640; expected.height = 360;
+    const ctx = expected.getContext("2d"); ctx.fillStyle = "#02050c"; ctx.fillRect(0, 0, 640, 360); ctx.drawImage(texture, 0, 0);
+    return actual.toDataURL() === expected.toDataURL();
+  });
+  assert(nativeHorizon, "Horizon compositions render at native viewport resolution instead of enlarging a whole-globe texture");
   assert.equal(basic.roundtrip.viewscreenImage, "saved.webp");
   assert.equal(JSON.parse(basic.roundtrip.viewscreenComposition).width, 1920);
 
@@ -147,6 +160,24 @@ try {
   assert.deepEqual(saved.uploads.map(u => [u.width, u.height]), [[1920, 1080], [3840, 2160]]);
   assert.deepEqual(saved.patchKeys, ["system.images"]); assert.equal(saved.active, "old"); assert.equal(saved.images.length, 2);
   assert(saved.failure && saved.missingTarget); assert.deepEqual(saved.targets, ["Bridge / Main Screen / Screen"]);
+  assert(await page.evaluate(() => [...document.querySelectorAll(".sta2e-planet-render-progress")].some(panel => panel.textContent.includes("Image generation failed"))), "Failed exports show a failure state");
+  await page.waitForFunction(() => !document.getElementById("sta2e-planet-render-progress"));
+  await page.evaluate(() => {
+    const FP = foundry.applications.apps.FilePicker.implementation;
+    window.originalUpload = FP.upload;
+    FP.upload = async () => new Promise(resolve => { window.releaseProgressUpload = () => resolve({ path: "progress-test.webp" }); });
+    const image = document.createElement("canvas"); image.width = image.height = 16;
+    window.progressExport = view.savePlanetView({ id: "progress", name: "Progress test", image: image.toDataURL() }, "system", { source: "existing" });
+  });
+  await page.waitForFunction(() => document.querySelector(".sta2e-planet-render-progress progress")?.value === 95);
+  assert(await page.evaluate(() => document.querySelector(".sta2e-planet-render-progress").textContent.includes("Uploading viewscreen image")), "Upload remains below 100% until it succeeds");
+  if (process.argv[2]) await page.screenshot({ path: resolve(process.argv[2], "planet-progress.png") });
+  await page.evaluate(async () => {
+    window.releaseProgressUpload(); await window.progressExport;
+    foundry.applications.apps.FilePicker.implementation.upload = window.originalUpload;
+  });
+  assert.equal(await page.locator(".sta2e-planet-render-progress progress").evaluate(bar => bar.value), 100, "Only saved artwork reaches 100%");
+  await page.waitForFunction(() => !document.getElementById("sta2e-planet-render-progress"));
 
   await page.evaluate(() => { window.pending = view.promptPlanetView(bodies[0], "system"); });
   await page.waitForFunction(() => document.querySelector("[data-status]")?.textContent.startsWith("Preview"));

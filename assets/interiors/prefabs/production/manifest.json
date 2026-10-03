@@ -1,0 +1,818 @@
+{
+  "schemaVersion": 2,
+  "status": "combined-art-candidates-need-correction",
+  "architecture": "room-and-half-corridor",
+  "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+  "cabinStyleGuide": {
+    "path": "docs/interior-prefabs/cabin-style-guide.md",
+    "sha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+    "version": 2
+  },
+  "promotionRequirements": [
+    "True transparent exterior",
+    "Uniform registration to combined walls, doors and floor seams",
+    "Fixture scale and clearances match approved cabin",
+    "Cabin style guide visual review: glass/wood tables, seating, plants, lights, sonic showers and tub variants",
+    "Door leaves separate",
+    "Joined floor proof and native Foundry validation"
+  ],
+  "items": [
+    {
+      "id": "galaxy/Q01-B-HC-BASE",
+      "style": "galaxy",
+      "piece": "Q01-B-HC-IN",
+      "name": "Compact square — revised + corridor half (interior)",
+      "artwork": "Q01-B-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "5e1a60af2d52d252ea14a96f9b4c99eabc89d71f79f5be8270bc1eeaee3615fb",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "galaxy/Q02-R-HC-BASE",
+      "style": "galaxy",
+      "piece": "Q02-R-HC-IN",
+      "name": "Rectangular standard + corridor half (interior)",
+      "artwork": "Q02-R-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "6c5ff891131532e17e15d3bc569921e16222a31eb4524311dab110c635ed8beb",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "galaxy/Q04-P-HC-BASE",
+      "style": "galaxy",
+      "piece": "Q04-P-HC-IN",
+      "name": "Paired junior-officer cabins + corridor half (interior)",
+      "artwork": "Q04-P-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "9c9821e59d390ef2a2188b93baee2086c23c48d82487019aa85c08351c1fdc8e",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "galaxy/Q03-R-HC-BASE",
+      "style": "galaxy",
+      "piece": "Q03-R-HC-IN",
+      "name": "Officer suite — rectangular + corridor half (interior)",
+      "artwork": "Q03-R-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "floor-and-desk-corrections-reviewed",
+      "appearancePreview": "galaxy/Q03-R-HC-BASE-v6.png",
+      "geometrySha256": "87b90737b3ebde29a29aa100d24fb89606cb7c2bfd070c919a265e64dd04203a",
+      "status": "registration-pending",
+      "runtimeReady": false,
+      "candidates": [
+        {
+          "file": "galaxy/Q03-R-HC-BASE-v1.png",
+          "promptId": "galaxy-Q03-R-HC-BASE-v1",
+          "sha256": "dec5b1c0d2f639518f133baece25db8ac19bad476f865f54e5ca51fb4fb4a1ae",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": true,
+          "status": "needs-correction",
+          "review": {
+            "status": "needs-correction",
+            "strengths": [
+              "Glass dining top, wood desk and low table",
+              "Desk plant and integrated lighting",
+              "Distinct sonic shower, tub and basin",
+              "Attached half corridor present"
+            ],
+            "issues": [
+              "Room height and corridor proportion drift from measured guide",
+              "Walls and piers too thick for approved wall band",
+              "Replicator reads as a control panel rather than a serving niche",
+              "Rear-wall omission and door endpoints require exact registration review"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false,
+            "method": "manual visual inspection; transparency independently checked by inventory"
+          },
+          "styleGuideSha256": "715e113342082384b627bc209db9bdaf0c4b0b9a921f1889041f0d0732c0fa46",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": false,
+          "runtimeReady": false
+        },
+        {
+          "file": "galaxy/Q03-R-HC-BASE-v2.png",
+          "promptId": "galaxy-Q03-R-HC-BASE-v2",
+          "sha256": "a5681847e7571729c1a856249719c9e7de8f41bf22005de08d8b2fd8cb82da94",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "rejected",
+          "review": {
+            "status": "rejected",
+            "issues": [
+              "Opaque checkerboard exterior",
+              "Missing required corridor-facing head wall",
+              "Cut-away rear floor instead of a narrow omitted wall band",
+              "Geometry correction unsuccessful"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false,
+            "method": "manual visual inspection; transparency independently checked by inventory"
+          },
+          "styleGuideSha256": "715e113342082384b627bc209db9bdaf0c4b0b9a921f1889041f0d0732c0fa46",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": false,
+          "runtimeReady": false
+        },
+        {
+          "file": "galaxy/Q03-R-HC-BASE-v3.png",
+          "promptId": "galaxy-Q03-R-HC-BASE-v3",
+          "sha256": "49d1eee14f0236891cefc5885f2dc12d9d2d458b56ce68ae69b223f919674ff8",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "rejected",
+          "review": {
+            "status": "rejected",
+            "issues": [
+              "Added partition or raised border around dining area",
+              "Unrequested bedside furniture and floor plant",
+              "Coffee tabletop rendered as stone rather than wood",
+              "Orange guide lines retained across apertures",
+              "Room and corridor proportions still drift"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false,
+            "method": "manual visual inspection; transparency independently checked by inventory"
+          },
+          "styleGuideSha256": "715e113342082384b627bc209db9bdaf0c4b0b9a921f1889041f0d0732c0fa46",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": false,
+          "runtimeReady": false
+        },
+        {
+          "file": "galaxy/Q03-R-HC-BASE-v4.png",
+          "promptId": "galaxy-Q03-R-HC-BASE-v4",
+          "sha256": "02d2c8d3bf770bb46c371a76f10fc4be99bd771cf1d5916ccb3ec4467fa46c1c",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "needs-correction",
+          "review": {
+            "status": "needs-correction",
+            "strengths": [
+              "Continuous dry cabin carpet",
+              "Open desk area preserved or restored"
+            ],
+            "issues": [
+              "Two-band corridor edging still not sufficiently distinct",
+              "Previous physical registration problems remain"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false
+          },
+          "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": true,
+          "runtimeReady": false
+        },
+        {
+          "file": "galaxy/Q03-R-HC-BASE-v5.png",
+          "promptId": "galaxy-Q03-R-HC-BASE-v5",
+          "sha256": "2591ceb4559171ad29785b6a6d63340e70a2958d4f8855956a7fb1c0cd5d63b7",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "appearance-corrected-registration-pending",
+          "review": {
+            "status": "appearance-corrected-registration-pending",
+            "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+            "strengths": [
+              "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+              "Two adjacent contrasting floor bands beside the corridor wall",
+              "Plain carpet at the corridor centreline join",
+              "Open desk area with no surrounding wall",
+              "Existing cabin furniture and functional room divisions retained"
+            ],
+            "issues": [
+              "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+              "Replicator serving niche still needs detail review",
+              "Opaque black exterior: export transparency correction required"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false
+          },
+          "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": true,
+          "runtimeReady": false
+        },
+        {
+          "file": "galaxy/Q03-R-HC-BASE-v6.png",
+          "promptId": "galaxy-Q03-R-HC-BASE-v6",
+          "sha256": "631bf8ea60a22376bbf4dadd6c059cd2a1fbfb8d7340a89deac6c2c014c779d7",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": true,
+          "status": "appearance-corrected-registration-pending",
+          "review": {
+            "status": "appearance-corrected-registration-pending",
+            "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+            "strengths": [
+              "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+              "Two adjacent contrasting floor bands beside the corridor wall",
+              "Plain carpet at the corridor centreline join",
+              "Open desk area with no surrounding wall",
+              "Existing cabin furniture and functional room divisions retained"
+            ],
+            "issues": [
+              "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+              "Replicator serving niche still needs detail review"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false
+          },
+          "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": true,
+          "runtimeReady": false
+        }
+      ]
+    },
+    {
+      "id": "galaxy/Q05-F2-HC-BASE",
+      "style": "galaxy",
+      "piece": "Q05-F2-HC-IN",
+      "name": "Family suite — two bedrooms + corridor half (interior)",
+      "artwork": "Q05-F2-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "67e89163110824456de30bf02d8638894a4e7df21f6843dc191dc8c889fc294e",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "galaxy/Q05-F3-HC-BASE",
+      "style": "galaxy",
+      "piece": "Q05-F3-HC-IN",
+      "name": "Family suite — three bedrooms + corridor half (interior)",
+      "artwork": "Q05-F3-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "1968cc4db7c68586a1f3f4d9089894ab77e5f066b23ce37e288576c2cf325c23",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "galaxy/J01-HC",
+      "style": "galaxy",
+      "piece": "J01-HC",
+      "name": "Jefferies alcove + corridor half",
+      "artwork": "J01-HC",
+      "rearWallSeparate": false,
+      "geometrySha256": "f214b52a579343ca21606c93d81e92db24bdca383c38460f6d114ff6b20b1b73",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "intrepid/Q01-B-HC-BASE",
+      "style": "intrepid",
+      "piece": "Q01-B-HC-IN",
+      "name": "Compact square — revised + corridor half (interior)",
+      "artwork": "Q01-B-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "5e1a60af2d52d252ea14a96f9b4c99eabc89d71f79f5be8270bc1eeaee3615fb",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "intrepid/Q02-R-HC-BASE",
+      "style": "intrepid",
+      "piece": "Q02-R-HC-IN",
+      "name": "Rectangular standard + corridor half (interior)",
+      "artwork": "Q02-R-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "6c5ff891131532e17e15d3bc569921e16222a31eb4524311dab110c635ed8beb",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "intrepid/Q04-P-HC-BASE",
+      "style": "intrepid",
+      "piece": "Q04-P-HC-IN",
+      "name": "Paired junior-officer cabins + corridor half (interior)",
+      "artwork": "Q04-P-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "9c9821e59d390ef2a2188b93baee2086c23c48d82487019aa85c08351c1fdc8e",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "intrepid/Q03-R-HC-BASE",
+      "style": "intrepid",
+      "piece": "Q03-R-HC-IN",
+      "name": "Officer suite — rectangular + corridor half (interior)",
+      "artwork": "Q03-R-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "floor-and-desk-corrections-reviewed",
+      "appearancePreview": "intrepid/Q03-R-HC-BASE-v5.png",
+      "geometrySha256": "87b90737b3ebde29a29aa100d24fb89606cb7c2bfd070c919a265e64dd04203a",
+      "status": "registration-pending",
+      "runtimeReady": false,
+      "candidates": [
+        {
+          "file": "intrepid/Q03-R-HC-BASE-v1.png",
+          "promptId": "intrepid-Q03-R-HC-BASE-v1",
+          "sha256": "1b2f637235bc2314289408e8c6b43b88350785060cc4f2ea2e30020865c8cbc1",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": true,
+          "status": "needs-correction",
+          "review": {
+            "status": "needs-correction",
+            "strengths": [
+              "Coherent Intrepid palette",
+              "Glass/wood furnishings and desk plant",
+              "Sonic shower and separate tub",
+              "Attached half corridor present"
+            ],
+            "issues": [
+              "Unapproved wall enclosure around desk",
+              "Room height and corridor proportion drift",
+              "Baked floor stripe at open centreline edge",
+              "Replicator serving niche not sufficiently readable",
+              "Wall thickness and rear-wall omission require registration review"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false,
+            "method": "manual visual inspection; transparency independently checked by inventory"
+          },
+          "styleGuideSha256": "715e113342082384b627bc209db9bdaf0c4b0b9a921f1889041f0d0732c0fa46",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": false,
+          "runtimeReady": false
+        },
+        {
+          "file": "intrepid/Q03-R-HC-BASE-v2.png",
+          "promptId": "intrepid-Q03-R-HC-BASE-v2",
+          "sha256": "7515405e83cd290d78bd534e9b3bb29f3910d82fc6d8bf26dd9f110be3e84afd",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "rejected",
+          "review": {
+            "status": "rejected",
+            "issues": [
+              "Opaque checkerboard exterior",
+              "Missing long corridor-facing passage wall",
+              "Unapproved desk enclosure persists",
+              "Cut-away rear floor and geometry drift"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false,
+            "method": "manual visual inspection; transparency independently checked by inventory"
+          },
+          "styleGuideSha256": "715e113342082384b627bc209db9bdaf0c4b0b9a921f1889041f0d0732c0fa46",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": false,
+          "runtimeReady": false
+        },
+        {
+          "file": "intrepid/Q03-R-HC-BASE-v3.png",
+          "promptId": "intrepid-Q03-R-HC-BASE-v3",
+          "sha256": "97341d787f4da0f5d8604c2f226947706d772be2da2a7c97f1248810d7222d3d",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "needs-correction",
+          "review": {
+            "status": "needs-correction",
+            "strengths": [
+              "Continuous dry cabin carpet",
+              "Open desk area preserved or restored"
+            ],
+            "issues": [
+              "Two-band corridor edging still not sufficiently distinct",
+              "Previous physical registration problems remain"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false
+          },
+          "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": true,
+          "runtimeReady": false
+        },
+        {
+          "file": "intrepid/Q03-R-HC-BASE-v4.png",
+          "promptId": "intrepid-Q03-R-HC-BASE-v4",
+          "sha256": "7c241bc93992471ba6400cac39ad8ef9b8dba6cc80df07e6dad5393cb92f0468",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": false,
+          "status": "appearance-corrected-registration-pending",
+          "review": {
+            "status": "appearance-corrected-registration-pending",
+            "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+            "strengths": [
+              "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+              "Two adjacent contrasting floor bands beside the corridor wall",
+              "Plain carpet at the corridor centreline join",
+              "Open desk area with no surrounding wall",
+              "Existing cabin furniture and functional room divisions retained"
+            ],
+            "issues": [
+              "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+              "Replicator serving niche still needs detail review",
+              "Opaque black exterior: export transparency correction required"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false
+          },
+          "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": true,
+          "runtimeReady": false
+        },
+        {
+          "file": "intrepid/Q03-R-HC-BASE-v5.png",
+          "promptId": "intrepid-Q03-R-HC-BASE-v5",
+          "sha256": "4b9a8c06c5b61afc0890516e133f66a32969dbe2cb30806c8d6cbcc0528f1fa5",
+          "canvas": [
+            1855,
+            848
+          ],
+          "hasTransparency": true,
+          "status": "appearance-corrected-registration-pending",
+          "review": {
+            "status": "appearance-corrected-registration-pending",
+            "method": "Visual comparison of requested floor, corridor-band and desk corrections; alpha checked independently by inventory",
+            "strengths": [
+              "One carpet family throughout dry cabin rooms; pale bathroom remains distinct",
+              "Two adjacent contrasting floor bands beside the corridor wall",
+              "Plain carpet at the corridor centreline join",
+              "Open desk area with no surrounding wall",
+              "Existing cabin furniture and functional room divisions retained"
+            ],
+            "issues": [
+              "Earlier room/corridor proportion and wall-thickness registration issues remain outside this edit",
+              "Replicator serving niche still needs detail review"
+            ],
+            "registrationPassed": false,
+            "runtimeReady": false
+          },
+          "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+          "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+          "currentBrief": true,
+          "runtimeReady": false
+        }
+      ]
+    },
+    {
+      "id": "intrepid/Q05-F2-HC-BASE",
+      "style": "intrepid",
+      "piece": "Q05-F2-HC-IN",
+      "name": "Family suite — two bedrooms + corridor half (interior)",
+      "artwork": "Q05-F2-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "67e89163110824456de30bf02d8638894a4e7df21f6843dc191dc8c889fc294e",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "intrepid/Q05-F3-HC-BASE",
+      "style": "intrepid",
+      "piece": "Q05-F3-HC-IN",
+      "name": "Family suite — three bedrooms + corridor half (interior)",
+      "artwork": "Q05-F3-HC-BASE",
+      "rearWallSeparate": true,
+      "styleGuideSha256": "6c2161eca154443d4f836cea1730c921a33c43122bebe8369b59f09a46e4f85e",
+      "styleReview": "pending-art",
+      "geometrySha256": "1968cc4db7c68586a1f3f4d9089894ab77e5f066b23ce37e288576c2cf325c23",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    },
+    {
+      "id": "intrepid/J01-HC",
+      "style": "intrepid",
+      "piece": "J01-HC",
+      "name": "Jefferies alcove + corridor half",
+      "artwork": "J01-HC",
+      "rearWallSeparate": false,
+      "geometrySha256": "f214b52a579343ca21606c93d81e92db24bdca383c38460f6d114ff6b20b1b73",
+      "status": "awaiting-combined-art",
+      "runtimeReady": false,
+      "candidates": []
+    }
+  ],
+  "supportTasks": [
+    {
+      "id": "BLANK-HC",
+      "purpose": "Repeatable wall and floor half, clipped to exact frontage",
+      "style": "galaxy",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "END-FULL",
+      "purpose": "One full-width corridor cap",
+      "style": "galaxy",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "BEND-FULL",
+      "purpose": "Full-width bend; pair of half-floor interfaces at each end",
+      "status": "geometry-pending",
+      "style": "galaxy",
+      "runtimeReady": false
+    },
+    {
+      "id": "T-FULL",
+      "purpose": "Full-width junction; pair of half-floor interfaces on each branch",
+      "status": "geometry-pending",
+      "style": "galaxy",
+      "runtimeReady": false
+    },
+    {
+      "id": "CENTRE-FINISH",
+      "purpose": "World-aligned narrow floor seam treatment",
+      "style": "galaxy",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "REAR-SOLID",
+      "purpose": "Solid rear-wall layer, matched to each cabin frontage",
+      "style": "galaxy",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "REAR-WINDOWED",
+      "purpose": "Hull-facing rear-wall layer with registered cabin window positions",
+      "style": "galaxy",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "HULL-CURVED",
+      "purpose": "Measured gentle-curve wall sections and service wedges",
+      "status": "geometry-pending",
+      "style": "galaxy",
+      "runtimeReady": false
+    },
+    {
+      "id": "BLANK-HC",
+      "purpose": "Repeatable wall and floor half, clipped to exact frontage",
+      "style": "intrepid",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "END-FULL",
+      "purpose": "One full-width corridor cap",
+      "style": "intrepid",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "BEND-FULL",
+      "purpose": "Full-width bend; pair of half-floor interfaces at each end",
+      "status": "geometry-pending",
+      "style": "intrepid",
+      "runtimeReady": false
+    },
+    {
+      "id": "T-FULL",
+      "purpose": "Full-width junction; pair of half-floor interfaces on each branch",
+      "status": "geometry-pending",
+      "style": "intrepid",
+      "runtimeReady": false
+    },
+    {
+      "id": "CENTRE-FINISH",
+      "purpose": "World-aligned narrow floor seam treatment",
+      "style": "intrepid",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "REAR-SOLID",
+      "purpose": "Solid rear-wall layer, matched to each cabin frontage",
+      "style": "intrepid",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "REAR-WINDOWED",
+      "purpose": "Hull-facing rear-wall layer with registered cabin window positions",
+      "style": "intrepid",
+      "status": "awaiting-art",
+      "runtimeReady": false
+    },
+    {
+      "id": "HULL-CURVED",
+      "purpose": "Measured gentle-curve wall sections and service wedges",
+      "status": "geometry-pending",
+      "style": "intrepid",
+      "runtimeReady": false
+    }
+  ],
+  "legacyRoomOnlyCandidates": [
+    {
+      "file": "galaxy/Q03-R-v1.png",
+      "sha256": "a0bcbb4e4dc13569217232fb9cce4c9ff9b680d693a2edb2faa0d0720ec661e0",
+      "canvas": [
+        2057,
+        764
+      ],
+      "hasTransparency": true,
+      "promptId": "officerGalaxyPrompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "galaxy/Q03-R-v2.png",
+      "sha256": "0fb8ffd9703d22497fd2504a6e574748e5fdfa78879202c0d4f805dff82bf299",
+      "canvas": [
+        2057,
+        764
+      ],
+      "hasTransparency": false,
+      "promptId": "officerGalaxyCorrectionPrompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "galaxy/Q03-R-v3.png",
+      "sha256": "cab84cc118de3e3bd0536de9921a8b21f2f17bdf0f8d575fb6c387d659ba8705",
+      "canvas": [
+        2035,
+        773
+      ],
+      "hasTransparency": true,
+      "promptId": "galaxyV3Prompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "galaxy/Q03-R-v4.png",
+      "sha256": "2cefa2be64bee466bcd9876dcce35234839ad451f180667c92b433094faafba3",
+      "canvas": [
+        2035,
+        773
+      ],
+      "hasTransparency": false,
+      "promptId": "galaxyV4Prompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "galaxy/Q03-R-v5.png",
+      "sha256": "811e364a1daae831bb5d059dc014c9de670da69d2291b680aa979248dc896a24",
+      "canvas": [
+        2035,
+        773
+      ],
+      "hasTransparency": true,
+      "promptId": "galaxyV5Prompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "galaxy/Q03-R-v6.png",
+      "sha256": "dbb84b3e47b871af161b7c75eaefcfae1cb2210f71dc98b9047a3c36ad39fed4",
+      "canvas": [
+        2035,
+        773
+      ],
+      "hasTransparency": false,
+      "promptId": null,
+      "provenance": "prompt-record-missing",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "intrepid/Q03-R-v1.png",
+      "sha256": "f83a6df27f43937cfb02303f52f9c74cb1b9c32613993f6c29906320a6a80908",
+      "canvas": [
+        2060,
+        763
+      ],
+      "hasTransparency": true,
+      "promptId": "officerIntrepidPrompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "intrepid/Q03-R-v2.png",
+      "sha256": "eb6d710b369f2f7b75197800105278ee399c90f7be2a0917a71a486c4e612208",
+      "canvas": [
+        1873,
+        840
+      ],
+      "hasTransparency": false,
+      "promptId": "officerIntrepidCorrectionPrompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "intrepid/Q03-R-v3.png",
+      "sha256": "d89fdbe2c36a7156a177f9363020278e878d40efbb3f92545bda3cbcb0c0d3f3",
+      "canvas": [
+        2035,
+        773
+      ],
+      "hasTransparency": false,
+      "promptId": "intrepidV3Prompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "intrepid/Q03-R-v4.png",
+      "sha256": "b553b39f42db17375e31a23e697e91e6782723f5170379684f51e18b53b6cdd8",
+      "canvas": [
+        2035,
+        773
+      ],
+      "hasTransparency": true,
+      "promptId": "intrepidV4Prompt",
+      "provenance": "recorded",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    },
+    {
+      "file": "intrepid/Q03-R-v5.png",
+      "sha256": "11db499a7a80d61ce3af38ff9505ce958b87311daf53b9b8062071301c97f2b5",
+      "canvas": [
+        2034,
+        773
+      ],
+      "hasTransparency": false,
+      "promptId": null,
+      "provenance": "prompt-record-missing",
+      "status": "appearance-reference-only",
+      "runtimeReady": false
+    }
+  ],
+  "counts": {
+    "combinedMasters": 14,
+    "supportTasks": 16,
+    "combinedCandidates": 11,
+    "legacyRoomOnlyCandidates": 11,
+    "runtimeReady": 0
+  }
+}

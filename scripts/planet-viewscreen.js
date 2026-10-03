@@ -2,6 +2,7 @@
 import { normalizePlanetRecipe, renderPlanetPixelsAsync, planetSeedHash } from "./planet-generator.js";
 import { getStarSystemBackgrounds } from "./star-system-images.js";
 import { RING_BODY_SCALE } from "./gas-giant-material.js";
+import { createPlanetRenderProgress } from "./planet-render-progress.js";
 
 const MODULE_ID = "sta2e-toolkit";
 const VIEWSCREEN_TYPE = "sta2e-toolkit.warpViewscreen";
@@ -59,7 +60,7 @@ function drawCover(ctx, image, width, height) {
   ctx.drawImage(image, (width - image.width * scale) / 2, (height - image.height * scale) / 2, image.width * scale, image.height * scale);
 }
 
-export async function renderPlanetView(body, raw, { preview = false } = {}) {
+export async function renderPlanetView(body, raw, { preview = false, onProgress } = {}) {
   const settings = normalizePlanetView(raw);
   const width = preview ? 640 : settings.width, height = width * 9 / 16;
   const canvas = makeCanvas(width, height), ctx = canvas.getContext("2d");
@@ -82,9 +83,20 @@ export async function renderPlanetView(body, raw, { preview = false } = {}) {
       const recipe = normalizePlanetRecipe(body.procedural || { seed: body.id || body.name }, body);
       recipe.phaseAngle = settings.phase;
       bodyScale = recipe.rings ? RING_BODY_SCALE : recipe.style === "asteroid" ? .85 : 1;
+      // Render only visible pixels when a close orbit would enlarge a capped
+      // whole-globe texture. Radius stays in output pixels, preserving detail.
+      if (!["star", "asteroid"].includes(recipe.style)) {
+        const diameter = height * settings.size / 100 / bodyScale;
+        const rendered = await renderPlanetPixelsAsync(recipe, width, { view: "portrait", lightDirection: settings.direction, onProgress,
+          viewport: { width, height, radius: diameter * .48 * bodyScale, cx: width * settings.x / 100, cy: height * settings.y / 100 } });
+        texture = makeCanvas(rendered.width, rendered.height);
+        texture.getContext("2d").putImageData(new ImageData(rendered.pixels, rendered.width, rendered.height), 0, 0);
+        ctx.drawImage(texture, 0, 0);
+        return canvas;
+      }
       const textureSize = preview ? Math.min(1024, Math.max(384, Math.ceil(height * settings.size / 100 / bodyScale)))
         : Math.min(4096, Math.max(1024, Math.ceil(height * settings.size / 100 / bodyScale)));
-      const rendered = await renderPlanetPixelsAsync(recipe, textureSize, { view: "portrait", lightDirection: settings.direction });
+      const rendered = await renderPlanetPixelsAsync(recipe, textureSize, { view: "portrait", lightDirection: settings.direction, onProgress });
       texture = makeCanvas(rendered.width, rendered.height ?? rendered.width);
       texture.getContext("2d").putImageData(new ImageData(rendered.pixels, rendered.width, rendered.width), 0, 0);
     }
@@ -100,8 +112,11 @@ export async function savePlanetView(body, actorId, raw) {
   if (!game.user?.isGM) throw new Error("Only the GM can export planet views.");
   if (!actorId || !body.id) throw new Error("A saved system and planet are required.");
   const settings = normalizePlanetView(raw);
-  const canvas = await renderPlanetView(body, settings);
+  const progress = createPlanetRenderProgress(`Generating ${body.name || "planet"} — viewscreen`);
+  let canvas;
   try {
+    canvas = await renderPlanetView(body, settings, { onProgress: value => progress.update(value * 90, "Rendering viewscreen image") });
+    progress.update(90, "Encoding viewscreen image");
     const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", .95));
     if (!blob) throw new Error("Could not encode the planet view.");
     const safe = value => String(value).replace(/[^A-Za-z0-9_-]/g, "");
@@ -109,10 +124,13 @@ export async function savePlanetView(body, actorId, raw) {
     const filename = `sta2e-view-${safe(actorId)}-${safe(body.id)}-${foundry.utils.randomID()}.webp`;
     const FP = foundry.applications.apps.FilePicker.implementation;
     try { await FP.createDirectory("data", directory); } catch { /* Upload supplies the actionable error. */ }
+    progress.update(95, "Uploading viewscreen image");
     const result = await FP.upload("data", directory, new File([blob], filename, { type: "image/webp" }), {}, { notify: false });
     if (!result?.path) throw new Error("Planet view upload failed. Check the world's file upload permissions.");
+    progress.complete();
     return { viewscreenImage: result.path, viewscreenComposition: JSON.stringify(settings) };
-  } finally { canvas.width = canvas.height = 0; }
+  } catch (error) { progress.fail(); throw error; }
+  finally { if (canvas) canvas.width = canvas.height = 0; }
 }
 
 export function planetViewTargets() {

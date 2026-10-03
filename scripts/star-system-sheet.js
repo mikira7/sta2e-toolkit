@@ -412,7 +412,7 @@ const ROOT_ORBITAL_NODE_ID = "root";
 const ORBITAL_NODE_FIELDS = ["id", "type", "label", "parentId", "starId", "orbitalAU", "angle"];
 const IMAGE_LAYER_FIELDS = ["base", "polarCap", "cloud", "ring"];
 const IMAGE_LAYER_FORM_FIELDS = IMAGE_LAYER_FIELDS.map(field => `imageLayers.${field}`);
-const PROCEDURAL_ART_FIELDS = ["procedural", "sceneImage", "sceneImageSource", "sceneBodyScale"];
+const PROCEDURAL_ART_FIELDS = ["procedural", "sceneImage", "sceneImageSource", "sceneBodyScale", "sceneRingFront"];
 const STAR_RECORD_FIELDS = ["id", "role", "spectralType", "subdivision", "luminosityType", "classification", "notes", "image", "orbitParentNodeId", "orbitalAU", "orbitalAngle", ...PROCEDURAL_ART_FIELDS];
 const MOON_RECORD_FIELDS = ["id", "orbit", "name", "type", "atmosphere", "population", "rings", "mass", "radius", "gravity", "notes", "image", "orbitParentNodeId", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
 const WORLD_RECORD_FIELDS = ["id", "orbit", "orbitParentNodeId", "orbitalAU", "zone", "name", "type", "atmosphere", "population", "moons", "moonTypes", "rings", "mass", "radius", "gravity", "notes", "image", "viewscreenImage", "viewscreenComposition", ...PROCEDURAL_ART_FIELDS, ...IMAGE_LAYER_FORM_FIELDS];
@@ -1239,6 +1239,7 @@ function normalizeMoonRecord(row = {}, hostWorld = {}, index = 0) {
     sceneImage: savedImage(row.sceneImage),
     sceneImageSource: savedImage(row.sceneImageSource),
     sceneBodyScale: clampText(row.sceneBodyScale),
+    sceneRingFront: savedImage(row.sceneRingFront),
   };
 }
 
@@ -1440,6 +1441,7 @@ export function normalizeStarSystemData(raw = {}) {
       sceneImage: savedImage(row.sceneImage),
       sceneImageSource: savedImage(row.sceneImageSource),
       sceneBodyScale: clampText(row.sceneBodyScale),
+      sceneRingFront: savedImage(row.sceneRingFront),
       orbitParentNodeId: clampText(row.orbitParentNodeId),
       orbitalAU: clampText(row.orbitalAU),
       orbitalAngle: clampText(row.orbitalAngle),
@@ -1489,6 +1491,7 @@ export function normalizeStarSystemData(raw = {}) {
       sceneImage: savedImage(row.sceneImage),
       sceneImageSource: savedImage(row.sceneImageSource),
       sceneBodyScale: clampText(row.sceneBodyScale),
+      sceneRingFront: savedImage(row.sceneRingFront),
     };
     world.orbitParentLabel = orbitParentLabel(world, data);
     const hasMoonRecords = Object.prototype.hasOwnProperty.call(row, "moonRecords");

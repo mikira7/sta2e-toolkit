@@ -1,0 +1,14 @@
+{
+  "status": "experimental-concept-renders-not-runtime-assets",
+  "tool": "built-in image_gen",
+  "renders": [
+    {
+      "file": "reference-blue-overhead-experiment-v1.png",
+      "prompt": "Use case: stylized-concept. Asset type: experimental flat 2D overhead corridor battlemap render for Foundry VTT. Input image: user's reference is style guidance. Generate a new polished corridor layout matching its warm taupe structural frames, recessed charcoal blue wall panels, slim walnut rails, large luminous white wall strips, rich blue carpet, pale floor borders, cyan accents and soft rendered ambient occlusion. True orthographic camera straight down, ceiling removed, absolutely no isometric view or perspective. Landscape composition on solid black void: a long horizontal corridor connects a circular burgundy-floor turbolift bay on the left to a four-way junction toward the right; three open corridor arms continue to image edges. Consistent approximately 3 metre wide clear passages; rounded inner corners; regular repeated ribs entirely inside wall bands; walls have the same beautiful cutaway sculptural depth as reference. Keep flooring flat and unobstructed and wall lights contained in walls. Crisp high fidelity 3D-rendered materials in a flat 2D map. No characters, furniture, grid, labels, watermarks, title or perspective inset. This is a single map, not a contact sheet."
+    },
+    {
+      "file": "intrepid-overhead-experiment-v1.png",
+      "prompt": "Use case: stylized-concept. Asset type: experimental flat 2D top-down starship corridor map. Reference 1 is overhead rendering style only: emulate its beautifully sculpted cutaway wall bands, realistic ambient occlusion, recessed bright white lamps, carpet and regular wall ribs. Reference 2 is Intrepid material design only, ignore its titles and perspective inset. Generate ONE landscape overhead map in cool Intrepid style, with pale cool grey chamfered ribs, charcoal bases, blue slate carpeting, narrow silver-grey carpet edge bands, tiny amber wall control panels and neutral white lighting. Layout: long horizontal passage open at left and right image boundaries, with one broad branch from its middle extending downward into a square empty Jefferies access alcove terminated by a closed dark service hatch at its rear wall. The alcove has no door at its mouth, exactly the same clear width as corridor, generous empty floor and no equipment. Entire layout shown, outside architecture pure black void. True orthographic straight-down camera, ceiling removed, flat 2D VTT battlemap, no perspective, no isometric foreshortening. Keep all ribs and fittings within wall bands and floor entirely level. Make tactile realistic high fidelity materials and clean repeated wall bays, like reference 1 but unmistakably cooler Intrepid architecture. No labels, text, grid, people, furnishings, watermark, title, borders or collage."
+    }
+  ]
+}

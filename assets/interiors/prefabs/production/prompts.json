@@ -1,0 +1,82 @@
+{
+  "method": "built-in image_gen",
+  "transparentBackgroundRequested": true,
+  "prompts": [
+    {
+      "id": "officerGalaxyPrompt",
+      "file": "galaxy/Q03-R-v1.png",
+      "references": [
+        "docs/interior-prefabs/cabin-revisions/Q03-R-guide.png",
+        "assets/interiors/prefabs/corridor-studies/galaxy-corridor-study-v1.png"
+      ],
+      "prompt": "Use case: sketch-to-render. Create one production candidate bitmap for a Star Trek virtual-tabletop room puzzle piece, Q03-R OFFICER SUITE in GALAXY CLASS materials.\nInput image 1 is the APPROVED EXACT FLOOR PLAN. Preserve its overhead geometry, aspect, proportions, all walls, apertures, fixture footprints and spatial arrangement. Input image 2 supplies only the Galaxy material palette, not layout or camera.\nRender one single directly overhead orthographic furnished suite, rectangular 20.25 m long x 7.5 m deep (2.7:1 footprint), aligned horizontally. Camera straight down, no perspective, no isometric projection. Ceiling removed. Thin wall tops like a professional realistic 3D-rendered battle map. Preserve generous floor circulation. Transparent outside the rectangular room; no board, border, text, labels, arrows or grid.\nExact topology from left to right: open dining/living/work area spanning 5.5 units; master bedroom x5.5 to8.5 y0 to3.4; PRIVATE walk-in closet x8.5 to10.5 y0 to3.4; head x10.5 to13.5 y0 to5. A private passage runs below bedroom and closet, y3.4 to5. Units 1.5m. Walls .1 units thick. Master bedroom must stay separate from closet with a wall and open sliding doorway at x8.5,y1.7. Closet bottom wall is SOLID: no passage entry. Hanging storage on closet's RIGHT wall. Bedroom entrance at x7.3,y3.4. Common-to-passage opening at x5.5,y4.2. Head opening at x10.5,y4.2. Main exterior entrance on bottom edge x2.7,y5. All five openings are clear, 1.2 units wide, with sills but NO moving door leaves.\nFixture positions follow guide exactly: recessed food replicator inside thick upper LEFT wall facing dining; dining table and two opposing chairs left; desk lower-left with chair BELOW facing desk; sofa top of living area and low table below it. Master double bed upper-left, wardrobe lower-left. Head: sonic shower upper-left, tub upper-right, basin left, toilet on right facing LEFT into open floor. No modern shower head. Three hull windows on top edge exactly where cyan marks occur.\nMaterial style: warm taupe and ivory molded panels, soft rounded furniture, muted mauve carpet with restrained darker border, small dark wood accents, plum/slate upholstery, amber/lavender LCARS at desk and replicator. Warm neutral soft even lighting, subtle contact shadows. Bathroom pale non-slip floor, ivory fixtures. Render believable detailed fitted furniture, not colored diagram blocks. Keep shadows inside footprint and doors visibly open. No extra rooms, fixtures, windows or corridors; no people. This is a usable map master candidate, not a presentation board."
+    },
+    {
+      "id": "officerIntrepidPrompt",
+      "file": "intrepid/Q03-R-v1.png",
+      "references": [
+        "docs/interior-prefabs/cabin-revisions/Q03-R-guide.png",
+        "assets/interiors/prefabs/corridor-studies/intrepid-corridor-study-v1.png"
+      ],
+      "prompt": "Use case: sketch-to-render. Create one production candidate bitmap for a Star Trek virtual-tabletop room puzzle piece, Q03-R OFFICER SUITE in INTREPID CLASS materials.\nInput image 1 is the APPROVED EXACT FLOOR PLAN. Preserve its overhead geometry, aspect, proportions, all walls, apertures, fixture footprints and spatial arrangement. Input image 2 supplies only the Intrepid material palette, not layout or camera.\nRender one single directly overhead orthographic furnished suite, rectangular 20.25 m long x 7.5 m deep (2.7:1 footprint), aligned horizontally. Camera straight down, no perspective, no isometric projection. Ceiling removed. Thin wall tops like a professional realistic 3D-rendered battle map. Preserve generous floor circulation. Transparent outside the rectangular room; no board, border, text, labels, arrows or grid.\nExact topology from left to right: open dining/living/work area spanning 5.5 units; master bedroom x5.5 to8.5 y0 to3.4; PRIVATE walk-in closet x8.5 to10.5 y0 to3.4; head x10.5 to13.5 y0 to5. A private passage runs below bedroom and closet, y3.4 to5. Units 1.5m. Walls .1 units thick. Master bedroom must stay separate from closet with a wall and open sliding doorway at x8.5,y1.7. Closet bottom wall is SOLID: no passage entry. Hanging storage on closet's RIGHT wall. Bedroom entrance at x7.3,y3.4. Common-to-passage opening at x5.5,y4.2. Head opening at x10.5,y4.2. Main exterior entrance on bottom edge x2.7,y5. All five openings are clear, 1.2 units wide, with sills but NO moving door leaves.\nFixture positions follow guide exactly: recessed food replicator inside thick upper LEFT wall facing dining; dining table and two opposing chairs left; desk lower-left with chair BELOW facing desk; sofa top of living area and low table below it. Master double bed upper-left, wardrobe lower-left. Head: sonic shower upper-left, tub upper-right, basin left, toilet on right facing LEFT into open floor. No modern shower head. Three hull windows on top edge exactly where cyan marks occur.\nMaterial style: Intrepid / Voyager class. Cool light-grey fitted wall panels with graphite trim, slate-blue carpet and narrow lighter perimeter bands, softly chamfered light-grey furniture, subdued blue upholstery and bedding, neutral-white inset lighting, small amber LCARS controls at desk and replicator. Pale grey non-slip head floor, molded fixtures, sonic shower with flush emitter controls rather than a hose or shower head. Detailed realistic materials, soft even lighting, thin wall tops. Match reference 2 palette only. Preserve reference 1 topology. No people, labels, extra furniture, extra openings or perspective.\nCritical physical proportions: preserve a true 2.7:1 room rectangle; wall-centre height must be room width divided by 2.7. Do not squash room vertically to fill a wider output. Add transparent margins if needed. All five doorway widths remain 1.2 physical units. Main bed 1.2 x1.4 units: 1.8m x2.1m, not oversized."
+    },
+    {
+      "id": "officerGalaxyCorrectionPrompt",
+      "file": "galaxy/Q03-R-v2.png",
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-v1.png",
+        "docs/interior-prefabs/cabin-revisions/Q03-R-guide.png"
+      ],
+      "prompt": "Edit reference image 1 (Galaxy officer-suite artwork). Reference image 2 is the exact geometry target. Correct only geometry registration, keeping the warm taupe/mauve Galaxy style.\nUse EXACTLY the same canvas framing as reference 2: the room's outer wall CENTRE rectangle occupies x=55..1540, y=65..615 on a 1595x715 canvas. This room rectangle is 1485x550, a 2.7:1 ratio. Leave transparent margins equivalent to x0..50 and y0..60 and y620..715. Do NOT extend the room to fill those margins. No text.\nTransfer materials onto reference 2's geometry. Its wall centres are: common divider x660 fromy65..615; master/closet wall x990 fromy65..439; closet/head wall x1210 fromy65..615; bedroom/closet bottom y439 fromx660..1210.\nFive precise CLEAR open apertures: main entrance bottom y615 x286..418; common divider x660 y461..593; master entrance y439 x792..924; closet entrance x990 y186..318; head entry x1210 y461..593. Every aperture width132px at this scale. The thickened jambs must not intrude across those clear extents. No door leaves or yellow lines across the openings; show unobstructed continuous floor.\nFurniture must fit reference 2's boxes. The master double bed is x687.5..819.5 y92.5..246.5, notably smaller than in reference1. Keep the master wardrobe x676.5..737 y290.5..422.5. Closet hanging storage x1155..1199 y92.5..367.5. Sofa x456.5..643.5 y92.5..164. Toilet right-facing-left nearx1500,y313. Move every other fixture to its reference2 box rather than preserving reference1 oversized furniture. In the sonic shower use flush emitters only; REMOVE the shower hose/head added in reference1.\nTrue orthographic overhead, detailed 3D-rendered battle map. No perspective. Do not add furniture, apertures or partitions. Transparent outside wall silhouette. The target is the measured layout with realistic rendered surfaces, not a new composition."
+    },
+    {
+      "id": "officerIntrepidCorrectionPrompt",
+      "file": "intrepid/Q03-R-v2.png",
+      "references": [
+        "docs/interior-prefabs/cabin-revisions/Q03-R-guide.png",
+        "assets/interiors/prefabs/production/intrepid/Q03-R-v1.png"
+      ],
+      "prompt": "Edit image 1, the measured officer-suite diagram, into realistic overhead INTREPID CLASS Starfleet room artwork. Image 1 is the edit target: keep its exact canvas framing, wall geometry and every fixture box. Image 2 is ONLY a material reference. Preserve image 1's room aspect ratio of 2.7:1 and its wide top/bottom margins. Do not copy image 2's compressed footprint or enlarged furniture.\nReplace flat fills with cool gray fitted wall panels, graphite trims, slate-blue carpet, pale carpet borders, blue upholstered furniture, neutral inset lamps and amber LCARS. Render all furnishings in their existing guide footprints, with a double bed in the master room and a chair below the desk facing it. Keep the closet attached ONLY to the master via the left-side doorway, storage on its right wall, its bottom wall solid. Keep the head and its entry separate. Sonic shower uses wall emitters, no hose or shower head.\nRemove every label, arrow and title from the diagram. All orange lines are EMPTY DOOR APERTURES; replace them with unobstructed continuous floor, no closed door leaves or luminous line across them. Exactly five openings, same positions and widths as the diagram. Preserve the three hull windows and the recessed replicator at upper left. Transparent outside room. Flat orthographic straight-down camera, realistic pre-rendered battlemap, no perspective, no added props. The geometry of image 1 takes precedence over all style choices."
+    },
+    {
+      "id": "galaxyV3Prompt",
+      "file": "galaxy/Q03-R-v3.png",
+      "references": [
+        "docs/interior-prefabs/cabin-revisions/Q03-R-production-guide.png"
+      ],
+      "prompt": "Render this exact floor plan as a finished realistic Star Trek Galaxy-class officer-quarters VTT battlemap. EDIT THE SUPPLIED DIAGRAM IN PLACE; retain the same canvas aspect, identical wall and doorway positions, furniture sizes and thin wall thickness. ONLY replace diagram colors with photorealistic materials and recognizable furniture. True orthographic camera looking straight down, no perspective, ceiling removed. Warm taupe wall tops, mauve carpet with subtle border, plum sofa and double bed, cream furniture, dark wood touches and amber LCARS at the lower-left desk and upper-left recessed food replicator. Tan shapes are wardrobes; the long one is hanging storage in the master bedroom's private walk-in closet. Grey rightmost room is the head, with basin, toilet facing left, tub, and a SONIC shower with wall emitters and no showerhead or plumbing hose. Keep desk chair below desk facing upwards. Gold lines are open doorways: replace with clear floor, no lines or leaves across them. Cyan lines on top wall are hull windows. Remove toilet arrow. NO extra furniture, decorations, nightstands, people, labels or text. No cast shadows outside the outer walls. Keep the tiny transparent exterior margin and actual alpha transparency. Do not enlarge beds, wall tops or fixtures. This is a precise map-texturing task; the diagram's geometry must not change."
+    },
+    {
+      "id": "intrepidV3Prompt",
+      "file": "intrepid/Q03-R-v3.png",
+      "references": [
+        "docs/interior-prefabs/cabin-revisions/Q03-R-production-guide.png"
+      ],
+      "prompt": "Render this exact floor plan as a finished realistic Star Trek Intrepid-class officer-quarters VTT battlemap. EDIT THE SUPPLIED DIAGRAM IN PLACE; retain the same canvas aspect, identical wall and doorway positions, furniture sizes and thin wall thickness. ONLY replace diagram colors with photorealistic materials and recognizable furniture. True orthographic camera looking straight down, no perspective, ceiling removed. Cool light-grey wall tops with graphite trim, slate-blue carpet with narrow pale edge bands, blue sofa and double bed, light-grey furniture, softly chamfered edges, neutral inset lighting and amber LCARS at the lower-left desk and upper-left recessed food replicator. Replicator is a recessed serving niche with a dark tray and small controls, not just a display. Tan shapes are wardrobes; the long one is hanging storage in the master bedroom's private walk-in closet. Grey rightmost room is the head, with basin, toilet facing left, tub, and a SONIC shower with wall emitters and no showerhead or plumbing hose. Keep desk chair below desk facing upwards. Gold lines are open doorways: replace with clear floor, no lines or leaves across them. Cyan lines on top wall are hull windows. Remove toilet arrow. NO extra furniture, decorations, nightstands, people, labels or text. No cast shadows outside the outer walls. Keep the tiny transparent exterior margin and actual alpha transparency. Do not enlarge beds, wall tops or fixtures. This is a precise map-texturing task; the diagram's geometry must not change. In the head, the LARGE SQUARE at top-left is the sonic shower; the SMALL VERTICAL RECTANGLE BELOW it is the basin. Do not swap these fixtures. Bathtub stays top-right. No thicker display-board border around room."
+    },
+    {
+      "id": "galaxyV4Prompt",
+      "file": "galaxy/Q03-R-v4.png",
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-v3.png"
+      ],
+      "prompt": "Precise local edit of the supplied Galaxy officer-suite battlemap. Keep the entire image, canvas, walls, doors, furniture, carpet and real transparent exterior unchanged except TWO fixtures in the rightmost bathroom. At the bathroom's upper-left, replace the existing square sink with a square SONIC SHOWER, contained within that exact square footprint, with an empty pale non-slip floor and tiny flush wall-emitter panels, no plumbing hose or showerhead. Directly below it on the bathroom's left wall, replace the existing lit square shower with a smaller vertically oriented BASIN cabinet in the original approved position. Basin cabinet must be 0.55 x0.7 grid units at x10.7 y1.5 in room coordinates; visually about 82px wide and105px tall, left aligned to the old shower footprint, leaving the extra floor space open. Keep bathtub top-right and toilet on the right unchanged. Make no other changes. Preserve exact dimensions and true alpha transparency."
+    },
+    {
+      "id": "intrepidV4Prompt",
+      "file": "intrepid/Q03-R-v4.png",
+      "references": [
+        "assets/interiors/prefabs/production/intrepid/Q03-R-v3.png"
+      ],
+      "prompt": "Background removal only. Cut out this entire Intrepid officer-suite battlemap, preserving every wall, furnishing, floor, color and pixel position inside the outside wall edges. Remove the gray-and-white checkerboard strips around the exterior perimeter completely and replace with genuine alpha transparency. Keep the image size and room scale unchanged. Do not draw a checkerboard to simulate transparency, and do not fill the exterior with white or black. No other visual edits. The output must be a real RGBA PNG with alpha-zero exterior."
+    },
+    {
+      "id": "galaxyV5Prompt",
+      "file": "galaxy/Q03-R-v5.png",
+      "references": [
+        "assets/interiors/prefabs/production/galaxy/Q03-R-v4.png"
+      ],
+      "prompt": "Background extraction only. Preserve the officer-suite map exactly. Remove every speckled white/black/checker exterior pixel outside the straight outer wall silhouette, replacing exterior with real alpha-zero transparency. Keep all room walls, doors, furnishings, floor, colors and dimensions unchanged, including the corrected sonic shower and basin. No repainting or relighting of interior. Keep2035x773 canvas and current placement. Output a genuine RGBA PNG; no simulated transparency pattern, solid black or solid white background."
+    }
+  ]
+}

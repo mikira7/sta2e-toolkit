@@ -720,10 +720,13 @@ for (const version of [13, 14]) for (const mirror of [false, true]) for (const c
     for (const other of bodies.slice(i + 1)) assert(Math.hypot(body.x - other.x, body.y - other.y) > body.radius + other.radius, "Encounter bodies do not overlap");
   }
 }
-const noMoons = await scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0], "", { moons: false, labels: true, orbitRings: true });
+const noMoons = await scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0], "", { moons: false, labels: true, orbitRings: true, hoverNames: false });
 assert.equal(noMoons.embedded.Tile.length, 1);
 assert.equal(noMoons.embedded.Drawing.length, 1);
+assert.equal(noMoons.flags["sta2e-toolkit"].starSystemHoverNames, false, "The hover preference is saved with the scene");
+assert(noMoons.embedded.Tile[0].flags["sta2e-toolkit"].systemBody.name, "Hiding hover names retains body metadata and printed labels");
 const annotated = await scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0], "", { labels: true, orbitRings: true });
+assert.equal(annotated.flags["sta2e-toolkit"].starSystemHoverNames, true, "Other layouts retain hover names by default");
 assert.equal(annotated.embedded.Drawing.length, normalized.worlds[0].moonRecords.length + 2);
 deleted.length = 0;
 failEmbedded = true;
@@ -808,7 +811,91 @@ assert.equal(await generator.promptProceduralPlanet({ id: "planet1", type: "Clas
 assert.equal(uploads.length, previousUploadCount, "Cancel does not upload");
 context.foundry.applications.apps.FilePicker.implementation.upload = async () => { throw new Error("upload failed"); };
 await assert.rejects(generator.saveProceduralPlanetImage({ id: "planet1" }, actor.id, recipe), /upload failed/);
-console.log("PASS: complete planet/moon/star catalog, asteroids and belts, stellar flares/glow/lens effects, ice giants, gas colors, ring structure/shadows, terrain, paired views, persistence, v13/v14 scenes, rollback, cancellation, and uploads.");
+
+// 2.5D rings, ring Regions, and the close-up orbital layouts.
+{
+  const uploaded = [];
+  context.foundry.applications.apps.FilePicker.implementation.upload = async (_source, directory, file) => {
+    uploaded.push(file.name); return { path: `${directory}/${file.name}` };
+  };
+  const ringRecipe = generator.normalizePlanetRecipe({ seed: "ringed", style: "gas", rings: true, axialTilt: 60, resolution: 1024 });
+  const art = await generator.saveProceduralPlanetImage({ id: "ringed1" }, actor.id, ringRecipe);
+  assert(art.sceneImage.endsWith("-scene.webp") && art.sceneRingFront.endsWith("-scene-ring.webp"), "Ringed scene art is split into back and front layers");
+  assert.equal(uploaded.length, 3);
+  assert(generator.proceduralSceneImageIsCurrent(art));
+  assert(!generator.proceduralSceneImageIsCurrent({ ...art, sceneRingFront: "" }), "Pre-split ringed art is regenerated once");
+  assert.equal(generator.planetSceneRingFront(art), art.sceneRingFront);
+  assert.equal(generator.planetSceneRingFront({ ...art, sceneImageSource: "custom.webp" }), "", "Replaced portrait art drops the stale front layer");
+  const ringed = { ...normalized.worlds[0], id: "ringed1", ...art };
+  context.game.release.generation = 14;
+  const encounter = await scenes.buildPlanetaryEncounterScene(actor, normalized, ringed, "", {});
+  const front = encounter.embedded.Tile.find(tile => tile.flags["sta2e-toolkit"].planetRingFront);
+  assert(front && front.elevation > 0 && front.texture.src === art.sceneRingFront, "The near ring arc is raised above tokens");
+  assert.equal(encounter.embedded.Tile.filter(tile => tile.texture.src === art.sceneImage).length, 1);
+  const [region] = encounter.embedded.Region;
+  assert.deepEqual(region.shapes.map(shape => shape.hole), [false, true], "The ring Region is an annulus");
+  const extent = generator.ringVisibleExtent(ringRecipe);
+  assert(extent.inner > .61 && extent.outer <= 1 && extent.inner < extent.outer, "The Region fits the visible band, not the material's limits");
+  assert.equal(region.shapes[0].radiusX, Math.round(2600 * .48 * extent.outer));
+  assert.equal(region.shapes[0].radiusY, Math.round(2600 * .48 * extent.outer * Math.cos(Math.PI / 3)), "The Region is squashed by the axial tilt");
+  assert.equal(region.shapes[1].radiusX, Math.round(2600 * .48 * extent.inner), "The hole starts where the ring shows");
+  assert.deepEqual(region.behaviors.map(behavior => behavior.type), ["sta2e-toolkit.difficultTerrain", "sta2e-toolkit.sensorShroud"]);
+  assert(region.flags["sta2e-toolkit"].planetRing);
+  const quiet = await scenes.buildPlanetaryEncounterScene(actor, normalized, ringed, "", { ringTerrain: false });
+  assert.equal(quiet.embedded.Region[0].behaviors.length, 0, "Ring terrain can be switched off, keeping the wake Region");
+  const plain = await scenes.buildPlanetaryEncounterScene(actor, normalized, normalized.worlds[0], "", {});
+  assert.equal(plain.embedded.Region, undefined, "Custom ring art gets no guessed Region");
+
+  const high = await scenes.buildPlanetaryHighOrbitScene(actor, normalized, ringed, "", { focusMoon: normalized.worlds[0].moonRecords.at(-1).id });
+  assert.equal(high.flags["sta2e-toolkit"].starSystemSceneLayout, "highOrbit");
+  const focusTile = high.embedded.Tile.find(tile => tile.width === 1300);
+  assert.equal(focusTile.flags["sta2e-toolkit"].systemBody.name, normalized.worlds[0].moonRecords.at(-1).name || "moon");
+  for (const tile of high.embedded.Tile) {
+    assert(tile.x - tile.width / 2 >= 0 && tile.x + tile.width / 2 <= 6000 && tile.y - tile.height / 2 >= 0 && tile.y + tile.height / 2 <= 4000, "High orbit bodies stay on the map");
+  }
+
+  const low = await scenes.buildPlanetaryLowOrbitScene(actor, normalized, ringed, "", {});
+  assert(uploaded.at(-1).endsWith("-low-orbit.webp"));
+  const band = low.embedded.Tile[0];
+  assert.equal(low.flags["sta2e-toolkit"].starSystemHoverNames, false, "Low-orbit scenes default to hidden hover names");
+  assert.equal(band.width, 6000);
+  assert(band.height < 4000 && band.y + band.height / 2 === 4000, "The limb band sits along the bottom edge");
+  assert.equal(low.embedded.Wall.length, 24);
+  const lowQuality = generator.normalizePlanetRecipe(ringed.procedural, ringed).resolution;
+  const lowWidth = Math.min(4096, Math.max(3000, lowQuality * 2));
+  assert.deepEqual(encodedSizes.at(-1), [lowWidth, Math.round(band.height * lowWidth / 6000)], "Low orbit uses the selected quality for a detailed cropped render");
+
+  const plane = await scenes.buildPlanetaryRingPlaneScene(actor, normalized, ringed, "", { mirror: true });
+  assert(uploaded.at(-1).endsWith("-ring-plane-r.webp"));
+  assert.equal(plane.embedded.Region.length, 1);
+  assert.equal(plane.embedded.Region[0].shapes[0].radiusX, plane.embedded.Region[0].shapes[0].radiusY, "The ring plane is seen face-on");
+  assert.equal(await scenes.buildPlanetaryRingPlaneScene(actor, normalized, normalized.worlds[0], "", {}), null, "Ring Plane needs procedural rings");
+  assert.equal(await scenes.buildPlanetaryLowOrbitScene(actor, normalized, normalized.worlds[0], "", {}), null, "Low Orbit needs a procedural recipe");
+}
+{
+  const hooks = new Map(), listeners = new Map();
+  const board = { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: name => listeners.delete(name) };
+  const originalDocument = context.document;
+  let tooltip;
+  context.document = { body: { appendChild: element => { tooltip = element; } }, createElement: () => ({ hidden: true, isConnected: true, style: {} }) };
+  context.Hooks = { on: (name, callback) => hooks.set(name, callback) };
+  context.canvas = { app: { view: board }, canvasCoordinatesFromClient: p => p };
+  scenes.registerStarSystemMapHover();
+  for (const [layout, preference, enabled] of [["lowOrbit", undefined, false], ["lowOrbit", true, true], ["encounter", false, false], ["encounter", undefined, true]]) {
+    const flags = { starSystemSceneActor: "system", starSystemSceneLayout: layout, starSystemHoverNames: preference };
+    context.canvas.scene = { getFlag: (_module, key) => flags[key], tiles: [{ x: 150, y: 150, width: 100, height: 100, getFlag: () => ({ name: "Test planet" }) }] };
+    hooks.get("canvasReady")();
+    assert.equal(listeners.has("pointermove"), enabled, "The persisted hover option controls cursor tooltips, including legacy low orbit");
+    if (enabled) {
+      listeners.get("pointermove")({ clientX: 150, clientY: 150 });
+      assert.equal(tooltip.textContent, "Test planet"); assert.equal(tooltip.hidden, false);
+    } else if (tooltip) assert.equal(tooltip.hidden, true, "Switching scenes clears the previous tooltip");
+    hooks.get("canvasTearDown")();
+    assert.equal(listeners.size, 0);
+  }
+  context.document = originalDocument;
+}
+console.log("PASS: complete planet/moon/star catalog, asteroids and belts, stellar flares/glow/lens effects, ice giants, gas colors, ring structure/shadows, terrain, paired views, persistence, v13/v14 scenes, rollback, cancellation, uploads, and scene hover preferences.");
 
 // Optional contact sheet for visual inspection; writes only to the supplied path.
 if (process.argv[2]) {

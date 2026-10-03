@@ -2429,3 +2429,73 @@
   border-color: #1a4f95;
 }
 .wn-btn-save:hover { background: #1a4f95; }
+
+/* ── Active GM badge (gm-authority.js) ────────────────────── */
+
+.sta2e-hud-gm-badge {
+  position: relative;
+  pointer-events: all;
+  margin-top: 2px;
+}
+.sta2e-hud-gm-badge[hidden] { display: none; }
+
+.sta2e-hud-gm-badge__btn {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.7);
+  font: 700 9px/16px "Antonio", "Arial Narrow", sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.sta2e-hud-gm-badge__btn:disabled { cursor: default; }
+.sta2e-hud-gm-badge__key {
+  padding: 0 6px 0 8px;
+  background: #ff9c00;
+  color: #000;
+}
+.sta2e-hud-gm-badge__name {
+  padding: 0 8px 0 6px;
+  color: #ffcc66;
+}
+
+.sta2e-hud-gm-badge__menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  padding: 4px;
+  background: rgba(0,0,0,0.9);
+  border-radius: 6px;
+  z-index: 2;
+}
+.sta2e-hud-gm-badge__menu[hidden] { display: none; }
+.sta2e-hud-gm-badge__menu button {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 10px;
+  background: #cc99cc;
+  color: #000;
+  font: 700 10px/1.4 "Antonio", "Arial Narrow", sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.sta2e-hud-gm-badge__menu button:disabled { opacity: 0.4; cursor: default; }
+.sta2e-hud-gm-badge__empty {
+  padding: 3px 6px;
+  color: #999;
+  font: 10px/1.4 "Antonio", "Arial Narrow", sans-serif;
+}

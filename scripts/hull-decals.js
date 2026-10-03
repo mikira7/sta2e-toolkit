@@ -224,10 +224,22 @@ function _tokenRotation(token) {
   return _toRadians(token?.document?.rotation ?? 0);
 }
 
+// Foundry's TextureLoader evicts and destroys least-recently-used textures on
+// every scene load, so a cached hit must be checked before it is reused.
 const _textureCache = new Map();
 
+function _textureUsable(tex) {
+  if (!tex || tex.destroyed) return false;
+  const base = tex.baseTexture ?? tex.source;
+  return !!base && !base.destroyed;
+}
+
 async function _loadDecalTexture(path) {
-  if (_textureCache.has(path)) return _textureCache.get(path);
+  if (_textureCache.has(path)) {
+    const hit = _textureCache.get(path);
+    if (hit === null || _textureUsable(hit)) return hit;
+    _textureCache.delete(path);
+  }
   let tex = null;
   try {
     if (foundry?.canvas?.loadTexture) tex = await foundry.canvas.loadTexture(path);

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1250" viewBox="-1 -.9 6 6.25"><rect x="-1" y="-.9" width="6" height="6.25" fill="#151d25"/>
+  <g font-family="Arial" fill="#e6edf3" text-anchor="middle"><text transform="scale(.005)" x="400" y="-90" font-size="34">JEFFERIES ACCESS — MEASURED GEOMETRY</text>
+  <path d="M0 0H4V2.1H3.05V4.2H.95V2.1H0Z" fill="#595c66" stroke="#ccd5dd" stroke-width=".1"/>
+  <rect x="0" y="0.05" width="4" height="2" fill="#797c86"/><rect x="1" y="2.15" width="2" height="2" fill="#516b7d"/>
+  <path d="M2 2.15V4.15M1 3.15H3" stroke="#b8c8d3" stroke-width=".012"/>
+  <path d="M0 .05V2.05M4 .05V2.05M1 2.1H3" stroke="#151d25" stroke-width=".11"/>
+  <path d="M1.6 4.2H2.4" stroke="#f7c86d" stroke-width=".09"/>
+  <text transform="scale(.005)" x="400" y="220.00000000000003" font-size="30">3 m clear corridor — no obstruction</text>
+  <text transform="scale(.005)" x="400" y="520" font-size="26">OPEN ALCOVE</text>
+  <text transform="scale(.005)" x="400" y="740" font-size="26">3 m × 3 m clear floor</text>
+  <text transform="scale(.005)" x="400" y="930.0000000000001" font-size="26">Rear hatch · closed until a route is connected</text>
+  <text transform="scale(.005)" x="400" y="990" font-size="24">One square = 1.5 m · same geometry for both styles</text></g></svg>

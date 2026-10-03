@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Console cinematic VFX preview</title>
+<style>body{margin:0;background:#050b14;color:#c8e9ff;font:14px Arial}header{padding:12px}iframe{width:680px;height:450px;border:1px solid #345;margin:8px}button{background:#152e46;color:#c8e9ff;border:1px solid #468;padding:6px;margin-right:8px}canvas{display:block}#status{margin:8px}</style></head>
+<body><script type="module">
+const version=new URLSearchParams(location.search).get('version');
+if(!version){
+  document.body.innerHTML='<header>Console cinematic VFX — actual PIXI 7 and 8 WebGL rendering</header><iframe title="PIXI 7 preview" src="?version=7.4.3"></iframe><iframe title="PIXI 8 preview" src="?version=8.14.0"></iframe>';
+} else {
+  document.body.innerHTML='<header><b>PIXI '+version+'</b> <button id="early">Ignition</button><button id="middle">Fire & arcs</button><button id="late">Cooling smoke</button></header><div id="status">Loading…</div>';
+  const status=document.getElementById('status');
+  window.addEventListener('error',e=>status.textContent='ERROR: '+e.message);
+  window.addEventListener('unhandledrejection',e=>status.textContent='ERROR: '+e.reason);
+  const script=document.createElement('script');script.src='https://pixijs.download/v'+version+'/pixi.min.js';
+  await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=reject;document.head.append(script)});
+  const v8=parseInt(version)>=8;
+  const app=v8?new PIXI.Application():new PIXI.Application({width:660,height:340,backgroundColor:0x091522,antialias:true});
+  if(v8) await app.init({width:660,height:340,background:0x091522,preference:'webgl',antialias:true});
+  app.stop(); document.body.append(app.canvas??app.view);
+  const draw=new PIXI.Graphics();
+  const rect=(x,y,w,h,color)=>v8?draw.rect(x,y,w,h).fill(color):draw.beginFill(color).drawRect(x,y,w,h).endFill();
+  for(let y=0;y<340;y+=40)for(let x=0;x<660;x+=40)rect(x,y,39,39,0x0c2031);
+  rect(50,160,240,120,0x29323b);rect(370,160,240,120,0x29323b);
+  for(let x of [50,370]){rect(x+15,175,210,60,0x142f48);rect(x+20,245,80,10,0xb97929);rect(x+110,245,70,10,0x299aba)}
+  app.stage.addChild(draw);
+  const layer=new PIXI.Container();app.stage.addChild(layer);
+  const ticks=new Set();let clock=0;
+  Object.defineProperty(performance,'now',{value:()=>clock,configurable:true});
+  globalThis.canvas={ready:true,scene:{id:'preview'},interface:layer,app:{renderer:app.renderer,ticker:{add:f=>ticks.add(f),remove:f=>ticks.delete(f)}}};
+  globalThis.game={user:{id:'gm',isGM:true},users:new Map([['gm',{isGM:true}]]),socket:{emit(){}}};
+  globalThis.Hooks={on(){}};globalThis.ui={notifications:{warn:msg=>status.textContent=msg}};
+  const {handleConsoleEffectSocket,stopConsoleEffectsLocal}=await import('../scripts/console-effects.js');
+  let id=0;
+  function show(t){
+    stopConsoleEffectsLocal();clock=0;
+    handleConsoleEffectSocket({action:'consoleOverloadVfx',id:'preview-'+(++id),userId:'gm',sceneId:'preview',seed:1456,duration:6,
+      locations:[{x:170,y:210,size:85,kind:'explosion'},{x:490,y:210,size:85,kind:'electric'}]});
+    clock=t*6000;for(const tick of [...ticks])tick();
+    if(v8)app.renderer.render({container:app.stage});else app.renderer.render(app.stage);
+    status.textContent='Rendered WebGL · progress '+t+' · explosion / electrical';
+  }
+  document.getElementById('early').onclick=()=>show(.055);
+  document.getElementById('middle').onclick=()=>show(.22);
+  document.getElementById('late').onclick=()=>show(.6);
+  show(.22);
+}
+</script></body></html>

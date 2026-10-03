@@ -544,12 +544,32 @@ function _isVideoPath(src) {
  * **Video is deliberately not cached.** A texture backed by a `<video>` carries
  * one playhead, so two regions sharing a cached one would share their playback;
  * each instance loads and owns its own, and destroys it on teardown.
+ *
+ * **A cached texture is not ours to keep alive.** `loadTexture` hands back the
+ * texture from Foundry's own TextureLoader cache, which evicts and *destroys*
+ * least-recently-used entries whenever a scene loads. Returning a cached entry
+ * without checking it gave a sprite on a destroyed texture — no image after a
+ * scene change, and no error. It shows up most on Forge, where textures are
+ * larger and memory is tighter. So every hit is checked with `_textureUsable`,
+ * and failures (`null`) are forgotten on each scene sweep rather than for the
+ * whole session, so one failed fetch from a remote asset host is retried.
  */
 const _imageTextureCache = new Map();
 
+/** Is this texture still backed by live GPU data? Works on PIXI v7 and v8. */
+function _textureUsable(tex) {
+  if (!tex || tex.destroyed) return false;
+  const base = tex.baseTexture ?? tex.source;
+  return !!base && !base.destroyed;
+}
+
 async function _loadImageTexture(src) {
   const cacheable = !_isVideoPath(src);
-  if (cacheable && _imageTextureCache.has(src)) return _imageTextureCache.get(src);
+  if (cacheable && _imageTextureCache.has(src)) {
+    const hit = _imageTextureCache.get(src);
+    if (hit === null || _textureUsable(hit)) return hit;
+    _imageTextureCache.delete(src);          // evicted by Foundry — reload
+  }
 
   let tex = null;
   try {
@@ -1417,6 +1437,11 @@ export function refreshViewscreen(behavior) {
 export function sweepViewscreens() {
   for (const inst of _instances.values()) _destroyInstance(inst);
   _instances.clear();
+  // A failed load is only remembered for one scene: on a remote asset host a
+  // miss is as likely to be a transient fetch failure as a real 404.
+  for (const [src, tex] of _imageTextureCache) {
+    if (!_textureUsable(tex)) _imageTextureCache.delete(src);
+  }
 }
 
 /** Is this behavior currently rendering on this client? */

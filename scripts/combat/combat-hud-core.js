@@ -96,6 +96,10 @@ import {
 } from "../token-conditions.js";
 import { getSceneZones, getZoneAtPoint, getZonesForToken } from "../zone-data.js";
 import { getRangeContext, tokensSharingZone } from "../zone-dynamic.js";
+import { shroudAtPoint, REVEAL_FLAG, isCloaked, concealmentAttackDifficulty } from "../region-terrain.js";
+import { broadcastCloakHitShimmer } from "../cloak-hit-vfx.js";
+import { resolveSensorReveal, resolveSensorSweep } from "../sensor-contacts.js";
+import { isActiveGM } from "../gm-authority.js";
 import { getWeaponRangeSummary, WEAPON_RANGE_WARNING } from "../weapon-range.js";
 import { makeSpendContext, speciesExtraDieBonusMomentum, readPool, writePool, poolLimit, readTrackerState } from "../momentum-spend.js";
 import { createTracker, getActiveTracker } from "../momentum-tracker.js";
@@ -281,6 +285,12 @@ function _shipAttackPatternDifficultyReduction(targetToken) {
   return hasAttackRun(helmActor) ? 0 : 1;
 }
 
+/** +2 on a revealed hidden vessel, else +potency in an attack-affecting Sensor Shroud. */
+function _concealmentPenalty(targetToken) {
+  if (!targetToken || isDestructible(targetToken)) return 0;
+  return concealmentAttackDifficulty(targetToken.document ?? targetToken).mod;
+}
+
 function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null, options = {}) {
   const base = baseDifficulty ?? destructibleDifficulty(options.defenderToken ?? options.targetToken, _shipWeaponIsTorpedo(weapon, config) ? 3 : 2);
   const attackPatternReduction = Number(options.attackPatternReduction
@@ -292,8 +302,11 @@ function _shipAttackDifficulty(weapon, config = null, baseDifficulty = null, opt
   // handed over as a locked `opposedDifficulty` the roller will not touch —
   // pass it in. Deriving it here would double-count on the unopposed paths.
   const smallCraftPenalty = Number(options.smallCraftPenalty ?? 0) || 0;
+  // Concealment is opt-in for the same reason: the roller adds it itself on the
+  // unopposed paths, so only callers locking an opposed difficulty pass it.
+  const concealmentPenalty = Number(options.concealmentPenalty ?? 0) || 0;
   return Math.max(0, base + (_weaponQualityFlag(weapon, "cumbersome") ? 1 : 0)
-    + smallCraftPenalty - attackPatternReduction);
+    + smallCraftPenalty + concealmentPenalty - attackPatternReduction);
 }
 
 function _shipWeaponConfigForRules(weapon, config = getWeaponConfig(weapon)) {
@@ -3098,6 +3111,7 @@ export class CombatHUD {
               weaponName:      weapon.name,
               attackPatternPenalty: _attackPatternPenalty,
               smallCraftPenalty: smallCraftDifficultyPenalty(actor, _defenderToken?.actor),
+              concealmentPenalty: _concealmentPenalty(_defenderToken),
               rollerOpts: {
                 hasTargetingSolution: _hasTS,
                 hasRapidFireTorpedo:  _hasRFT && _isTorpedo,
@@ -3126,6 +3140,7 @@ export class CombatHUD {
             // The roller leaves a locked opposed difficulty alone, so Small Craft
             // has to be folded in here.
             smallCraftPenalty: smallCraftDifficultyPenalty(actor, _primaryShipTarget?.actor),
+            concealmentPenalty: _concealmentPenalty(_primaryShipTarget),
           });
           this._opposedDefenseType = opposed.defenseType;
           this._defenderSuccesses  = opposed.defenderSuccesses;
@@ -3352,8 +3367,13 @@ export class CombatHUD {
       return { token: null, explicit: false, cancelled: false };
     }
 
+    // A revealed vessel that is still cloaked is not visible — Foundry will not
+    // let a player target it — but the Reveal says it may be fired on, so it is
+    // offered here as an anonymous sensor contact.
+    const isContact = token => token.visible === false
+      && !!token.document?.getFlag?.(MODULE, REVEAL_FLAG);
     const candidates = (canvas.tokens?.placeables ?? [])
-      .filter(token => token.id !== sourceToken.id && token.visible !== false)
+      .filter(token => token.id !== sourceToken.id && (token.visible !== false || isContact(token)))
       .filter(token => ["starship", "smallcraft"].includes(token.actor?.type));
     let choices = candidates.map(token => ({ token, rangeLabel: weapon ? "Range unavailable" : null }));
 
@@ -3376,8 +3396,10 @@ export class CombatHUD {
     }
 
     const options = choices.map(({ token, rangeLabel }, index) => {
-      const name = token.name ?? token.actor?.name ?? "Ship";
-      const img = token.document?.texture?.src ?? token.actor?.img ?? "icons/svg/mystery-man.svg";
+      const contact = isContact(token);
+      const name = contact ? "Sensor Contact" : (token.name ?? token.actor?.name ?? "Ship");
+      const img = contact ? "icons/svg/mystery-man.svg"
+        : (token.document?.texture?.src ?? token.actor?.img ?? "icons/svg/mystery-man.svg");
       return `
         <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;
           border:1px solid ${LC.borderDim};border-radius:3px;cursor:pointer;
@@ -4354,7 +4376,7 @@ export class CombatHUD {
     const weapon = CombatHUD._weaponFromPayload(attackerToken, payload, "characterweapon2e");
     const config = weapon ? getWeaponConfig(weapon) : null;
     if (!config) return;
-    try { await fireWeapon(config, true, attackerToken, [targetToken]); }
+    try { await fireWeapon(config, true, attackerToken, [targetToken], {weapon, useStun:payload.useStun}); }
     catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
   }
 
@@ -4646,7 +4668,7 @@ export class CombatHUD {
 
       if (!isHit) {
         setTimeout(async () => {
-          try { await fireWeapon(config, false, token, targets); }
+          try { await fireWeapon(config, false, token, targets, {weapon, useStun}); }
           catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
         }, 300);
       }
@@ -8550,72 +8572,92 @@ export class CombatHUD {
       : { label: "Reveal",       icon: "👁️", diff: 3, task: "Reason + Science (assisted by Sensors + Science)",
           effect: "If a hidden vessel is within Long range, reveals which zone it occupies. Attackers may fire at it (Difficulty +2) until it moves." };
 
+    // Sensor Sweep aims at an area; a Sensor Shroud there raises Difficulty by
+    // its potency. Reveal aims at nothing — the officer does not know what is
+    // out there — and a shroud's potency is applied GM-side, per candidate, so
+    // the Difficulty shown never betrays that a shrouded vessel exists.
+    let sweepPoint = null;
+    let diff = cfg.diff;
+    let diffNote = "";
+    if (isSweep) {
+      const { awaitCanvasClick } = await import("../spawn-picker.js");
+      ui.notifications.info("STA2e Toolkit: Click the area to sweep — right-click or Escape to cancel.");
+      sweepPoint = await awaitCanvasClick();
+      if (!sweepPoint) return;
+      const shroud = shroudAtPoint(sweepPoint, "sensor");
+      if (shroud.potency > 0) {
+        diff += shroud.potency;
+        diffNote = ` (+${shroud.potency} ${shroud.names[0] ?? "Sensor Shroud"})`;
+      }
+    }
+
     const sensorsOfficer = readOfficerStats(resolveActingOfficer(actor, "sensors", { actingActorId }));
+    const tokenDoc = token?.document ?? token;
+
+    const taskCallback = ({ passed, successes, momentum }) => {
+      // Hand the outcome to the active GM, who resolves what (if anything) was found.
+      const payload = {
+        action:          isSweep ? "sensorSweep" : "sensorReveal",
+        sceneId:         tokenDoc?.parent?.id ?? canvas?.scene?.id ?? null,
+        shipTokenId:     tokenDoc?.id ?? null,
+        successes,
+        passed,
+        point:           sweepPoint,
+        requesterUserId: game.user.id,
+      };
+      if (isActiveGM()) {
+        (isSweep ? resolveSensorSweep(payload) : resolveSensorReveal(payload))
+          .catch(err => console.error("STA2e Toolkit | sensor task:", err));
+      } else {
+        game.socket.emit("module.sta2e-toolkit", payload);
+      }
+      // A successful Reveal is announced by the GM's contact card instead.
+      if (passed && !isSweep) return;
+      ChatMessage.create({
+        content: lcarsCard(
+          passed ? `${cfg.icon ? cfg.icon + " " : ""}${cfg.label.toUpperCase()} — SUCCESS` : `${cfg.icon ? cfg.icon + " " : ""}${cfg.label.toUpperCase()} FAILED`,
+          passed ? LC.primary : LC.red,
+          `<div style="font-size:12px;font-weight:700;color:${LC.tertiary};
+            margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
+          ${passed ? `
+          <div style="font-size:11px;color:${LC.text};font-family:${LC.font};margin-bottom:4px;">
+            ${successes} success${successes !== 1 ? "es" : ""}
+            ${momentum > 0 ? `· <span style="color:${LC.green};">+${momentum} Momentum</span>` : ""}
+          </div>
+          <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};line-height:1.5;">
+            ${cfg.effect}
+          </div>` : `
+          <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
+            Sensor task failed — no information gathered.
+          </div>`}`),
+        speaker: { alias: "STA2e Toolkit" },
+      });
+    };
 
     if (isNpc && isGM) {
       openNpcRoller(actor, token, {
         stationId:           "sensors",
         officer:             sensorsOfficer,
-        difficulty:          cfg.diff,
+        difficulty:          diff,
         ignoreBreachPenalty: true,
         crewQuality:         !sensorsOfficer ? CombatHUD.getCrewQuality(actor) : null,
         taskLabel:           cfg.label,
-        taskContext:         `${cfg.task} · Difficulty ${cfg.diff}`,
+        taskContext:         `${cfg.task} · Difficulty ${diff}${diffNote}`,
         shipSystemKey:       "sensors",
         shipDeptKey:         "science",
-        taskCallback: ({ passed, successes, momentum }) => {
-          ChatMessage.create({
-            content: lcarsCard(
-              passed ? `${cfg.icon ? cfg.icon + " " : ""}${cfg.label.toUpperCase()} — SUCCESS` : `${cfg.icon ? cfg.icon + " " : ""}${cfg.label.toUpperCase()} FAILED`,
-              passed ? LC.primary : LC.red,
-              `<div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-                margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
-              ${passed ? `
-              <div style="font-size:11px;color:${LC.text};font-family:${LC.font};margin-bottom:4px;">
-                ${successes} success${successes !== 1 ? "es" : ""}
-                ${momentum > 0 ? `· <span style="color:${LC.green};">+${momentum} Momentum</span>` : ""}
-              </div>
-              <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};line-height:1.5;">
-                ${cfg.effect}
-              </div>` : `
-              <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-                Sensor task failed — no information gathered.
-              </div>`}`),
-            speaker: { alias: "STA2e Toolkit" },
-          });
-        },
+        taskCallback,
       });
     } else {
       openPlayerRoller(actor, token, {
         stationId:           "sensors",
         officer:             sensorsOfficer,
-        difficulty:          cfg.diff,
+        difficulty:          diff,
         ignoreBreachPenalty: true,
         taskLabel:           cfg.label,
-        taskContext:         `${cfg.task} · Difficulty ${cfg.diff}`,
+        taskContext:         `${cfg.task} · Difficulty ${diff}${diffNote}`,
         shipSystemKey:       "sensors",
         shipDeptKey:         "science",
-        taskCallback: ({ passed, successes, momentum }) => {
-          ChatMessage.create({
-            content: lcarsCard(
-              passed ? `${cfg.icon ? cfg.icon + " " : ""}${cfg.label.toUpperCase()} — SUCCESS` : `${cfg.icon ? cfg.icon + " " : ""}${cfg.label.toUpperCase()} FAILED`,
-              passed ? LC.primary : LC.red,
-              `<div style="font-size:12px;font-weight:700;color:${LC.tertiary};
-                margin-bottom:4px;font-family:${LC.font};">${actor.name}</div>
-              ${passed ? `
-              <div style="font-size:11px;color:${LC.text};font-family:${LC.font};margin-bottom:4px;">
-                ${successes} success${successes !== 1 ? "es" : ""}
-                ${momentum > 0 ? `· <span style="color:${LC.green};">+${momentum} Momentum</span>` : ""}
-              </div>
-              <div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};line-height:1.5;">
-                ${cfg.effect}
-              </div>` : `
-              <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-                Sensor task failed — no information gathered.
-              </div>`}`),
-            speaker: { alias: "STA2e Toolkit" },
-          });
-        },
+        taskCallback,
       });
     }
   }
@@ -9739,6 +9781,7 @@ export class CombatHUD {
           overridePenalty: true,   // flag so GM handler adds +1 to defender's successes
           attackPatternPenalty: _attackPatternPenalty,
           smallCraftPenalty: smallCraftDifficultyPenalty(actor, _defenderToken?.actor),
+          concealmentPenalty: _concealmentPenalty(_defenderToken),
           rollerOpts: {
             hasTargetingSolution: _hasTS,
             hasRapidFireTorpedo:  _hasRFT && isTorpedo,
@@ -9768,6 +9811,7 @@ export class CombatHUD {
         targetToken,
         attackPatternReduction: _shipAttackPatternDifficultyReduction(targetToken),
         smallCraftPenalty: smallCraftDifficultyPenalty(actor, targetToken?.actor),
+        concealmentPenalty: _concealmentPenalty(targetToken),
       }) + 1;  // +1 override on opposed difficulty too
 
       const rollerOpts = {
@@ -10176,39 +10220,6 @@ export class CombatHUD {
     const isCloaked = (actor?.statuses?.has("invisible") ?? false)
                    || (token.document.hidden ?? false);
 
-    // ── Helper: play sound via settings ──────────────────────────────────────
-    const playSound = (key) => {
-      try {
-        const path = game.settings.get("sta2e-toolkit", key);
-        if (path) AudioHelper.play({ src: path, volume: 0.8, autoplay: true, loop: false }, true);
-      } catch {}
-    };
-
-    // ── Helper: TMFX shimmer distortion ──────────────────────────────────────
-    const applyShimmer = async (tok) => {
-      if (!window.TokenMagic) return;
-      const params = [{
-        filterType:    "distortion",
-        filterId:      "sta2e-cloak-shimmer",
-        maskPath:      "modules/tokenmagic/fx/assets/distortion-1.png",
-        maskSpriteScaleX: 5,
-        maskSpriteScaleY: 5,
-        padding:       20,
-        animated: {
-          maskSpriteX: { active: true, speed: 0.05, animType: "move" },
-          maskSpriteY: { active: true, speed: 0.07, animType: "move" },
-        }
-      }];
-      await TokenMagic.addUpdateFilters(tok, params);
-    };
-
-    const removeShimmer = async (tok) => {
-      if (!window.TokenMagic) return;
-      try { await TokenMagic.deleteFilters(tok, "sta2e-cloak-shimmer"); } catch {}
-    };
-
-    const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
     if (!isCloaked) {
       // ── ACTIVATING CLOAK — major action, requires Reserve Power & a task roll ──
 
@@ -10267,34 +10278,11 @@ export class CombatHUD {
             return;
           }
 
-          // On success: consume Reserve Power then apply cloak effects
+          // On success: consume Reserve Power, then the shared engage sequence
+          // (shimmer, shields to zero, invisible + hidden, chat card) — the same
+          // one the sheet panel and the Token HUD run, so the three can't drift.
           await CombatHUD.clearReservePower(actor);
-
-          playSound("sndCloak");
-          await applyShimmer(token);
-          await wait(800);
-
-          // Apply invisible condition AND hide the token document simultaneously
-          await Promise.all([
-            token.actor.toggleStatusEffect("invisible", { active: true, overlay: false }),
-            token.document.update({ hidden: true }),
-          ]);
-
-          await wait(200);
-          await removeShimmer(token);
-
-          ChatMessage.create({
-            content: lcarsCard("🔇 CLOAKING DEVICE ENGAGED", "#aa44ff", `
-              <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-                <strong>${token.name}</strong> has engaged its cloaking device.<br>
-                <span style="color:${LC.textDim};font-size:9px;">
-                  Shields are down. Cannot attack or be targeted while cloaked.<br>
-                  Deactivating requires a minor action.
-                </span>
-              </div>`),
-            speaker: ChatMessage.getSpeaker({ token: token.document }),
-          });
-
+          await applyCloakEngage(actor, token);
           this._refresh();
         },
       };
@@ -10310,31 +10298,8 @@ export class CombatHUD {
 
     } else {
       // ── DECLOAKING — minor action, no roll required ───────────────────────
-      playSound("sndDecloak");
-
-      await applyShimmer(token);
-      await wait(400);
-
-      // Remove invisible condition AND unhide the token simultaneously
-      await Promise.all([
-        token.actor.toggleStatusEffect("invisible", { active: false, overlay: false }),
-        token.document.update({ hidden: false }),
-      ]);
-
-      await wait(800);
-      await removeShimmer(token);
-
-      ChatMessage.create({
-        content: lcarsCard("👁 CLOAKING DEVICE DISENGAGED", "#aa44ff", `
-          <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
-            <strong>${token.name}</strong> has decloaked.<br>
-            <span style="color:${LC.textDim};font-size:9px;">
-              Shields may now be raised.
-            </span>
-          </div>`),
-        speaker: ChatMessage.getSpeaker({ token: token.document }),
-      });
-
+      // The shared sequence also restores the shields the cloak lowered.
+      await applyCloakDeactivateForOfficer(actor, token);
       this._refresh();
     }
   }
@@ -15008,6 +14973,10 @@ export class CombatHUD {
       ui.notifications.error("STA2e Toolkit: Could not find target actor to apply damage.");
       return;
     }
+    // A cloaked ship taking fire shimmers into view for a moment on every
+    // client. Its shields are already at zero from engaging the cloak, so the
+    // hit lands on the hull below as normal.
+    if (token && isCloaked(token.document)) broadcastCloakHitShimmer(token);
     let shipAttackAnimationPlayed = false;
 
     const isNpc         = CombatHUD.isNpcShip(actor);
@@ -16742,6 +16711,10 @@ export class CombatHUD {
         speaker: { alias: "STA2e Toolkit" },
       });
 
+      // Finish the shot before changing the target's appearance or defeated state.
+      // Outcome dialogs and vaporization also require the target to remain on canvas.
+      await playAttackAnimation();
+
       // Apply conditions to token
       const targetToken = canvas.tokens.get(tokenId);
       if (targetToken && game.user.isGM) {
@@ -16763,18 +16736,16 @@ export class CombatHUD {
         }
       }
 
-      // Land the shot first: the outcome dialogs below block on GM input, and
-      // the vaporize branch removes the token entirely.
-      await playAttackAnimation();
-
       // Vaporize / death outcome dialogs (GM only, deadly only)
       if (!useStun && game.user.isGM) {
         const token = canvas.tokens.get(tokenId);
 
         if (isMinorNpc && token) {
           if (autoVaporizeMinorNpc) {
-            await CombatHUD._removeDeathSplashFX(token);
-            if (canVaporize) await CombatHUD._vaporizeToken(token, weaponColor);
+            if (canVaporize) {
+              await CombatHUD._removeDeathSplashFX(token);
+              await CombatHUD._vaporizeToken(token, weaponColor);
+            }
           } else {
             const minorButtons = [
               { action: "dead", label: "Dead (token stays)", icon: "fas fa-skull", default: !canVaporize },
@@ -18924,6 +18895,61 @@ export async function handleCloakActivateResult(shipActor, shipToken, passed) {
   await applyCloakEngage(shipActor, shipToken);
 }
 
+// ── Cloak ↔ shields ──────────────────────────────────────────────────────────
+//
+// A cloaked ship's shields are down. Engaging drops them to zero through the
+// same "lowered" state the Lower/Raise Shields action uses — value and max both
+// 0, with the pre-cloak value and max saved — so nothing can regenerate them
+// while cloaked and the Shields Down badge shows. Disengaging restores exactly
+// what was saved.
+//
+// `cloakLoweredShields` records that it was the CLOAK that lowered them. If the
+// crew had already lowered shields by hand before cloaking, the cloak leaves
+// that state alone and decloaking does not raise them — they come back in the
+// state they were in before the cloak engaged.
+
+function _shieldFlagDoc(actor) {
+  return actor.isToken && actor.token && !actor.token.isLinked
+    ? actor.token
+    : actor.isToken ? (game.actors.get(actor.id ?? actor._id) ?? actor) : actor;
+}
+
+async function _cloakLowerShields(actor) {
+  if (!actor?.system?.shields) return null;
+  const doc = _shieldFlagDoc(actor);
+  if (CombatHUD.getShieldsLowered(actor)) {
+    await doc?.unsetFlag("sta2e-toolkit", "cloakLoweredShields").catch(() => {});
+    return null;
+  }
+  const cur = actor.system.shields.value ?? 0;
+  const max = actor.system.shields.max   ?? 0;
+  await CombatHUD.setShieldsLowered(actor, true, cur);
+  await doc?.setFlag("sta2e-toolkit", "shieldsSavedMax2", max).catch(() => {});
+  await doc?.setFlag("sta2e-toolkit", "cloakLoweredShields", true).catch(() => {});
+  await actor.update({ "system.shields.value": 0, "system.shields.max": 0 });
+  return { value: cur, max };
+}
+
+async function _cloakRestoreShields(actor) {
+  if (!actor?.system?.shields) return null;
+  const doc = _shieldFlagDoc(actor);
+  if (!doc?.getFlag("sta2e-toolkit", "cloakLoweredShields")) return null;
+  // Raised by hand while still cloaked — the saved values are gone and the
+  // shields are already up, so there is nothing left to restore.
+  if (!CombatHUD.getShieldsLowered(actor)) {
+    await doc.unsetFlag("sta2e-toolkit", "cloakLoweredShields").catch(() => {});
+    return null;
+  }
+  const savedValue = CombatHUD.getShieldsSavedMax(actor) ?? 0;   // stored as the value
+  const savedMax   = doc.getFlag("sta2e-toolkit", "shieldsSavedMax2") ?? savedValue;
+  const value      = Math.min(savedValue, savedMax);
+  await CombatHUD.setShieldsLowered(actor, false);
+  await doc.unsetFlag("sta2e-toolkit", "shieldsSavedMax2").catch(() => {});
+  await doc.unsetFlag("sta2e-toolkit", "cloakLoweredShields").catch(() => {});
+  await actor.update({ "system.shields.max": savedMax, "system.shields.value": value });
+  return { value, max: savedMax };
+}
+
 /**
  * Run the cloaking-device engage sequence: shimmer → invisible + hidden → chat card.
  *
@@ -18958,6 +18984,8 @@ export async function applyCloakEngage(shipActor, shipToken, { announce = true }
   } catch {}
 
   await wait(800);
+  // Shields drop with the cloak — every entry point comes through here.
+  const lowered = await _cloakLowerShields(shipActor);
   await Promise.all([
     shipActor.toggleStatusEffect("invisible", { active: true, overlay: false }),
     shipToken.document.update({ hidden: true }),
@@ -18971,7 +18999,8 @@ export async function applyCloakEngage(shipActor, shipToken, { announce = true }
         <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
           <strong>${shipToken.name}</strong> has engaged its cloaking device.<br>
           <span style="color:${LC.textDim};font-size:9px;">
-            Shields are down. Cannot attack or be targeted while cloaked.<br>
+            Shields down (🛡️ → 0${lowered ? `, will restore to ${lowered.value}/${lowered.max} on decloak` : ""}).
+            Cannot attack or be targeted while cloaked.<br>
             Deactivating requires a minor action.
           </span>
         </div>`),
@@ -19017,6 +19046,8 @@ export async function applyCloakDeactivateForOfficer(shipActor, shipToken, { ann
     shipActor.toggleStatusEffect("invisible", { active: false, overlay: false }),
     shipToken.document.update({ hidden: false }),
   ]);
+  // Shields come back to exactly what they were when the cloak engaged.
+  const restored = await _cloakRestoreShields(shipActor);
   await wait(800);
   if (window.TokenMagic) try { await TokenMagic.deleteFilters(shipToken, "sta2e-cloak-shimmer"); } catch {}
 
@@ -19025,7 +19056,9 @@ export async function applyCloakDeactivateForOfficer(shipActor, shipToken, { ann
       content: lcarsCard("👁 CLOAKING DEVICE DISENGAGED", "#aa44ff", `
         <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
           <strong>${shipToken.name}</strong> has decloaked.<br>
-          <span style="color:${LC.textDim};font-size:9px;">Shields may now be raised.</span>
+          <span style="color:${LC.textDim};font-size:9px;">${restored
+            ? `Shields restored to 🛡️ ${restored.value}/${restored.max}.`
+            : "Shields remain lowered — raise them when ready."}</span>
         </div>`),
       speaker: ChatMessage.getSpeaker({ token: shipToken.document }),
     });
@@ -21445,7 +21478,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
               if (!passed) {
                 setTimeout(async () => {
-                  try { await fireWeapon(config, false, tokenObj, targets); }
+                  try { await fireWeapon(config, false, tokenObj, targets, {weapon, useStun}); }
                   catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
                 }, 300);
               }

@@ -36,6 +36,7 @@ import { planOfActionBonusMomentum } from "./trait-service.js";
 import { getExtraActionDifficulty } from "./combat/initiative-order.js";
 import { resolveActingOfficer } from "./combat/acting-officer.js";
 import { smallCraftDifficultyPenalty } from "./combat/combat-definitions.js";
+import { concealmentAttackDifficulty } from "./region-terrain.js";
 // The setup UI now lives in the Task Maker's "Opposed Task" tab.  opposed-panel.js
 // imports nothing but lcars-theme.js, so pulling from it here stays cycle-free —
 // importing task-maker.js directly would not (see the note atop opposed-panel.js).
@@ -146,6 +147,8 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const pointDefensePenalty = Number(options.pointDefensePenalty ?? 0);
   // +1 for a larger vessel shooting at small craft (set only for starship combat).
   const smallCraftPenalty = Number(options.smallCraftPenalty ?? 0);
+  // Revealed hidden vessel (+2) or a defender inside a Sensor Shroud (+potency).
+  const concealmentPenalty = Number(options.concealmentPenalty ?? 0);
   const attackPatternPenalty = Number(options.attackPatternPenalty ?? 0);
   // +1 owed by a Major Action the attacker bought with Momentum this turn.
   const extraActionPenalty = Number(options.extraActionPenalty ?? 0);
@@ -154,8 +157,8 @@ function _calculateOpposedDifficulty(taskData = {}) {
   const attackerTraitDelta = taskData.attacker?.rolled
     ? _opposedRollTraitDelta(taskData.attacker)
     : 0;
-  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + defensiveTrainingPenalty + closeProtectionPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty + smallCraftPenalty + extraActionPenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
-  return { base, guardPenalty, chiefSecurityPenalty, defensiveTrainingPenalty, closeProtectionPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, smallCraftPenalty, attackPatternPenalty, extraActionPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
+  const total = Math.max(0, base + guardPenalty + chiefSecurityPenalty + defensiveTrainingPenalty + closeProtectionPenalty + pronePenalty + overridePenalty + cumbersomePenalty + pointDefensePenalty + smallCraftPenalty + concealmentPenalty + extraActionPenalty - attackPatternPenalty + traitDelta + defenderTraitDelta + attackerTraitDelta);
+  return { base, guardPenalty, chiefSecurityPenalty, defensiveTrainingPenalty, closeProtectionPenalty, pronePenalty, overridePenalty, cumbersomePenalty, pointDefensePenalty, smallCraftPenalty, concealmentPenalty, attackPatternPenalty, extraActionPenalty, traitDelta, defenderTraitDelta, attackerTraitDelta, total };
 }
 
 async function _promptTraitModifier({ title = "Trait in Play", defaultValue = {} } = {}) {
@@ -437,6 +440,10 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
       // opposed entry point funnels through this function, and ground opposed
       // tasks never reach it — so the rule stays ship-only for free.
       smallCraftPenalty: smallCraftDifficultyPenalty(attackerActor, defenderActor),
+      // Concealment only bears on an attack, not on every opposed ship task.
+      concealmentPenalty: opts.weaponContext && opts.defenderTokenId
+        ? concealmentAttackDifficulty(canvas.tokens?.get(opts.defenderTokenId)?.document).mod
+        : 0,
       // In ship combat the tracker activates the *officer*, not the ship, so the
       // bought extra Major Action's debt sits on the officer's combatant.
       extraActionPenalty: getExtraActionDifficulty(attackerOfficers[0] ?? attackerActor),
@@ -709,6 +716,7 @@ function _renderCardHtml(d) {
       if (difficultyInfo.cumbersomePenalty) breakdownParts.push(`Cumbersome +${difficultyInfo.cumbersomePenalty}`);
       if (difficultyInfo.pointDefensePenalty) breakdownParts.push(`Point Defense +${difficultyInfo.pointDefensePenalty}`);
       if (difficultyInfo.smallCraftPenalty) breakdownParts.push(`Small Craft +${difficultyInfo.smallCraftPenalty}`);
+      if (difficultyInfo.concealmentPenalty) breakdownParts.push(`Concealment +${difficultyInfo.concealmentPenalty}`);
       if (difficultyInfo.attackPatternPenalty) breakdownParts.push(`Attack Pattern -${difficultyInfo.attackPatternPenalty}`);
       if (difficultyInfo.extraActionPenalty) breakdownParts.push(`Extra Major Action +${difficultyInfo.extraActionPenalty}`);
       if (difficultyInfo.traitDelta) breakdownParts.push(traitLabel);

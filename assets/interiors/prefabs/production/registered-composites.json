@@ -1,0 +1,1231 @@
+{
+  "schemaVersion": 1,
+  "status": "registered-composite-review",
+  "method": "Authorized precise wall layers and image-processing assembly",
+  "geometrySha256": "5dd90a458fdedebe8a4fc1553e8a570a8b5a996ede1ab03c37897ec6481bf5d3",
+  "styleGuideSha256": "324fe7cc194ce3ddda59f53c32a669c88ec84a5dba8aefcb349f8dbf8306e16d",
+  "canvas": [
+    1754,
+    800
+  ],
+  "pixelsPerUnit": 128,
+  "origin": [
+    12.8,
+    12.8
+  ],
+  "piece": "Q03-R-HC-IN",
+  "items": [
+    {
+      "style": "galaxy",
+      "file": "galaxy/Q03-R-HC-BASE-assembled-v1.png",
+      "source": "galaxy/Q03-R-HC-BASE-v6.png",
+      "sourceSha256": "631bf8ea60a22376bbf4dadd6c059cd2a1fbfb8d7340a89deac6c2c014c779d7",
+      "wallLayer": "galaxy/Q03-R-HC-walls-v1.png",
+      "panelSource": "galaxy/Q03-R-HC-BASE-v8.png",
+      "panelSourceSha256": "4e7b8449618fd02b6bb7bfb5f37e492c60fad83e71edbab8dcd3898a0b981fee",
+      "panelSourcePixels": [
+        246,
+        630,
+        175,
+        43
+      ],
+      "fixtures": [
+        {
+          "kind": "dining table",
+          "sourcePixels": [
+            144,
+            207,
+            130,
+            146
+          ],
+          "approvedRect": [
+            1.2,
+            1.5,
+            0.9,
+            0.9
+          ],
+          "destinationPixels": [
+            173,
+            205,
+            102,
+            115
+          ]
+        },
+        {
+          "kind": "chair",
+          "sourcePixels": [
+            70,
+            235,
+            70,
+            90
+          ],
+          "approvedRect": [
+            0.5,
+            1.7,
+            0.45,
+            0.45
+          ],
+          "destinationPixels": [
+            83,
+            230,
+            44,
+            57
+          ]
+        },
+        {
+          "kind": "chair",
+          "sourcePixels": [
+            286,
+            235,
+            70,
+            90
+          ],
+          "approvedRect": [
+            2.35,
+            1.7,
+            0.45,
+            0.45
+          ],
+          "destinationPixels": [
+            320,
+            230,
+            44,
+            57
+          ]
+        },
+        {
+          "kind": "sofa",
+          "sourcePixels": [
+            470,
+            47,
+            245,
+            118
+          ],
+          "approvedRect": [
+            3.65,
+            0.25,
+            1.7,
+            0.65
+          ],
+          "destinationPixels": [
+            503,
+            45,
+            172,
+            83
+          ]
+        },
+        {
+          "kind": "table",
+          "sourcePixels": [
+            549,
+            219,
+            128,
+            91
+          ],
+          "approvedRect": [
+            4.15,
+            1.7,
+            0.85,
+            0.5
+          ],
+          "destinationPixels": [
+            553,
+            230,
+            90,
+            64
+          ]
+        },
+        {
+          "kind": "desk",
+          "sourcePixels": [
+            51,
+            447,
+            214,
+            85
+          ],
+          "approvedRect": [
+            0.2,
+            3.4,
+            1.6,
+            0.55
+          ],
+          "destinationPixels": [
+            52,
+            448,
+            176,
+            70
+          ]
+        },
+        {
+          "kind": "chair",
+          "sourcePixels": [
+            106,
+            523,
+            78,
+            88
+          ],
+          "approvedRect": [
+            0.75,
+            4.15,
+            0.5,
+            0.5
+          ],
+          "destinationPixels": [
+            112,
+            544,
+            57,
+            64
+          ]
+        },
+        {
+          "kind": "hanging storage",
+          "sourcePixels": [
+            1313,
+            54,
+            69,
+            341
+          ],
+          "approvedRect": [
+            10,
+            0.25,
+            0.4,
+            2.5
+          ],
+          "destinationPixels": [
+            1293,
+            79,
+            51,
+            252
+          ]
+        },
+        {
+          "kind": "shower",
+          "sourcePixels": [
+            1415,
+            48,
+            137,
+            135
+          ],
+          "approvedRect": [
+            10.7,
+            0.2,
+            0.9,
+            0.9
+          ],
+          "destinationPixels": [
+            1382,
+            39,
+            115,
+            113
+          ]
+        },
+        {
+          "kind": "tub",
+          "sourcePixels": [
+            1554,
+            48,
+            244,
+            133
+          ],
+          "approvedRect": [
+            11.75,
+            0.2,
+            1.55,
+            0.8
+          ],
+          "destinationPixels": [
+            1522,
+            38,
+            187,
+            102
+          ]
+        },
+        {
+          "kind": "basin",
+          "sourcePixels": [
+            1426,
+            207,
+            79,
+            116
+          ],
+          "approvedRect": [
+            10.7,
+            1.5,
+            0.55,
+            0.7
+          ],
+          "destinationPixels": [
+            1387,
+            205,
+            61,
+            89
+          ]
+        },
+        {
+          "kind": "toilet",
+          "sourcePixels": [
+            1706,
+            273,
+            96,
+            85
+          ],
+          "approvedRect": [
+            12.75,
+            2,
+            0.65,
+            0.5
+          ],
+          "destinationPixels": [
+            1650,
+            269,
+            72,
+            64
+          ]
+        },
+        {
+          "kind": "bed",
+          "sourcePixels": [
+            766,
+            50,
+            175,
+            224
+          ],
+          "approvedRect": [
+            5.75,
+            0.25,
+            1.2,
+            1.4
+          ],
+          "destinationPixels": [
+            755,
+            45,
+            140,
+            179
+          ]
+        },
+        {
+          "kind": "wardrobe",
+          "sourcePixels": [
+            763,
+            282,
+            70,
+            158
+          ],
+          "approvedRect": [
+            5.65,
+            2.05,
+            0.55,
+            1.2
+          ],
+          "destinationPixels": [
+            737,
+            275,
+            68,
+            153
+          ]
+        }
+      ],
+      "walls": [
+        {
+          "key": "puzzle-4",
+          "a": [
+            13.5,
+            0
+          ],
+          "b": [
+            13.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-5",
+          "a": [
+            10.500005,
+            5
+          ],
+          "b": [
+            13.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-6",
+          "a": [
+            10.500005,
+            5
+          ],
+          "b": [
+            5.500003,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-7",
+          "a": [
+            3.299994,
+            5
+          ],
+          "b": [
+            5.500003,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-8",
+          "a": [
+            2.100006,
+            5
+          ],
+          "b": [
+            3.299994,
+            5
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-9",
+          "a": [
+            0,
+            5
+          ],
+          "b": [
+            2.100006,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-10",
+          "a": [
+            0,
+            0
+          ],
+          "b": [
+            0,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-11",
+          "a": [
+            5.5,
+            0
+          ],
+          "b": [
+            5.5,
+            3.399998
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-12",
+          "a": [
+            5.5,
+            3.399998
+          ],
+          "b": [
+            5.5,
+            3.6
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-13",
+          "a": [
+            5.5,
+            3.6
+          ],
+          "b": [
+            5.5,
+            4.8
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-14",
+          "a": [
+            5.5,
+            4.8
+          ],
+          "b": [
+            5.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-15",
+          "a": [
+            8.5,
+            0
+          ],
+          "b": [
+            8.5,
+            1.099999
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-16",
+          "a": [
+            8.5,
+            1.099999
+          ],
+          "b": [
+            8.5,
+            2.300001
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-17",
+          "a": [
+            8.5,
+            2.300001
+          ],
+          "b": [
+            8.5,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-18",
+          "a": [
+            10.5,
+            3.4
+          ],
+          "b": [
+            8.5,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-19",
+          "a": [
+            10.5,
+            0
+          ],
+          "b": [
+            10.5,
+            3.399998
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-20",
+          "a": [
+            10.5,
+            3.399998
+          ],
+          "b": [
+            10.5,
+            3.6
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-21",
+          "a": [
+            10.5,
+            3.6
+          ],
+          "b": [
+            10.5,
+            4.8
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-22",
+          "a": [
+            10.5,
+            4.8
+          ],
+          "b": [
+            10.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-23",
+          "a": [
+            5.5,
+            3.4
+          ],
+          "b": [
+            6.7,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-24",
+          "a": [
+            6.7,
+            3.4
+          ],
+          "b": [
+            7.9,
+            3.4
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-25",
+          "a": [
+            7.9,
+            3.4
+          ],
+          "b": [
+            8.5,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        }
+      ],
+      "corridorWallIllustrationBand": [
+        4.8,
+        5.05
+      ],
+      "illustrationNote": "Flattened corridor face projects inward from the structural band; all collision and aperture anchors stay on the approved lines. Side-door jambs end at 4.8.",
+      "registration": "constructed-at-approved-coordinates",
+      "runtimeReady": false
+    },
+    {
+      "style": "intrepid",
+      "file": "intrepid/Q03-R-HC-BASE-assembled-v1.png",
+      "source": "intrepid/Q03-R-HC-BASE-v5.png",
+      "sourceSha256": "4b9a8c06c5b61afc0890516e133f66a32969dbe2cb30806c8d6cbcc0528f1fa5",
+      "wallLayer": "intrepid/Q03-R-HC-walls-v1.png",
+      "panelSource": "intrepid/Q03-R-HC-BASE-v6.png",
+      "panelSourceSha256": "39810c1778ebdbade63e3b5b35d69df56fb5e5326fbf128d7393bb5dd7b5bfa6",
+      "panelSourcePixels": [
+        119,
+        663,
+        85,
+        35
+      ],
+      "fixtures": [
+        {
+          "kind": "dining table",
+          "sourcePixels": [
+            183,
+            180,
+            131,
+            181
+          ],
+          "approvedRect": [
+            1.2,
+            1.5,
+            0.9,
+            0.9
+          ],
+          "destinationPixels": [
+            182,
+            205,
+            83,
+            115
+          ]
+        },
+        {
+          "kind": "chair",
+          "sourcePixels": [
+            98,
+            225,
+            80,
+            91
+          ],
+          "approvedRect": [
+            0.5,
+            1.7,
+            0.45,
+            0.45
+          ],
+          "destinationPixels": [
+            80,
+            230,
+            50,
+            57
+          ]
+        },
+        {
+          "kind": "chair",
+          "sourcePixels": [
+            317,
+            227,
+            80,
+            91
+          ],
+          "approvedRect": [
+            2.35,
+            1.7,
+            0.45,
+            0.45
+          ],
+          "destinationPixels": [
+            317,
+            230,
+            50,
+            57
+          ]
+        },
+        {
+          "kind": "sofa",
+          "sourcePixels": [
+            481,
+            48,
+            242,
+            119
+          ],
+          "approvedRect": [
+            3.65,
+            0.25,
+            1.7,
+            0.65
+          ],
+          "destinationPixels": [
+            504,
+            45,
+            169,
+            83
+          ]
+        },
+        {
+          "kind": "table",
+          "sourcePixels": [
+            552,
+            220,
+            125,
+            80
+          ],
+          "approvedRect": [
+            4.15,
+            1.7,
+            0.85,
+            0.5
+          ],
+          "destinationPixels": [
+            548,
+            230,
+            100,
+            64
+          ]
+        },
+        {
+          "kind": "desk",
+          "sourcePixels": [
+            49,
+            462,
+            201,
+            82
+          ],
+          "approvedRect": [
+            0.2,
+            3.4,
+            1.6,
+            0.55
+          ],
+          "destinationPixels": [
+            54,
+            448,
+            172,
+            70
+          ]
+        },
+        {
+          "kind": "chair",
+          "sourcePixels": [
+            110,
+            542,
+            76,
+            75
+          ],
+          "approvedRect": [
+            0.75,
+            4.15,
+            0.5,
+            0.5
+          ],
+          "destinationPixels": [
+            109,
+            545,
+            64,
+            63
+          ]
+        },
+        {
+          "kind": "hanging storage",
+          "sourcePixels": [
+            1303,
+            51,
+            64,
+            343
+          ],
+          "approvedRect": [
+            10,
+            0.25,
+            0.4,
+            2.5
+          ],
+          "destinationPixels": [
+            1293,
+            68,
+            51,
+            273
+          ]
+        },
+        {
+          "kind": "shower",
+          "sourcePixels": [
+            1408,
+            57,
+            128,
+            150
+          ],
+          "approvedRect": [
+            10.7,
+            0.2,
+            0.9,
+            0.9
+          ],
+          "destinationPixels": [
+            1391,
+            38,
+            98,
+            115
+          ]
+        },
+        {
+          "kind": "tub",
+          "sourcePixels": [
+            1543,
+            61,
+            228,
+            125
+          ],
+          "approvedRect": [
+            11.75,
+            0.2,
+            1.55,
+            0.8
+          ],
+          "destinationPixels": [
+            1523,
+            38,
+            186,
+            102
+          ]
+        },
+        {
+          "kind": "basin",
+          "sourcePixels": [
+            1408,
+            240,
+            74,
+            94
+          ],
+          "approvedRect": [
+            10.7,
+            1.5,
+            0.55,
+            0.7
+          ],
+          "destinationPixels": [
+            1382,
+            205,
+            70,
+            89
+          ]
+        },
+        {
+          "kind": "toilet",
+          "sourcePixels": [
+            1670,
+            272,
+            99,
+            90
+          ],
+          "approvedRect": [
+            12.75,
+            2,
+            0.65,
+            0.5
+          ],
+          "destinationPixels": [
+            1651,
+            269,
+            70,
+            64
+          ]
+        },
+        {
+          "kind": "bed",
+          "sourcePixels": [
+            782,
+            50,
+            168,
+            249
+          ],
+          "approvedRect": [
+            5.75,
+            0.25,
+            1.2,
+            1.4
+          ],
+          "destinationPixels": [
+            765,
+            45,
+            121,
+            179
+          ]
+        },
+        {
+          "kind": "wardrobe",
+          "sourcePixels": [
+            783,
+            307,
+            54,
+            148
+          ],
+          "approvedRect": [
+            5.65,
+            2.05,
+            0.55,
+            1.2
+          ],
+          "destinationPixels": [
+            743,
+            275,
+            56,
+            153
+          ]
+        }
+      ],
+      "walls": [
+        {
+          "key": "puzzle-4",
+          "a": [
+            13.5,
+            0
+          ],
+          "b": [
+            13.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-5",
+          "a": [
+            10.500005,
+            5
+          ],
+          "b": [
+            13.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-6",
+          "a": [
+            10.500005,
+            5
+          ],
+          "b": [
+            5.500003,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-7",
+          "a": [
+            3.299994,
+            5
+          ],
+          "b": [
+            5.500003,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-8",
+          "a": [
+            2.100006,
+            5
+          ],
+          "b": [
+            3.299994,
+            5
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-9",
+          "a": [
+            0,
+            5
+          ],
+          "b": [
+            2.100006,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-10",
+          "a": [
+            0,
+            0
+          ],
+          "b": [
+            0,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-11",
+          "a": [
+            5.5,
+            0
+          ],
+          "b": [
+            5.5,
+            3.399998
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-12",
+          "a": [
+            5.5,
+            3.399998
+          ],
+          "b": [
+            5.5,
+            3.6
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-13",
+          "a": [
+            5.5,
+            3.6
+          ],
+          "b": [
+            5.5,
+            4.8
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-14",
+          "a": [
+            5.5,
+            4.8
+          ],
+          "b": [
+            5.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-15",
+          "a": [
+            8.5,
+            0
+          ],
+          "b": [
+            8.5,
+            1.099999
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-16",
+          "a": [
+            8.5,
+            1.099999
+          ],
+          "b": [
+            8.5,
+            2.300001
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-17",
+          "a": [
+            8.5,
+            2.300001
+          ],
+          "b": [
+            8.5,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-18",
+          "a": [
+            10.5,
+            3.4
+          ],
+          "b": [
+            8.5,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-19",
+          "a": [
+            10.5,
+            0
+          ],
+          "b": [
+            10.5,
+            3.399998
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-20",
+          "a": [
+            10.5,
+            3.399998
+          ],
+          "b": [
+            10.5,
+            3.6
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-21",
+          "a": [
+            10.5,
+            3.6
+          ],
+          "b": [
+            10.5,
+            4.8
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-22",
+          "a": [
+            10.5,
+            4.8
+          ],
+          "b": [
+            10.5,
+            5
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-23",
+          "a": [
+            5.5,
+            3.4
+          ],
+          "b": [
+            6.7,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        },
+        {
+          "key": "puzzle-24",
+          "a": [
+            6.7,
+            3.4
+          ],
+          "b": [
+            7.9,
+            3.4
+          ],
+          "door": true,
+          "window": false
+        },
+        {
+          "key": "puzzle-25",
+          "a": [
+            7.9,
+            3.4
+          ],
+          "b": [
+            8.5,
+            3.4
+          ],
+          "door": false,
+          "window": false
+        }
+      ],
+      "corridorWallIllustrationBand": [
+        4.8,
+        5.05
+      ],
+      "illustrationNote": "Flattened corridor face projects inward from the structural band; all collision and aperture anchors stay on the approved lines. Side-door jambs end at 4.8.",
+      "registration": "constructed-at-approved-coordinates",
+      "runtimeReady": false
+    }
+  ]
+}

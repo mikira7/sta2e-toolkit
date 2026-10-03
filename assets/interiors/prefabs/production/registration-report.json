@@ -1,0 +1,383 @@
+{
+  "status": "fit-review-not-runtime-approval",
+  "method": "Manually inspected raster wall centres and clear aperture endpoints in original 2035x773 images; measurements are approximate to 3 pixels. Fit uses only the four outer corners; doors are independent validation points.",
+  "thresholdUnits": 0.1,
+  "candidates": [
+    {
+      "file": "galaxy/Q03-R-v5.png",
+      "sha256": "811e364a1daae831bb5d059dc014c9de670da69d2291b680aa979248dc896a24",
+      "fit": {
+        "origin": [
+          17.609167671893715,
+          13.355247285886549
+        ],
+        "pixelsPerUnit": 148.05790108564537,
+        "maxResidualUnits": 0.011846294483768083,
+        "residuals": [
+          0.011846294483768083,
+          0.011846294483767944,
+          0.01184629448376777,
+          0.011846294483767908
+        ]
+      },
+      "maxDoorResidualUnits": 0.04757423860760379,
+      "endpoints": [
+        {
+          "door": "entry",
+          "units": [
+            2.1,
+            5
+          ],
+          "observed": [
+            327,
+            752
+          ],
+          "predicted": [
+            328.530759951749,
+            753.6447527141135
+          ],
+          "residualUnits": 0.015175636118842135
+        },
+        {
+          "door": "entry",
+          "units": [
+            3.3,
+            5
+          ],
+          "observed": [
+            501,
+            752
+          ],
+          "predicted": [
+            506.2002412545234,
+            753.6447527141135
+          ],
+          "residualUnits": 0.03683793340770568
+        },
+        {
+          "door": "passage",
+          "units": [
+            5.5,
+            3.6
+          ],
+          "observed": [
+            827,
+            548
+          ],
+          "predicted": [
+            831.9276236429432,
+            546.3636911942099
+          ],
+          "residualUnits": 0.03506873902500292
+        },
+        {
+          "door": "passage",
+          "units": [
+            5.5,
+            4.8
+          ],
+          "observed": [
+            827,
+            719
+          ],
+          "predicted": [
+            831.9276236429432,
+            724.0331724969843
+          ],
+          "residualUnits": 0.04757423860760379
+        },
+        {
+          "door": "master",
+          "units": [
+            6.7,
+            3.4
+          ],
+          "observed": [
+            1006,
+            514
+          ],
+          "predicted": [
+            1009.5971049457177,
+            516.7521109770807
+          ],
+          "residualUnits": 0.030590456158722648
+        },
+        {
+          "door": "master",
+          "units": [
+            7.9,
+            3.4
+          ],
+          "observed": [
+            1183,
+            514
+          ],
+          "predicted": [
+            1187.2665862484923,
+            516.7521109770807
+          ],
+          "residualUnits": 0.034291931841093554
+        },
+        {
+          "door": "closet",
+          "units": [
+            8.5,
+            1.1
+          ],
+          "observed": [
+            1274,
+            175
+          ],
+          "predicted": [
+            1276.1013268998795,
+            176.21893848009645
+          ],
+          "residualUnits": 0.016407613370131118
+        },
+        {
+          "door": "closet",
+          "units": [
+            8.5,
+            2.3
+          ],
+          "observed": [
+            1274,
+            355
+          ],
+          "predicted": [
+            1276.1013268998795,
+            353.88841978287087
+          ],
+          "residualUnits": 0.016056030566937305
+        },
+        {
+          "door": "head",
+          "units": [
+            10.5,
+            3.6
+          ],
+          "observed": [
+            1574,
+            548
+          ],
+          "predicted": [
+            1572.21712907117,
+            546.3636911942099
+          ],
+          "residualUnits": 0.01634458737172221
+        },
+        {
+          "door": "head",
+          "units": [
+            10.5,
+            4.8
+          ],
+          "observed": [
+            1574,
+            719
+          ],
+          "predicted": [
+            1572.21712907117,
+            724.0331724969843
+          ],
+          "residualUnits": 0.03606434885924488
+        }
+      ],
+      "fitPassed": true,
+      "runtimeReady": false,
+      "remaining": [
+        "Repair the missing outer-wall cap above the upper-left replicator and remove edge fringe.",
+        "Refine the replicator into a visible serving recess, not a full-height display.",
+        "Validate rendered fixture clearances and native door states in a scene proof."
+      ]
+    },
+    {
+      "file": "intrepid/Q03-R-v4.png",
+      "sha256": "b553b39f42db17375e31a23e697e91e6782723f5170379684f51e18b53b6cdd8",
+      "fit": {
+        "origin": [
+          20.307599517490985,
+          14.169481302774443
+        ],
+        "pixelsPerUnit": 147.73220747889022,
+        "maxResidualUnits": 0.005994979852154072,
+        "residuals": [
+          0.00599497985215386,
+          0.005994979852154072,
+          0.0059949798521537695,
+          0.005994979852153557
+        ]
+      },
+      "maxDoorResidualUnits": 0.07875531190842858,
+      "endpoints": [
+        {
+          "door": "entry",
+          "units": [
+            2.1,
+            5
+          ],
+          "observed": [
+            330,
+            752
+          ],
+          "predicted": [
+            330.54523522316043,
+            752.8305186972256
+          ],
+          "residualUnits": 0.006725007844359144
+        },
+        {
+          "door": "entry",
+          "units": [
+            3.3,
+            5
+          ],
+          "observed": [
+            506,
+            752
+          ],
+          "predicted": [
+            507.82388419782865,
+            752.8305186972256
+          ],
+          "residualUnits": 0.013565590077188367
+        },
+        {
+          "door": "passage",
+          "units": [
+            5.5,
+            3.6
+          ],
+          "observed": [
+            830,
+            549
+          ],
+          "predicted": [
+            832.8347406513872,
+            546.0054282267793
+          ],
+          "residualUnits": 0.027911959842909076
+        },
+        {
+          "door": "passage",
+          "units": [
+            5.5,
+            4.8
+          ],
+          "observed": [
+            830,
+            712
+          ],
+          "predicted": [
+            832.8347406513872,
+            723.2840772014474
+          ],
+          "residualUnits": 0.07875531190842858
+        },
+        {
+          "door": "master",
+          "units": [
+            6.7,
+            3.4
+          ],
+          "observed": [
+            1007,
+            514
+          ],
+          "predicted": [
+            1010.1133896260554,
+            516.4589867310012
+          ],
+          "residualUnits": 0.02685496342565171
+        },
+        {
+          "door": "master",
+          "units": [
+            7.9,
+            3.4
+          ],
+          "observed": [
+            1187,
+            514
+          ],
+          "predicted": [
+            1187.392038600724,
+            516.4589867310012
+          ],
+          "residualUnits": 0.01685510703696175
+        },
+        {
+          "door": "closet",
+          "units": [
+            8.5,
+            1.1
+          ],
+          "observed": [
+            1274,
+            181
+          ],
+          "predicted": [
+            1276.0313630880578,
+            176.6749095295537
+          ],
+          "residualUnits": 0.03234482556756767
+        },
+        {
+          "door": "closet",
+          "units": [
+            8.5,
+            2.3
+          ],
+          "observed": [
+            1274,
+            351
+          ],
+          "predicted": [
+            1276.0313630880578,
+            353.9535585042219
+          ],
+          "residualUnits": 0.02426472800153575
+        },
+        {
+          "door": "head",
+          "units": [
+            10.5,
+            3.6
+          ],
+          "observed": [
+            1574,
+            549
+          ],
+          "predicted": [
+            1571.495778045838,
+            546.0054282267793
+          ],
+          "residualUnits": 0.026423915515106536
+        },
+        {
+          "door": "head",
+          "units": [
+            10.5,
+            4.8
+          ],
+          "observed": [
+            1574,
+            712
+          ],
+          "predicted": [
+            1571.495778045838,
+            723.2840772014474
+          ],
+          "residualUnits": 0.07824030267497174
+        }
+      ],
+      "fitPassed": true,
+      "runtimeReady": false,
+      "remaining": [
+        "Refine the replicator into a visible serving recess, not a full-height display.",
+        "Remove edge fringe and inspect narrow thresholds at final grid scale.",
+        "Validate rendered fixture clearances and native door states in a scene proof."
+      ]
+    }
+  ]
+}

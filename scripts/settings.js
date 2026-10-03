@@ -373,6 +373,15 @@ export function registerSettings() {
     default: 300,
   });
 
+  // Which GM-role user is *the* GM (gm-authority.js). Chosen from the Stardate
+  // HUD badge; "" falls back to the lowest-id connected GM.
+  game.settings.register("sta2e-toolkit", "activeGmUserId", {
+    scope:   "world",
+    config:  false,
+    type:    String,
+    default: "",
+  });
+
   game.settings.register("sta2e-toolkit", "zoneBorderStyleDefault", {
     name:    "STA2E.Settings.ZoneBorderStyleDefault.Name",
     hint:    "STA2E.Settings.ZoneBorderStyleDefault.Hint",
@@ -1686,6 +1695,15 @@ export function registerSettings() {
       // update, so the setting reads as instant.
       import("./scene-warp-vfx.js").then(m => m.syncSceneWarp()).catch(() => { /* canvas not up */ });
     },
+  });
+
+  // Client scope for the same reason as the Scene Warp quality: it is a look,
+  // and each viewer draws the wake for themselves off the replicated move.
+  game.settings.register("sta2e-toolkit", "ringDustWake", {
+    name: "Planetary Rings — Dust Wake (this device)",
+    hint: "Ships moving through a planetary ring kick up a wake of ring material. "
+        + "Affects only your own view.",
+    scope: "client", config: true, type: Boolean, default: true,
   });
 
   game.settings.register("sta2e-toolkit", "sceneWarpStarSpeed", {

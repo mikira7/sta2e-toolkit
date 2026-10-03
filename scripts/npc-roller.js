@@ -20,6 +20,7 @@ import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
 import { adjustPool, readPool } from "./pool-service.js";
 import { isDestructible, getDestructibleConfig } from "./destructible-objects.js";
+import { concealmentAttackDifficulty } from "./region-terrain.js";
 import {
   applyTraitSelectionsToState,
   consumeSingleTaskTraits,
@@ -42,6 +43,8 @@ import {
 import {
   defensiveTrainingPenalty,
   hasGroundTalent,
+  nervePinchDisciplines,
+  chooseNervePinchDiscipline,
 } from "./combat/ground-talents.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
@@ -1305,6 +1308,43 @@ function _smallCraftDifficultyMod(state) {
     _combatAttackerShipActor(state),
     _selectedCombatTargetToken(state)?.actor,
   );
+}
+
+/**
+ * Concealment (region-terrain.js): +2 to fire on a revealed hidden vessel, or
+ * +potency on a target inside a Sensor Shroud that affects attacks. Applies to
+ * ship and ground attacks alike, so — unlike Small Craft — no groundMode guard.
+ * Opposed rolls carry it as the opposed pipeline's `concealmentPenalty`.
+ */
+function _concealmentTarget(state) {
+  // A revealed *cloaked* ship cannot be Foundry-targeted, so it arrives as the
+  // explicit pick from resolveStarshipActionTarget — read that before the
+  // game.user.targets fallback, or the Reveal's +2 is silently lost.
+  const explicitId = state.weaponContext?.primaryTargetTokenId;
+  const explicit = explicitId ? canvas.tokens?.get(explicitId) : null;
+  if (explicit) return explicit;
+  // The reveal is per TOKEN, but _selectedCombatTargetToken finds the target by
+  // ACTOR id — with several unlinked ships built from one actor that returns
+  // the first token of that actor, not necessarily the revealed one. The
+  // Foundry target is the exact token, so prefer it whenever it matches.
+  const actorId = state.selectedTargetId ?? state.combatTaskContext?._selected?.targetId ?? null;
+  const targeted = Array.from(game.user.targets ?? []).find(t => !actorId || t.actor?.id === actorId);
+  return targeted ?? _selectedCombatTargetToken(state);
+}
+
+function _concealmentDifficultyMod(state) {
+  if (!state.weaponContext) return 0;
+  const target = _concealmentTarget(state);
+  if (!target || isDestructible(target)) return 0;
+  return concealmentAttackDifficulty(target.document ?? target).mod;
+}
+
+function _concealmentDifficultyLabel(state) {
+  if (!state.weaponContext) return "";
+  const target = _concealmentTarget(state);
+  if (!target || isDestructible(target)) return "";
+  const c = concealmentAttackDifficulty(target.document ?? target);
+  return c.mod ? `+${c.mod} ${c.label}` : "";
 }
 
 function _attackPatternDifficultyReduction(state) {
@@ -2709,6 +2749,14 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               style="${_smallCraftDifficultyMod(state) ? "display:inline" : "display:none"};
               font-size:9px;color:${LC.textDim};font-family:${LC.font};white-space:nowrap;">
               +1 Small Craft
+            </span>
+            <!-- Concealment: a revealed hidden vessel (+2) or a target inside a
+                 Sensor Shroud (+potency). Region Terrain, region-terrain.js. -->
+            <span id="sta2e-concealment-note"
+              title="Concealment — the target is a revealed hidden vessel or is inside a Sensor Shroud"
+              style="${_concealmentDifficultyMod(state) ? "display:inline" : "display:none"};
+              font-size:9px;color:${LC.textDim};font-family:${LC.font};white-space:nowrap;">
+              ${_concealmentDifficultyLabel(state)}
             </span>
             <span style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
               (0 = routine, no limit)
@@ -4272,6 +4320,15 @@ export function buildPlayerRollCardHtml(rollData) {
  */
 export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, pointDefenseActive = false, pointDefensePenalty = 0, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, showAssistRollToggle = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
 
+  if (groundMode && weaponContext && !isAssistRoll && opposedTaskRef?.side !== "defender") {
+    const attackWeapon = actor?.items?.get?.(weaponContext.weaponId)
+      ?? actor?.items?.find?.(item => item.type === "characterweapon2e" && item.name === weaponContext.name);
+    if (nervePinchDisciplines(actor, attackWeapon).length > 1) {
+      defaultDisc = await chooseNervePinchDiscipline(actor, attackWeapon);
+      if (!defaultDisc) return;
+    }
+  }
+
   // Read calibrate flags live from the token document
   const tokenDoc = token?.document ?? token;
   // For character-sheet rolls the token is the PC token, but the CS flag lives on the ship token.
@@ -4807,10 +4864,19 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             weaponContext,
             groundMode,
           });
+      // Same opposed rule as Small Craft: the opposed pipeline carries it.
+      const concealmentMod = opposedDifficulty !== null
+        ? 0
+        : _concealmentDifficultyMod({
+            selectedTargetId: combatTaskContext?.preTargetId ?? null,
+            combatTaskContext,
+            weaponContext,
+            groundMode,
+          });
       if (!breachPenalty.isDestroyed && breachPenalty.difficultyPenalty > 0) {
-        return Math.max(0, base + breachPenalty.difficultyPenalty + smallCraftMod - attackPatternReduction);
+        return Math.max(0, base + breachPenalty.difficultyPenalty + smallCraftMod + concealmentMod - attackPatternReduction);
       }
-      return Math.max(0, base + smallCraftMod - attackPatternReduction);
+      return Math.max(0, base + smallCraftMod + concealmentMod - attackPatternReduction);
     })(),
     _isNpc: (() => {
       const CombatHUD = game.sta2eToolkit?.CombatHUD;
@@ -5922,6 +5988,7 @@ async function checkOpposedTaskForTokens_postCard(defMode, state, token, actor) 
     pointDefensePenalty,
     weaponName:      state.weaponContext?.name ?? "",
     attackPatternPenalty,
+    concealmentPenalty: targetToken ? concealmentAttackDifficulty(targetToken.document ?? targetToken).mod : 0,
     rollerOpts: {
       // Weapon & combat flags
       weaponContext:        state.weaponContext,
@@ -7196,6 +7263,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         if (smallCraftNote) {
           smallCraftNote.style.display = smallCraftMod ? "inline" : "none";
         }
+        const concealmentMod = _concealmentDifficultyMod(state);
+        const concealmentNote = el.querySelector("#sta2e-concealment-note");
+        if (concealmentNote) {
+          concealmentNote.style.display = concealmentMod ? "inline" : "none";
+          concealmentNote.textContent = _concealmentDifficultyLabel(state);
+        }
         const diffInput = el.querySelector("#difficulty");
         if (!diffInput) return;
         if (state.opposedDefenseType && state.opposedDifficulty !== null) {
@@ -7208,7 +7281,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
         const objectBase = state.weaponContext && isDestructible(target)
           ? getDestructibleConfig(target).difficulty + (!state.groundMode && state.weaponContext.cumbersome ? 1 : 0)
           : base;
-        const finalDifficulty = Math.max(0, objectBase + smallCraftMod - _attackPatternDifficultyReduction(state));
+        const finalDifficulty = Math.max(0, objectBase + smallCraftMod + concealmentMod - _attackPatternDifficultyReduction(state));
         diffInput.value = finalDifficulty;
         state.difficulty = finalDifficulty;
       };

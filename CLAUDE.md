@@ -130,7 +130,108 @@ Zones are stored as scene flags. The ruler measurement is patched in `main.js` t
 
 **Dynamic zones:** range bands without a zone grid ([scripts/zone-dynamic.js](scripts/zone-dynamic.js)). Scene Config → STA2e Zones sets the flags `dynamicZones` and `dynamicZoneRadius` (px; blank falls back to the world setting `dynamicZoneRadiusDefault`, 300). Every token carries its own zone of that radius around its **footprint**, measured edge to edge, so a big hull gets a big zone: Contact when touching, Close ≤ R, Medium ≤ 3R, Long ≤ 5R, Extreme beyond (a zone is 2R across). **Drawn zones always win** — dynamic only applies while the scene has none. Anything that asks "what range is this?" or "who shares this zone?" should go through `getRangeContext()` + `measureTokenRange()` / `tokensSharingZone()`, not `getSceneZones()` directly; weapon range, the ship and ground Area pickers, warp core blast, `tokensWithinClose`, the hover label, the ruler and `game.sta2eToolkit.getZoneDistance()` all do.
 
-**Movement** is measured **centre to centre** (not edge to edge — it is the token going somewhere, not two hulls apart) with the same bands, so `n` zones of movement reaches `dynamicReachRadius(n, R)` = R × (2n + 1): a ground Move is 3R, Impulse and Sprint 5R. Point-to-point movement goes through `measureMovement()`, and a result is usable only if `isMovementMeasured()` — a dynamic result deliberately has **null `fromZone`/`toZone`**, so the old `!info.fromZone` guard would silently reject every dynamic move. The drag readout, the Impulse/Warp destination tether, the combat movement warnings and the movement log all use it. With no zone borders on the map, the drag readout and the tether **draw rings** instead (`drawDynamicZoneRings` onto the caller's own Graphics; the tether draws just the `maxZones` reach). Dynamic moves cost no Momentum — there is no terrain to charge for — and the movement log shows "Starting Position → New Position". Hazards and cover stay drawn-zone only, since both hang off a named zone. Covered by [tests/zone-dynamic.mjs](tests/zone-dynamic.mjs).
+**Movement** is measured **centre to centre** (not edge to edge — it is the token going somewhere, not two hulls apart) with the same bands, so `n` zones of movement reaches `dynamicReachRadius(n, R)` = R × (2n + 1): a ground Move is 3R, Impulse and Sprint 5R. Point-to-point movement goes through `measureMovement()`, and a result is usable only if `isMovementMeasured()` — a dynamic result deliberately has **null `fromZone`/`toZone`**, so the old `!info.fromZone` guard would silently reject every dynamic move. The drag readout, the Impulse/Warp destination tether, the combat movement warnings and the movement log all use it. With no zone borders on the map, the drag readout and the tether **draw rings** instead (`drawDynamicZoneRings` onto the caller's own Graphics; the tether draws just the `maxZones` reach). Dynamic moves cost no Momentum *from the zones themselves*, since there is no zone terrain to charge for. Terrain and hazards come from **Region Terrain** below, which works on dynamic scenes too. The movement log shows "Starting Position → New Position". Cover stays drawn-zone only. Covered by [tests/zone-dynamic.mjs](tests/zone-dynamic.mjs).
+
+### Region Terrain
+
+Terrain, hazards and obscured areas painted with **Regions**. These are independent of the zone grid, so they work the same on drawn-zone, dynamic-zone and zoneless scenes. There are three RegionBehaviorTypes ([region-terrain-behaviors.js](scripts/region-terrain-behaviors.js)), registered the same way as the Warp Viewscreen: manifest `documentTypes`, namespaced ids, i18n keys, and a **world relaunch** whenever the manifest changes.
+
+| type | does |
+|---|---|
+| `sta2e-toolkit.difficultTerrain` | Crossing costs `momentumCost` (Threat for NPCs) |
+| `sta2e-toolkit.terrainHazard` | One hazard (`terrain` / `lingering` / `immediate`); stack behaviors for several. Its `established` ObjectField is written in code only, and the auto-sheet skips it |
+| `sta2e-toolkit.sensorShroud` | `potency` 1–5, plus four switches: `hideTokens`, `affectSensors`, `affectAttacks`, and `hideWithinShroud`. The last one removes the "viewer has a token in the same shroud" exception. It is checked on its own (`hiddenWithinShroud`) rather than inside `sharesShroud`, so sharing a thinner shroud around it cannot lift it |
+
+[region-terrain.js](scripts/region-terrain.js) is the query layer. It imports only region geometry and `HAZARD_TYPES`, and memoises features per scene; the Region and behavior hooks invalidate that cache. Four rules it depends on:
+
+- **Charged once per Region, at its max.** A Region that already contains the move's origin is not charged at all, because leaving costs nothing. Crossings are found by sampling the straight segment through `regionContainsPoint`, which is what keeps holes correct. `regionMovementCost` is added to the zone path cost in `onTokenMove`. The movement card now also posts for a Region crossing that stays inside one zone, or that happens on a scene with no zones.
+- **A Region hazard is presented in the same shape as a zone `hazards[]` entry** (`regionHazardView`), plus a `source` ref. [zone-hazard.js](scripts/zone-hazard.js) reaches every hazard through `resolveHazardSource(ref)` (`{kind:"zone",zoneId,hazardId}` | `{kind:"region",sceneId,regionId,behaviorId}`). `setupHazard` / `resetHazard` accept either a ref or the old `zoneId`. Old card payloads that carry only `zoneId` map to a zone ref.
+- **Hazards resolve on a GM-only HAZARD ENTRY card, never on the mover's client.** A move posts one card, whispered to the active GM, covering every lingering hazard it entered. Paying for hazardous terrain with Threat posts the same card for those terrain hazards; paying fully in Momentum posts nothing. Rows offer Build & Apply, Apply Established and Ignore, and each marks itself resolved in the message flags. Terrain rows never draw on the Threat pool again: the crossing already *added* that Threat, and RAW spends it on the hazard. The builder can **impose a trait** instead of damage (flat 2 Threat, through `createTraitFromData`). Lingering hazards stay damage-only, since they tick every round.
+- **Reveal is the only thing that uncovers a hidden vessel** ([sensor-contacts.js](scripts/sensor-contacts.js)):
+  - The officer picks no target. The roll goes to the active GM (socket `sensorReveal`), who takes the candidates as hidden vessels within Long range. A vessel inside a shroud with `affectSensors` counts only if the roll made `3 + potency` successes. The GM picks one candidate at random, sets `flags.sta2e-toolkit.sensorRevealed`, and posts a card: "Bearing 047 mark 15 · Medium range", plus the zone name on a drawn-zone scene.
+    - The **bearing** is measured from the scanning ship's nose, Trek-style: 000 dead ahead, 090 starboard, 180 astern, 270 port (`relativeBearing`). It relies on the convention that **ship token art is drawn nose-south**, so at rotation 0 the bow faces map bearing 180 (`SHIP_ART_NOSE_BEARING`) and Foundry's rotation turns it clockwise from there. Art drawn facing another way will read off by that offset.
+    - The **mark** (`contactMark`) is an edge-to-edge distance scaled so each band spans ten units: Close 1–10, Medium 11–20, Long 21–30, then Extreme 31–40 for one zone past Long, 41–50 for two, and so on. 0 is Contact.
+    - Under dynamic zones, and on zoneless scenes using the default radius, the mark is exact. With drawn zones it is estimated within the band from a typical zone's width, clamped so it never disagrees with the band.
+    - Covered by [tests/sensor-contacts.mjs](tests/sensor-contacts.mjs).
+  - A roll that fails, finds nothing, or is beaten by a shroud posts the same "No contacts" card, so the player learns nothing from it.
+  - The reveal is cleared when the vessel moves, cloaks or decloaks.
+  - A revealed **cloaked** ship stays `hidden`. Every client draws a SENSOR CONTACT marker for it straight off the flag (no socket), and `resolveStarshipActionTarget` offers it as an anonymous target.
+  - Sensor Sweep is information only: it adds shroud potency to Difficulty and whispers the GM a report.
+
+Attack Difficulty is `concealmentAttackDifficulty`: **+2** on a revealed hidden vessel, otherwise **+potency** inside an `affectAttacks` shroud, and the two never stack. It is applied through `_concealmentDifficultyMod` in the roller, next to Small Craft. That function reads `weaponContext.primaryTargetTokenId` **before** `game.user.targets`, because a revealed cloaked ship can't be Foundry-targeted and arrives only as the explicit pick. Next it prefers the Foundry target over the actor-id lookup, because a reveal is per token and several unlinked ships can share one actor. **Opposed attacks lock their Difficulty before the roller opens, so every lock site must add it too:** the two `_shipAttackDifficulty(…, opposed.difficulty, …)` calls take a `concealmentPenalty` option, and each `pendingOpposedTask` write carries `concealmentPenalty` for the hand-rolled sum in `main.js`. Missing those was why the +2 never landed against a ship using Evasive Action or another defense. It is also applied as the opposed pipeline's `concealmentPenalty`, so it is counted once on each path. Hiding is a `Token#isVisible` libWrapper wrap in [zone-visibility.js](scripts/zone-visibility.js), not `testVisibility`: core never reaches `testVisibility` for a GM or on a scene without token vision. Covered by [tests/region-terrain.mjs](tests/region-terrain.mjs).
+
+### Planetary Rings & Orbital Views
+
+[star-system-scene.js](scripts/star-system-scene.js) builds five planet layouts:
+Encounter, High Orbit, Low Orbit, Ring Plane and Overview (`PLANET_SCENE_LAYOUTS`).
+Every planet goes through `placeBody`, so a ringed procedural body gets the same
+three things wherever it is placed. That includes the system map.
+
+- **Rings are split into two tiles for 2.5D.** `planetPixelRows`
+  ([planet-generator.js](scripts/planet-generator.js)) takes a `ringLayer` option:
+  - `back` is the globe plus the far half of the ring (`ringZ <= 0`).
+  - `front` is only the near half, over transparency.
+  - The invariant is that **front composited over back equals `all`**, and
+    [tests/planet-ring-layers.mjs](tests/planet-ring-layers.mjs) checks it.
+  - `sceneImage` is now the back layer and `sceneRingFront` is the front one. The front
+    tile sits at `elevation` 10, because `canvas.primary` sorts by elevation before
+    anything else: a ship at 0–9 flies under the near arc, a higher one over it.
+  - `proceduralSceneImageIsCurrent` fails for ringed art that has no front layer, so
+    older art regenerates once.
+  - `planetSceneRingFront` returns "" once the portrait is replaced, the same rule
+    as `planetSceneImage`.
+- **Each ring gets a Region** (`ringRegionData`):
+  - Shape: an outer `ellipse` with the inner one as a `hole`. It is squashed by
+    `cos(axialTilt)` exactly as the renderer projects the ring, and rotated with the tile.
+  - Its radii come from `ringVisibleExtent`, not from the material's 0.61–1.0 layout.
+    That function measures where the rendered coverage reaches a useful share of the
+    ring's peak. The faint inner rim and outer strand barely show, so the fixed limits
+    made the Region visibly larger than the painted ring.
+  - Behaviors: Difficult Terrain (1) and a Sensor Shroud (potency 1, tokens not hidden).
+    The dialog's ring-terrain box drops the behaviors but keeps the Region, because the
+    dust wake needs it.
+  - The Region is only made for procedural art, where the geometry is known. Custom
+    ring art gets no guessed Region.
+- **Low Orbit and Ring Plane render a crop, not a scaled disc.** The `viewport`
+  option `{width, height, radius, cx, cy}` renders part of a globe that may be
+  20 000 px across, and its centre may be off the image.
+  - The crops are saved by `saveProceduralViewCrop`, at half the scene resolution
+    (`CROP_SCALE`).
+  - `view: "ring"` looks face-on down the pole.
+  - The whole-disc path keeps its original expressions, so cached textures stay byte-identical.
+  - Both layouts need a procedural recipe.
+
+**Dust wake** ([ring-dust-wake-vfx.js](scripts/ring-dust-wake-vfx.js)):
+- **No socket.** Each client's own `updateToken` hook follows the token's animated
+  `mesh.position` and emits puffs only while that point is inside a `planetRing` Region.
+- It is **not** gated by `sta2eScriptedMove`, so Impulse glides billow the whole way.
+- It emits nothing for a token this client cannot see, so it never reveals a cloaked ship.
+- Client setting `ringDustWake`.
+
+### Cloaking Device
+
+There are three ways to cloak: the Combat HUD button (`_handleCloakToggle`), the sheet-panel roll (`handleCloakActivateResult`), and the Token HUD Ship Command section. **All three go through `applyCloakEngage` / `applyCloakDeactivateForOfficer`** in [combat-hud-core.js](scripts/combat/combat-hud-core.js). The HUD button used to carry its own copy of the sequence; never give it one again.
+
+**Shields.** Engaging drops them to zero through the same "lowered" state as Lower/Raise Shields (value and max both 0, the pre-cloak value and max saved), so nothing can regenerate them while cloaked. Decloaking restores exactly what was saved.
+- The flag `cloakLoweredShields` records that the cloak did the lowering.
+- If shields were already lowered by hand before cloaking, the cloak leaves them alone and decloaking does not raise them.
+- If they were raised by hand while cloaked, decloaking changes nothing.
+
+**Hit shimmer.** `CombatHUD.applyDamage` calls `broadcastCloakHitShimmer` when the target is cloaked ([cloak-hit-vfx.js](scripts/cloak-hit-vfx.js)).
+- The effect is a separate sprite built from the token's own texture on `canvas.tokens`: tinted, with an additive halo, a DisplacementFilter driven by a scrolling tiling noise map, and a flickering ~1.5 s envelope. It shows on every client even though the token stays `hidden`.
+- Socket action `cloakHitShimmerVfx` is scene-guarded, with the source token's scene id.
+- Teardown destroys the sprites but **never their textures**: the noise map is shared and the hull texture is the token's own.
+
+### Active GM (assistant GMs)
+
+Some tables seat players on GM-role accounts. [gm-authority.js](scripts/gm-authority.js) (a leaf with no imports) names **the** GM through the world setting `activeGmUserId`, chosen from the badge under the Stardate HUD. Any GM can claim the role or hand it on. When the designated user is offline, authority falls back to the lowest-id connected GM (the old `_isResponsibleGM` rule), so the table never stalls. `_isResponsibleGM()` now delegates to `isActiveGM()`, which re-points every socket gate; `destructible-objects.js` `authority()` follows too.
+
+**Assistant GMs keep every GM tool but are treated as players** in three places:
+- **Authority:** the socket handlers and per-round lingering damage run only on the active GM.
+- **GM-only whispers:** hazard entry cards, Reveal detail, sweep reports and movement cards go to `activeGmWhisperIds()`.
+- **Hidden information:** shrouds and obscured zones apply to assistant GMs, and cloaked (`hidden`) tokens are screened from them unless revealed. This is table etiquette, not security.
+
+Code gating *GM tools* should keep checking `game.user.isGM`. Code gating *authority or secrets* should use `isActiveGM()`.
 
 ### Region Curve Tool
 
@@ -1367,9 +1468,15 @@ through `lcarsChatCard`.
 | [scripts/assist-pending.js](scripts/assist-pending.js) | Sole owner of the `assistPending` token flag (declared Assist / Direct). Writes self-route: direct when the user can update the token, otherwise a socket request the GM executes |
 | [scripts/wildcard-namer.js](scripts/wildcard-namer.js) | Auto-names wildcard tokens from rollable tables |
 | [scripts/elevation-ruler.js](scripts/elevation-ruler.js) | Patches FoundryVTT ruler for 3D elevation |
-| [scripts/star-system-scene.js](scripts/star-system-scene.js) | Builds a scene map from a Star System actor (tiles, orbit rings, per-orbit zones, hover tooltips) |
+| [scripts/star-system-scene.js](scripts/star-system-scene.js) | Builds a scene map from a Star System actor (tiles, orbit rings, per-orbit zones, hover tooltips), the five planet layouts, and the ring Regions |
+| [scripts/ring-dust-wake-vfx.js](scripts/ring-dust-wake-vfx.js) | The dust a ship kicks up flying through a planetary ring Region. Local on every client, no socket |
 | [scripts/actor-faction.js](scripts/actor-faction.js) | `resolveActorFactionKey` — guesses a ship's faction by regex over its name and traits. A leaf module with no imports, so gating code can use it without cycles; re-exported from `ship-vfx-anchors.js`, which is where every caller has always found it |
 | [scripts/scene-flags.js](scripts/scene-flags.js) | Scene flag helpers |
+| [scripts/region-terrain.js](scripts/region-terrain.js) | Region Terrain query layer — features per scene, crossings and movement cost, Region hazard views, shroud potency, hidden-vessel and concealment tests |
+| [scripts/region-terrain-behaviors.js](scripts/region-terrain-behaviors.js) | The Difficult Terrain / Hazard / Sensor Shroud RegionBehaviorTypes and their cache + visibility hooks |
+| [scripts/cloak-hit-vfx.js](scripts/cloak-hit-vfx.js) | The shimmer a cloaked ship shows when hit — local playback and the `cloakHitShimmerVfx` broadcast |
+| [scripts/sensor-contacts.js](scripts/sensor-contacts.js) | Reveal and Sensor Sweep resolution (active GM side) and the SENSOR CONTACT markers |
+| [scripts/gm-authority.js](scripts/gm-authority.js) | Active GM designation — `isActiveGM`, `getActiveGM`, `activeGmWhisperIds`. A leaf with **no imports** |
 | [scripts/vfx-diagnostics.js](scripts/vfx-diagnostics.js) | Why a broadcast effect was not drawn on this client — `vfxDrop` reason slugs, per-action counters, the `vfxDebugLogging` memo. A leaf with **no imports**, since every drop site is inside a per-frame renderer |
 
 ## Key Conventions

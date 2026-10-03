@@ -1875,6 +1875,9 @@ function _buildHazardRowHtml(hazard, index, hazardTypesHtml) {
         establishedDamage: h.establishedDamage ?? 0,
         establishedDamageType: h.establishedDamageType ?? "stress",
         establishedEffects: h.establishedEffects ?? {},
+        establishedThreatCost: h.establishedThreatCost ?? 0,
+        establishedMode: h.establishedMode ?? "damage",
+        establishedTrait: h.establishedTrait ?? null,
       }).replace(/"/g, "&quot;")
     : "";
   const estNote = h.established
@@ -1919,15 +1922,19 @@ function _buildHazardRowHtml(hazard, index, hazardTypesHtml) {
 function _collectHazardsFromForm(form) {
   const rows = form.querySelectorAll(".sta2e-hazard-row");
   const hazards = [];
-  rows.forEach((row, i) => {
-    const idx = row.dataset.hazardIndex ?? i;
-    const type        = form.querySelector(`[name="hazard-type-${idx}"]`)?.value ?? "generic";
-    const label       = form.querySelector(`[name="hazard-label-${idx}"]`)?.value ?? "";
-    const category    = form.querySelector(`[name="hazard-category-${idx}"]`)?.value ?? "lingering";
-    const description = form.querySelector(`[name="hazard-description-${idx}"]`)?.value ?? "";
+  rows.forEach((row) => {
+    // Read each row's own inputs. Looking them up by index across the whole
+    // form broke once a middle row was deleted: the remaining rows were
+    // renumbered but their input names were not, so later rows read the wrong
+    // (or no) inputs.
+    const field = key => row.querySelector(`[name^="hazard-${key}-"]`);
+    const type        = field("type")?.value ?? "generic";
+    const label       = field("label")?.value ?? "";
+    const category    = field("category")?.value ?? "lingering";
+    const description = field("description")?.value ?? "";
     // Preserve id and established state from hidden inputs
-    const existingId  = form.querySelector(`[name="hazard-id-${idx}"]`)?.value || "";
-    const estRaw      = form.querySelector(`[name="hazard-established-${idx}"]`)?.value ?? "";
+    const existingId  = field("id")?.value || "";
+    const estRaw      = field("established")?.value ?? "";
     let estData = {};
     if (estRaw) {
       try { estData = JSON.parse(estRaw.replace(/&quot;/g, '"')); } catch { /* ignore */ }
@@ -1958,14 +1965,12 @@ function _wireHazardEditor(html) {
     if (!removeBtn) return;
     const row = removeBtn.closest(".sta2e-hazard-row");
     if (row) row.remove();
-    // Re-index remaining rows
-    list.querySelectorAll(".sta2e-hazard-row").forEach((r, i) => {
-      r.dataset.hazardIndex = i;
-    });
   });
 
   addBtn.addEventListener("click", () => {
-    const idx = list.querySelectorAll(".sta2e-hazard-row").length;
+    // Unique suffix — after a delete, the row count can repeat a live index.
+    const used = [...list.querySelectorAll(".sta2e-hazard-row")].map(r => Number(r.dataset.hazardIndex) || 0);
+    const idx = used.length ? Math.max(...used) + 1 : 0;
     const rowHtml = _buildHazardRowHtml({}, idx, "");
     const tmp = document.createElement("div");
     tmp.innerHTML = rowHtml;

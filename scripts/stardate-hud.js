@@ -10,6 +10,7 @@
  */
 
 import { formatStardate, formatCalendarDate, formatTime, formatKlingonDate, formatRomulanDate } from "./stardate-calc.js";
+import { ACTIVE_GM_SETTING, connectedGMs, getActiveGM, setActiveGM } from "./gm-authority.js";
 // scene-flags helpers still used by date-editor; HUD now reads canvas.scene directly
 
 const LCARS_THEMES  = new Set(["lcars-tng", "lcars-tng-blue", "klingon", "romulan"]);
@@ -21,7 +22,15 @@ const ENT_THEMES    = new Set(["ent-panel"]);
 
 export class StardateHUD {
 
-  constructor() { this._element = null; }
+  constructor() {
+    this._element = null;
+    // The Active GM badge re-renders on its own — a handoff or a GM dropping
+    // changes it without anything the rest of the HUD listens to.
+    Hooks.on("updateSetting", (setting) => {
+      if (setting?.key === `sta2e-toolkit.${ACTIVE_GM_SETTING}`) this._renderGmBadge();
+    });
+    Hooks.on("userConnected", () => this._renderGmBadge());
+  }
 
   // ---------------------------------------------------------------------------
   // Context
@@ -621,6 +630,13 @@ export class StardateHUD {
       container.appendChild(tab);
       container.appendChild(wrapper);
 
+      // Active GM badge — sits under the tab so it stays findable when the
+      // bar is collapsed. Built once; _renderGmBadge only rewrites its text.
+      const badge = document.createElement("div");
+      badge.className = "sta2e-hud-gm-badge";
+      container.appendChild(badge);
+      this._gmBadge = badge;
+
       const target = document.getElementById("interface") ?? document.body;
       target.appendChild(container);
 
@@ -635,6 +651,48 @@ export class StardateHUD {
     }
 
     this._activateListeners();
+    this._renderGmBadge();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Active GM badge (gm-authority.js)
+  // ---------------------------------------------------------------------------
+
+  _renderGmBadge() {
+    const badge = this._gmBadge;
+    if (!badge) return;
+    const gm   = getActiveGM();
+    const esc  = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const name = gm ? esc(gm.name) : "None";
+    // Only worth showing once a table actually has more than one GM account.
+    const gmAccounts = (game.users?.contents ?? []).filter(u => u.isGM).length;
+    badge.hidden = gmAccounts < 2;
+
+    const canPick = game.user.isGM;
+    badge.innerHTML = `
+      <button type="button" class="sta2e-hud-gm-badge__btn" ${canPick ? "" : "disabled"}
+        title="${canPick ? "Active GM — click to claim or hand off" : "Active GM"}">
+        <span class="sta2e-hud-gm-badge__key">GM</span><span class="sta2e-hud-gm-badge__name">${name}</span>
+      </button>
+      <div class="sta2e-hud-gm-badge__menu" hidden></div>`;
+    if (!canPick) return;
+
+    const btn  = badge.querySelector(".sta2e-hud-gm-badge__btn");
+    const menu = badge.querySelector(".sta2e-hud-gm-badge__menu");
+    btn.addEventListener("click", () => {
+      if (!menu.hidden) { menu.hidden = true; return; }
+      const others = connectedGMs().filter(u => u.id !== game.user.id);
+      const isMe   = gm?.id === game.user.id;
+      menu.innerHTML = [
+        isMe ? "" : `<button type="button" data-gm="${game.user.id}">Claim Active GM</button>`,
+        ...others.map(u => `<button type="button" data-gm="${u.id}" ${u.id === gm?.id ? "disabled" : ""}>Hand to ${esc(u.name)}</button>`),
+      ].join("") || `<div class="sta2e-hud-gm-badge__empty">No other GMs connected</div>`;
+      menu.hidden = false;
+      menu.querySelectorAll("[data-gm]").forEach(b => b.addEventListener("click", async () => {
+        menu.hidden = true;
+        await setActiveGM(b.dataset.gm);
+      }));
+    });
   }
 
   _toggleCollapsed() {

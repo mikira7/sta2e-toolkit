@@ -340,6 +340,15 @@ export class ToolkitWidget {
         () => game.sta2eToolkit?.openInteriorGenerator?.(),
       ));
 
+      // Scene Effects button — GM only
+      btnContainer.appendChild(mkBtn(
+        "fas fa-house-crack",
+        "Scene Effects",
+        "Open scene canvas effects: bridge impacts and earthquakes",
+        LC.secondary ?? "#66ccff",
+        () => game.sta2eToolkit?.openSceneEffectsPanel?.(),
+      ));
+
       // Scene Warp button — GM only
       btnContainer.appendChild(mkBtn(
         "fas fa-forward-fast",
