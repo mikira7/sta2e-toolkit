@@ -32,7 +32,8 @@ for(const hullProfile of ['generic','galaxy','intrepid'])for(const cabinLayout o
     assert.ok(plan,'Every quarters compartment uses an approved measured plan');
     assert.equal(room.frame.w,Math.max(...plan.footprint.map(p=>p[0])));
     assert.equal(room.frame.h,Math.max(...plan.footprint.map(p=>p[1])));
-    assert.deepEqual(a.fixtures,plan.fixtures);
+    assert.deepEqual(a.fixtures.filter(f=>f.kind!=='bed'),plan.fixtures.filter(f=>f.kind!=='bed'),'Non-bed fixture envelopes retain the approved plan');
+    for(const bed of a.fixtures.filter(f=>f.kind==='bed')) {assert.equal(bed.size,'queen');assert.equal(bed.rect[2],1.16);assert.equal(bed.rect[3],1.55);}
     assert.deepEqual(a.bedrooms,plan.bedrooms??[]);
     assert.deepEqual(a.closet,plan.closet??null);
     assert.deepEqual(a.bathroom,plan.bathroom);

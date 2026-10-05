@@ -1,4 +1,5 @@
 /** Perimeter-attached wet areas and furnished L-shaped living spaces. Units are grid squares. */
+import { usesInteriorQueenBeds, INTERIOR_QUEEN_BED } from "./interior-assets.js";
 const p=(x,y)=>({x:Math.round(x*10000)/10000,y:Math.round(y*10000)/10000});
 const close=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y)<.001;
 const area=poly=>Math.abs(poly.reduce((v,a,i)=>{const b=poly[(i+1)%poly.length];return v+a.x*b.y-b.x*a.y;},0))/2;
@@ -121,7 +122,8 @@ export function buildQuartersArchitecture(room,edges=[],recipe={}) {
     }
     if(best)furniture.push(best);
   };
-  place("bed",1,1.9);place("desk",1.8,1.85);
+  const bed=usesInteriorQueenBeds(recipe)?INTERIOR_QUEEN_BED:{w:1,h:1.9};
+  place("bed",bed.w,bed.h);place("desk",1.8,1.85);
   if(roomArea>35){place("couch",2.1,1.1);place("coffee",1.2,.7);}
   return {type:"quarters",arrangement:recipe.cabinLayout??"auto",w:f.w,h:f.h,fit:1,ensuite:true,walls,livingPolygon:living,furniture,
     bathroom:{polygon:chosen.bath.map(unflip),usable:rectangle(u).map(unflip),fixtures,tub:chosen.luxury,area:area(chosen.bath),door:bathroomDoor}};

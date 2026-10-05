@@ -1,6 +1,18 @@
 /** Persistent, token-local Trek FX. Document flags replicate to every client. */
 const MODULE = "sta2e-toolkit";
 const FLAG = "trekFx";
+
+// gm-authority.js's rule, inlined: this module stays import-free (its test links no dependencies).
+function isActiveGM() {
+  if (!game.user?.isGM) return false;
+  let id = "";
+  try { id = game.settings?.get?.(MODULE, "activeGmUserId") || ""; } catch {}
+  const pick = game.users?.get?.(id);
+  const gm = (pick?.active && pick.isGM) ? pick
+    : (game.users?.contents ?? []).filter(u => u?.active && u.isGM)
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
+  return (gm?.id ?? game.user.id) === game.user.id;
+}
 export const TREK_FX_TYPES = ["blueHaze", "particleStorm", "blueDissolve"];
 export const TREK_PARTICLE_COLORS = [
   { id: "cyan", label: "Cyan", core: [.35, .95, 1], glow: [.05, .65, .8], tint: [.05, .30, .36] },
@@ -210,8 +222,7 @@ function scheduleCompletion(doc) {
     const remaining = entry.startedAt + TREK_DISSOLVE_DURATION_MS - (game.time?.serverTime ?? Date.now());
     // Every GM keeps a timer, but only the elected GM performs the deletion.
     // A different GM can take over if that client disconnects or changes scenes.
-    const authority = game.users?.activeGM;
-    if (remaining > 0 || !game.user?.isGM || authority?.id !== game.user.id) {
+    if (remaining > 0 || !isActiveGM()) {
       entry.timer = setTimeout(finish, Math.max(1000, remaining));
       return;
     }

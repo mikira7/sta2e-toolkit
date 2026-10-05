@@ -10,7 +10,7 @@
  */
 
 import { formatStardate, formatCalendarDate, formatTime, formatKlingonDate, formatRomulanDate } from "./stardate-calc.js";
-import { ACTIVE_GM_SETTING, connectedGMs, getActiveGM, setActiveGM } from "./gm-authority.js";
+import { ACTIVE_GM_CHANGED_HOOK, connectedGMs, getActiveGM, setActiveGM } from "./gm-authority.js";
 // scene-flags helpers still used by date-editor; HUD now reads canvas.scene directly
 
 const LCARS_THEMES  = new Set(["lcars-tng", "lcars-tng-blue", "klingon", "romulan"]);
@@ -26,9 +26,7 @@ export class StardateHUD {
     this._element = null;
     // The Active GM badge re-renders on its own — a handoff or a GM dropping
     // changes it without anything the rest of the HUD listens to.
-    Hooks.on("updateSetting", (setting) => {
-      if (setting?.key === `sta2e-toolkit.${ACTIVE_GM_SETTING}`) this._renderGmBadge();
-    });
+    Hooks.on(ACTIVE_GM_CHANGED_HOOK, () => this._renderGmBadge());
     Hooks.on("userConnected", () => this._renderGmBadge());
   }
 

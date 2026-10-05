@@ -20,6 +20,7 @@
  */
 
 import { getTokenAlphaMask } from "./ship-vfx-anchors.js";
+import { isActiveGM } from "./gm-authority.js";
 
 const MODULE = "sta2e-toolkit";
 const FLAG = "hullDecals";
@@ -91,9 +92,7 @@ function _sizeMetric(token) {
 
 /** Only the active GM performs the single authoritative flag write. */
 function _isWriter() {
-  if (!game.user?.isGM) return false;
-  const activeGM = game.users?.activeGM;
-  return !activeGM || activeGM === game.user;
+  return isActiveGM();
 }
 
 function _isTokenDocument(doc) {

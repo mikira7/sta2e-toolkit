@@ -1,5 +1,13 @@
 /** Fixed, fitted starter assembly. Arbitrary prefab arrangements are not yet supported. */
 const MODULE_ID="sta2e-toolkit";
+// gm-authority.js's rule, inlined: this module must stay import-free (its test links no dependencies).
+function isActiveGM(){
+  if(!game.user?.isGM)return false;
+  let id="";try{id=game.settings?.get?.(MODULE_ID,"activeGmUserId")||"";}catch{}
+  const pick=game.users?.get?.(id);
+  const gm=(pick?.active&&pick.isGM)?pick:(game.users?.contents??[]).filter(u=>u?.active&&u.isGM).sort((a,b)=>String(a.id).localeCompare(String(b.id)))[0];
+  return (gm?.id??game.user.id)===game.user.id;
+}
 export const PREFAB_FLAG="prefabInterior", PREFAB_DOOR_FLAG="prefabDoorKey";
 export const PREFAB_ROOT="modules/sta2e-toolkit/assets/interiors/prefabs/starfleet-tng";
 const KIT_ID="habitation-starter-v1", LEVEL_ID="staPrefabDeck001";
@@ -146,7 +154,7 @@ const doorUpgrades=new WeakMap();
  */
 export async function upgradePrefabDoors(scene) {
   if(!scene?.flags?.[MODULE_ID]?.[PREFAB_FLAG]||!game.user?.isGM||(game.release?.generation??13)<14)return;
-  if(game.users?.activeGM&&game.users.activeGM.id!==game.user.id)return;
+  if(!isActiveGM())return;
   if(doorUpgrades.has(scene))return doorUpgrades.get(scene);
   const run=(async()=>{
     const walls=[...scene.walls].filter(w=>w.door&&w.flags?.[MODULE_ID]?.[PREFAB_DOOR_FLAG]);

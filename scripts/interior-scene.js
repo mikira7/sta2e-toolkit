@@ -10,9 +10,14 @@ export function interiorSceneData(layout, imagePath, { name, generation=14 }={})
   const at=p=>Math.round(p*grid), level=modern?{levels:[LEVEL_ID]}:{};
   const constants=globalThis.CONST??{}, move=constants.WALL_MOVEMENT_TYPES?.NORMAL??20;
   const sense=constants.EDGE_SENSE_TYPES?.NORMAL??constants.WALL_SENSE_TYPES?.NORMAL??20;
-  const walls=interiorWallSegments(layout).map(({a,b,door,window})=>({
+  const walls=interiorWallSegments(layout).map(({a,b,door,window,hatch})=>({
     c:[at(a.x),at(a.y),at(b.x),at(b.y)], move, sight:window?0:sense, light:window?0:sense, sound:sense,
     door:door?1:0, ds:0, dir:0, ...level,
+    // Native leaves retract on opening, leaving the background's jambs and sill unobstructed.
+    ...(modern&&door&&!hatch&&recipe.faction==="federation"?{
+      animation:{type:"slide",texture:"modules/sta2e-toolkit/assets/interiors/prefabs/starfleet-tng/door-panel.svg",double:true,direction:1,flip:false,duration:750,strength:1},
+      flags:{core:{textureGridSize:200}},
+    }:{}),
   }));
   // Each long corridor needs multiple emitters; otherwise the ends go dark with global light off.
   const lightPositions=[];

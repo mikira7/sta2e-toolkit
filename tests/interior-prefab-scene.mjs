@@ -98,7 +98,8 @@ legacy.updateEmbeddedDocuments=async(type,updates)=>{
   mutations.push({type,updates:plain(updates)});
   for(const update of updates){const doc=(type==='Wall'?legacy.walls:legacy.tiles).find(d=>d.id===update._id);Object.assign(doc,update);}
 };
-sandbox.game.users={activeGM:{id:'gm'}};sandbox.game.user.id='gm';
+// Two connected GMs, no designation: the toolkit's fallback makes the lowest id ('gm') the active GM.
+sandbox.game.users={contents:[{id:'gm',isGM:true,active:true},{id:'other-gm',isGM:true,active:true}],get(id){return this.contents.find(u=>u.id===id);}};sandbox.game.user.id='gm';
 const result=await api.upgradePrefabDoors(legacy);assert.deepEqual(plain(result),{doors:4,retiredTiles:5});
 assert.deepEqual(mutations.map(m=>m.type),['Wall','Tile']);assert.deepEqual(plain(legacy.walls.map(w=>({c:w.c,ds:w.ds}))),before);
 assert.equal(doors[2].animation.texture,'custom.svg');assert.equal(legacy.tiles.at(-1).hidden,false);

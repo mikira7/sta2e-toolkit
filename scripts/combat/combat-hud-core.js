@@ -19969,7 +19969,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
   // ── Starship — GM destruction-control card (confirm → throes → detonate) ──
   if (toolkitFlags.shipDestructionCard) {
-    const isPrimaryGM = game.user.isGM && game.users.activeGM === game.user;
+    const isPrimaryGM = isActiveGM();
 
     // Only the primary GM drives the sequence; everyone else just sees the card.
     if (!isPrimaryGM) {
@@ -20015,7 +20015,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
   // ── Starship — All Hands Abandon Ship! card (NPC destroy / leave choice) ──
   if (toolkitFlags.abandonShipCard) {
-    const isPrimaryGM = game.user.isGM && game.users.activeGM === game.user;
+    const isPrimaryGM = isActiveGM();
     if (!isPrimaryGM || toolkitFlags.abandonResolved) {
       html.querySelectorAll(".sta2e-abandon-btn").forEach(b => (b.style.display = "none"));
       return;

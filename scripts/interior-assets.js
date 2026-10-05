@@ -1,7 +1,10 @@
 /** Bundled, reusable image library. The recipe stores paths, never large embedded images. */
 import { interiorKitPaths } from "./interior-kit.js";
 const BASE="modules/sta2e-toolkit/assets/interiors/";
-export const INTERIOR_ASSET_SLOTS={floor:"Room floor texture",corridor:"Corridor floor texture",threshold:"Doorway sills",window:"Hull windows",console:"Consoles",bed:"Beds",chair:"Chairs",table:"Tables",crate:"Cargo containers",couch:"Couches",plant:"Potted plants",desk:"Office desks","coffee-table":"Coffee tables",biobed:"Diagnostic biobeds",core:"Reactor cores"};
+// A queen mattress (1.52 × 2.03 m) plus its frame, in 1.5 m grid squares.
+export const usesInteriorQueenBeds=recipe=>recipe.faction==="federation"&&recipe.era==="tng";
+export const INTERIOR_QUEEN_BED={w:1.16,h:1.55};
+export const INTERIOR_ASSET_SLOTS={floor:"Room floor texture",corridor:"Corridor floor texture",threshold:"Doorway sills",window:"Hull windows",console:"Consoles",bed:"Beds",chair:"Chairs",table:"Tables",crate:"Cargo containers",couch:"Couches",plant:"Potted plants",desk:"Office desks","coffee-table":"Coffee tables",biobed:"Diagnostic biobeds",core:"Reactor cores",jefferies:"Jefferies tube texture"};
 export const INTERIOR_ASSET_LIBRARY={
   corridor:[{label:"Starfleet passageway carpet",path:`${BASE}corridor-deck-carpet.png`}],
   threshold:[{label:"Illuminated sliding-door sill",path:`${BASE}corridor-door-sill.png`}],
@@ -18,6 +21,8 @@ export const INTERIOR_ASSET_LIBRARY={
   "coffee-table":[{label:"Oval glass coffee table",path:`${BASE}coffee-table.png`}],
   biobed:[{label:"Sickbay diagnostic bed",path:`${BASE}biobed.png`}],
   core:[{label:"Matter / antimatter core",path:`${BASE}core.png`}],
+  // Opaque, vertically tiling crawlway: wall panels and light strips either side of a floor grate.
+  jefferies:[{label:"Grated crawlway with light strips",path:`${BASE}jefferies-tube.png`}],
 };
 /** Assets come from Foundry's file storage. Disallow executable URLs and external network resources. */
 export function normalizeInteriorAssets(input={}) {
@@ -33,7 +38,7 @@ export function interiorAssetPaths(recipe) {
     if(key==="corridor"&&recipe.faction!=="federation")return[key,null];
     if(key==="window"&&(recipe.faction==="borg"||recipe.hullWindows===false))return[key,null];
     if(recipe.faction==="borg"&&["console","core"].includes(key))return[key,null];
-    const index=key==="floor" && (recipe.faction!=="federation"||recipe.era==="ent")?1
+    const index=key==="bed"&&usesInteriorQueenBeds(recipe)?2:key==="floor" && (recipe.faction!=="federation"||recipe.era==="ent")?1
       :key==="console"?recipe.faction!=="federation"?2:["ent","tos","movies"].includes(recipe.era)?1:0:0;
     return [key,INTERIOR_ASSET_LIBRARY[key][index].path];
   }));

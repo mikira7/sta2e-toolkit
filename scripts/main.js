@@ -82,7 +82,7 @@ import { registerRegionPadConfig } from "./region-pad-config.js";
 import { registerRegionSplineTool } from "./region-spline-tool.js";
 import { registerWarpViewscreenBehavior } from "./warp-viewscreen-behavior.js";
 import { registerRegionTerrainBehaviors } from "./region-terrain-behaviors.js";
-import { isActiveGM } from "./gm-authority.js";
+import { isActiveGM, SET_ACTIVE_GM_ACTION, handleSetActiveGmRequest } from "./gm-authority.js";
 import { REVEAL_FLAG } from "./region-terrain.js";
 import { CLOAK_HIT_SHIMMER_ACTION, playCloakHitShimmer } from "./cloak-hit-vfx.js";
 import { registerSensorContacts, syncSensorContactMarkers, resolveSensorReveal, resolveSensorSweep } from "./sensor-contacts.js";
@@ -1447,6 +1447,12 @@ Hooks.once("ready", async () => {
   // the GM changes time, campaign data, or theme we emit this to sync players.
   _toolkitSocketHandler = async (msg) => {
     if (!msg?.action) return;
+    // Gated on SETTINGS_MODIFY inside, not on the active GM: the requester may
+    // be the one GM who can't write the setting.
+    if (msg.action === SET_ACTIVE_GM_ACTION) {
+      await handleSetActiveGmRequest(msg);
+      return;
+    }
     if (msg.action === CONSOLE_EFFECT_ACTION || msg.action === CONSOLE_EFFECT_STOP_ACTION) {
       handleConsoleEffectSocket(msg);
       return;

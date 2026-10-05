@@ -231,7 +231,75 @@ Some tables seat players on GM-role accounts. [gm-authority.js](scripts/gm-autho
 - **GM-only whispers:** hazard entry cards, Reveal detail, sweep reports and movement cards go to `activeGmWhisperIds()`.
 - **Hidden information:** shrouds and obscured zones apply to assistant GMs, and cloaked (`hidden`) tokens are screened from them unless revealed. This is table etiquette, not security.
 
-Code gating *GM tools* should keep checking `game.user.isGM`. Code gating *authority or secrets* should use `isActiveGM()`.
+Code gating *GM tools* should keep checking `game.user.isGM`. Code gating *authority or secrets* should use `isActiveGM()` — **never core's `game.users.activeGM`**, which ignores the badge (it picks by role, then id). `trek-fx.js` and `interior-prefab-scene.js` carry an inlined copy of `isActiveGM` instead of importing it, because their tests link them with no dependencies — keep those copies in step with `gm-authority.js`.
+
+React to a change through the `sta2eActiveGmChanged` hook (fired from the setting's `onChange`), not `updateSetting`: the first write in a world *creates* the Setting document and fires only `createSetting`, so an `updateSetting` listener made the switch look ignored until someone reconnected. `setActiveGM` relays the write over the socket (`setActiveGm`) when the clicking GM lacks core's `SETTINGS_MODIFY` permission, which a world can deny to Assistant GMs.
+
+### Procedural Interiors: Habitat Runs
+
+The `habitat` deck architecture ([interior-habitat.js](scripts/interior-habitat.js)) builds an
+**encounter slice**, not a whole deck: a passageway running edge to edge with an isolation door
+near each cut end, an outboard row of cabins and window rooms, an inboard row of support rooms,
+a lift bay and a branch corridor. Each lift is a bare circular car with its own door, 3 squares
+across (`LIFT_RADIUS`), so a 2 × 2 block of tokens fits inside. The shared lift test caps other
+plans at 2.5 and habitat at 3.1. Small crew cabins (single, junior-officer pair) also go inboard,
+where they get no windows; family cabins and suites stay on the hull. It returns early
+from `generateInterior` and classifies its own edges.
+
+A cabin is **one `quarters` room, not one room per section.** Living, bed, closet, head, study and
+the private hall are partitions with native doors inside it (`architecture.type ===
+"habitat-cabin"`), the same mechanism the measured cabins use. That is load-bearing: the shared
+generation tests require the non-corridor room kinds to equal the selected palette exactly, and
+require every `quarters` room to carry `architecture.bathroom`, `livingPolygon` and `furniture`.
+Escape pods are `corridor`-kind alcoves (`pod: true`) for the same reason.
+
+Six things it rests on:
+
+- **Every room is a rigid rectangle on a chord.** Outboard rectangles diverge going outward and
+  leave thin structural ribs at the hull; inboard ones converge, so `inboardGap` opens a sliver of
+  wall mass between them. Nothing is ever fitted into a wedge. The radius grows with the slice
+  length (`target * 2.4` floor), so a slice stays a gentle bow.
+- **Cabin layouts are section lists** (`HABITAT_CABINS`). Each closet belongs to the adjacent
+  bedroom not already served, so two bedrooms put their closets back to back between them. Cabins
+  with several rooms sharing a head get a private hall on the corridor side; the bedrooms, study
+  and head open off it. Walk-through cabins put every internal door on one door line. Junior officers' quarters have no closet rooms: bed, shared head, bed. Consecutive cabins
+  alternate direction so heads meet heads.
+- **A head is at least 1.6 squares wide** (shower, toilet and sink on the wet wall at the cabin
+  end, where it backs onto the next head), and every door is at least 1.1 squares long. The
+  tests enforce both.
+- **Exact doors and windows are inserted vertices.** A cabin's entry door and its hull windows are
+  extra points on its polygon edge. `interiorEdges` T-junction-splits the neighbouring corridor at
+  them, and the matching sub-edge is marked `exactDoor`/`exactWindow` by key.
+- **Corridor pieces must meet on a real shared vertex.** `anchor()` snaps each cut (isolation
+  doors, open map ends) to the nearest vertex in each boundary line. Without it, a room corner
+  that rounding left a hair inside the cut was deduplicated away, and the end piece came out
+  disconnected.
+- **`interiorEdges` is passed in, not imported**, which keeps this module out of
+  `interior-layout.js`'s import graph.
+
+### Procedural Interiors: Jefferies Tube Networks
+
+The `jefferies` deck architecture ([interior-jefferies.js](scripts/interior-jefferies.js)) is
+crawlways only. A randomised Prim tree over a lattice (uneven 6–8 square spacing) plus a few loop
+links; **every node is an octagonal junction** (`jefferiesOctagon`, flat faces toward all eight
+compass directions), so a tube running orthogonally or at 45° always meets a face squarely. Four
+rules it rests on:
+
+- **A diagonal is only allowed across a square cell**, and at most one per cell, so diagonals
+  never cross and always hit a diagonal face.
+- **The face (1.45) is wider than the tube (1.2)**: tube ends land inside a face, never on an
+  octagon corner, and `interiorEdges` T-junction-splits the face at them. Tests check both numbers.
+- **Dead ends are ladder access points** (`access: true`). Two boundary nodes get a short tube to
+  a hatch onto a `corridor`-kind "Deck access" stub whose far edge is an open map cut. Every
+  tube has a door at each end: a `hatch` edge marked `exactDoor`, so it spans the full 1.2-square
+  tube width (a one-square token passes) and still draws the hatch markings.
+  `interiorWallSegments` carries `hatch: true` through on an exact door for this.
+- **Straight tubes (`tube: true`) tile the `jefferies` asset** (`assets/interiors/jefferies-tube.png`, an
+  opaque 1536 × 1024 tile that repeats top to bottom), turned onto the tube axis and stretched across
+  its width. The renderer embeds it only when the map has tubes, since it is ~2 MB as a data URI.
+  The curved service crawlways of the hull-section plan keep the drawn style.
+- **It ignores the room palette.** The shared palette tests exempt this plan explicitly, and the
+  generator dialog disables the room-type choices for it. Do not "fix" either exemption.
 
 ### Region Curve Tool
 

@@ -4,7 +4,7 @@ import { buildMeasuredCabinArchitecture } from "./interior-measured-cabins.js";
 const point=(x,y)=>({x:Math.round(x*10000)/10000,y:Math.round(y*10000)/10000});
 export function addInteriorRoomDetails(room,edges=[],recipe={}) {
   if(!["quarters","transporter","cargo"].includes(room.kind))return;
-  if(room.cabinPlan){room.architecture=buildMeasuredCabinArchitecture(room);return;}
+  if(room.cabinPlan){room.architecture=buildMeasuredCabinArchitecture(room,recipe);return;}
   if(room.kind==="quarters"){room.architecture=buildQuartersArchitecture(room,edges,recipe);return;}
   const f=room.frame,w=Math.max(4,f.w-.9),h=Math.max(4,f.h-.9),fit=Math.max(.05,Math.min(1,(f.w-.2)/w,(f.h-.2)/h));
   const angle=f.rotation*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle);

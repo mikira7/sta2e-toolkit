@@ -4,6 +4,8 @@ import { normalizeInteriorBrush, interiorBrushRooms } from "./interior-brush.js"
 import { buildInteriorSection, addInteriorHullWindows, compactInteriorLifts } from "./interior-section.js";
 import { addInteriorRoomDetails } from "./interior-room-details.js";
 import { MEASURED_CABINS, isMeasuredCabin, connectMeasuredCabins } from "./interior-measured-cabins.js";
+import { buildInteriorHabitat } from "./interior-habitat.js";
+import { buildInteriorJefferies } from "./interior-jefferies.js";
 export const INTERIOR_VERSION = 6;
 export const INTERIOR_HULL_PROFILES = {generic:"Adaptive section",galaxy:"Galaxy • broad saucer arc",intrepid:"Intrepid • forward shoulder arc"};
 export const INTERIOR_JUNCTIONS = {none:"Continuous passageway",mixed:"Three- and four-way branches",tee:"Three-way branches",cross:"Four-way branches"};
@@ -22,7 +24,7 @@ export const INTERIOR_FACTIONS = {
 };
 export const INTERIOR_SIZES = { small: "Small section", medium: "Medium section", large: "Large section" };
 export const INTERIOR_PURPOSES = { mixed: "Mixed operations", command: "Command & science", engineering: "Engineering & cargo", habitat: "Habitation & medical" };
-export const INTERIOR_PLANS = { auto:"Faction default", section:"Hull section / curved passageway", spine:"Longitudinal spine", ring:"Radial / ring deck", lattice:"Modular grid" };
+export const INTERIOR_PLANS = { auto:"Faction default", section:"Hull section / curved passageway", spine:"Longitudinal spine", ring:"Radial / ring deck", lattice:"Modular grid", habitat:"Habitat run / cabin rows", jefferies:"Jefferies tube network" };
 export function interiorSeedHash(text) {
   let h = 2166136261;
   for (const ch of String(text)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
@@ -130,6 +132,15 @@ export function generateInterior(input = {}) {
   const box = (kind, x, y, w, h, name, cut = 0) => add(kind, cut ? chamfer(x,y,w,h,cut) : rect(x,y,w,h), { x:x+w/2, y:y+h/2, w:w-2*cut, h:h-2*cut, rotation:0 }, name);
   let width, height, entry, structure;
   const plan=recipe.plan!=="auto" ? recipe.plan : recipe.faction==="borg" ? "lattice" : "section";
+  if(plan==="habitat"||plan==="jefferies") {
+    // Encounter slices that build whole compartments and classify their own edges.
+    // A tube network is crawlways only, so it ignores the room palette.
+    const slice=plan==="habitat"?buildInteriorHabitat(recipe,rng,ROOM_NAMES,{interiorEdges}):buildInteriorJefferies(recipe,rng,{interiorEdges});
+    const layout={recipe,plan,width:slice.width,height:slice.height,rooms:slice.rooms,edges:slice.edges,entry:slice.entry,structure:slice.structure};
+    const errors=validateInterior(layout);
+    if(errors.length)throw new Error(`Interior generation failed: ${errors.join("; ")}`);
+    return layout;
+  }
   if(plan==="section") {
     const section=buildInteriorSection(recipe,rng,ROOM_NAMES);
     rooms.push(...section.rooms);({width,height,entry,structure}=section);
@@ -293,7 +304,7 @@ export function validateInterior(layout) {
 export function interiorWallSegments(layout) {
   return layout.edges.flatMap(e=>{
     if(e.kind==="open") return [];
-    if(e.exactDoor)return [{a:e.a,b:e.b,door:true}];
+    if(e.exactDoor)return [{a:e.a,b:e.b,door:true,...(e.kind==="hatch"?{hatch:true}:{})}];
     if(e.exactWindow)return [{a:e.a,b:e.b,door:false,window:true,hull:true}];
     if(e.window) {
       const length=Math.hypot(e.b.x-e.a.x,e.b.y-e.a.y);

@@ -376,12 +376,14 @@ export function registerSettings() {
   });
 
   // Which GM-role user is *the* GM (gm-authority.js). Chosen from the Stardate
-  // HUD badge; "" falls back to the lowest-id connected GM.
+  // HUD badge; "" falls back to the lowest-id connected GM. onChange (unlike an
+  // updateSetting hook) also runs for the first write, which creates the doc.
   game.settings.register("sta2e-toolkit", "activeGmUserId", {
-    scope:   "world",
-    config:  false,
-    type:    String,
-    default: "",
+    scope:    "world",
+    config:   false,
+    type:     String,
+    default:  "",
+    onChange: () => Hooks.callAll("sta2eActiveGmChanged"),
   });
 
   game.settings.register("sta2e-toolkit", "zoneBorderStyleDefault", {

@@ -103,7 +103,9 @@ for(const plan of Object.keys(geometry.INTERIOR_PLANS)) {
   for(const lift of deck.rooms.filter(r=>r.kind==="lift")) {
     assert.ok(lift.compactLift);assert.ok(lift.polygon.length>8);
     const xs=lift.polygon.map(p=>p.x),ys=lift.polygon.map(p=>p.y);
-    assert.ok(Math.max(...xs)-Math.min(...xs)<=2.501&&Math.max(...ys)-Math.min(...ys)<=2.501,"Lift cabin has no full-room lobby");
+    const cap=deck.plan==="habitat"?3.101:2.501;
+    assert.ok(Math.max(...xs)-Math.min(...xs)<=cap&&Math.max(...ys)-Math.min(...ys)<=cap,"Lift cabin has no full-room lobby");
+    if(deck.plan==="habitat")assert.ok(Math.max(...xs)-Math.min(...xs)>=2.9,"A habitat lift car holds a 2 × 2 block of tokens");
     assert.ok(deck.edges.some(e=>e.kind==="door"&&e.rooms.includes(lift.id)));
   }
 }
@@ -140,7 +142,9 @@ for(const plan of Object.keys(geometry.INTERIOR_PLANS))for(const curved of [true
     }
     if(deck.plan==="ring")assert.ok(Math.hypot(lift.frame.x-deck.width/2,lift.frame.y-deck.height/2)<Math.min(...deck.rooms.filter(r=>r.name==="Promenade").map(r=>Math.hypot(r.frame.x-deck.width/2,r.frame.y-deck.height/2))),"Lift lies inside the ring corridor");
   }
-  assert.deepEqual(new Set(deck.rooms.filter(r=>!["corridor","jefferies"].includes(r.kind)).map(r=>r.kind)),new Set(roomTypes));
+  // A tube network is crawlways only and deliberately ignores the room palette.
+  if(deck.plan==="jefferies")assert.equal(deck.rooms.filter(r=>!["corridor","jefferies"].includes(r.kind)).length,0);
+  else assert.deepEqual(new Set(deck.rooms.filter(r=>!["corridor","jefferies"].includes(r.kind)).map(r=>r.kind)),new Set(roomTypes));
 }
 const transporter=generateInterior({plan:"section",roomTypes:["transporter"],jefferies:false}).rooms.find(r=>r.kind==="transporter");
 assert.ok(transporter.architecture.pad.x<0&&transporter.architecture.walls.length>=12,"Transporter alcove leaves a separate control and circulation area");
@@ -185,7 +189,7 @@ let palettes=0;
 for(const faction of Object.keys(INTERIOR_FACTIONS))for(const plan of Object.keys(geometry.INTERIOR_PLANS)) {
   for(const roomTypes of [...Object.keys(geometry.INTERIOR_ROOM_TYPES).map(k=>[k]),Object.keys(geometry.INTERIOR_ROOM_TYPES),["quarters","medical","lounge"]]) {
     const layout=generateInterior({faction,plan,size:"small",roomTypes});
-    assert.deepEqual(new Set(layout.rooms.filter(r=>!["corridor","jefferies"].includes(r.kind)).map(r=>r.kind)),new Set(roomTypes));
+    if(plan!=="jefferies")assert.deepEqual(new Set(layout.rooms.filter(r=>!["corridor","jefferies"].includes(r.kind)).map(r=>r.kind)),new Set(roomTypes));
     palettes++;
   }
 }
@@ -234,7 +238,7 @@ for(const [slot,list]of Object.entries(assets.INTERIOR_ASSET_LIBRARY))for(const 
     assert.ok(placements.length,`${item.path} is used in the assembled preview`);
     for(const placement of placements)assert.ok(Math.abs(Number(placement[1])/Number(placement[2])-item.aspect)<.01,`${item.path} must not stretch`);
   }
-  if(!["floor","corridor"].includes(slot)) {
+  if(!["floor","corridor","jefferies"].includes(slot)) {
     assert.equal(png[25],6,`${item.path} must have an alpha channel`);assert.equal(png[24],8);
     const chunks=[];
     for(let offset=8;offset<png.length;) {const size=png.readUInt32BE(offset);if(png.toString("ascii",offset+4,offset+8)==="IDAT")chunks.push(png.subarray(offset+8,offset+8+size));offset+=size+12;}
@@ -250,6 +254,98 @@ for(const [slot,list]of Object.entries(assets.INTERIOR_ASSET_LIBRARY))for(const 
   }
   images++;
 }
+// Habitat runs: cabins are rows of full-depth sections with aligned doors, back-to-back closets,
+// a hall wherever several rooms share a head, and a slice that ends in sealable corridor cuts.
+const habitat=cache.get(new URL("../scripts/interior-habitat.js",import.meta.url).href).namespace;
+for(const type of Object.keys(habitat.HABITAT_CABINS))for(const reversed of [false,true]) {
+  const plan=habitat.habitatCabinPlan(type,{reversed}),D2=plan.h/2;
+  assert.ok(plan.walls.filter(w=>w.door).every(w=>Math.hypot(w.b.x-w.a.x,w.b.y-w.a.y)>=1.099),`${type} doors admit a one-square token`);
+  const head=plan.sections.find(s=>s.kind==="head");
+  assert.ok(head.x1-head.x0>=1.599,"A head holds shower, toilet and sink");
+  assert.deepEqual(new Set(plan.bathroom.fixtures.map(f=>f.kind)),new Set(["shower","toilet","sink"]));
+  for(const f of plan.bathroom.fixtures)assert.ok(f.x>=head.x0&&f.x+f.w<=head.x1,"Fixtures stay inside the head");
+  plan.sections.forEach((s,i)=>{
+    if(s.kind!=="closet")return;
+    // Every closet opens into its own bedroom, which sits directly beside it.
+    assert.equal(plan.sections[s.owner].kind,"bed");assert.equal(Math.abs(s.owner-i),1);
+    const wallX=s.owner<i?s.x0:s.x1;
+    assert.ok(plan.walls.some(w=>w.door&&Math.abs(w.a.x-wallX)<1e-9&&Math.abs(w.b.x-wallX)<1e-9),`${type} closet door is on its bedroom wall`);
+  });
+  for(let i=1;i<plan.sections.length;i++)if(plan.sections[i-1].kind==="closet"&&plan.sections[i].kind==="closet")
+    assert.ok(!plan.walls.some(w=>w.door&&Math.abs(w.a.x-plan.sections[i].x0)<1e-9),"Back-to-back closets share a solid wall");
+  const doors=plan.walls.filter(w=>w.door);
+  if(plan.hall) {
+    // Bedrooms, study and head open off the private hall, so nobody walks through a bedroom.
+    const hallY=D2-1.1;
+    for(const s of plan.sections.filter(s=>["bed","head","study"].includes(s.kind)))
+      assert.ok(doors.some(w=>Math.abs(w.a.y-hallY)<1e-9&&Math.abs(w.b.y-hallY)<1e-9&&w.a.x>=s.x0&&w.b.x<=s.x1),`${type} ${s.kind} opens off the hall`);
+  } else {
+    // Walk-through cabins put every internal door on one shared door line.
+    const vertical=doors.filter(w=>Math.abs(w.a.x-w.b.x)<1e-9);
+    assert.ok(vertical.length>=2);assert.equal(new Set(vertical.map(w=>`${Math.min(w.a.y,w.b.y)}:${Math.max(w.a.y,w.b.y)}`)).size,1);
+  }
+}
+for(const curved of [true,false])for(const purpose of Object.keys(INTERIOR_PURPOSES))for(let i=0;i<6;i++) {
+  const slice=generateInterior({plan:"habitat",purpose,curved,seed:`habitat-${i}`});
+  assert.equal(slice.plan,"habitat");assert.deepEqual(validateInterior(slice),[]);
+  const cabins=slice.rooms.filter(r=>r.kind==="quarters");
+  assert.ok(cabins.length&&cabins.every(r=>r.architecture.type==="habitat-cabin"&&r.habitatCabin));
+  const byId=new Map(slice.rooms.map(r=>[r.id,r])),corridor=id=>byId.get(id).kind==="corridor";
+  assert.equal(slice.edges.filter(e=>e.kind==="door"&&e.rooms.length===2&&e.rooms.every(corridor)&&!e.rooms.some(id=>byId.get(id).pod)).length,2,"An isolation door seals each cut end of the passageway");
+  assert.ok(slice.edges.filter(e=>e.kind==="open"&&e.rooms.length===1).length>=3,"Both passageway ends and the branch leave the map open");
+  for(const e of slice.edges.filter(e=>e.window))assert.ok(e.hull&&byId.get(e.rooms[0]).zone==="outboard","Windows only on the hull");
+  for(const lift of slice.rooms.filter(r=>r.kind==="lift"))assert.ok(slice.edges.some(e=>e.kind==="door"&&e.rooms.includes(lift.id)&&e.rooms.some(corridor)),"A turbolift opens straight onto the passageway");
+  // Small crew cabins may line the inboard side; they are windowless, and the large layouts stay on the hull.
+  for(const room of cabins.filter(r=>r.zone==="inboard"))assert.ok(["single","pair"].includes(room.habitatCabin));
+  assert.ok(!slice.edges.some(e=>e.window&&byId.get(e.rooms[0]).zone==="inboard"));
+  assert.deepEqual(generateInterior(JSON.parse(JSON.stringify(slice.recipe))),slice);
+  const svg=art.renderInteriorSVG(slice);
+  assert.ok(svg.includes("data-closet=")&&cabins.every(r=>svg.includes(`data-bathroom="${r.id}"`)));
+  if(cabins.some(r=>r.architecture.hall))assert.ok(svg.includes("data-cabin-hall="));
+  if(slice.rooms.some(r=>r.pod))assert.ok(svg.includes("data-escape-pod="));
+}
+assert.deepEqual(habitat.HABITAT_CABINS.pair.sections,["bed","head","bed"],"Junior officers share a head without closet rooms");
+assert.ok([0,1,2,3,4,5].some(i=>generateInterior({plan:"habitat",seed:`inboard-${i}`}).rooms.some(r=>r.kind==="quarters"&&r.zone==="inboard")),"Crew cabins also line the inboard side");
+assert.ok(generateInterior({plan:"habitat",cabinLayout:"officer",seed:"suites"}).rooms.filter(r=>r.kind==="quarters"&&r.zone==="outboard").every(r=>r.habitatCabin==="suite"));
+assert.ok(!generateInterior({plan:"habitat",hullWindows:false,seed:"sealed"}).edges.some(e=>e.window));
+// Jefferies tube networks: octagonal junctions, tubes meeting faces squarely, ladder access
+// points at dead ends, hatches onto deck-access stubs at the map edge.
+const tubes=cache.get(new URL("../scripts/interior-jefferies.js",import.meta.url).href).namespace;
+let diagonals=0;
+for(const size of Object.keys(INTERIOR_SIZES))for(const faction of ["federation","klingon","borg"])for(let i=0;i<12;i++) {
+  const net=generateInterior({plan:"jefferies",size,faction,seed:`tubes-${i}`});
+  assert.equal(net.plan,"jefferies");assert.deepEqual(validateInterior(net),[]);
+  const junctions=net.rooms.filter(r=>r.junction),runs=net.rooms.filter(r=>r.kind==="jefferies"&&!r.junction);
+  assert.ok(junctions.length>=4&&junctions.every(r=>r.polygon.length>=8),"Every node is an octagon");
+  for(const j of junctions) {
+    const v=tubes.jefferiesOctagon({x:0,y:0}),side=Math.hypot(v[1].x-v[0].x,v[1].y-v[0].y);
+    assert.ok(side>tubes.JEFFERIES_TUBE,"A tube end fits inside one octagon face");
+    const attached=net.edges.filter(e=>e.rooms.includes(j.id)&&e.rooms.length===2).length;
+    // A dead end is a ladder access point; one may also carry the tube out to a deck hatch.
+    if(attached===1)assert.ok(j.access,"Dead ends are ladder access points");
+    if(j.access)assert.ok(attached<=2);
+  }
+  assert.ok(junctions.some(j=>net.edges.filter(e=>e.rooms.includes(j.id)&&e.rooms.length===2).length>=3),"The network branches");
+  for(const t of runs) {
+    const [a,b,c]=t.polygon;assert.ok(Math.abs(Math.hypot(c.x-b.x,c.y-b.y)-tubes.JEFFERIES_TUBE)<.001,"Tubes are one crawl width");
+    const ends=net.edges.filter(e=>e.kind==="hatch"&&e.exactDoor&&e.rooms.includes(t.id));
+    assert.equal(ends.length,2,"A door at each end of every tube");
+    assert.ok(ends.every(e=>Math.abs(Math.hypot(e.b.x-e.a.x,e.b.y-e.a.y)-tubes.JEFFERIES_TUBE)<.001),"Tube doors span the full tube width");
+    const angle=((Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI)%45+45)%45;assert.ok(angle<.01||angle>44.99,"Tubes run orthogonally or at 45 degrees");
+    if(Math.abs(b.x-a.x)>.01&&Math.abs(b.y-a.y)>.01)diagonals++;
+  }
+  const stubs=net.rooms.filter(r=>r.kind==="corridor");
+  assert.ok(stubs.length>=1&&stubs.every(s=>net.edges.some(e=>e.kind==="hatch"&&e.rooms.includes(s.id))&&net.edges.some(e=>e.kind==="open"&&e.rooms.length===1&&e.rooms[0]===s.id)),"Deck access hatches open off the map edge");
+  assert.ok(interiorWallSegments(net).filter(w=>w.hatch).every(w=>Math.hypot(w.b.x-w.a.x,w.b.y-w.a.y)>=.699));
+  assert.deepEqual(generateInterior(JSON.parse(JSON.stringify(net.recipe))),net);
+  const svg=art.renderInteriorSVG(net);assert.ok(svg.includes("data-jefferies-junction=")&&svg.includes("data-service-hatch"));
+}
+assert.ok(diagonals>0,"Some seeds branch at 45 degrees");
+const tubeTexture={jefferies:"data:image/png;base64,TUBE"};
+const textured=art.renderInteriorSVG(generateInterior({plan:"jefferies",seed:"tex"}),{assets:tubeTexture});
+assert.ok(textured.includes("data-jefferies-texture=")&&textured.includes('href="#asset-jefferies"'),"Straight tubes tile the crawlway texture");
+assert.ok(!art.renderInteriorSVG(generateInterior({plan:"habitat",seed:"tex"}),{assets:tubeTexture}).includes("TUBE"),"Maps without tubes do not embed the texture");
+assert.ok(assets.interiorAssetPaths({faction:"federation",era:"tng"}).jefferies.endsWith("jefferies-tube.png"));
 globalThis.game={user:{isGM:false}};
 await assert.rejects(()=>mod.namespace.createInteriorScene({}),/Only a GM/);
 // Optional preview artifacts for browser QA, written only to an explicit output directory.

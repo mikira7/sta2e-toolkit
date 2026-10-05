@@ -1,5 +1,6 @@
 /** Place approved SVG-guide geometry at its original scale. No image assets are used. */
 import { CABIN_PLAN_CATALOG } from "./interior-cabin-plans.js";
+import { usesInteriorQueenBeds, INTERIOR_QUEEN_BED } from "./interior-assets.js";
 export const MEASURED_CABINS = {
   "svg-mixed":"SVG plans • mixed accommodation",
   "Q01-B":"SVG • compact single cabin",
@@ -26,7 +27,7 @@ export function measuredCabinOutline(plan) {
   return [...new Set([0,...windowCuts,w])].sort((a,b)=>a-b).map(x=>[x,0])
     .concat([...new Set([0,...doorCuts,w])].sort((a,b)=>b-a).map(x=>[x,h]));
 }
-export function buildMeasuredCabinArchitecture(room) {
+export function buildMeasuredCabinArchitecture(room,recipe={}) {
   const plan=measuredCabinPlan(room.cabinPlan),world=cabinTransform(room),walls=[];
   const add=(a,b,extra={})=>{if(Math.hypot(b[0]-a[0],b[1]-a[1])>.0001)walls.push({a:world(a),b:world(b),door:false,partition:true,...extra});};
   for(const part of plan.partitions) {
@@ -40,9 +41,16 @@ export function buildMeasuredCabinArchitecture(room) {
     const poly=rectangle(solid.rect);
     for(let i=0;i<poly.length;i++)add(poly[i],poly[(i+1)%poly.length],{serviceWall:true});
   }
+  const fixtures=structuredClone(plan.fixtures);
+  if(usesInteriorQueenBeds(recipe))for(const fixture of fixtures.filter(f=>f.kind==="bed")) {
+    const [x,y,w]=fixture.rect;
+    // Preserve the wall-side edge of a bed in the mirrored half of shared quarters.
+    fixture.rect=[x>room.frame.w/2?x+w-INTERIOR_QUEEN_BED.w:x,y,INTERIOR_QUEEN_BED.w,INTERIOR_QUEEN_BED.h];
+    fixture.size="queen";
+  }
   return {type:"measured-quarters",plan:plan.id,w:room.frame.w,h:room.frame.h,fit:1,walls,
     bedroomCount:plan.bedroomCount??0,households:plan.privateCabins?.length??1,
-    fixtures:structuredClone(plan.fixtures),bathroom:structuredClone(plan.bathroom),
+    fixtures,bathroom:structuredClone(plan.bathroom),
     sections:structuredClone(plan.sections??[]),accessPoints:structuredClone(plan.accessPoints??[]),
     bedrooms:structuredClone(plan.bedrooms??[]),closet:structuredClone(plan.closet??null),
     privateCabins:structuredClone(plan.privateCabins??[]),serviceWalls:structuredClone(plan.serviceWalls??[])};
@@ -77,7 +85,12 @@ export function renderMeasuredCabin(room,p,labels=false) {
   for(const f of a.fixtures) {
     const [x,y,w,h]=f.rect;
     parts.push(`<g data-cabin-fixture="${f.kind}" data-facing="${f.facing??0}">${r(x,y,w,h,p.panel)}`);
-    if(f.kind==='bed')parts.push(r(x+.05,y+.05,w-.1,h-.1,p.floor,.08),r(x+.08,y+.08,w-.16,Math.min(.28,h*.25),'#dedfd8'));
+    if(f.kind==='bed') {
+      if(f.size==='queen') {
+        parts.push(r(x+.07,y+.1,w-.14,h-.2,p.floor,.08));
+        for(const offset of [.12,w/2+.025])parts.push(r(x+offset,y+.14,w/2-.145,.23,'#dedfd8',.06));
+      } else parts.push(r(x+.05,y+.05,w-.1,h-.1,p.floor,.08),r(x+.08,y+.08,w-.16,Math.min(.28,h*.25),'#dedfd8'));
+    }
     else if(['shower','tub','basin'].includes(f.kind))parts.push(r(x+.06,y+.06,w-.12,h-.12,f.kind==='shower'?p.metal:'#587582',f.kind==='tub'?.18:.05));
     else if(f.kind==='toilet') {
       // Local +X is the bowl direction; rotate within the recorded envelope.

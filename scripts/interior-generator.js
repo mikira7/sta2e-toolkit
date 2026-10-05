@@ -47,6 +47,8 @@ export async function openInteriorGenerator(input={}) {
     ${label("Hull-section intersections",`<select name="junctions">${options(INTERIOR_JUNCTIONS,initial.junctions)}</select>`)}
     ${label("Cabin arrangement",`<select name="cabinLayout">${options(INTERIOR_CABINS,initial.cabinLayout)}</select>`)}
     <p class="interior-help">SVG cabin plans reuse the measured single cabins, junior-officer pair with shared head, and one-, two- or three-bedroom suites with closets. These choices switch to hull sections and reserve full-size rectangular bays. Mixed accommodation cycles through the plans as quarters are placed. Include Crew quarters in your room selection.</p>
+    <p class="interior-help">Habitat run builds an encounter slice: a passageway with an isolation door at each cut end, cabins along the hull as rows of living, bed, closet and head sections (single, junior-officer pair, officer's suite, two- and three-bedroom family), a lift bay with a branch corridor, and support rooms inboard. Standard or officer cabin arrangements fix the cabin type; otherwise the department mix chooses.</p>
+    <p class="interior-help">Jefferies tube network is crawlways only: octagonal junction chambers joined by one-square tubes running straight or at 45°, ladder access points at dead ends, a sealable door at each end of every tube, and hatches out to deck access at the map edge. It ignores the room selection; size sets how far the network spreads.</p>
     <p class="interior-help">Galaxy and Intrepid use fixed design radii for encounter sections, not canonical full-deck plans. Branches and 2 × 1 access alcoves apply to hull sections. Standard and officer cabin studies guide sleeping, work and lounge placement.</p>
     <label class="interior-row"><input type="checkbox" name="curved" ${initial.curved?"checked":""}> Curved hull and passageways</label>
     <label class="interior-row"><input type="checkbox" name="hullWindows" ${initial.hullWindows?"checked":""}> Windows in exterior cabins and lounges</label>
@@ -90,7 +92,7 @@ export async function openInteriorGenerator(input={}) {
           const revision=++previewRevision;
           try {
             recipe=readInteriorForm(root,brushEditor?.getBrush()??null);
-            root.querySelectorAll("[data-room-kind]").forEach(el=>el.disabled=!!recipe.brush||recipe.roomTypes===null);
+            root.querySelectorAll("[data-room-kind]").forEach(el=>el.disabled=!!recipe.brush||recipe.roomTypes===null||recipe.plan==="jefferies");
             for(const [key,path]of Object.entries(interiorAssetPaths(recipe))) {
               const thumbnail=root.querySelector(`[data-asset-thumb="${key}"]`);thumbnail.hidden=!path;if(path)thumbnail.src=path;else thumbnail.removeAttribute("src");
             }
@@ -158,7 +160,7 @@ export async function openInteriorGenerator(input={}) {
           root.querySelectorAll("button,input,select").forEach(el=>el.disabled=true);
           try {return await createInteriorScene(recipe,{name:root.querySelector('[name="sceneName"]').value});}
           catch(error) {ui.notifications.error(`Could not create interior: ${error.message}`);throw error;}
-          finally {busy=false;root.querySelectorAll("button,input,select").forEach(el=>el.disabled=false);brushEditor?.refresh();root.querySelectorAll("[data-room-kind]").forEach(el=>el.disabled=!!recipe.brush||recipe.roomTypes===null);}
+          finally {busy=false;root.querySelectorAll("button,input,select").forEach(el=>el.disabled=false);brushEditor?.refresh();root.querySelectorAll("[data-room-kind]").forEach(el=>el.disabled=!!recipe.brush||recipe.roomTypes===null||recipe.plan==="jefferies");}
         }}, {action:"cancel",label:"Cancel"}],
     });
   } finally {previewRevision++;activeDialog=null;if(previewURL)URL.revokeObjectURL(previewURL);}

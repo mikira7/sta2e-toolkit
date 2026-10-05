@@ -12,7 +12,7 @@ class Filter {
   destroy(){this.destroyed=true;}
 }
 const ticker={add:fn=>ticks.add(fn),remove:fn=>ticks.delete(fn)};
-const game={user:{id:'gm',isGM:true},users:{activeGM:{id:'gm'}},scenes:[scene],time:{serverTime:12000}};
+const game={user:{id:'gm',isGM:true},users:{contents:[{id:'gm',isGM:true,active:true},{id:'other',isGM:true,active:true}],get(id){return this.contents.find(u=>u.id===id);}},settings:{designated:'',get(){return this.designated;}},scenes:[scene],time:{serverTime:12000}};
 const canvas={app:{ticker,renderer:{resolution:2,CONTEXT_UID:0,shader:{generateProgram(filter){compiles++;filter.program.glPrograms[canvas.app.renderer.CONTEXT_UID]={program:{}};}},gl:{LINK_STATUS:1,getProgramParameter:()=>true}}},tokens:{placeables:[]}};
 const context=vm.createContext({console,game,canvas,PIXI:{Filter},
   setTimeout:(fn,ms)=>{const id=++serial;timers.set(id,{fn,at:game.time.serverTime+ms});return id;},
@@ -75,8 +75,8 @@ const offscene=token('offscene',true);
 await fx.setTrekFx(offscene,'blueDissolve',true);fire('canvasTearDown');
 await advance(6500);assert.equal(offscene.document.deletions,1);
 const takeover=token('takeover',true);await fx.setTrekFx(takeover,'blueDissolve',true);
-game.users.activeGM={id:'other'};await advance(6500);assert.equal(takeover.document.deletions,0);
-game.users.activeGM={id:'gm'};await advance(1000);assert.equal(takeover.document.deletions,1);
+game.settings.designated='other';await advance(6500);assert.equal(takeover.document.deletions,0);
+game.settings.designated='gm';await advance(1000);assert.equal(takeover.document.deletions,1);
 const reload=token('reload',true);
 await reload.document.update({'blueDissolve':true,'startedAt':game.time.serverTime-7000});
 fire('ready');await advance(0);assert.equal(reload.document.deletions,1);

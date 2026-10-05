@@ -214,9 +214,8 @@ export function registerRegionTerrainBehaviors() {
   Hooks.on("canvasReady", invalidateRegionFeatures);
   Hooks.on("controlToken", _refreshIfShrouded);
   // Becoming (or ceasing to be) the active GM changes what this client may see.
-  Hooks.on("updateSetting", (setting) => {
-    if (setting?.key === "sta2e-toolkit.activeGmUserId") _refreshVisibility();
-  });
+  // The setting's onChange hook, not updateSetting, which misses the first write.
+  Hooks.on("sta2eActiveGmChanged", () => _refreshVisibility());
   Hooks.on("userConnected", () => _refreshVisibility());
   Hooks.on("updateToken", (_doc, changes) => {
     if ("x" in changes || "y" in changes) _refreshIfShrouded();

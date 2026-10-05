@@ -85,8 +85,49 @@ export function activeGmWhisperIds(...extraIds) {
   return [...ids];
 }
 
-/** Write the designation. Any GM may claim or hand off. */
+/**
+ * Fired on every client whenever the designation changes. Listen for this, not
+ * `updateSetting`: the very first write in a world CREATES the Setting
+ * document, which fires `createSetting` instead, so an `updateSetting`
+ * listener misses it and the change only appeared once someone reconnected.
+ * Called from the setting's `onChange`, which core runs for both.
+ */
+export const ACTIVE_GM_CHANGED_HOOK = "sta2eActiveGmChanged";
+
+export const SET_ACTIVE_GM_ACTION = "setActiveGm";
+
+/**
+ * Write the designation. Any GM may claim or hand off. An assistant GM may
+ * lack the core SETTINGS_MODIFY permission (it is configurable per world), so
+ * in that case the write is relayed to a connected user who has it.
+ */
 export async function setActiveGM(userId) {
   if (!game.user?.isGM) return;
-  await game.settings.set(MODULE, ACTIVE_GM_SETTING, userId ?? "");
+  const value = userId ?? "";
+  if (!game.user.can("SETTINGS_MODIFY")) {
+    const relay = game.users?.getDesignatedUser?.(u => u.active && u.can("SETTINGS_MODIFY"));
+    if (!relay) {
+      ui.notifications?.warn("STA2e Toolkit: No connected user is allowed to change world settings, so the Active GM cannot be changed.");
+      return;
+    }
+    game.socket?.emit(`module.${MODULE}`, { action: SET_ACTIVE_GM_ACTION, userId: value, requesterUserId: game.user.id });
+    return;
+  }
+  try {
+    await game.settings.set(MODULE, ACTIVE_GM_SETTING, value);
+  } catch (err) {
+    console.error("STA2e Toolkit | Active GM write failed:", err);
+    ui.notifications?.error("STA2e Toolkit: Could not change the Active GM. See the console for details.");
+  }
+}
+
+/** Socket side of the relay above: exactly one permitted client performs it. */
+export async function handleSetActiveGmRequest(msg) {
+  const relay = game.users?.getDesignatedUser?.(u => u.active && u.can("SETTINGS_MODIFY"));
+  if (!relay?.isSelf) return;
+  if (!game.users.get(msg?.requesterUserId)?.isGM) return;
+  const target = msg.userId ?? "";
+  if (target && !game.users.get(target)?.isGM) return;
+  try { await game.settings.set(MODULE, ACTIVE_GM_SETTING, target); }
+  catch (err) { console.error("STA2e Toolkit | relayed Active GM write failed:", err); }
 }
