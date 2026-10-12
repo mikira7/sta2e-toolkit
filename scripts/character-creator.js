@@ -1928,10 +1928,11 @@ function supportingStressMax(attributes = {}, disciplines = {}, items = [], isSu
   const hasValue = items.some(item => item?.type === "value");
   if (!isSupervisory && !hasValue) return 0;
 
-  let max = fitness;
+  // sta v2.8.0: Mental Discipline replaces Fitness with Control; Tough and
+  // Resolute still apply on top.
+  let max = hasItemNamed("mental discipline") ? control : fitness;
   if (hasItemNamed("tough")) max += 2;
   if (hasItemNamed("resolute")) max += command;
-  if (hasItemNamed("mental discipline")) max = control;
   if (!isSupervisory) max = Math.ceil(max / 2);
   return Math.max(0, max);
 }
@@ -8299,7 +8300,7 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
         strmod: 0,
         rollrepnotdis: false,
         upbringing: "",
-        npcType: "minor",
+        npcType: context.isSupervisoryCharacter ? "supervising" : "supporting",
         showklingon: false,
       },
       prototypeToken: {

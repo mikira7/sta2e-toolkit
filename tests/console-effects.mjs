@@ -11,7 +11,7 @@ class Container {
   constructor() { this.children = []; this.position = { set: (x, y) => { this.x = x; this.y = y; } }; }
   addChild(...children) { for (const child of children) { this.children.push(child); child.parent = this; } return children[0]; }
   removeChild(child) { this.children = this.children.filter(c => c !== child); child.parent = null; }
-  destroy(options) { this.destroyed = true; if (options?.children) for (const child of this.children) child.destroy(); }
+  destroy(options) { this.destroyed = true; if (options?.children) for (const child of this.children) child.destroy(options); }
 }
 class Graphics extends Container {
   // PIXI 8 still exposes deprecated legacy methods; version detection must
@@ -125,6 +125,79 @@ assert.equal(ticks.size, 3);
 assert.equal(api.handleConsoleEffectSocket({ action: api.CONSOLE_EFFECT_STOP_ACTION, userId: "gm", sceneId: "bridge" }), true);
 assert.equal(ticks.size, 0);
 game.user.isGM = true;
+
+// Radius touches token edges; hidden/outside tokens stay untouched. Motion is local,
+// shared by simultaneous bursts, and released on exit, cancellation and teardown.
+const near = { x: 180, y: 180, w: 100, h: 100, isVisible: true, mesh: { x: 230, y: 230 } };
+const far = { x: 500, y: 500, w: 100, h: 100, mesh: { x: 550, y: 550 } };
+const hidden = { ...near, isVisible: false, mesh: { x: 230, y: 230 } };
+canvas.tokens = { placeables: [near, far, hidden] };
+for (let i = 0; i < 2; i++) api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", preview: true });
+tick(100);
+assert.notEqual(near.mesh.x, 230, "token whose edge intersects radius jitters");
+assert.ok(Math.abs(near.mesh.x - 230) <= 2, "overlapping bursts do not accumulate offsets");
+assert.equal(far.mesh.x, 550); assert.equal(hidden.mesh.x, 230);
+api.stopConsoleEffectsLocal(); assert.equal(near.mesh.x, 230); assert.equal(near.mesh.y, 230);
+api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", preview: true }); tick(100);
+near.x = 400; near.mesh.x = 450; near.mesh.y = 230;
+tick(30); assert.equal(near.mesh.x, 450, "leaving radius preserves newly assigned movement");
+api.stopConsoleEffectsLocal();
+near.x = 180; near.mesh.x = 230;
+api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", preview: true }); tick(100); tick(2500);
+assert.equal(near.mesh.x, 230, "natural completion restores token position");
+canvas.tokens.placeables = [];
+
+// Exercise the textured overlay as well as the renderer fallback above.
+const sprites = [];
+const portraitTexture = { orig: { width: 2048, height: 2048 } };
+let portraitLoads = 0;
+context.loadTexture = async path => {
+  assert.equal(path, "modules/sta2e-toolkit/assets/vfx/electrocution-token.png");
+  portraitLoads++; return portraitTexture;
+};
+context.PIXI.Sprite = class extends Container {
+  constructor(texture) { super(); this.texture = texture; this.anchor = { copyFrom(value) { Object.assign(this, value); } }; sprites.push(this); }
+};
+context.PIXI.Point = class { constructor(x, y) { this.x = x; this.y = y; } };
+context.PIXI.Matrix = class { constructor(...values) { this.values = values; } };
+Container.prototype.toLocal = function(p) { return { x: p.x - (this.x ?? 0), y: p.y - (this.y ?? 0) }; };
+Container.prototype.setFromMatrix = function(matrix) { this.matrix = matrix; };
+near.mesh.texture = { orig: { width: 200, height: 100 } };
+near.mesh.anchor = { x: .5, y: .5 };
+near.mesh.toGlobal = p => ({ x: near.mesh.x + p.x * .5, y: near.mesh.y + p.y });
+canvas.tokens.placeables = [near];
+api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", preview: true }); tick(100);
+assert.equal(sprites.length, 2, "charge reuses token texture for flash and artwork mask");
+const chargeDisplay = sprites[0].parent;
+assert.equal(chargeDisplay.children[2].mask, sprites[0], "crawling arcs clipped to artwork");
+assert.equal(chargeDisplay.matrix.values[0], .5, "overlay follows token texture scaling");
+assert.equal(sprites[1].visible, false, "original-art flash stays hidden behind skeleton");
+assert.equal(near.mesh.renderable, false, "original token artwork hidden during shock");
+assert.ok(chargeDisplay.children[1].alpha >= .85, "skeleton stays legible between flashes");
+await new Promise(resolve => setImmediate(resolve));
+const portrait = chargeDisplay.children[1].children[0];
+assert.equal(portrait.texture, portraitTexture, "reference portrait replaces procedural fallback");
+assert.ok(Math.abs(portrait.width - 100) < .001, "circular portrait fits the token footprint");
+assert.equal(portrait.tint, 0x79baff, "token portrait receives the electrical blue tint");
+api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", duration: .4, preview: true }); tick(450);
+assert.equal(near.mesh.renderable, false, "ending an overlapping burst does not reveal artwork early");
+api.stopConsoleEffectsLocal();
+assert.equal(near.mesh.renderable, true, "last charge restores original artwork");
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(portraitLoads, 1, "portrait texture shared across charges");
+assert.ok(sprites.every(sprite => sprite.destroyed), "overlay resources released");
+assert.equal(near.mesh.x, 230);
+const portraitCount = sprites.filter(sprite => sprite.texture === portraitTexture).length;
+api.triggerConsoleEffects({ ids: [ids[0]], kind: "electric", skeleton: false, preview: true }); tick(100);
+assert.equal(near.mesh.renderable, true, "unchecked overlay keeps the original token visible");
+assert.notEqual(near.mesh.x, 230, "electrical jitter still plays without skeleton");
+assert.equal(sprites.filter(sprite => sprite.texture === portraitTexture).length, portraitCount,
+  "unchecked overlay does not create a skeleton portrait");
+api.stopConsoleEffectsLocal(); assert.equal(near.mesh.x, 230);
+assert.equal(api.triggerConsoleEffects({ ids: [ids[0]], skeleton: false }), true);
+assert.equal(emitted.at(-1).msg.skeleton, false, "checkbox choice is sent to other clients");
+api.stopConsoleEffectsLocal();
+canvas.tokens.placeables = [];
 
 version = 8; context.PIXI.VERSION = "8";
 for (const kind of ["electric", "explosion"]) {

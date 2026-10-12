@@ -196,6 +196,7 @@ export function regionHazardView(feature) {
     label:                 s.label || HAZARD_TYPES[type]?.label || "Hazard",
     category:              s.category || "terrain",
     description:           s.description ?? "",
+    vfx:                   { mode: s.visualMode, intensity: s.visualIntensity, color: s.visualColor, sound: s.visualSound },
     momentumCost:          _cost(s.momentumCost),
     established:           !!est.established,
     establishedDamage:     est.damage ?? null,

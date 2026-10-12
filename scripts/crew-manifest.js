@@ -176,13 +176,189 @@ export async function setAssignedShips(actor, shipIds) {
   await doc.setFlag(MODULE, SHIPS_FLAG, normalizeAssignedShips(shipIds));
 }
 
+// ── Station assignment rule ──────────────────────────────────────────────────
+// One station per officer. Command is the only two-seat station (Captain and
+// First Officer, by index); every other station holds one officer, and putting
+// someone there replaces whoever held it. These two functions are the sole
+// owners of that rule — the manifest dialog, the ship sheet's Crew tab and the
+// LCARS ring all go through them, so the three cannot disagree again.
+
+/**
+ * Returns a NEW manifest with `actorId` moved to `stationId`.
+ * @param {object} manifest   Any manifest shape; it is normalised first.
+ * @param {string} actorId
+ * @param {string|null} stationId  null/"" = unassign everywhere.
+ * @param {number|null} seatIndex  Command seat index; ignored elsewhere. When
+ *   omitted for Command, the first vacant seat is used, else the Captain's.
+ */
+export function assignOfficer(manifest, actorId, stationId, seatIndex = null) {
+  const next = unassignOfficer(manifest, actorId);
+  if (!actorId || !stationId) return next;
+  const slot = STATION_SLOTS.find(s => s.id === stationId);
+  if (!slot) return next;
+
+  if (stationId === "command") {
+    let seat = Number.isInteger(seatIndex) ? seatIndex : next.command.findIndex(id => !id);
+    if (!COMMAND_SEATS.some(s => s.index === seat)) seat = 0;
+    next.command[seat] = actorId;
+  } else {
+    next[stationId] = [actorId];
+  }
+  return next;
+}
+
+/** Returns a NEW manifest with `actorId` removed from every station. */
+export function unassignOfficer(manifest, actorId) {
+  const next = _normalizeManifest(manifest);
+  for (const slot of STATION_SLOTS) {
+    next[slot.id] = slot.id === "command"
+      ? next.command.map(id => (id === actorId ? null : id))
+      : next[slot.id].filter(id => id !== actorId);
+  }
+  return next;
+}
+
+/** Where `actorId` sits in this manifest: { stationId, seatIndex } or null. */
+export function findOfficerStation(manifest, actorId) {
+  const m = _normalizeManifest(manifest);
+  for (const slot of STATION_SLOTS) {
+    const index = (m[slot.id] ?? []).indexOf(actorId);
+    if (index >= 0) return { stationId: slot.id, seatIndex: slot.id === "command" ? index : null };
+  }
+  return null;
+}
+
+/** Display label for a station (and Command seat). */
+export function stationLabel(stationId, seatIndex = null) {
+  if (stationId === "command") {
+    const seat = COMMAND_SEATS.find(s => s.index === seatIndex);
+    return seat ? (seat.index === 0 ? "Captain" : "First Officer") : "Command";
+  }
+  return STATION_SLOTS.find(s => s.id === stationId)?.label ?? stationId;
+}
+
+// ── Ship's company ───────────────────────────────────────────────────────────
+// Who serves aboard a ship. Three sources, unioned:
+//   • "toolkit"    — the character's assignedShips flag (Assign Ships button)
+//   • "assignment" — the sta system's Assignment field equal to the ship name,
+//                    which is exactly how its Ship Roster finds a ship's crew
+//   • "manifest"   — anyone holding a station on this ship
+// Adding someone writes the first two, so the system's roster sees them too.
+
+export const SHIP_CREW_ACTION = "shipCrewUpdate";
+
+/** The world actor a ship's crew membership is keyed by. */
+function _shipWorldActor(ship) {
+  if (!ship) return null;
+  return ship.isToken ? (game.actors.get(ship.id ?? ship._id) ?? ship) : ship;
+}
+
+function _sameName(a, b) {
+  return String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase()
+    && String(a ?? "").trim() !== "";
+}
+
+/**
+ * The ship's company, sorted Command first, then by station order, then the
+ * unassigned crew by name.
+ * @returns {{actor, sources: string[], stationId: string|null, seatIndex: number|null}[]}
+ */
+export function getShipCrew(ship) {
+  const world = _shipWorldActor(ship);
+  if (!world) return [];
+  const manifest = getCrewManifest(ship);
+  const byId = new Map();
+  const add = (actor, source) => {
+    if (!actor) return;
+    const entry = byId.get(actor.id) ?? { actor, sources: [] };
+    if (!entry.sources.includes(source)) entry.sources.push(source);
+    byId.set(actor.id, entry);
+  };
+
+  for (const actor of game.actors) {
+    if (actor.type !== "character") continue;
+    const shipIds = normalizeAssignedShips(actor.getFlag?.(MODULE, SHIPS_FLAG));
+    if (shipIds.includes(world.id)) add(actor, "toolkit");
+    if (_sameName(actor.system?.assignment, world.name)) add(actor, "assignment");
+  }
+  for (const slot of STATION_SLOTS) {
+    for (const id of manifest[slot.id] ?? []) if (id) add(game.actors.get(id), "manifest");
+  }
+
+  const order = (e) => {
+    if (e.stationId === "command") return e.seatIndex ?? 0;
+    const i = STATION_SLOTS.findIndex(s => s.id === e.stationId);
+    return i >= 0 ? 10 + i : 100;
+  };
+  return [...byId.values()]
+    .map(e => ({ ...e, ...(findOfficerStation(manifest, e.actor.id) ?? { stationId: null, seatIndex: null }) }))
+    .sort((a, b) => order(a) - order(b) || a.actor.name.localeCompare(b.actor.name));
+}
+
+/** Is this actor part of the ship's company by any source? */
+export function isShipCrew(ship, actor) {
+  return !!actor && getShipCrew(ship).some(e => e.actor.id === actor.id);
+}
+
+/**
+ * Add a character to the ship's company. Writes route themselves: a user who
+ * cannot update the character (a player who owns the ship but not the other
+ * PCs) asks the active GM over the socket, which runs applyShipCrewRequest.
+ * Returns the character's previous Assignment text when this replaced it.
+ */
+export async function addShipCrew(ship, actor) {
+  return _routeShipCrewWrite("add", ship, actor);
+}
+
+/** Remove a character from the ship's company and from this ship's stations. */
+export async function removeShipCrew(ship, actor) {
+  if (!ship || !actor) return;
+  const manifest = getCrewManifest(ship);
+  if (findOfficerStation(manifest, actor.id)) await setCrewManifest(ship, unassignOfficer(manifest, actor.id));
+  return _routeShipCrewWrite("remove", ship, actor);
+}
+
+async function _routeShipCrewWrite(op, ship, actor) {
+  const world = _shipWorldActor(ship);
+  const target = actor?.isToken ? (game.actors.get(actor.id) ?? actor) : actor;
+  if (!world || !target) return null;
+  if (target.canUserModify?.(game.user, "update")) return applyShipCrewRequest(op, world, target);
+  game.socket.emit(`module.${MODULE}`, { action: SHIP_CREW_ACTION, op, shipId: world.id, actorId: target.id });
+  return null;
+}
+
+/**
+ * Perform a crew membership change. Called directly by a user who may update
+ * the character, or by the active GM for a socket request.
+ */
+export async function applyShipCrewRequest(op, ship, actor) {
+  const world = _shipWorldActor(ship);
+  if (!world || !actor) return null;
+  const shipIds = normalizeAssignedShips(actor.getFlag?.(MODULE, SHIPS_FLAG));
+  const previous = String(actor.system?.assignment ?? "").trim();
+  const update = {};
+
+  if (op === "add") {
+    if (!shipIds.includes(world.id)) update[`flags.${MODULE}.${SHIPS_FLAG}`] = [...shipIds, world.id];
+    if (!_sameName(previous, world.name)) update["system.assignment"] = world.name;
+  } else if (op === "remove") {
+    if (shipIds.includes(world.id)) update[`flags.${MODULE}.${SHIPS_FLAG}`] = shipIds.filter(id => id !== world.id);
+    if (_sameName(previous, world.name)) update["system.assignment"] = "";
+  } else {
+    return null;
+  }
+  if (Object.keys(update).length) await actor.update(update);
+  // Tell the caller what Assignment text was overwritten, so it can say so.
+  return op === "add" && previous && !_sameName(previous, world.name) ? previous : null;
+}
+
 // ── Drag data resolution ──────────────────────────────────────────────────────
 
 /**
  * Resolve an Actor from Foundry drag-transfer data.
  * Handles both Actor drags (from sidebar) and Token drags (from canvas).
  */
-function _actorFromDragData(data) {
+export function actorFromDragData(data) {
   let actor = null;
 
   if (data.type === "Actor") {
@@ -291,12 +467,10 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
         : "";
       const dropZone = slot.id === "command"
         ? commandDropZones
-        : assigned.length < slot.maxOfficers
-          ? buildDropZone("Drop token here")
-          : "";
+        : buildDropZone(assigned.length < slot.maxOfficers ? "Drop token here" : "Drop to replace");
       const canAddMore = slot.id === "command"
         ? COMMAND_SEATS.some(({ index }) => !manifest.command[index])
-        : assigned.length < slot.maxOfficers;
+        : true;
 
       return `
         <div style="margin-bottom:8px;padding:6px 8px;
@@ -318,7 +492,7 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
       <div style="font-family:${LC.font};padding:4px;">
         <div style="font-size:9px;color:${LC.textDim};margin-bottom:10px;line-height:1.5;">
           Drag a token from the canvas and drop it onto a station to assign that officer.
-          A character may hold up to two stations.
+          An officer holds one station; assigning them elsewhere moves them.
           Command supports two officers (Captain + First Officer).
         </div>
         ${rows}
@@ -367,49 +541,21 @@ export async function openCrewManifest(shipActor, shipToken, onClose) {
           return;
         }
 
-        const actor = _actorFromDragData(data);
+        const actor = actorFromDragData(data);
         if (!actor) {
           ui.notifications.warn("STA2e Toolkit: Drop a character token — ship tokens cannot be assigned as officers.");
           return;
         }
 
         const stationId = zone.dataset.station;
-        const slot      = STATION_SLOTS.find(s => s.id === stationId);
-        const current   = manifest[stationId] ?? [];
         const commandSeatIndex = zone.dataset.commandSeat === undefined
           ? null
           : Number(zone.dataset.commandSeat);
 
-        if (current.filter(Boolean).length >= slot.maxOfficers && commandSeatIndex === null) {
-          ui.notifications.warn(`STA2e Toolkit: ${slot.label} is full.`);
-          return;
-        }
-        if (commandSeatIndex !== null && current[commandSeatIndex]) {
-          ui.notifications.warn(`STA2e Toolkit: The selected Command seat is occupied.`);
-          return;
-        }
-        if (current.includes(actor.id)) {
-          ui.notifications.warn(`STA2e Toolkit: ${actor.name} is already at ${slot.label}.`);
-          return;
-        }
-
-        // Enforce max two stations per officer
-        const totalAssigned = STATION_SLOTS.reduce((n, s) => {
-          return n + ((manifest[s.id] ?? []).includes(actor.id) ? 1 : 0);
-        }, 0);
-        if (totalAssigned >= 2) {
-          ui.notifications.warn(`STA2e Toolkit: ${actor.name} is already assigned to two stations.`);
-          return;
-        }
-
-        if (stationId === "command") {
-          const nextCommand = [current[0] ?? null, current[1] ?? null];
-          nextCommand[commandSeatIndex ?? nextCommand.findIndex(id => !id)] = actor.id;
-          manifest.command = nextCommand;
-        } else {
-          manifest[stationId] = [...current, actor.id];
-        }
+        // One station per officer: this moves them off any other station.
+        Object.assign(manifest, assignOfficer(manifest, actor.id, stationId, commandSeatIndex));
         await setCrewManifest(shipActor, manifest);
+        if (!isShipCrew(shipActor, actor)) await addShipCrew(shipActor, actor);
 
         const body = el.querySelector(".dialog-content") ?? el.querySelector(".window-content");
         if (body) {

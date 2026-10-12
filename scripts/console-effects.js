@@ -78,7 +78,7 @@ export function chooseConsoleLocations(locations, count, random = Math.random) {
 }
 
 export function triggerConsoleEffects({ ids, count = 1, kind = "electric", duration = 2.5,
-  shake = false, shakeOptions, preview = false } = {}) {
+  shake = false, shakeOptions, skeleton = true, preview = false } = {}) {
   if (!game.user?.isGM || !canvas?.ready || !canvas.scene) return false;
   const locations = getConsoleLocations();
   const selected = Array.isArray(ids) ? locations.filter(p => ids.includes(p.id)).slice(0, 16)
@@ -88,7 +88,7 @@ export function triggerConsoleEffects({ ids, count = 1, kind = "electric", durat
     sceneId: canvas.scene.id, duration: bound(duration, 2.5, 0.4, 6), seed: Math.floor(Math.random() * 4294967296),
     locations: selected.map(p => ({ ...p, kind: kind === "mixed" ? (Math.random() < 0.5 ? "electric" : "explosion")
       : kind === "explosion" ? "explosion" : "electric" })),
-    shake: shake === true, shakeOptions: normalizeShake(shakeOptions) };
+    shake: shake === true, shakeOptions: normalizeShake(shakeOptions), skeleton: skeleton !== false };
   if (!handleConsoleEffectSocket(event)) return false;
   if (!preview) game.socket.emit(`module.${MODULE}`, event);
   return true;
@@ -139,6 +139,194 @@ function line(g, points, width, color, alpha) {
   if (legacy) g.lineStyle(0); else g.stroke({ width, color, alpha, cap: "round", join: "round" });
 }
 
+/** Midpoint displacement keeps the ends anchored while giving each discharge forks. */
+function electricalArc(g, from, to, random, alpha, width = 1) {
+  let path = [from, to];
+  let displacement = Math.hypot(to[0] - from[0], to[1] - from[1]) * .18;
+  for (let depth = 0; depth < 4; depth++) {
+    const next = [path[0]];
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i], angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const offset = (random() - .5) * displacement * 2;
+      next.push([(a[0] + b[0]) / 2 - Math.sin(angle) * offset,
+        (a[1] + b[1]) / 2 + Math.cos(angle) * offset], b);
+    }
+    path = next; displacement *= .52;
+  }
+  line(g, path, width * 8, 0x2255ff, alpha * .07);
+  line(g, path, width * 3, 0x55bbff, alpha * .3);
+  line(g, path, width, 0xe8faff, alpha);
+  for (const i of [5, 10]) {
+    const a = path[i], b = path[i + 3];
+    const end = [b[0] + (random() - .5) * displacement * 20, b[1] + (random() - .5) * displacement * 20];
+    line(g, [a, [(a[0] + end[0]) / 2, b[1]], end], width * .6, 0x8bdcff, alpha * .55);
+  }
+}
+
+// Share one offset among overlapping bursts and never write token documents.
+const electricalJitters = new Map();
+// Reference counts keep the artwork hidden until the last overlapping charge ends.
+const electricalArtwork = new Map();
+function releaseJitter(mesh, owner) {
+  const state = electricalJitters.get(mesh);
+  if (!state) return;
+  state.owners.delete(owner);
+  if (state.owners.size) return;
+  if (!mesh.destroyed) {
+    if (mesh.x === state.x) mesh.x -= state.dx;
+    if (mesh.y === state.y) mesh.y -= state.dy;
+  }
+  electricalJitters.delete(mesh);
+}
+function jitterToken(mesh, owner, time, strength) {
+  let state = electricalJitters.get(mesh);
+  if (!state) {
+    state = { owners: new Set(), dx: 0, dy: 0, x: mesh.x, y: mesh.y };
+    electricalJitters.set(mesh, state);
+  }
+  state.owners.add(owner);
+  const x = mesh.x - (mesh.x === state.x ? state.dx : 0);
+  const y = mesh.y - (mesh.y === state.y ? state.dy : 0);
+  state.dx = Math.sin(time * .137) * strength;
+  state.dy = Math.sin(time * .193 + 1) * strength * .7;
+  mesh.x = state.x = x + state.dx; mesh.y = state.y = y + state.dy;
+}
+
+function tokenInElectricalRadius(token, point, radius) {
+  if (token.destroyed || token.isVisible === false || token.visible === false
+    || (token.document?.hidden && !game.user?.isGM) || !token.mesh || token.mesh.destroyed
+    || token.mesh.visible === false
+    || (token.mesh.renderable === false && !electricalArtwork.has(token.mesh)) || token.mesh.alpha === 0) return false;
+  const x = Math.max(token.x, Math.min(point.x, token.x + token.w));
+  const y = Math.max(token.y, Math.min(point.y, token.y + token.h));
+  return Math.hypot(x - point.x, y - point.y) <= radius;
+}
+
+let skeletonTexturePromise;
+function loadSkeletonTexture() {
+  if (!skeletonTexturePromise) skeletonTexturePromise = (async () => {
+    const path = `modules/${MODULE}/assets/vfx/electrocution-token.png`;
+    try {
+      if (globalThis.foundry?.canvas?.loadTexture) return await foundry.canvas.loadTexture(path);
+      if (globalThis.loadTexture) return await loadTexture(path);
+      if (PIXI.Assets?.load) return await PIXI.Assets.load(path);
+    } catch (error) { console.warn("STA2e Toolkit | Skeleton portrait unavailable:", error); }
+    return null;
+  })();
+  return skeletonTexturePromise;
+}
+
+/** Reference portrait with the procedural skeleton retained as a loading fallback. */
+function createElectricalSkeleton(mesh) {
+  const display = new PIXI.Container(), fallback = createFallbackElectricalSkeleton(mesh);
+  display.eventMode = "none"; display.addChild(fallback);
+  loadSkeletonTexture().then(texture => {
+    if (!texture || display.destroyed) return;
+    const portrait = new PIXI.Sprite(texture);
+    const w = mesh.texture.orig.width, h = mesh.texture.orig.height;
+    const size = Math.min(w, h);
+    portrait.width = portrait.height = size;
+    portrait.tint = 0x79baff;
+    portrait.position.set((.5 - mesh.anchor.x) * w - size / 2, (.5 - mesh.anchor.y) * h - size / 2);
+    display.removeChild(fallback); fallback.destroy(); display.addChild(portrait);
+  });
+  return display;
+}
+
+/** A compact, outlined cartoon skeleton, drawn once in token texture coordinates. */
+function createFallbackElectricalSkeleton(mesh) {
+  const g = new PIXI.Graphics();
+  const w = mesh.texture.orig.width, h = mesh.texture.orig.height;
+  const unit = Math.min(w, h) * 1.3;
+  const cx = (.5 - mesh.anchor.x) * w, cy = (.5 - mesh.anchor.y) * h;
+  const point = (x, y) => [cx + x * unit, cy + y * unit];
+  const ink = 0x10283e, bone = 0xf0fcff;
+  const disc = (x, y, r, color) => circle(g, ...point(x, y), r * unit, color, 1);
+  const stroke = (points, width = .024) => {
+    const path = points.map(([x, y]) => point(x, y));
+    line(g, path, unit * (width + .025), ink, 1);
+    line(g, path, unit * width, bone, 1);
+  };
+  // Bent arms, splayed fingers and knock-kneed legs give the shock a comic pose.
+  stroke([[0, -.18], [0, .17]], .032);
+  for (const side of [-1, 1]) {
+    const s = points => points.map(([x, y]) => [x * side, y]);
+    stroke(s([[0, -.15], [.14, -.13], [.23, .01], [.31, -.16]]));
+    for (const [x, y] of [[.27, -.24], [.33, -.25], [.38, -.2]]) {
+      stroke(s([[.31, -.16], [x, y]]), .015);
+    }
+    for (let rib = 0; rib < 3; rib++) {
+      const y = -.105 + rib * .063;
+      stroke(s([[0, y], [.09, y - .018], [.115, y + .008], [.075, y + .04], [0, y + .025]]), .016);
+    }
+    stroke(s([[0, .15], [.085, .19], [.055, .24], [0, .21]]), .028);
+    stroke(s([[.065, .22], [.13, .32], [.095, .43], [.19, .44]]), .03);
+    disc(side * .13, .32, .024, bone);
+  }
+  // Oversized skull, dark sockets and a toothy grin remain legible when zoomed out.
+  disc(0, -.31, .139, ink); disc(0, -.31, .121, bone);
+  stroke([[-.064, -.255], [-.055, -.197], [.055, -.197], [.064, -.255]], .033);
+  for (const side of [-1, 1]) disc(side * .047, -.32, .032, ink);
+  disc(0, -.268, .015, ink);
+  line(g, [point(-.045, -.229), point(.045, -.229)], unit * .011, ink, 1);
+  for (const x of [-.024, 0, .024]) {
+    line(g, [point(x, -.244), point(x, -.213)], unit * .009, ink, 1);
+  }
+  g.eventMode = "none";
+  return g;
+}
+
+/** Texture-alpha mask makes the flash and crawling arcs cover the actual artwork. */
+function createTokenCharge(mesh, container, showSkeleton) {
+  if (!PIXI.Sprite || !mesh.texture) return null;
+  const display = new PIXI.Container(), mask = new PIXI.Sprite(mesh.texture);
+  const flash = new PIXI.Sprite(mesh.texture), arcs = new PIXI.Graphics();
+  for (const sprite of [mask, flash]) sprite.anchor.copyFrom(mesh.anchor);
+  flash.tint = 0x80dfff; flash.blendMode = PIXI.BLEND_MODES?.ADD ?? "add";
+  arcs.blendMode = PIXI.BLEND_MODES?.ADD ?? "add";
+  const skeleton = showSkeleton ? createElectricalSkeleton(mesh) : null;
+  display.eventMode = "none"; display.addChild(flash);
+  if (skeleton) display.addChild(skeleton);
+  display.addChild(arcs, mask); arcs.mask = mask;
+  container.addChild(display);
+  const artwork = showSkeleton
+    ? electricalArtwork.get(mesh) ?? { count: 0, renderable: mesh.renderable ?? true } : null;
+  if (artwork) {
+    artwork.count++; electricalArtwork.set(mesh, artwork);
+    mesh.renderable = false;
+  }
+  flash.visible = false;
+  let destroyed = false;
+  return { display, update(random, alpha) {
+    // Convert the mesh's local axes through world space to handle zoom, rotation and mirroring.
+    const origin = container.toLocal(mesh.toGlobal(new PIXI.Point(0, 0)));
+    const x = container.toLocal(mesh.toGlobal(new PIXI.Point(1, 0)));
+    const y = container.toLocal(mesh.toGlobal(new PIXI.Point(0, 1)));
+    const matrix = new PIXI.Matrix(x.x-origin.x, x.y-origin.y, y.x-origin.x, y.y-origin.y, origin.x, origin.y);
+    if (display.setFromMatrix) display.setFromMatrix(matrix); else display.transform.setFromMatrix(matrix);
+    display.alpha = mesh.worldAlpha ?? mesh.alpha ?? 1;
+    if (skeleton) {
+      mesh.renderable = false;
+      skeleton.alpha = .85 + random() * .15;
+    }
+    arcs.clear();
+    const w = mesh.texture.orig.width, h = mesh.texture.orig.height;
+    const left = -mesh.anchor.x * w, top = -mesh.anchor.y * h;
+    for (let i = 0; i < 7; i++) {
+      electricalArc(arcs, [left + random() * w, top], [left + random() * w, top + h], random,
+        alpha, Math.max(1.2, Math.min(w, h) * .016));
+    }
+  }, destroy() {
+    if (destroyed) return;
+    destroyed = true;
+    if (artwork && --artwork.count === 0) {
+      if (!mesh.destroyed && mesh.renderable === false) mesh.renderable = artwork.renderable;
+      electricalArtwork.delete(mesh);
+    }
+    arcs.mask = null; display.parent?.removeChild(display); display.destroy({ children: true });
+  } };
+}
+
 /** Native PIXI arcs, hot sparks, fire and smoke; works without animation packs. */
 function playBurst(point, event, index, audio) {
   if (active.size >= 32) active.values().next().value.stop();
@@ -157,6 +345,7 @@ function playBurst(point, event, index, audio) {
   const size = bound(point.size, 60, 10, 600);
   const volume = point.kind === "explosion" ? createConsoleExplosionVolume(size, seed) : null;
   const bloom = point.kind === "electric" ? createConsoleElectricalBloom(size) : null;
+  const charged = new Map();
   if (volume) container.addChild(volume.display);
   if (bloom) container.addChild(bloom.display);
   container.addChild(glow);
@@ -167,6 +356,8 @@ function playBurst(point, event, index, audio) {
     stopped = true; clearTimeout(timer); ticker.remove(tick); active.delete(handle);
     if (counted && --audio.remaining === 0) audio.stop();
     volume?.destroy(); bloom?.destroy();
+    for (const [mesh, charge] of charged) { releaseJitter(mesh, handle); charge?.destroy(); }
+    charged.clear();
     container.parent?.removeChild(container); container.destroy({ children: true });
   }
   function tick() {
@@ -179,7 +370,7 @@ function playBurst(point, event, index, audio) {
       smoke.clear(); glow.clear();
       if (point.kind === "electric") {
         const flicker = rng(seed + Math.floor(t * duration / 55));
-        const pulse = .5 + .5 * Math.sin(t * duration / 38 + seed);
+        const pulse = flicker() > .24 ? .65 + flicker() * .35 : .12;
         bloom?.update(t, pulse);
         // Soft nested falloff also provides a glow on renderers without sprites.
         if (!bloom) for (let band = 12; band > 0; band--) {
@@ -189,17 +380,25 @@ function playBurst(point, event, index, audio) {
         }
         for (let arc = 0; arc < 5; arc++) {
           const angle = flicker() * Math.PI * 2, length = size * (0.3 + flicker() * 0.8);
-          const path = [[0, 0]];
-          for (let j = 1; j <= 7; j++) {
-            const along = length * j / 7, jitter = (flicker() - 0.5) * size * 0.25;
-            path.push([Math.cos(angle) * along - Math.sin(angle) * jitter, Math.sin(angle) * along + Math.cos(angle) * jitter]);
-          }
-          line(glow, path, Math.max(5, size * 0.18), 0x2244ff, fade * 0.055);
-          line(glow, path, Math.max(3, size * 0.09), 0x3377ff, fade * 0.16);
-          line(glow, path, Math.max(1.5, size * 0.03), 0x66ccff, fade * 0.7);
-          line(glow, path, Math.max(0.6, size * 0.01), 0xf0fcff, fade);
-          const end = path[path.length - 1];
+          const end = [Math.cos(angle) * length, Math.sin(angle) * length];
+          electricalArc(glow, [0, 0], end, flicker, fade * pulse, Math.max(.7, size * .012));
           bloom?.contact(arc, end[0], end[1], fade * (.5 + pulse * .5));
+        }
+        const present = new Set();
+        for (const token of canvas.tokens?.placeables ?? []) {
+          if (!tokenInElectricalRadius(token, point, size)) continue;
+          const mesh = token.mesh; present.add(mesh);
+          if (!charged.has(mesh)) charged.set(mesh, createTokenCharge(mesh, container, event.skeleton !== false));
+          jitterToken(mesh, handle, performance.now(), Math.min(2, Math.min(token.w, token.h) * .018) * fade * pulse);
+          const end = [token.x + token.w * .5 - point.x, token.y + token.h * .5 - point.y];
+          // Keep token strikes readable between flashes and hold their brightness
+          // longer than the ambient sparks, with a thicker white-hot core.
+          const strikeAlpha = Math.min(1, t * 40) * Math.pow(1 - t, .55) * (.65 + pulse * .35);
+          electricalArc(glow, [0, 0], end, flicker, strikeAlpha, Math.max(1.8, size * .028));
+          charged.get(mesh)?.update(flicker, strikeAlpha);
+        }
+        for (const [mesh, charge] of charged) if (!present.has(mesh)) {
+          releaseJitter(mesh, handle); charge?.destroy(); charged.delete(mesh);
         }
         circle(glow, 0, 0, size * 0.16, 0x66ccff, fade * 0.25);
       } else if (volume) {
@@ -248,5 +447,6 @@ function playBurst(point, event, index, audio) {
 }
 
 export function registerConsoleEffectHooks() {
+  void loadSkeletonTexture();
   Hooks.on("canvasTearDown", () => { stopConsoleEffectsLocal(); clearConsoleCinematicTextures(); seen.clear(); });
 }

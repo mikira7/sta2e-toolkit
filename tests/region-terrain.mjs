@@ -141,6 +141,7 @@ check('lingering hazards entered are reported; immediate ones are not', () => {
 check('regionHazardView flattens established state', () => {
   setRegions(region('Storm', [rect(0, 0, 10, 10)], [
     { type: HAZARD, system: { hazardType: 'plasma-storm', category: 'terrain', label: '',
+      visualMode: 'gm', visualIntensity: 1.5, visualColor: '#aabbcc', visualSound: false,
       established: { established: true, damage: 4, damageType: 'shields', threatCost: 3, mode: 'damage' } } },
   ]));
   const [f] = T.getRegionFeatures(scene, 'hazard');
@@ -149,6 +150,10 @@ check('regionHazardView flattens established state', () => {
   assert.equal(v.established, true);
   assert.equal(v.establishedDamage, 4);
   assert.equal(v.establishedThreatCost, 3);
+  assert.equal(v.vfx.mode, 'gm');
+  assert.equal(v.vfx.intensity, 1.5);
+  assert.equal(v.vfx.color, '#aabbcc');
+  assert.equal(v.vfx.sound, false);
 });
 
 // ── Sensor Shroud ───────────────────────────────────────────────────────────

@@ -656,6 +656,20 @@ export function registerSettings() {
     onChange: () => game.sta2eToolkit?.combatHud?._refresh?.(),
   });
 
+  // Optional squad rules — the sta system's Squad / Squadron traits (v2.7.0).
+  // Off by default: the 2e core book has no squad rule, and Allies and
+  // Adversaries only offers one as optional. Gates the roller's squad assist
+  // dice and the Combat HUD's squadron damage bonus.
+  game.settings.register("sta2e-toolkit", "squadRules", {
+    name: "STA2E.Settings.SquadRules.Name",
+    hint: "STA2E.Settings.SquadRules.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: () => game.sta2eToolkit?.combatHud?._refresh?.(),
+  });
+
   // Internal — ship assignment presets  { presetName: [shipActorId, ...] }
   game.settings.register("sta2e-toolkit", "shipPresets", {
     name:    "Ship Assignment Presets",

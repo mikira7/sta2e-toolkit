@@ -30,6 +30,7 @@ import {
   imageEntryLabel,
 } from "./warp-viewscreen-behavior.js";
 import { numOrNull } from "./warp-viewscreen-vfx.js";
+import { pickImageCorners } from "./viewscreen-alignment-picker.js";
 import {
   getEnvironment,
   environmentsForSurface,
@@ -900,6 +901,15 @@ export class WarpViewscreenPanel {
 
     if (!src) return;
 
+    body.appendChild(this._mkBtn("fas fa-vector-square", "Align Image",
+      "Drag the four corners to match the angled screen, then press Enter to save",
+      LC.textDim, () => this._alignImage()));
+    if (sys.imageCorners?.length === 4) {
+      body.appendChild(this._mkBtn("fas fa-rotate-left", "Reset Alignment",
+        "Restore the rectangular image placement", LC.textDim,
+        () => this._apply({ imageCorners: [] })));
+    }
+
     body.appendChild(this._mkLabel("Fit"));
     body.appendChild(this._mkSelect(
       Object.entries(IMAGE_FIT_CHOICES).map(([value, label]) => ({ value, label })),
@@ -1224,6 +1234,27 @@ export class WarpViewscreenPanel {
       ui.notifications.error("Warp viewscreen command failed — see the console.");
     }
     this.render();
+  }
+
+  async _alignImage() {
+    const behavior = this.behavior;
+    if (!behavior || this._aligningImage) return;
+    this._aligningImage = true;
+    if (this._el) this._el.style.visibility = "hidden";
+    try {
+      const corners = await pickImageCorners(behavior.region, behavior.system.imageCorners);
+      if (corners && canvas.scene?.id === behavior.region?.parent?.id
+          && behavior.region?.behaviors?.has(behavior.id)) {
+        await behavior.update({ "system.imageCorners": corners });
+      }
+    } catch (err) {
+      console.error("STA2e Toolkit | image alignment failed:", err);
+      ui.notifications.error("Could not save image alignment — see the console.");
+    } finally {
+      this._aligningImage = false;
+      if (this._el) this._el.style.visibility = "";
+      this.render();
+    }
   }
 
   async _pickPoint(behavior) {

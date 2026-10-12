@@ -50,7 +50,7 @@ function buildQueueItem(entry, queue, container) {
   item.appendChild(name);
 
   const badge = document.createElement("span");
-  badge.className = `sw-token-badge ${entry.isLinked ? "linked" : "wildcard"}`;
+  badge.className = `sw-token-badge ${entry.isLinked ? "is-linked" : "is-wildcard"}`;
   badge.textContent = entry.isLinked ? "LINKED" : (entry.isWildcard ? "WILD" : "UNLINK");
   item.appendChild(badge);
 

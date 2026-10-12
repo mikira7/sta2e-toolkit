@@ -11,6 +11,7 @@ import {
   areZonesAllConnected, mergeZonePolygons, clipPolygonToRect,
   hexRingCells, clusterOutline, polygonUnionOutline,
 } from "./zone-data.js";
+import { HAZARD_VFX_TYPES, hazardVfxFields, readHazardVfxFields, wireHazardVfxPreview } from "./hazard-vfx-config.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ZoneEditState — singleton state machine
@@ -1915,6 +1916,7 @@ function _buildHazardRowHtml(hazard, index, hazardTypesHtml) {
         <label>Description</label>
         <input type="text" name="hazard-description-${index}" value="${h.description ?? ""}" placeholder="Optional flavor text"/>
       </div>
+      ${hazardVfxFields(h.vfx, h.type ?? Object.keys(HAZARD_TYPES)[0], `hazard-vfx-${index}`)}
       ${estNote}
     </div>`;
 }
@@ -1945,6 +1947,7 @@ function _collectHazardsFromForm(form) {
       label: label || (HAZARD_TYPES[type]?.label ?? "Hazard"),
       category,
       description,
+      vfx: readHazardVfxFields(row, type, `hazard-vfx-${row.dataset.hazardIndex}`),
       ...estData,
     });
   });
@@ -1958,6 +1961,12 @@ function _wireHazardEditor(html) {
   const list = root.querySelector?.(".sta2e-zone-hazards-list");
   const addBtn = root.querySelector?.(".sta2e-add-hazard");
   if (!list || !addBtn) return;
+  wireHazardVfxPreview(root, button => button.closest('.sta2e-hazard-row')?.querySelector('.sta2e-hazard-type')?.value);
+  list.addEventListener('change', event => {
+    if (!event.target.matches('.sta2e-hazard-type')) return;
+    const color = event.target.closest('.sta2e-hazard-row')?.querySelector('input[type="color"]');
+    if (color && HAZARD_VFX_TYPES[event.target.value]) color.value = HAZARD_VFX_TYPES[event.target.value];
+  });
 
   // Delegate remove button clicks
   list.addEventListener("click", (ev) => {

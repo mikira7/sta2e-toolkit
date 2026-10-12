@@ -158,6 +158,27 @@ function countComplicationsTotal(crewDice, crewAssistDice, shipDice, reservePowe
 export const ASSIST_GATE_NOTE =
   "Main pool scored 0 successes — assist and ship successes do not count. Complications still apply.";
 
+/**
+ * sta v2.7.0 squads: an actor carrying the "Squad" trait (a character) or the
+ * "Squadron" trait (a small craft) acts as that many members, and every member
+ * after the first rolls an assist die — the system's `squadDice - 1`. The
+ * trait's quantity is the size. Those dice roll at the actor's own target and
+ * focus, so they ride in `crewAssistDice` and take the same assist gate.
+ * Returns the number of extra dice (0 when there is no squad).
+ */
+export function squadAssistDiceCount(actor) {
+  if (!actor?.items) return 0;
+  // Optional rule (world setting "squadRules"), off by default.
+  if (!game.settings.get("sta2e-toolkit", "squadRules")) return 0;
+  const names = [
+    game.i18n.localize("sta.actor.character.squad"),
+    game.i18n.localize("sta.actor.starship.squadron"),
+  ];
+  const trait = actor.items.find(i => i.type === "trait" && names.includes(i.name));
+  const size = Number(trait?.system?.quantity) || 0;
+  return Math.max(0, size - 1);
+}
+
 /** Every assist pool that rides alongside the main crew pool. */
 export function assistDicePools(source) {
   return [
@@ -1178,6 +1199,7 @@ function resultSummaryHtml(resultMods) {
 
 // ── NPC Crew quality presets ─────────────────────────────────────────────────
 export const CREW_QUALITIES = [
+  { key: "poor", label: "Poor", attr: 7, dept: 0 },
   { key: "basic", label: "Basic", attr: 8, dept: 1 },
   { key: "proficient", label: "Proficient", attr: 9, dept: 2 },
   { key: "talented", label: "Talented", attr: 10, dept: 3 },
@@ -1185,7 +1207,8 @@ export const CREW_QUALITIES = [
 ];
 
 function crewQualityForKey(key) {
-  return CREW_QUALITIES.find(q => q.key === key) ?? CREW_QUALITIES[1];
+  return CREW_QUALITIES.find(q => q.key === key)
+    ?? CREW_QUALITIES.find(q => q.key === "proficient");
 }
 
 function resolveCrewRollScores(state = {}) {
@@ -1218,7 +1241,9 @@ function resolveCrewRollScores(state = {}) {
 
   const quality = crewQualityForKey(state.crewQuality);
   const attr = Number(quality.attr ?? state.crewAttr ?? 9) || 9;
-  const dept = Number(quality.dept ?? state.crewDept ?? 2) || 2;
+  // Poor crew has Department 0 (sta v2.7.0), so 0 is a real value here.
+  const deptRaw = Number(quality.dept ?? state.crewDept ?? 2);
+  const dept = Number.isFinite(deptRaw) ? deptRaw : 2;
   return {
     attr,
     dept,
@@ -1871,7 +1896,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           style="color:${LC.tertiary};font-weight:700;">${crewAttr + crewDept}</span>
         &nbsp;·&nbsp;
         Focus: <span id="crew-focus-display"
-          style="color:${LC.primary};">1–${crewDept}</span>
+          style="color:${LC.primary};">1–${Math.max(1, crewDept)}</span>
       </div>` : `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
         <div>
@@ -1906,7 +1931,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           style="color:${LC.tertiary};font-weight:700;">${crewAttr + crewDept}</span>
         &nbsp;·&nbsp;
         Focus: <span id="crew-focus-display"
-          style="color:${LC.primary};">1–${crewDept}</span>
+          style="color:${LC.primary};">1–${Math.max(1, crewDept)}</span>
       </div>`) : `
       ${playerMode ? `
       <div style="padding:5px 8px;margin-bottom:6px;
@@ -1952,7 +1977,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           style="color:${LC.tertiary};font-weight:700;">${crewAttr + crewDept}</span>
         &nbsp;·&nbsp;
         Focus: <span id="crew-focus-display"
-          style="color:${LC.primary};">1–${crewDept}</span>
+          style="color:${LC.primary};">1–${Math.max(1, crewDept)}</span>
       </div>`}`;
 
     // Ship system options from actor
@@ -2028,7 +2053,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 style="accent-color:${LC.primary};" />
               <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
                 text-transform:uppercase;letter-spacing:0.06em;">
-                Has Focus — crit on 1–${crewDept}
+                Has Focus — crit on 1–${Math.max(1, crewDept)}
               </span>
             </label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -2037,7 +2062,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 style="accent-color:${LC.primary};" />
               <span style="font-size:10px;color:${LC.textDim};font-family:${LC.font};
                 text-transform:uppercase;letter-spacing:0.06em;">
-                ${state.groundMode ? "Dedicated Focus" : "Dedicated Focus"} — crit on 1–${Math.min(20, crewDept * 2)}
+                ${state.groundMode ? "Dedicated Focus" : "Dedicated Focus"} — crit on 1–${Math.min(20, Math.max(1, crewDept * 2))}
               </span>
             </label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -2328,6 +2353,20 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             Attack patterns, coordinated maneuvers, etc.
             <span style="color:${LC.orange ?? LC.red};"> · Only counts if crew scores ≥1 success</span>
           </div>` : ""}
+          ${state.squadDiceCount > 0 ? `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-top:2px;">
+            <input id="squad-assist" type="checkbox"
+              ${state.squadAssist ? "checked" : ""}
+              style="accent-color:${LC.secondary};" />
+            <span style="font-size:10px;color:${LC.textDim};text-transform:uppercase;
+              letter-spacing:0.08em;font-family:${LC.font};">
+              Squad assist (+${state.squadDiceCount} ${state.squadDiceCount === 1 ? "die" : "dice"})
+            </span>
+          </label>
+          <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};padding-left:18px;">
+            One die per squad member after the first
+            <span style="color:${LC.orange ?? LC.red};"> · Only counts if the main pool scores ≥1 success</span>
+          </div>` : ""}
           ${/* Rendered even when empty in sheetMode — the station (and therefore the
                 declared assists) is only known once the player picks a combat task,
                 and the task-select handler fills this in. */""}
@@ -2550,9 +2589,9 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           : state.hasActorAtHelm
             ? `<strong style="color:${LC.primary};">${helmActorName ?? "Helm Officer"}</strong>
                    may assist this attack using <strong>Control + Conn</strong>
-                   (crew quality target ${crewAttr + crewDept}, focus 1–${crewDept}).`
+                   (crew quality target ${crewAttr + crewDept}, focus 1–${Math.max(1, crewDept)}).`
             : `Helm crew assist this attack using <strong>Control + Conn</strong>
-                   (crew quality — target ${crewAttr + crewDept}, focus 1–${crewDept}).`}
+                   (crew quality — target ${crewAttr + crewDept}, focus 1–${Math.max(1, crewDept)}).`}
           </div>
           ${!state.attackRunActive ? `
           <div style="font-size:10px;color:${LC.yellow};font-family:${LC.font};
@@ -2651,7 +2690,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               style="accent-color:${LC.primary};" />
             <span style="font-size:10px;color:${LC.textDim};text-transform:uppercase;
               letter-spacing:0.06em;font-family:${LC.font};">
-              Has Focus — crit on 1–${crewDept}
+              Has Focus — crit on 1–${Math.max(1, crewDept)}
             </span>
           </label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -2660,13 +2699,13 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               style="accent-color:${LC.primary};" />
             <span style="font-size:10px;color:${LC.textDim};text-transform:uppercase;
               letter-spacing:0.06em;font-family:${LC.font};">
-              Dedicated Focus — crit on 1–${Math.min(20, crewDept * 2)}
+              Dedicated Focus — crit on 1–${Math.min(20, Math.max(1, crewDept * 2))}
             </span>
           </label>` : `
           <!-- Pure NPC helm crew — always assumes focus, no GM input required -->
           <div style="font-size:9px;color:${LC.textDim};font-family:${LC.font};
             padding:3px 6px;border-left:2px solid ${LC.borderDim};border-radius:2px;">
-            NPC helm crew — always assumes focus (crit on 1–${crewDept}).
+            NPC helm crew — always assumes focus (crit on 1–${Math.max(1, crewDept)}).
           </div>`}
         </div>` : ""}
 
@@ -3036,7 +3075,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
     <div style="padding:4px 10px 6px;">
       <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
         letter-spacing:0.08em;margin-bottom:4px;font-family:${LC.font};">
-        Assist die
+        ${crewAssistDice.some(d => d.squad) ? "Assist dice (incl. squad)" : "Assist die"}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
         ${crewAssistDice.map(d => {
@@ -3045,7 +3084,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         : d.complication ? LC.red
           : "#aaaaaa";
     const fsize = d.value >= 10 ? "9px" : "11px";
-    const tip = `Assist die ${d.value}${d.crit ? " (CRITICAL — 2 successes)" : d.success ? " (success)" : ""}${d.complication ? " (COMPLICATION)" : ""}`;
+    const tip = `${d.squad ? "Squad die" : "Assist die"} ${d.value}${d.crit ? " (CRITICAL — 2 successes)" : d.success ? " (success)" : ""}${d.complication ? " (COMPLICATION)" : ""}`;
     const lbl = d.crit
       ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0px;">
                 <span style="font-size:7px;letter-spacing:-1px;color:${txtColor};">★★</span>
@@ -3076,13 +3115,13 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       ${sectionHeader(isOfficerMode
     ? (() => {
       const focusRange = state.hasDedicatedFocus
-        ? `1–${Math.min(20, state.crewDept * 2)} (Dedicated Focus)`
+        ? `1–${Math.min(20, Math.max(1, state.crewDept * 2))} (Dedicated Focus)`
         : state.hasFocus
-          ? `1–${state.crewDept} (Focus)`
+          ? `1–${Math.max(1, state.crewDept)} (Focus)`
           : "1 only";
       return `${officer.name} · ${ATTR_LABELS[officerAttrKey] ?? officerAttrKey} + ${DISC_LABELS[officerDiscKey] ?? officerDiscKey} · Target: ${crewTarget} · Crit: ${focusRange}`;
     })()
-    : `NPC Crew · ${quality.label} · Target: ${crewTarget} · Focus: 1–${state.crewDept}`)}
+    : `NPC Crew · ${quality.label} · Target: ${crewTarget} · Focus: 1–${Math.max(1, state.crewDept)}`)}
       ${poolRow("NPC Crew", crewDice, "crew")}
       ${isOfficerMode && crewDice.length > 0 ? (() => {
       const armed = state.activeRerollAbility;
@@ -3481,7 +3520,7 @@ function buildChatCard(actorName, state) {
       <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
         <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
           letter-spacing:0.08em;margin-bottom:3px;">
-          🤝 Crew Assist (target: ${crewTarget})
+          🤝 ${crewAssistDice.some(d => d.squad) ? "Crew / Squad Assist" : "Crew Assist"} (target: ${crewTarget})
         </div>
         <div>${diceRow(crewAssistDice, crewTarget)}</div>
       </div>` : ""}
@@ -4683,6 +4722,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     // Named character-actor assists are handled separately via assistOfficers/namedAssistDice
     // and must NOT also trigger crewAssist (that would double-count their dice).
     crewAssist: !_hasActorAtStation && _npcCrewAssistCount > 0,
+    // Squad / Squadron trait: extra assist dice, on by default as in the system.
+    // An assist roll is one die from the squad as a whole, so it gets none.
+    squadDiceCount: isAssistRoll ? 0 : squadAssistDiceCount(actor),
+    squadAssist: !isAssistRoll && squadAssistDiceCount(actor) > 0,
     pendingAssistName: pendingAssistName,
     hasActorAtStation: _hasActorAtStation,  // used to hide generic crew-assist checkbox
     // Ship — always 1 die; Advanced Sensor Suites forces 2 when Sensors is selected
@@ -6125,6 +6168,8 @@ function _readSetupInputs(state, el, actorSystems, actorDepts) {
   }
   state.crewAssist = el.querySelector("#crew-assist")?.checked
     ?? state.crewAssist;
+  state.squadAssist = el.querySelector("#squad-assist")?.checked
+    ?? state.squadAssist;
   if (((state.sheetMode || state.showAssistRollToggle) && state.playerMode) || (state.groundMode && state.groundIsNpc)) {
     state.isAssistRoll = el.querySelector("#is-assist-roll")?.checked ?? false;
   }
@@ -6460,6 +6505,14 @@ async function _doRoll(state, speaker) {
   state.crewAssistDice = state.crewAssist
     ? rollPool(1, crewTarget, compThresh, crewCritThresh)
     : [];
+
+  // Squad / Squadron members — same target and focus as the main pool.
+  if (state.squadAssist && !state.isAssistRoll && state.squadDiceCount > 0) {
+    state.crewAssistDice.push(
+      ...rollPool(state.squadDiceCount, crewTarget, compThresh, crewCritThresh)
+        .map(d => ({ ...d, squad: true })),
+    );
+  }
 
   // Named assisting officer dice — one per officer, each with its own crit threshold
   // derived from the officer's selected discipline + focus flags.

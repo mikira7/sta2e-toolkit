@@ -346,6 +346,11 @@ export class WarpViewscreenBehaviorType
             + "everything else here, so anything hanging over the edge is "
             + "trimmed rather than spilling onto the map.",
       }),
+      imageCorners: new f.ArrayField(new f.SchemaField({
+        x: new f.NumberField({ required: true, nullable: false }),
+        y: new f.NumberField({ required: true, nullable: false }),
+      }), { initial: [], label: "Image Alignment",
+        hint: "Use Align Image in the Warp Viewscreen panel to set the four screen corners." }),
       imageFit: new f.StringField({
         required: true, blank: false, initial: "cover", choices: IMAGE_FIT_CHOICES,
         label: "Image Fit",

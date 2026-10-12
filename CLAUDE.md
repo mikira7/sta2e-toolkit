@@ -67,6 +67,17 @@ Two rules the role abilities in the roller depend on:
 
 Bonus Momentum has the same shape of trap: it is summed independently in `npc-roller.js` (dialog summary, chat card, player card, weapon and post-roll tracker paths), in `combat-hud-core.js`'s confirm handler, and in `_opposedSideBonusMomentum` ([opposed-task.js](scripts/opposed-task.js)) — a new bonus-Momentum talent must be added to all of them.
 
+### Crew Manifest
+
+[crew-manifest.js](scripts/crew-manifest.js) owns who crews a ship; [ship-crew-tab.js](scripts/ship-crew-tab.js) is the **Crew** tab on the starship and small-craft sheets, and is only a view over it. Four rules:
+
+- **One station per officer, and `assignOfficer` / `unassignOfficer` are its only owners.** Assigning someone moves them off every other station and *replaces* a single-seat station's occupant; Command keeps two seats by index (`COMMAND_SEATS`). The manifest dialog, the Crew tab and the LCARS ring all call it. They used to disagree — the dialog allowed two stations and refused a full one, the ring moved people — so never reintroduce an inline rebuild of the manifest.
+- **The ship's company is a union of three sources** (`getShipCrew`): the character's `assignedShips` flag (Assign Ships), the system's `system.assignment` equal to the ship name (trimmed, case-insensitive — exactly how the system's Ship Roster finds crew), and anyone on the manifest. Adding someone writes both of the first two, so the system's roster sees them; removing clears the flag and clears Assignment only if it still names this ship. Adding **replaces** other Assignment text (the Character Creator writes a role there), and `applyShipCrewRequest` returns the old text so the caller can say so.
+- **Crew writes self-route.** They land on the *character*, which a ship's owner usually cannot update, so `addShipCrew` / `removeShipCrew` fall back to the socket action `shipCrewUpdate`, run by the active GM. Station writes land on the ship (or the token, for an unlinked ship), which only its owners edit, so they need no relay.
+- **The tab never moves the system's markup.** The 2e ship sheets have no tabs of their own, so the strip is ours, placed after the toolkit's NPC Ship block (or the name header). Switching toggles `sta2e-crew-active` on `.right-column` and CSS hides the other children. The chosen tab lives on the app instance (`_sta2eShipTab`) because the sheet re-renders constantly. Membership changes land on characters and never re-render the ship sheet, so `updateActor` / `updateToken` hooks rebuild the panel in open sheets. The tab is registered after the sheet-roller hooks in `main.js` so the NPC Ship block exists when the strip is placed.
+
+**Combat tracker.** `addManifestOfficersToCombat` (main.js) adds a tokenless, actor-only "Officer (Station)" combatant per manifest officer. It runs when a ship joins combat (`createCombatant`) **and** whenever the ship's `crewManifest` flag changes while it is already in a combat — `updateActor` for linked ships, `updateToken` for unlinked — on the active GM only, so one hook covers all three editors. A moved officer's combatant is renamed; a **replaced officer is deliberately left in the tracker**, since deleting a combatant mid-round would disturb the sequence `initiative-order.js` keeps. Covered by [tests/crew-manifest.mjs](tests/crew-manifest.mjs).
+
 ### Token HUD
 
 **One control, not four.** [token-toolkit-hud.js](scripts/token-toolkit-hud.js) is
@@ -1485,6 +1496,8 @@ through `lcarsChatCard`.
 | File | Purpose |
 |------|---------|
 | [scripts/crew-manifest.js](scripts/crew-manifest.js) | Bridge station assignments, officer stats |
+| [scripts/ship-crew-tab.js](scripts/ship-crew-tab.js) | The Crew tab on the starship and small-craft sheets — ship's company and bridge stations. A view only; every rule is in `crew-manifest.js` |
+| [styles/ship-crew-tab.css](styles/ship-crew-tab.css) | Shape for that tab; colours from the sheet's own `--sta-*` palette variables |
 | [scripts/combat/acting-officer.js](scripts/combat/acting-officer.js) | `resolveActingOfficer` — which manned officer is taking a station's action. The only correct way to pick one; never index `getStationOfficers(...)[0]` |
 | [scripts/weapon-configs.js](scripts/weapon-configs.js) | Weapon config registry, `buildWeaponContext`, fire functions |
 | [scripts/token-conditions.js](scripts/token-conditions.js) | STA combat conditions (add/remove/query) |

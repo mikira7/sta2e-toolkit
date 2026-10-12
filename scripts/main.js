@@ -11,6 +11,7 @@ import { CampaignManager } from "./campaign-manager.js";
 import { EffectConfigMenu } from "./effect-config.js";
 import { VFXTestPanel } from "./vfx-test-panel.js";
 import { SceneEffectsPanel } from "./scene-effects-panel.js";
+import { HAZARD_VFX_ACTION, handleHazardVfxSocket, registerHazardVfxHooks } from "./hazard-vfx.js";
 import { SCENE_SHAKE_ACTION, SCENE_SHAKE_STOP_ACTION, handleSceneEffectSocket, registerSceneEffectHooks, broadcastCanvasShake, broadcastStopCanvasShake } from "./scene-effects.js";
 import { CONSOLE_EFFECT_ACTION, CONSOLE_EFFECT_STOP_ACTION, handleConsoleEffectSocket, registerConsoleEffectHooks, triggerConsoleEffects, stopConsoleEffects } from "./console-effects.js";
 import { registerCoolantLeakHooks, syncCoolantLeak, startCoolantLeak, stopCoolantLeak, setCoolantLeakConfig } from "./coolant-leak.js";
@@ -65,8 +66,9 @@ import { ToolkitPoolTracker } from "./toolkit-pool-tracker.js";
 import { TraitManager } from "./trait-manager.js";
 import { LcarsActionRing } from "./lcars-action-ring.js";
 import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
-import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest } from "./crew-manifest.js";
-import { getLcTokens } from "./lcars-theme.js";
+import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest, findOfficerStation, stationLabel, SHIP_CREW_ACTION, applyShipCrewRequest } from "./crew-manifest.js";
+import { registerShipCrewTab } from "./ship-crew-tab.js";
+import { getLcTokens, getActiveLcThemeKey } from "./lcars-theme.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
@@ -577,6 +579,7 @@ Hooks.once("init", () => {
   registerSceneWarpCache();
   registerSceneWarpDiceCoordination();
   registerSceneEffectHooks();
+  registerHazardVfxHooks();
   registerConsoleEffectHooks();
   registerCoolantLeakHooks();
   registerRegionPadConfig();
@@ -1453,6 +1456,10 @@ Hooks.once("ready", async () => {
       await handleSetActiveGmRequest(msg);
       return;
     }
+    if (msg.action === HAZARD_VFX_ACTION) {
+      handleHazardVfxSocket(msg);
+      return;
+    }
     if (msg.action === CONSOLE_EFFECT_ACTION || msg.action === CONSOLE_EFFECT_STOP_ACTION) {
       handleConsoleEffectSocket(msg);
       return;
@@ -1971,6 +1978,14 @@ Hooks.once("ready", async () => {
       if (newFlag)     upd[`flags.sta2e-toolkit.${newFlag.key}`] = newFlag.value;
       await m.update(upd).catch(e =>
         console.error("STA2e Toolkit | applyAssistToTaskCard update failed:", e));
+    }
+
+    else if (msg.action === SHIP_CREW_ACTION && _isResponsibleGM()) {
+      // A ship's owner added or removed a character they cannot update
+      // (crew-manifest.js addShipCrew / removeShipCrew).
+      const ship  = game.actors.get(msg.shipId);
+      const actor = game.actors.get(msg.actorId);
+      if (ship && actor) await applyShipCrewRequest(msg.op, ship, actor);
     }
 
     else if (msg.action === "assistPendingUpdate" && _isResponsibleGM()) {
@@ -3274,6 +3289,12 @@ Hooks.on("updateToken", async (tokenDoc, changes, _options, userId) => {
   // Always keep last-known position up to date for future moves.
   _lastKnownTokenPositions.set(tokenDoc.id, newCenter);
 
+  // Only the active GM authors hazard prompts, so the mover is not a recipient.
+  if (isActiveGM() && gmOrigin && !game.sta2eToolkit?.zoneMovementLog?._suppressIds.has(tokenDoc.id)) {
+    ZoneHazard.onTokenMove(tokenDoc, gmOrigin, newCenter).catch(err =>
+      console.warn("STA2e Toolkit | Hazard entry prompt failed:", err));
+  }
+
   // Movement log — only the initiating client creates the card.
   if (preHookOrigin && userId === game.user.id) {
     game.sta2eToolkit?.zoneMovementLog?.onTokenMove(tokenDoc, preHookOrigin, changes);
@@ -3392,6 +3413,33 @@ Hooks.on("deleteItem", (item) => {
 // Character sheet theme injection
 // ---------------------------------------------------------------------------
 
+// Classic TNG LCARS sheet colours — the show's multi-colour panels. Used for the
+// TNG LCARS theme only; every other era spreads its own theme colours across the
+// same parts (see _sheetThemePalette), so a TOS or Klingon sheet stays in era.
+const _TNG_SHEET_PALETTE = {
+  title:      "#FF9900",   // field titles
+  bar:        "#9999CC",   // tab bar, section headers
+  spine:      "#9999CC",   // the bar down the left of the right-hand column
+  activeTab:  "#99CCFF",   // selected tab, systems header row
+  button:     "#FFCC99",   // Perform Task / Assign Ships pill caps
+  crewIdle:   "#CC99CC",   // Ship / Crew switch, unselected
+  crewActive: "#FF9900",   // Ship / Crew switch, selected
+};
+
+function _sheetThemePalette(LC) {
+  const themeKey = getActiveLcThemeKey();
+  if (themeKey === "lcars-tng" || themeKey === "blue") return _TNG_SHEET_PALETTE;
+  return {
+    title:      LC.primary,
+    bar:        LC.secondary,
+    spine:      LC.secondary,
+    activeTab:  LC.tertiary,
+    button:     LC.primary,
+    crewIdle:   LC.secondary,
+    crewActive: LC.primary,
+  };
+}
+
 /** Injects (or removes) a <style> tag that overrides the STA2e character sheet
  *  colors to match the currently active toolkit HUD theme.  Idempotent — safe
  *  to call any number of times. */
@@ -3401,17 +3449,32 @@ function _applySheetTheme() {
   if (!game.settings.get("sta2e-toolkit", "themeCharacterSheet")) return;
 
   const LC  = getLcTokens();
+  const P   = _sheetThemePalette(LC);
   const css = `
 /* ── STA2e Toolkit — character sheet theme ── */
 .character-sheet {
+  /* Since sta v2.8.0 the system draws most sheet chrome through these five
+     palette variables (titles, the spine, borders, tab bar, systems header).
+     Setting them here, on the sheet root, outranks the values the system's
+     palette picker writes on the window, so every var-based rule — including
+     ones this block never names — follows the toolkit theme. */
+  --sta-borderblue:     ${P.title};
+  --sta-borderbluedark: ${P.spine};
+  --sta-darkestblue:    ${LC.border};
+  --sta-palestblue:     ${P.activeTab};
+  --sta-palestbluedark: ${P.activeTab};
+  /* The Crew tab's Ship / Crew switch (styles/ship-crew-tab.css). */
+  --sta2e-crew-idle:    ${P.crewIdle};
+  --sta2e-crew-active:  ${P.crewActive};
+  --sta2e-crew-ink:     ${LC.bg};
   background: ${LC.bg} !important;
   color: ${LC.text} !important;
   scrollbar-color: ${LC.border} transparent !important;
 }
 .character-sheet .title {
-  background-color: ${LC.primary} !important;
-  border-color:     ${LC.primary} !important;
-  color:            ${LC.textBright} !important;
+  background-color: ${P.title} !important;
+  border-color:     ${P.title} !important;
+  color:            ${LC.bg} !important;
 }
 .character-sheet .text-entry,
 .character-sheet .numeric-entry {
@@ -3424,31 +3487,48 @@ function _applySheetTheme() {
 .character-sheet select {
   color: ${LC.text} !important;
 }
+/* Tab bar — a solid band in its own colour, as the system draws it, with the
+   dark separators between tabs and the selected tab picked out. */
 .character-sheet nav.sheet-tabs.tabs {
-  background-color: ${LC.panel} !important;
-  border-color:     ${LC.border} !important;
+  background-color: ${P.bar} !important;
 }
 .character-sheet nav.sheet-tabs.tabs a.item {
-  color: ${LC.textDim} !important;
+  color:              ${LC.bg} !important;
+  font-weight:        700;
+  border-right-color: ${LC.bg} !important;
+  text-shadow:        none !important;
+}
+.character-sheet nav.sheet-tabs.tabs a.item:first-child {
+  border-left-color: ${LC.bg} !important;
 }
 .character-sheet nav.sheet-tabs.tabs a.item.active {
-  background-color: ${LC.primary} !important;
-  color:            ${LC.textBright} !important;
-  text-shadow:      none !important;
+  background-color: ${P.activeTab} !important;
+  color:            ${LC.bg} !important;
 }
 .character-sheet nav.sheet-tabs.tabs a.item:hover {
-  color:       ${LC.primary} !important;
-  text-shadow: 0 0 6px ${LC.primary} !important;
+  color:       ${LC.textBright} !important;
+  text-shadow: 0 0 6px ${LC.bg} !important;
 }
 .character-sheet .bottom-right-column {
-  border-left-color: ${LC.primary} !important;
+  border-left-color: ${P.spine} !important;
+}
+.character-sheet .right-column::before {
+  background-color: ${P.spine} !important;
+}
+.character-sheet .systems-block .stat.header.row {
+  background-color: ${P.activeTab} !important;
+  color:            ${LC.bg} !important;
+}
+.character-sheet .systems-block .field.breaches,
+.character-sheet .row-right .numeric-entry {
+  border-color: ${LC.border} !important;
 }
 .character-sheet .section .header {
-  background-color: ${LC.border} !important;
-  color:            ${LC.textBright} !important;
+  background-color: ${P.bar} !important;
+  color:            ${LC.bg} !important;
 }
 .character-sheet .track .bar .box:hover {
-  box-shadow: 0 0 8px ${LC.primary} !important;
+  box-shadow: 0 0 8px ${P.title} !important;
 }
 .character-sheet .track .bar .box.stress.selected,
 .character-sheet .track .bar .box.determination.selected,
@@ -3457,20 +3537,20 @@ function _applySheetTheme() {
 .character-sheet .track .bar .box.power.selected,
 .character-sheet .track .bar .box.crew.selected,
 .character-sheet .track .bar .box.extendedtask.selected {
-  background-color: ${LC.primary} !important;
+  background-color: ${P.title} !important;
   color:            ${LC.bg} !important;
-  border-color:     ${LC.primary} !important;
+  border-color:     ${P.title} !important;
 }
 .character-sheet .tracktitle {
   color: ${LC.textDim} !important;
 }
 .character-sheet .btn {
-  border-color: ${LC.primary} !important;
+  border-color: ${P.button} !important;
   color:        ${LC.text} !important;
 }
 .character-sheet .btn:hover {
-  background-color: ${LC.primary} !important;
-  color:            ${LC.textBright} !important;
+  background-color: ${P.button} !important;
+  color:            ${LC.bg} !important;
 }
 .character-sheet .btn2 {
   border-color: ${LC.red} !important;
@@ -3480,13 +3560,14 @@ function _applySheetTheme() {
   color:            ${LC.textBright} !important;
 }
 .character-sheet .btn3 {
-  border-color: ${LC.tertiary} !important;
+  border-color: ${P.activeTab} !important;
 }
 .character-sheet .btn3:hover {
-  background-color: ${LC.tertiary} !important;
+  background-color: ${P.activeTab} !important;
   color:            ${LC.bg} !important;
 }
-.app.window-app:has(.character-sheet) .window-header {
+.app.window-app:has(.character-sheet) .window-header,
+.application:has(.character-sheet) > .window-header {
   background:          ${LC.panel} !important;
   border-bottom-color: ${LC.border} !important;
   color:               ${LC.textBright} !important;
@@ -3500,9 +3581,20 @@ function _applySheetTheme() {
 
   const el = document.createElement("style");
   el.id          = STYLE_ID;
-  el.textContent = css + "\n" + shipCss + "\n" + extendedTaskCss;
+  // An actor given its own palette in the system's colour picker (sta v2.8.0+)
+  // keeps it: every rule skips a sheet tagged by the renderActorSheetV2 hook below.
+  el.textContent = (css + "\n" + shipCss + "\n" + extendedTaskCss)
+    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *)");
   document.head.appendChild(el);
 }
+
+/** Tags a sheet whose actor picked its own palette, so _applySheetTheme leaves
+ *  it alone. Runs on every render, and the system re-renders the sheet itself
+ *  when the palette changes. */
+Hooks.on("renderActorSheetV2", (app) => {
+  const palette = app.document?.system?.palette;
+  app.element?.classList.toggle("sta2e-own-palette", !!palette && palette !== "default");
+});
 
 // ---------------------------------------------------------------------------
 // Sheet-roller override — helpers
@@ -4032,6 +4124,7 @@ function _applySheetRollerOverride(app, html) {
       const quality = CombatHUD.getCrewQuality(actor);
 
       const CREW_QUALITIES = [
+        { key: "poor",        label: "Poor"        },
         { key: "basic",       label: "Basic"       },
         { key: "proficient",  label: "Proficient"  },
         { key: "talented",    label: "Talented"    },
@@ -4476,45 +4569,50 @@ for (const hookName of [
 // ---------------------------------------------------------------------------
 // Supporting Character — Supervisory toggle
 // ---------------------------------------------------------------------------
-// The STA2e system determines stress track length by counting "value" items:
-//   numValues === 1  →  ceil(stress / 2)  (Supporting Character)
-//   numValues  >  1  →  full stress       (Supervisory Character)
-// This is unreliable when a Supporting Character has multiple values or a
-// Supervisory Character has only one.  We expose an explicit checkbox that
-// stores a flag and recalculates stress.max directly.
+// A Supporting Character's stress track is halved; a Supervisory Character's
+// is not. Since sta v2.8.0 the system records this itself as
+// `system.npcType` ("supporting" | "supervising"), with its own radio on the
+// sheet. Older versions guessed from the number of Values instead, so the
+// toolkit carried its own radio and the flag `supervisoryCharacter`.
+//
+// `system.npcType` is now the source of truth. The flag is only read for an
+// actor that predates it (npcType still the CharacterData default "minor"),
+// and the GM migrates such an actor the first time its sheet opens — the
+// system's own calculation treats anything but "supporting" as unhalved.
 
-function _calcSupportingStressMax(actor, isSupervisory) {
-  const fitness  = actor.system.attributes?.fitness?.value  ?? 7;
-  const strmod   = actor.system.strmod ?? 0;
-  const command  = actor.system.disciplines?.command?.value ?? 2;
-  const control  = actor.system.disciplines?.control?.value ?? 2;
-  const hasValue = actor.items.some(i => i.type === "value");
-  if (!isSupervisory && !hasValue) return 0;
+const _SUPPORTING_RANKS = new Set(["supporting", "supervising"]);
 
-  const hasTough = actor.items.some(i => i.name.toLowerCase().includes("tough"));
-  const hasResolute = actor.items.some(i => i.name.toLowerCase().includes("resolute"));
-  const hasMentalDiscipline = actor.items.some(i =>
-    i.name.toLowerCase().includes("mental discipline"));
-  let max = fitness + strmod;
-  if (hasTough) max += 2;
-  if (hasResolute) max += command;
-  if (hasMentalDiscipline) max = control;
-  if (!isSupervisory) max = Math.ceil(max / 2);
-  return max;
+function _isSupervisoryCharacter(actor) {
+  const npcType = actor?.system?.npcType;
+  if (_SUPPORTING_RANKS.has(npcType)) return npcType === "supervising";
+  return actor?.getFlag("sta2e-toolkit", "supervisoryCharacter") ?? false;
 }
 
 Hooks.on("renderSTASupportingSheet2e", (app, html) => {
   const actor = app.document ?? app.actor;
   if (!actor) return;
 
+  // The system's own Supporting/Supervisory radio (sta v2.8.0+).
+  const hasNativeRank = !!html.querySelector('input[name="system.npcType"]');
+
+  if (hasNativeRank && game.user.isGM && !_SUPPORTING_RANKS.has(actor.system?.npcType)
+      && !app._sta2eRankMigrated) {
+    app._sta2eRankMigrated = true;
+    const rank = actor.getFlag("sta2e-toolkit", "supervisoryCharacter") ? "supervising" : "supporting";
+    actor.update({ "system.npcType": rank }).catch(err =>
+      console.warn("sta2e-toolkit | could not migrate supporting rank", err));
+  }
+
   // ── Patch _StressTrackMax on the instance (once) ──────────────────────────
   // The system's _onRender calls _onStressTrackUpdate → _StressTrackMax on
-  // every render.  By replacing it on the app instance we ensure our flag is
+  // every render.  By replacing it on the app instance we ensure the rank is
   // respected every time — including the re-render triggered by actor.update().
+  // Mirrors sta v2.8.0: Mental Discipline replaces Fitness with Control, and
+  // Tough and Resolute still apply on top.
   if (!app._sta2eStressPatched) {
     app._sta2eStressPatched = true;
     app._StressTrackMax = async function() {
-      const isSup = this.actor.getFlag("sta2e-toolkit", "supervisoryCharacter") ?? false;
+      const isSup = _isSupervisoryCharacter(this.actor);
       const localizedTough  = game.i18n.localize("sta.actor.character.talents.tough");
       const localizedRes    = game.i18n.localize("sta.actor.character.talents.resolute");
       const localizedMD     = game.i18n.localize("sta.actor.character.talents.mentaldiscipline");
@@ -4524,10 +4622,10 @@ Hooks.on("renderSTASupportingSheet2e", (app, html) => {
       const control  = parseInt(this.element.querySelector("#control")?.value  || 0, 10);
       const hasValue = this.actor.items.some(i => i.type === "value");
       if (!isSup && !hasValue) return 0;
-      let max = fitness + strmod;
+      const hasMD = !!this.element.querySelector(`[data-talent-name*="${localizedMD}"]`);
+      let max = (hasMD ? control : fitness) + strmod;
       if (this.element.querySelector(`[data-talent-name*="${localizedTough}"]`))  max += 2;
       if (this.element.querySelector(`[data-talent-name*="${localizedRes}"]`))    max += command;
-      if (this.element.querySelector(`[data-talent-name*="${localizedMD}"]`))     max = control;
       if (!isSup) max = Math.ceil(max / 2);
       return Number.isInteger(max) ? max : 0;
     };
@@ -4535,12 +4633,13 @@ Hooks.on("renderSTASupportingSheet2e", (app, html) => {
     app._onStressTrackUpdate?.();
   }
 
-  // ── Inject radio buttons below the stress track (once per DOM render) ─────
+  // ── Older systems: inject our own radio below the stress track ────────────
+  if (hasNativeRank) return;
   if (html.querySelector(".sta2e-supervisory-toggle")) return;
   const stressTrack = html.querySelector("#bar-stress-renderer")?.closest(".track");
   if (!stressTrack) return;
 
-  const isSupervisory = actor.getFlag("sta2e-toolkit", "supervisoryCharacter") ?? false;
+  const isSupervisory = _isSupervisoryCharacter(actor);
   const wrapper = document.createElement("div");
   wrapper.className = "sta2e-supervisory-toggle";
   wrapper.style.cssText = "display:flex;gap:8px;margin:2px 0 4px;align-items:center;";
@@ -4726,6 +4825,9 @@ function _addShipToolkitSettingsButton(app, html) {
 }
 
 Hooks.on("renderSTAStarshipSheet2e",  _addShipToolkitSettingsButton);
+// Crew tab — registered after the sheet-roller hooks above so the NPC Ship
+// block already exists when the tab strip is placed beneath it.
+registerShipCrewTab();
 Hooks.on("renderSTASmallCraftSheet2e", _addShipToolkitSettingsButton);
 
 // Existing character/NPC sheets keep their normal sheet; VFX holds object configuration.
@@ -4775,50 +4877,92 @@ Hooks.on("createCombatant", async (combatant, _options, userId) => {
     || actor.items?.some(i => i.type === "starshipweapon2e");
   if (!isShip) return;
 
-  const manifest = getCrewManifest(actor);
+  await addManifestOfficersToCombat(combatant.combat, actor, { hidden: combatant.hidden });
+});
+
+/**
+ * Add a tokenless, actor-only combatant for every officer on this ship's crew
+ * manifest who is not already in the combat, named "Officer (Station)". An
+ * officer who is already a combatant but whose station changed is renamed.
+ * Removed officers are deliberately LEFT in the tracker: they may already have
+ * acted this round, and deleting a combatant mid-round would disturb the turn
+ * sequence initiative-order.js keeps. The GM removes them by hand if wanted.
+ * Shared by the createCombatant hook and the manifest-change hooks below.
+ */
+async function addManifestOfficersToCombat(combat, shipActor, { hidden = false, announce = true } = {}) {
+  if (!combat || !shipActor) return;
+  const manifest = getCrewManifest(shipActor);
   if (!manifest) return;
 
-  // Collect all unique officer actor IDs across all stations
-  const seen      = new Set();
-  const officers  = [];
+  const officers = [];
+  const seen = new Set();
   for (const slot of STATION_SLOTS) {
-    const ids = manifest[slot.id] ?? [];
-    for (const actorId of ids) {
-      if (!actorId) continue;
-      if (seen.has(actorId)) continue;
+    for (const actorId of manifest[slot.id] ?? []) {
+      if (!actorId || seen.has(actorId)) continue;
       seen.add(actorId);
       const officerActor = game.actors.get(actorId);
-      if (officerActor) officers.push({ actor: officerActor, stationId: slot.id, stationLabel: slot.label });
+      if (!officerActor) continue;
+      const where = findOfficerStation(manifest, actorId);
+      officers.push({ actor: officerActor, label: stationLabel(where?.stationId ?? slot.id, where?.seatIndex ?? null) });
+    }
+  }
+  if (!officers.length) return;
+
+  const toAdd = [];
+  const toRename = [];
+  for (const o of officers) {
+    const existing = combat.combatants.find(c => c.actorId === o.actor.id);
+    if (!existing) { toAdd.push(o); continue; }
+    // Only rename the tokenless combatants this module created ("Name (Station)").
+    const wanted = `${o.actor.name} (${o.label})`;
+    if (!existing.tokenId && existing.name !== wanted && existing.name?.startsWith(`${o.actor.name} (`)) {
+      toRename.push({ _id: existing.id, name: wanted });
     }
   }
 
-  if (!officers.length) return;
-
-  // Check which officers are already in the combat tracker to avoid duplicates
-  const combat            = combatant.combat;
-  const existingActorIds  = new Set(
-    combat.combatants.map(c => c.actorId).filter(Boolean)
-  );
-
-  const toAdd = officers.filter(o => !existingActorIds.has(o.actor.id));
-  if (!toAdd.length) return;
-
-  // Create combatant entries — actor-only (no tokenId), named with station
-  const combatantData = toAdd.map(o => ({
-    actorId:  o.actor.id,
-    tokenId:  null,
-    name:     `${o.actor.name} (${o.stationLabel})`,
-    hidden:   combatant.hidden,   // match ship's hidden state
-    initiative: null,
-  }));
-
   try {
-    await combat.createEmbeddedDocuments("Combatant", combatantData);
-    ui.notifications.info(
-      `STA2e Toolkit: Added ${toAdd.length} crew officer${toAdd.length > 1 ? "s" : ""} to combat tracker for ${actor.name}.`
+    if (toRename.length) await combat.updateEmbeddedDocuments("Combatant", toRename);
+    if (!toAdd.length) return;
+    await combat.createEmbeddedDocuments("Combatant", toAdd.map(o => ({
+      actorId:  o.actor.id,
+      tokenId:  null,
+      name:     `${o.actor.name} (${o.label})`,
+      hidden,   // match the ship's hidden state
+      initiative: null,
+    })));
+    if (announce) ui.notifications.info(
+      `STA2e Toolkit: Added ${toAdd.length} crew officer${toAdd.length > 1 ? "s" : ""} to combat tracker for ${shipActor.name}.`
     );
   } catch (err) {
     console.warn("STA2e Toolkit | Could not add crew officers to combat tracker:", err);
+  }
+}
+
+// A station change on a ship that is already in a combat — from the Crew tab,
+// the Crew Manifest dialog or the LCARS ring, which all write the same flag —
+// puts the newly assigned officer into that combat. The active GM does it, so
+// a player editing the tab needs no socket action of its own. A linked ship
+// keeps its manifest on the actor; an unlinked one on its token.
+function _manifestChanged(changes) {
+  return foundry.utils.hasProperty(changes, "flags.sta2e-toolkit.crewManifest");
+}
+
+Hooks.on("updateActor", async (actor, changes) => {
+  if (!isActiveGM() || !_manifestChanged(changes)) return;
+  if (actor.type !== "starship" && actor.type !== "smallcraft" && actor.type !== "spacecraft2e") return;
+  for (const combat of game.combats ?? []) {
+    const shipCombatant = combat.combatants.find(c => c.actorId === actor.id && c.token?.actorLink !== false);
+    if (shipCombatant) await addManifestOfficersToCombat(combat, actor, { hidden: shipCombatant.hidden });
+  }
+});
+
+Hooks.on("updateToken", async (tokenDoc, changes) => {
+  if (!isActiveGM() || !_manifestChanged(changes) || tokenDoc.actorLink) return;
+  const actor = tokenDoc.actor;
+  if (!actor) return;
+  for (const combat of game.combats ?? []) {
+    const shipCombatant = combat.combatants.find(c => c.tokenId === tokenDoc.id);
+    if (shipCombatant) await addManifestOfficersToCombat(combat, actor, { hidden: shipCombatant.hidden });
   }
 });
 

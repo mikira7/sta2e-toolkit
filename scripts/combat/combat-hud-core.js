@@ -2263,8 +2263,8 @@ export class CombatHUD {
    */
   _weaponTypeBonus(weapon) {
     if (weapon.type !== "starshipweapon2e") return 0;
-    const isTorpedo = weapon.system?.includescale === "torpedo";
-    if (isTorpedo) return 0;
+    const kind = weapon.system?.includescale;
+    if (kind === "torpedo" || kind === "mine") return 0;
     const slug = weapon.img?.split("/").pop().replace(/\.(svg|webp|png|jpg)$/, "") ?? "";
     if (slug.endsWith("-array-spread")) return 3; // Spinal Lance
     if (slug.endsWith("-cannon"))       return 2;
@@ -2273,15 +2273,22 @@ export class CombatHUD {
   }
 
   _weaponTotalDamage(weapon, actor) {
-    if (weapon.type !== "starshipweapon2e") return weapon.system?.damage ?? 0;
-    const scale       = actor.system?.scale ?? 0;
-    const wr          = actor.system?.systems?.weapons?.value ?? 0;
-    const ratingBonus = this._weaponRatingBonus(wr);
-    const isTorpedo   = weapon.system?.includescale === "torpedo";
-    const typeBonus   = this._weaponTypeBonus(weapon);
-    return isTorpedo
-      ? (weapon.system?.damage ?? 0) + ratingBonus
-      : scale + typeBonus + ratingBonus;
+    return this._weaponDamageBreakdown(weapon, actor).total;
+  }
+
+  /**
+   * sta v2.7.0 Squadron trait: a small craft flying as a squadron adds one
+   * damage per member beyond the first to its energy and torpedo weapons
+   * (the system's `_updateWeaponValues`). The trait's quantity is the size.
+   */
+  _squadronDamageBonus(actor) {
+    if (actor?.type !== "smallcraft") return 0;
+    // Optional rule (world setting "squadRules"), off by default.
+    if (!game.settings.get("sta2e-toolkit", "squadRules")) return 0;
+    const name = game.i18n.localize("sta.actor.starship.squadron");
+    const trait = actor.items?.find(i => i.type === "trait" && i.name === name);
+    const size = Number(trait?.system?.quantity) || 0;
+    return Math.max(0, size - 1);
   }
 
   /** Returns { total, breakdown } for the chat card. */
@@ -2289,24 +2296,34 @@ export class CombatHUD {
     if (weapon.type !== "starshipweapon2e") {
       return { total: weapon.system?.damage ?? 0, breakdown: null };
     }
+    const kind        = weapon.system?.includescale;
+    const baseDmg     = weapon.system?.damage ?? 0;
+
+    // sta v2.7.0 mines: the printed Damage only — no Scale, no Weapons
+    // rating bonus, no squadron bonus.
+    if (kind === "mine") {
+      return { total: baseDmg, breakdown: `${baseDmg} base (mine)` };
+    }
+
     const scale       = actor.system?.scale ?? 0;
     const wr          = actor.system?.systems?.weapons?.value ?? 0;
     const ratingBonus = this._weaponRatingBonus(wr);
-    const isTorpedo   = weapon.system?.includescale === "torpedo";
+    const squadBonus  = this._squadronDamageBonus(actor);
     const typeBonus   = this._weaponTypeBonus(weapon);
-    const baseDmg     = weapon.system?.damage ?? 0;
 
-    if (isTorpedo) {
-      const total = baseDmg + ratingBonus;
+    if (kind === "torpedo") {
+      const total = baseDmg + ratingBonus + squadBonus;
       const parts = [`${baseDmg} base`];
       if (ratingBonus) parts.push(`+${ratingBonus} weapons (${wr})`);
+      if (squadBonus)  parts.push(`+${squadBonus} squadron`);
       return { total, breakdown: parts.join(" ") };
     }
 
-    const total = scale + typeBonus + ratingBonus;
+    const total = scale + typeBonus + ratingBonus + squadBonus;
     const parts = [`${scale} scale`];
     if (typeBonus)   parts.push(`+${typeBonus} type`);
     if (ratingBonus) parts.push(`+${ratingBonus} weapons (${wr})`);
+    if (squadBonus)  parts.push(`+${squadBonus} squadron`);
     return { total, breakdown: parts.join(" ") };
   }
 
@@ -6857,8 +6874,8 @@ export class CombatHUD {
 
     // Base shields restored = roller's Engineering discipline:
     //   Named officer → their Engineering discipline value
-    //   Generic NPC crew → stored crew quality dept (Basic=1, Proficient=2, Talented=3, Exceptional=4)
-    const QUALITY_DEPT = { basic: 1, proficient: 2, talented: 3, exceptional: 4 };
+    //   Generic NPC crew → stored crew quality dept (Poor=0, Basic=1, Proficient=2, Talented=3, Exceptional=4)
+    const QUALITY_DEPT = { poor: 0, basic: 1, proficient: 2, talented: 3, exceptional: 4 };
     const storedQuality = CombatHUD.getCrewQuality(actor);
     const engDept = opsOfficer
       ? (opsOfficer.disciplines?.engineering ?? 2)
@@ -10785,6 +10802,7 @@ export class CombatHUD {
 
   _buildCrewQualityRow(actor) {
     const QUALITIES = [
+      { key: "poor",        label: "Poor",        dept: 0 },
       { key: "basic",       label: "Basic",       dept: 1 },
       { key: "proficient",  label: "Proficient",  dept: 2 },
       { key: "talented",    label: "Talented",    dept: 3 },

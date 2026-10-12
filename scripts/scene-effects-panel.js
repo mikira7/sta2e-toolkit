@@ -323,12 +323,15 @@ export class SceneEffectsPanel {
     const shakeHint = document.createElement("div");
     shakeHint.textContent = "Shake strength and duration use the Canvas Shake settings.";
     shakeHint.style.cssText = `font-size:10px;color:${LC.textDim};`; body.append(shakeHint);
+    const skeleton = document.createElement("input"); skeleton.type = "checkbox"; skeleton.checked = true;
+    field("Skeleton overlay on electrocuted tokens", skeleton);
     const mixed = document.createElement("input"); mixed.type = "checkbox";
     field("Mix sparks & explosions for random", mixed);
     const markers = document.createElement("input"); markers.type = "checkbox";
     field("Show saved locations (GM only)", markers);
     markers.addEventListener("change", () => { this._showMarkers = markers.checked; this._refreshConsoles(); });
     const options = () => ({ kind: effect.kind, duration: duration.value, shake: shake.checked,
+      skeleton: skeleton.checked,
       shakeOptions: this._shakeOptions?.() ?? SHAKE_PRESETS.impact });
 
     const toolbar = document.createElement("div");
@@ -351,7 +354,9 @@ export class SceneEffectsPanel {
     const sceneName = document.createElement("div"), list = document.createElement("div");
     sceneName.style.cssText = `font-size:11px;color:${LC.secondary};`;
     const sizeHint = document.createElement("div");
-    sizeHint.textContent = "Console name · burst size in scene pixels";
+    sizeHint.textContent = effect.kind === "electric"
+      ? "Console name · electrical radius in scene pixels. Tokens touching the radius crackle and jitter."
+      : "Console name · burst size in scene pixels";
     sizeHint.style.cssText = `font-size:10px;color:${LC.textDim};`;
     list.style.cssText = "display:flex;flex-direction:column;gap:6px;";
     body.append(sceneName, sizeHint, list);

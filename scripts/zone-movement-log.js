@@ -135,32 +135,6 @@ export class ZoneMovementLog {
     const to   = toZone   ?? { id: "none-to",   name: "New Position",      hazards: [], momentumCost: 0 };
     await this._postMovementCard(tokenDoc, from, zoneMove ? to : { ...to, hazards: [], momentumCost: 0, isDifficult: false },
       info, isNpc, isShip, terrainHazards, rt.entries);
-
-    // Lingering hazards entered — zone steps after the start, plus Regions —
-    // go to the active GM on one HAZARD ENTRY card.
-    const entries = [];
-    if (zoneMove) {
-      for (const step of (info.steps ?? []).slice(1)) {
-        const z = zones.find(zz => zz.id === step.zoneId);
-        for (const h of z?.hazards ?? []) {
-          if (h.category !== "lingering") continue;
-          entries.push({
-            ref: { kind: "zone", zoneId: z.id, hazardId: h.id },
-            label: h.label || h.type, category: "lingering", sourceName: z.name || "(unnamed)",
-          });
-        }
-      }
-    }
-    await this._postLingeringEntries(tokenDoc, entries, rt);
-  }
-
-  async _postLingeringEntries(tokenDoc, entries, rt) {
-    for (const hz of rt.lingeringHazards) {
-      entries.push({ ref: hz.source, label: hz.label, category: "lingering", sourceName: hz.sourceName });
-    }
-    if (!entries.length) return;
-    const { ZoneHazard } = await import("./zone-hazard.js");
-    await ZoneHazard.postHazardEntryCard(tokenDoc, entries, { reason: "entry" });
   }
 
   /**
@@ -187,7 +161,6 @@ export class ZoneMovementLog {
     const fromZone = { id: "dynamic-from", name: "Starting Position", hazards: [], momentumCost: 0 };
     const toZone   = { id: "dynamic-to",   name: "New Position",      hazards: [], momentumCost: 0 };
     await this._postMovementCard(tokenDoc, fromZone, toZone, info, isNpc, isShip, [...rt.terrainHazards], rt.entries);
-    await this._postLingeringEntries(tokenDoc, [], rt);
   }
 
   // ── Card rendering ────────────────────────────────────────────────────────

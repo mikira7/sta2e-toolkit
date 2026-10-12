@@ -33,6 +33,7 @@
  */
 
 import { regionBounds, regionCentre, regionPolygons } from "./spawn-regions.js";
+import { validScreenCorners, alignedImageGeometry } from "./viewscreen-alignment.js";
 import {
   VFX_Z_BASE,
   PALETTE_SIZE,
@@ -221,6 +222,7 @@ function _readConfig(behavior) {
     imageOffsetY:  Math.min(100, Math.max(-100, num(s.imageOffsetY, 0))) / 100,
     imageAlpha:    Math.min(100, Math.max(0, num(s.imageAlpha, 100))) / 100,
     imageAbove:    !!s.imageAbove,
+    imageCorners: validScreenCorners(s.imageCorners) ? s.imageCorners : null,
   };
 }
 
@@ -667,6 +669,32 @@ async function _syncImageAsync(inst, cfg) {
   sp.position.set(b.x + b.width  / 2 + b.width  * cfg.imageOffsetX,
                   b.y + b.height / 2 + b.height * cfg.imageOffsetY);
   sp.alpha = cfg.imageAlpha;
+
+  // Keep the sprite as the texture/video owner; the mesh only borrows it.
+  // Rebuild on configuration changes, never on the animation ticker.
+  const key = JSON.stringify([cfg.imageCorners, b, tw, th, cfg.imageFit,
+    cfg.imageScale, cfg.imageOffsetX, cfg.imageOffsetY]);
+  if (key !== inst.imgAlignmentKey) {
+    inst.imgMesh?.destroy();
+    inst.imgMesh = null;
+    inst.imgAlignmentKey = key;
+    if (cfg.imageCorners) {
+      const geometry = alignedImageGeometry(cfg.imageCorners, b, tw, th, cfg);
+      if (geometry) {
+        const { vertices, uvs, indices } = geometry;
+        inst.imgMesh = PIXI.SimpleMesh
+          ? new PIXI.SimpleMesh(sp.texture, vertices, uvs, indices, PIXI.DRAW_MODES.TRIANGLES)
+          : new PIXI.MeshSimple({ texture: sp.texture, vertices, uvs, indices });
+        inst.imgMesh.autoUpdate = false;
+        _passThrough(inst.imgMesh);
+      }
+    }
+  }
+  sp.visible = !cfg.imageCorners;
+  if (inst.imgMesh) {
+    if (inst.imgMesh.parent !== want) want.addChild(inst.imgMesh);
+    inst.imgMesh.alpha = cfg.imageAlpha;
+  }
 }
 
 /**
@@ -677,6 +705,9 @@ async function _syncImageAsync(inst, cfg) {
  * paused and destroyed.
  */
 function _releaseImage(inst, { keepSrc = false } = {}) {
+  inst.imgMesh?.destroy();
+  inst.imgMesh = null;
+  inst.imgAlignmentKey = null;
   const sp = inst.imgSprite;
   if (sp) {
     if (inst.imgOwnsTexture) {

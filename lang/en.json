@@ -230,6 +230,8 @@
   "STA2E.Settings.NpcPersonalThreatSource.Token": "Token flag only",
   "STA2E.Settings.NpcPersonalThreatSource.ActorThenToken": "Combined — NPC sheet first, then token",
   "STA2E.Settings.NpcPersonalThreatSource.TokenThenActor": "Combined — token first, then NPC sheet",
+  "STA2E.Settings.SquadRules.Name": "Squad & Squadron Rules (optional)",
+  "STA2E.Settings.SquadRules.Hint": "Uses the STA system's Squad and Squadron traits. An actor with one rolls an extra assist die per member after the first, and a small craft with Squadron adds +1 damage per extra craft to its energy and torpedo weapons. Not in the 2e core rules; off by default.",
   "STA2E.Settings.Jb2aTier.Name": "JB2A Asset Tier",
   "STA2E.Settings.Jb2aTier.Hint": "Select which version of JB2A you have installed. Free uses jb2a_patreon-free paths; Patron uses the full jb2a_patreon module paths.",
   "STA2E.Settings.Jb2aTier.Free": "JB2A Free (jb2a_patreon free assets)",

@@ -24,12 +24,14 @@
 import { getLcTokens }                                from "./lcars-theme.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { CombatHUD }                                  from "./combat-hud.js";
-import { getSceneZones, updateZone, pointInPolygon }  from "./zone-data.js";
+import { getSceneZones, getZonePathWithCosts, updateZone, pointInPolygon }  from "./zone-data.js";
 import { PaymentPrompt }                              from "./payment-prompt.js";
 import { readPool, setPool }                          from "./pool-service.js";
-import { getRegionFeatures, regionHazardView, regionContainsToken, tokenCentre } from "./region-terrain.js";
+import { getRegionFeatures, regionsCrossed, regionHazardView, regionContainsToken, tokenCentre } from "./region-terrain.js";
 import { activeGmWhisperIds, isActiveGM }             from "./gm-authority.js";
 import { createTraitFromData, postTraitCreatedCard }  from "./trait-service.js";
+import { broadcastHazardVfx } from "./hazard-vfx.js";
+import { HAZARD_VFX_TYPES, hazardVfxFields, readHazardVfxFields, wireHazardVfxPreview } from "./hazard-vfx-config.js";
 
 const LC     = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const MODULE = "sta2e-toolkit";
@@ -156,8 +158,9 @@ const HAZARD_COLORS = {
   "generic":        0xff3333,
 };
 
-async function _playHazardAnimation(token, hazardType, soundKey) {
+async function _playHazardAnimation(token, hazardType, soundKey, vfx) {
   if (!token) return;
+  if (broadcastHazardVfx(token, hazardType, vfx)) return;
 
   const snd = soundKey ? (game.settings.get("sta2e-toolkit", soundKey) ?? "") : "";
   if (snd) {
@@ -294,7 +297,14 @@ export function resolveHazardSource(ref) {
       hazard,
       containsToken: doc => regionContainsToken(region, doc),
       store: async (patch) => {
-        await behavior.update({ "system.established": _patchToEstablished(patch) });
+        const update = { "system.established": _patchToEstablished(patch) };
+        if (patch.vfx) {
+          update["system.visualMode"] = patch.vfx.mode;
+          update["system.visualIntensity"] = patch.vfx.intensity;
+          update["system.visualColor"] = patch.vfx.color;
+          update["system.visualSound"] = patch.vfx.sound;
+        }
+        await behavior.update(update);
       },
     };
   }
@@ -339,6 +349,7 @@ function _establishedPatch(result, threatCost) {
     establishedThreatCost: threatCost ?? 0,
     establishedMode:       result.mode ?? "damage",
     establishedTrait:      result.mode === "trait" ? { name: result.traitName, scope: result.traitScope } : null,
+    ...(result.vfx ? { vfx: result.vfx } : {}),
   };
 }
 
@@ -397,6 +408,35 @@ async function _applyHazardTrait(actor, result, hazardLabel, sourceName, threatS
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class ZoneHazard {
+
+  /** Entry prompts run on the active GM, independently of movement logging. */
+  static async onTokenMove(tokenDoc, origin, dest) {
+    if (!isActiveGM() || !origin || !dest) return;
+    const scene = tokenDoc.parent ?? canvas?.scene;
+    if (!scene || scene.id !== canvas?.scene?.id) return;
+    const entries = [];
+    if (scene.getFlag(MODULE, "zonesEnabled") !== false) {
+      const zones = getSceneZones(scene);
+      const path = getZonePathWithCosts(origin, dest, zones);
+      const enteredIds = new Set((path.steps ?? []).slice(1).map(s => s.zoneId));
+      for (const zone of zones) {
+        if (pointInPolygon(origin.x, origin.y, zone.vertices)) continue;
+        if (!enteredIds.has(zone.id) && !pointInPolygon(dest.x, dest.y, zone.vertices)) continue;
+        for (const hazard of zone.hazards ?? []) {
+          entries.push({ ref: hazardRef(zone, hazard), label: hazard.label || hazard.type,
+            category: hazard.category ?? "lingering", sourceName: zone.name || "(unnamed)" });
+        }
+      }
+    }
+    for (const { features } of regionsCrossed(origin, dest, scene, ["hazard"]).values()) {
+      for (const feature of features) {
+        const hazard = regionHazardView(feature);
+        entries.push({ ref: hazard.source, label: hazard.label,
+          category: hazard.category, sourceName: hazard.sourceName });
+      }
+    }
+    await ZoneHazard.postHazardEntryCard(tokenDoc, entries, { reason: "setup" });
+  }
 
   // ── Hazard builder dialog ──────────────────────────────────────────────────
 
@@ -530,6 +570,7 @@ export class ZoneHazard {
     </label>` : ""}
   </div>
 
+  ${Object.hasOwn(HAZARD_VFX_TYPES, hazard.type) ? hazardVfxFields(hazard.vfx, hazard.type) : ""}
   ${hasEst ? `
   <div style="background:${LC.panel};border:1px solid ${LC.primary};border-radius:4px;
     padding:6px 8px;margin-bottom:8px;">
@@ -562,6 +603,8 @@ export class ZoneHazard {
           icon: "fas fa-bolt",
           callback: (event, button, dialog) => {
             const el = dialog?.element ?? dialog;
+            const vfx = Object.hasOwn(HAZARD_VFX_TYPES, hazard.type)
+              ? readHazardVfxFields(el, hazard.type) : hazard.vfx;
             const bonusVal = parseInt(el?.querySelector?.("#hb-bonus-val")?.textContent ?? "0") || 0;
             const effects = {
               piercing:         el?.querySelector?.("#hb-piercing")?.checked  ?? false,
@@ -577,6 +620,7 @@ export class ZoneHazard {
             if (mode === "trait") {
               return {
                 mode,
+                vfx,
                 traitName:       (el.querySelector("#hb-trait-name")?.value ?? "").trim() || hazardLabel,
                 traitScope:      el.querySelector("#hb-trait-scope")?.value === "scene" ? "scene" : "actor",
                 damage:          0,
@@ -589,7 +633,7 @@ export class ZoneHazard {
             const damage         = isShip ? 3 + bonusVal : 1 + bonusVal;
             const damageType     = isShip ? "shields" : "stress";
             const totalThreatCost = waiveThreat ? 0 : _calcThreatCost(isShip, bonusVal, effects);
-            return { mode, damage, damageType, effects, totalThreatCost, waiveThreat };
+            return { mode, damage, damageType, effects, totalThreatCost, waiveThreat, vfx };
           },
         },
         {
@@ -603,6 +647,7 @@ export class ZoneHazard {
       render: (_event, html) => {
         const el = html?.element ?? html;
         if (!el) return;
+        wireHazardVfxPreview(el, () => hazard.type);
 
         // Pre-fill bonus steps from established state
         const bonusEl = el.querySelector("#hb-bonus-val");
@@ -738,6 +783,7 @@ export class ZoneHazard {
           avoidanceDifficulty: difficulty,
           hazardLabel:         hazard.label || hazard.type,
           hazardType:          hazard.type ?? "generic",
+          hazardVfx:           builtResult.vfx ?? hazard.vfx,
           zoneName,
           resolved:            false,
         },
@@ -959,7 +1005,7 @@ export class ZoneHazard {
       const actorName = actor.name;
       await _applyHazardDamage(actor, tokenDoc, token, builtDamage, builtDamageType, effects ?? {});
       await _playHazardAnimation(token, hazardType ?? "generic",
-        ZoneHazard._soundKeyFor(hazardType));
+        ZoneHazard._soundKeyFor(hazardType), flags.hazardVfx);
       await ZoneHazard._postDamageCard(actorName, zoneName, hazardLabel, builtDamage, builtDamageType);
       await message.update({
         [`flags.${MODULE}.resolved`]:   true,
@@ -971,7 +1017,7 @@ export class ZoneHazard {
   // ── setupHazard — zone monitor entry point for pre-configuring hazards ─────
 
   /**
-   * Opens the hazard builder to (re-)establish a lingering or terrain hazard.
+   * Opens the hazard builder to (re-)establish a hazard.
    * Used by the Zone Monitor when the GM wants to set up a hazard manually,
    * or re-configure one whose dialog was previously dismissed.
    * @param {string} zoneId
@@ -979,7 +1025,7 @@ export class ZoneHazard {
    * @param {string} hazardLabel
    * @param {object} hazard        zone hazard entry
    * @param {boolean} isShip
-   * @param {string} category      "lingering" | "terrain"
+   * @param {string} category      "immediate" | "lingering" | "terrain"
    * @returns {object|null}        built result or null if cancelled
    */
   static async setupHazard(zoneIdOrRef, hazardId, hazardLabel, hazard, isShip, category) {
@@ -1044,14 +1090,16 @@ export class ZoneHazard {
 
   /**
    * One card for every hazard a move ran into, whispered only to the active GM
-   * (assistant GMs are treated as players). Posted from whichever client made
-   * the move; the rows are resolved from the active GM's client.
+   * (assistant GMs are treated as players). Movement setup prompts are authored
+   * by the active GM; the rows are also resolved from the active GM's client.
    * @param {TokenDocument} tokenDoc
    * @param {{ref, label, category, sourceName}[]} entries
-   * @param {{reason?: "entry"|"threat"}} [opts]
+   * @param {{reason?: "entry"|"threat"|"setup"}} [opts]
    */
   static async postHazardEntryCard(tokenDoc, entries, { reason = "entry" } = {}) {
     if (!tokenDoc || !entries?.length) return;
+    const whisper = activeGmWhisperIds();
+    if (!whisper.length) return;
     const actor     = tokenDoc.actor ?? canvas.tokens?.get(tokenDoc.id)?.actor ?? null;
     const tokenName = tokenDoc.name ?? actor?.name ?? "Unknown";
     const catLabel  = { terrain: "Hazardous Terrain", lingering: "Lingering", immediate: "Immediate" };
@@ -1071,7 +1119,7 @@ export class ZoneHazard {
     <div style="color:${LC.secondary};font-size:0.72em;margin-top:2px;">
       ${reason === "threat"
         ? "Crossed using Threat — the hazard triggers."
-        : "Entered a hazardous area."}
+        : reason === "setup" ? "Entered a hazardous area — set up its hazards below." : "Entered a hazardous area."}
     </div>
   </div>${rows}
   <div style="background:${LC.panel};padding:4px 12px;">
@@ -1094,11 +1142,12 @@ export class ZoneHazard {
     await ChatMessage.create({
       content,
       speaker: { alias: "Zone Hazard" },
-      whisper: activeGmWhisperIds(),
+      whisper,
       flags: {
         [MODULE]: {
           type:    "hazardEntry",
           reason,
+          sceneId: tokenDoc.parent?.id ?? canvas?.scene?.id,
           tokenId: tokenDoc.id,
           actorId: actor?.id ?? null,
           rows:    entries.map(e => ({
@@ -1133,6 +1182,7 @@ export class ZoneHazard {
           applied:     ["⚡ Resolved", LC.yellow],
           established: ["♻ Established — damage each round", "#ff8800"],
           ignored:     ["✕ Ignored", LC.textDim],
+          configured:  ["✓ Hazard set up", LC.secondary],
         }[row.status] ?? [row.status, LC.textDim];
         actions.innerHTML = status(...done);
         return;
@@ -1143,9 +1193,10 @@ export class ZoneHazard {
       }
 
       const live = resolveHazardSource(row.ref)?.hazard;
+      const setupOnly = flags.reason === "setup";
       actions.innerHTML = [
-        btn("sta2e-hz-build", "⚡ Build & Apply", LC.primary),
-        live?.established ? btn("sta2e-hz-established", "♻ Apply Established", LC.secondary) : "",
+        btn("sta2e-hz-build", setupOnly ? (live?.established ? "⚙ Reconfigure Hazard" : "⚙ Set Up Hazard") : "⚡ Build & Apply", LC.primary),
+        !setupOnly && live?.established ? btn("sta2e-hz-established", "♻ Apply Established", LC.secondary) : "",
         btn("sta2e-hz-ignore", "✕ Ignore", LC.borderDim),
       ].join("");
 
@@ -1159,6 +1210,7 @@ export class ZoneHazard {
   }
 
   static async _markEntryRow(message, index, statusValue) {
+    if (!isActiveGM()) return;
     const rows = foundry.utils.deepClone(message.flags?.[MODULE]?.rows ?? []);
     if (!rows[index]) return;
     rows[index].status = statusValue;
@@ -1174,9 +1226,14 @@ export class ZoneHazard {
    * spend, drawn unless waived as established.
    */
   static async _resolveEntryRow(message, index, useEstablished) {
+    if (!isActiveGM()) return;
     const flags = message.flags?.[MODULE] ?? {};
     const row   = flags.rows?.[index];
     if (!row || row.status) return;
+    if (flags.sceneId && flags.sceneId !== canvas?.scene?.id) {
+      ui.notifications.warn("STA2e Toolkit: View the hazard's scene before setting it up.");
+      return;
+    }
 
     const src = resolveHazardSource(row.ref);
     if (!src) {
@@ -1196,6 +1253,12 @@ export class ZoneHazard {
     const category  = row.category ?? hazard.category ?? "lingering";
     const label     = hazard.label || hazard.type || row.label;
     const actorName = tokenDoc?.name ?? actor.name;
+
+    if (flags.reason === "setup") {
+      const result = await ZoneHazard.setupHazard(row.ref, null, label, hazard, isShip, category);
+      if (result) await ZoneHazard._markEntryRow(message, index, "configured");
+      return;
+    }
 
     const result = useEstablished
       ? _resultFromEstablished(hazard, isShip)
@@ -1400,6 +1463,9 @@ export class ZoneHazard {
     // Store established state
     if (!hazard.established || !waiveThreat) {
       await _storeEstablished(ref, builtResult, waiveThreat ? 0 : totalThreatCost);
+    } else if (builtResult.vfx) {
+      // Visual edits do not erase the original refundable Threat spend.
+      await src?.store({ ...hazard, vfx: builtResult.vfx });
     }
 
     const hazardLabel = hazard.label || hazard.type;
@@ -1500,7 +1566,7 @@ export class ZoneHazard {
           if (damage <= 0) continue;
           await _applyHazardDamage(actor, tokenDoc, token, damage, damageType, effects);
           await _playHazardAnimation(token, hazard.type ?? "generic",
-            ZoneHazard._soundKeyFor(hazard.type));
+            ZoneHazard._soundKeyFor(hazard.type), hazard.vfx);
           await ZoneHazard._postLingeringCard(actorName, zoneName,
             hazard.label || hazard.type, damage, damageType);
         }

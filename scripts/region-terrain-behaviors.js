@@ -22,6 +22,7 @@
  */
 
 import { HAZARD_TYPES } from "./zone-data.js";
+import { HAZARD_VFX_MODES, HAZARD_VFX_SUPPORTED } from "./hazard-vfx-config.js";
 import {
   TERRAIN_BEHAVIOR, HAZARD_BEHAVIOR, SHROUD_BEHAVIOR, invalidateRegionFeatures, getRegionFeatures,
 } from "./region-terrain.js";
@@ -99,6 +100,14 @@ export class TerrainHazardBehaviorType extends Base {
       // Written in code only, by zone-hazard.js when the GM first resolves the
       // hazard. ObjectField has no form support, so the auto-sheet skips it.
       established: new f.ObjectField({ required: true, initial: {} }),
+      visualMode: new f.StringField({ required: true, initial: "trigger", choices: HAZARD_VFX_MODES,
+        label: "Effect Visibility", hint: `${HAZARD_VFX_SUPPORTED}.` }),
+      visualIntensity: new f.NumberField({ required: true, initial: 1, min: .25, max: 2, step: .25,
+        label: "Effect Intensity" }),
+      visualColor: new f.StringField({ required: true, blank: true, initial: "",
+        label: "Effect Color", hint: "Optional hex color, e.g. #ff7026. Blank uses the hazard's default." }),
+      visualSound: new f.BooleanField({ initial: true, label: "Trigger Sound",
+        hint: "Use the hazard sound from module settings. GM-only sounds stay private." }),
     };
   }
 }

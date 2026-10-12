@@ -3,7 +3,7 @@
  * Compact player action ring docked near the Foundry hotbar.
  */
 
-import { COMMAND_SEATS, getCrewManifest, readOfficerStats, setCrewManifest, STATION_SLOTS } from "./crew-manifest.js";
+import { assignOfficer, COMMAND_SEATS, getCrewManifest, readOfficerStats, setCrewManifest, STATION_SLOTS } from "./crew-manifest.js";
 import { openNpcRoller } from "./npc-roller.js";
 import { BRIDGE_STATIONS, CombatHUD, GROUND_ACTIONS, hasFastTargetingSystems, openWeaponAttackForOfficer, STATION_SVG } from "./combat-hud.js";
 import { getActiveLcThemeKey, getLcCssVars, getLcTokens } from "./lcars-theme.js";
@@ -1777,17 +1777,8 @@ export class LcarsActionRing {
     if (result !== "assign") return;
 
     const choice = choices[selectedChoiceIndex] ?? choices[0];
-    const nextManifest = Object.fromEntries(STATION_SLOTS.map(slot => [slot.id, [...(manifest[slot.id] ?? [])]]));
-    for (const slot of STATION_SLOTS) {
-      nextManifest[slot.id] = slot.id === "command"
-        ? (manifest.command ?? []).map(id => id === actor.id ? null : id)
-        : (manifest[slot.id] ?? []).filter(id => id !== actor.id);
-    }
-    if (choice.stationId === "command") {
-      nextManifest.command[choice.seatIndex] = actor.id;
-    } else if (choice.stationId) {
-      nextManifest[choice.stationId] = [actor.id];
-    }
+    // One station per officer (crew-manifest.js owns the rule).
+    const nextManifest = assignOfficer(manifest, actor.id, choice.stationId || null, choice.seatIndex);
 
     await setCrewManifest(ship, nextManifest);
     this.refresh();

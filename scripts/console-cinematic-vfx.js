@@ -86,7 +86,7 @@ export function createConsoleExplosionVolume(size, seed) {
 }
 
 /** Shared local volume filter for one-shot fireballs and sustained plumes. */
-export function createLocalVolume({ body, uniforms, bounds }) {
+export function createLocalVolume({ body, uniforms, bounds, stableCoordinates = false }) {
   const renderer = globalThis.canvas?.app?.renderer;
   if (!renderer?.gl || !PIXI.Filter) return null;
   let quad, filter;
@@ -97,17 +97,35 @@ export function createLocalVolume({ body, uniforms, bounds }) {
       : "varying vec2 vTextureCoord; uniform vec4 inputSize, outputFrame; uniform sampler2D uSampler;";
     const map = v8 ? "uInputSize.xy / uOutputFrame.zw" : "inputSize.xy / outputFrame.zw";
     const sampler = v8 ? "uTexture" : "uSampler";
-    const fragment = `precision highp float;\n${prefix}\n${body}\nvoid main() {
-      vec2 p = vTextureCoord * ${map} * 2.0 - 1.0;
+    // A filter's input frame is cropped to the viewport. Recover local-space
+    // coordinates from screen pixels instead of stretching that cropped frame
+    // across the whole effect when the camera pans or zooms.
+    const frame = v8 ? "uOutputFrame" : "outputFrame";
+    const inputSize = v8 ? "uInputSize" : "inputSize";
+    const coordinateUniforms = stableCoordinates ? {
+      uLocalA: 1, uLocalB: 0, uLocalC: 0, uLocalD: 1, uLocalTX: 0, uLocalTY: 0,
+      uLocalX: bounds.x, uLocalY: bounds.y, uLocalW: bounds.width, uLocalH: bounds.height,
+    } : {};
+    const declaration = stableCoordinates
+      ? "uniform float uLocalA,uLocalB,uLocalC,uLocalD,uLocalTX,uLocalTY,uLocalX,uLocalY,uLocalW,uLocalH;" : "";
+    const coordinates = stableCoordinates ? `
+      vec2 screen = ${frame}.xy + vTextureCoord * ${inputSize}.xy;
+      vec2 local = vec2(uLocalA*screen.x+uLocalC*screen.y+uLocalTX,
+                        uLocalB*screen.x+uLocalD*screen.y+uLocalTY);
+      vec2 p = (local-vec2(uLocalX,uLocalY))/vec2(uLocalW,uLocalH)*2.0-1.0;`
+      : `vec2 p = vTextureCoord * ${map} * 2.0 - 1.0;`;
+    const shaderUniforms = { ...uniforms, ...coordinateUniforms };
+    const fragment = `precision highp float;\n${prefix}\n${declaration}\n${body}\nvoid main() {
+      ${coordinates}
       gl_FragColor = volume(p) * texture2D(${sampler},vTextureCoord).a;
     }`;
     if (v8) {
       if (!PIXI.GlProgram) return null;
       filter = new PIXI.Filter({ glProgram: PIXI.GlProgram.from({ vertex: VERTEX8, fragment }),
-        resources: { consoleUniforms: Object.fromEntries(Object.entries(uniforms)
+        resources: { consoleUniforms: Object.fromEntries(Object.entries(shaderUniforms)
           .map(([key, value]) => [key, { value, type: "f32" }])) }, resolution: 0.65, padding: 0 });
     } else {
-      filter = new PIXI.Filter(null, fragment, uniforms);
+      filter = new PIXI.Filter(null, fragment, shaderUniforms);
       filter.resolution = 0.65; filter.padding = 0;
       // Validate immediately so older GPUs retain the Graphics fallback.
       if (renderer.shader?.generateProgram) {
@@ -120,6 +138,20 @@ export function createLocalVolume({ body, uniforms, bounds }) {
     if (!v8 && quad.beginFill) quad.beginFill(0xffffff).drawRect(bounds.x,bounds.y,bounds.width,bounds.height).endFill();
     else quad.rect(bounds.x,bounds.y,bounds.width,bounds.height).fill(0xffffff);
     quad.filters = [filter]; quad.eventMode = "none";
+    if (stableCoordinates) {
+      const apply = filter.apply;
+      filter.apply = function (...args) {
+        const m = quad.worldTransform;
+        const det = m.a*m.d-m.b*m.c;
+        if (Math.abs(det) < 1e-12) return;
+        const target = v8 ? filter.resources.consoleUniforms.uniforms : filter.uniforms;
+        Object.assign(target, {
+          uLocalA: m.d/det, uLocalB: -m.b/det, uLocalC: -m.c/det, uLocalD: m.a/det,
+          uLocalTX: (m.c*m.ty-m.d*m.tx)/det, uLocalTY: (m.b*m.tx-m.a*m.ty)/det,
+        });
+        return apply.apply(this, args);
+      };
+    }
     let destroyed = false;
     return { display: quad,
       update(values) {

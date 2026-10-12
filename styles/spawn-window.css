@@ -684,8 +684,8 @@
   background: color-mix(in srgb, var(--sw-text-dim) 18%, transparent);
 }
 
-.sta2e-sw .sw-token-badge.linked   { color: var(--sw-green); }
-.sta2e-sw .sw-token-badge.wildcard { color: var(--sw-yellow); }
+.sta2e-sw .sw-token-badge.is-linked   { color: var(--sw-green); }
+.sta2e-sw .sw-token-badge.is-wildcard { color: var(--sw-yellow); }
 
 .sta2e-sw .sw-quantity-ctrl {
   display: flex;
