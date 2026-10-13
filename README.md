@@ -1,7 +1,8 @@
 # STA 2e Toolkit
 
 A FoundryVTT module for **Star Trek Adventures 2nd Edition** (Using the Star Trek Adventures `sta` game system).
-Disclaimer: This module uses AI in it's building, while the vast majority of the module is compliant with Foundry VTT's AI policy, there is some artwork that AI was used in it's construction mainly with the interior generator. All menu items, vfx are made by me. This module is free for use and I will take money for it, though I bare the cost myself for the software maintenance and development of it. 
+
+Disclaimer: This module uses AI in it's building, while the vast majority of the module is compliant with Foundry VTT's AI policy, there is some artwork that AI was used in it's construction mainly with the interior generator. All menu items, vfx are made by me. This module is free for use and I will not take money for it, though I bare the cost myself for the software maintenance and development of it. 
 
 ## Features
 
