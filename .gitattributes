@@ -1,0 +1,30 @@
+# Release zips are built with `git archive`, which leaves out everything marked
+# export-ignore. These are development files — art studies, superseded drafts,
+# review reports, tests and tooling — that the module never loads. They stay in
+# the repository; they just do not ship. Keep runtime art OUT of this list:
+# the starfleet-tng prefabs are loaded by name from assembly-library.json and
+# starter-scene.json, so only files neither of those names may go here.
+
+# Interior art still in production (its README: "not ready for runtime").
+assets/interiors/prefabs/production/** export-ignore
+assets/interiors/prefabs/cabin-studies/** export-ignore
+assets/interiors/prefabs/corridor-studies/** export-ignore
+
+# starfleet-tng: vector masters, superseded drafts and review data.
+assets/interiors/prefabs/starfleet-tng/automatic-assembly* export-ignore
+assets/interiors/prefabs/starfleet-tng/registered-assembly.svg export-ignore
+assets/interiors/prefabs/starfleet-tng/registered-assembly-closed.* export-ignore
+assets/interiors/prefabs/starfleet-tng/*-v1.png export-ignore
+assets/interiors/prefabs/starfleet-tng/F01-A-v1.png -export-ignore
+assets/interiors/prefabs/starfleet-tng/H02-A-v2.png export-ignore
+assets/interiors/prefabs/starfleet-tng/prompts.json export-ignore
+assets/interiors/prefabs/starfleet-tng/correction-prompts.json export-ignore
+assets/interiors/prefabs/starfleet-tng/fit-report.json export-ignore
+assets/interiors/prefabs/starfleet-tng/registration-*.json export-ignore
+assets/interiors/prefabs/starfleet-tng/index.html export-ignore
+
+# Not part of the running module.
+docs/** export-ignore
+tests/** export-ignore
+tools/** export-ignore
+.gitattributes export-ignore
