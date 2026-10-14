@@ -43,9 +43,9 @@ for(const cabinLayout of ['Q01-B','Q02-R','Q04-P','Q03-R','Q05-F2','Q05-F3']) {
   const older=geometry.generateInterior({cabinLayout,roomTypes:['quarters'],era:'tos',seed:'queen-measured'});
   for(const room of older.rooms.filter(r=>r.kind==='quarters'))assert.deepEqual(room.architecture.fixtures,CABIN_PLAN_CATALOG.pieces.find(p=>p.id===room.cabinPlan).fixtures,'Earlier-era measured fixtures keep their original sizes');
 }
-assert.ok(assets.interiorAssetPaths({faction:'federation',era:'tng'}).bed.endsWith('bed-officer.png'));
-for(const era of ['ent','tos','movies','picard'])assert.ok(assets.interiorAssetPaths({faction:'federation',era}).bed.endsWith('/bed.png'));
-assert.ok(assets.interiorAssetPaths({faction:'klingon',era:'tng'}).bed.endsWith('/bed.png'));
+assert.ok(assets.interiorAssetPaths({faction:'federation',era:'tng'}).bed.endsWith('bed-officer.webp'));
+for(const era of ['ent','tos','movies','picard'])assert.ok(assets.interiorAssetPaths({faction:'federation',era}).bed.endsWith('/bed.webp'));
+assert.ok(assets.interiorAssetPaths({faction:'klingon',era:'tng'}).bed.endsWith('/bed.webp'));
 const custom='worlds/test/my-bed.png';assert.equal(assets.interiorAssetPaths({faction:'federation',era:'tng',assets:{bed:custom}}).bed,custom);
 const layout=geometry.generateInterior({era:'tng',roomTypes:['quarters'],assets:{bed:'drawn'}}),svg=art.renderInteriorSVG(layout);
 assert.ok(svg.includes('data-bed-size="queen"'));

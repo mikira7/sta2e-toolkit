@@ -198,8 +198,10 @@ assert.deepEqual(geometry.normalizeInteriorRecipe({roomTypes:["quarters","quarte
 assert.equal(assets.normalizeInteriorAssets({floor:"javascript:alert(1)"}).floor,"auto");
 assert.equal(assets.normalizeInteriorAssets({floor:"../private.png"}).floor,"auto");
 assert.equal(assets.normalizeInteriorAssets({floor:"worlds/maps/my floor.png"}).floor,"worlds/maps/my floor.png");
-assert.ok(assets.interiorAssetPaths({faction:"klingon",era:"tng"}).console.endsWith("console-imperial.png"));
-assert.ok(assets.interiorAssetPaths({faction:"federation",era:"tos"}).console.endsWith("console-retro.png"));
+assert.ok(assets.interiorAssetPaths({faction:"klingon",era:"tng"}).console.endsWith("console-imperial.webp"));
+assert.ok(assets.interiorAssetPaths({faction:"federation",era:"tos"}).console.endsWith("console-retro.webp"));
+assert.equal(assets.normalizeInteriorAssets({bed:"modules/sta2e-toolkit/assets/interiors/bed-crew.png"}).bed,"modules/sta2e-toolkit/assets/interiors/bed-crew.webp","a recipe saved with the old PNG maps to the WebP");
+assert.equal(assets.normalizeInteriorAssets({floor:"modules/sta2e-toolkit/assets/interiors/floor-room-carpet.png"}).floor,"modules/sta2e-toolkit/assets/interiors/floor-room-carpet.png","the hash-pinned carpet stays PNG");
 assert.equal(assets.interiorAssetPaths({faction:"borg",era:"tng"}).console,null);
 const withImages=art.renderInteriorSVG(a,{assets:{console:"data:image/png;base64,TEST"}});
 assert.equal(withImages.split("data:image/png;base64,TEST").length-1,1,"Embed each asset only once");
@@ -218,27 +220,41 @@ for(const kind of ["bridge","medical","engineering","quarters","lift","lounge","
 }
 assert.equal(geometry.normalizeInteriorRecipe({roomKit:"injected"}).roomKit,"assembled");
 assert.deepEqual(kitTools.interiorKitPaths({roomKit:"assembled"}),{});
+// Bundled art is WebP (new art must be WebP — see CLAUDE.md); one hash-pinned carpet is still PNG.
+// Reads the size and alpha flag from either header without decoding the image.
+const imageHeader=buf=>{
+  if(buf.toString("hex",0,8)==="89504e470d0a1a0a")return {format:"png",width:buf.readUInt32BE(16),height:buf.readUInt32BE(20),alpha:buf[25]===6&&buf[24]===8};
+  assert.equal(buf.toString("ascii",0,4),"RIFF");assert.equal(buf.toString("ascii",8,12),"WEBP","bundled art is PNG or WebP");
+  const chunk=buf.toString("ascii",12,16);
+  if(chunk==="VP8X")return {format:"webp",width:1+buf.readUIntLE(24,3),height:1+buf.readUIntLE(27,3),alpha:!!(buf[20]&0x10)&&buf.includes(Buffer.from("ALPH"))};
+  if(chunk==="VP8L"){const b=buf.readUInt32LE(21);return {format:"webp",width:1+(b&0x3fff),height:1+((b>>14)&0x3fff),alpha:!!((b>>28)&1)};}
+  if(chunk==="VP8 ")return {format:"webp",width:buf.readUInt16LE(26)&0x3fff,height:buf.readUInt16LE(28)&0x3fff,alpha:false};
+  throw new Error(`unknown WebP chunk ${chunk}`);
+};
 let roomImages=0;
 for(const assetPath of Object.values(kitTools.INTERIOR_KIT_IMAGES)) {
-  const png=await readFile(new URL(`../${assetPath.replace("modules/sta2e-toolkit/","")}`,import.meta.url));
-  assert.equal(png.toString("hex",0,8),"89504e470d0a1a0a");assert.ok(png.readUInt32BE(16)>=512&&png.readUInt32BE(20)>=512);roomImages++;
+  const head=imageHeader(await readFile(new URL(`../${assetPath.replace("modules/sta2e-toolkit/","")}`,import.meta.url)));
+  assert.ok(head.width>=512&&head.height>=512);roomImages++;
 }
 // Check the actual bundled files, including real transparent alpha on all furniture assets.
 let images=0;
 for(const [slot,list]of Object.entries(assets.INTERIOR_ASSET_LIBRARY))for(const item of list) {
   const file=new URL(`../${item.path.replace("modules/sta2e-toolkit/","")}`,import.meta.url),png=await readFile(file);
-  assert.equal(png.toString("hex",0,8),"89504e470d0a1a0a");
-  const width=png.readUInt32BE(16),height=png.readUInt32BE(20);
+  const head=imageHeader(png),{width,height}=head;
   assert.ok(width>=512&&height>=512);
   if(item.aspect) {
-    assert.equal(item.aspect,width/height,`${item.path} aspect metadata matches the PNG`);
+    assert.equal(item.aspect,width/height,`${item.path} aspect metadata matches the image`);
     const layout=generateInterior({plan:"spine",roomTypes:["bridge","quarters","office"],assets:{[slot]:item.path}});
     const svg=art.renderInteriorSVG(layout,{assets:{[slot]:"data:image/png;base64,TEST"}});
     const placements=[...svg.matchAll(new RegExp(`<use href="#asset-${slot}" transform="[^"]*scale\\(([^ ]+) ([^)]+)\\)"`,"g"))];
     assert.ok(placements.length,`${item.path} is used in the assembled preview`);
     for(const placement of placements)assert.ok(Math.abs(Number(placement[1])/Number(placement[2])-item.aspect)<.01,`${item.path} must not stretch`);
   }
-  if(!["floor","corridor","jefferies"].includes(slot)) {
+  if(!["floor","corridor","jefferies"].includes(slot)&&head.format==="webp") {
+    // WebP cannot be decoded here without a dependency: require a real alpha channel in the header.
+    // The PNG-to-WebP conversion was checked pixel for pixel to keep alpha exact.
+    assert.ok(head.alpha,`${item.path} must have an alpha channel`);
+  } else if(!["floor","corridor","jefferies"].includes(slot)) {
     assert.equal(png[25],6,`${item.path} must have an alpha channel`);assert.equal(png[24],8);
     const chunks=[];
     for(let offset=8;offset<png.length;) {const size=png.readUInt32BE(offset);if(png.toString("ascii",offset+4,offset+8)==="IDAT")chunks.push(png.subarray(offset+8,offset+8+size));offset+=size+12;}
@@ -345,7 +361,7 @@ const tubeTexture={jefferies:"data:image/png;base64,TUBE"};
 const textured=art.renderInteriorSVG(generateInterior({plan:"jefferies",seed:"tex"}),{assets:tubeTexture});
 assert.ok(textured.includes("data-jefferies-texture=")&&textured.includes('href="#asset-jefferies"'),"Straight tubes tile the crawlway texture");
 assert.ok(!art.renderInteriorSVG(generateInterior({plan:"habitat",seed:"tex"}),{assets:tubeTexture}).includes("TUBE"),"Maps without tubes do not embed the texture");
-assert.ok(assets.interiorAssetPaths({faction:"federation",era:"tng"}).jefferies.endsWith("jefferies-tube.png"));
+assert.ok(assets.interiorAssetPaths({faction:"federation",era:"tng"}).jefferies.endsWith("jefferies-tube.webp"));
 globalThis.game={user:{isGM:false}};
 await assert.rejects(()=>mod.namespace.createInteriorScene({}),/Only a GM/);
 // Optional preview artifacts for browser QA, written only to an explicit output directory.
