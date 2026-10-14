@@ -275,7 +275,19 @@
   padding: 8px 12px;
   border-top: 3px solid var(--tm-primary);
 }
-.sta2e-tm-footer .sta2e-tm-muted { margin-right: auto; }
+.sta2e-tm-filename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  min-width: 0;
+  color: var(--tm-text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.sta2e-tm-filename input { width: 220px; min-width: 0; text-transform: none; letter-spacing: normal; }
+.sta2e-tm-filename .sta2e-tm-muted { text-transform: none; letter-spacing: normal; }
 .sta2e-tm-footer button {
   height: 28px;
   padding: 0 16px;

@@ -382,6 +382,11 @@ export function isWritableNextTo(path) {
   return !/^(icons|ui|sounds|cards|canvas|systems|modules)\//i.test(p);
 }
 
+/** A file-name stem safe on every host: letters, digits, _ and -, spaces to dashes. */
+export function safeFileStem(text) {
+  return String(text ?? "").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-");
+}
+
 /**
  * Folder and file names for a token made from `portraitPath`:
  * `<stem>_token.webp`, then `_token-2`, `_token-3` … when taken. A fresh name
@@ -390,10 +395,12 @@ export function isWritableNextTo(path) {
  * @param {string} portraitPath
  * @param {Iterable<string>} existing  File names (not paths) already in the folder
  * @param {string} [fallbackDir]       Used when the portrait's folder is not writable
- * @param {{forceFallback?: boolean}} [opts]  Use the fallback folder even when the
- *   portrait's looks writable (its folder refused the upload)
+ * @param {{forceFallback?: boolean, name?: string}} [opts]  `forceFallback` uses the
+ *   fallback folder even when the portrait's looks writable (its folder refused the
+ *   upload); `name` is the GM's chosen file name, used instead of `<stem>_token`
+ *   (still made unique, so a re-save never overwrites a file a browser has cached)
  */
-export function tokenFileNames(portraitPath, existing = [], fallbackDir = "", { forceFallback = false } = {}) {
+export function tokenFileNames(portraitPath, existing = [], fallbackDir = "", { forceFallback = false, name: chosen = "" } = {}) {
   const path = String(portraitPath ?? "");
   const writable = !forceFallback && isWritableNextTo(path);
   const clean = path.split(/[?#]/)[0];
@@ -401,10 +408,11 @@ export function tokenFileNames(portraitPath, existing = [], fallbackDir = "", { 
   const dir = writable ? clean.slice(0, slash) : fallbackDir;
   let stem = "token";
   try { stem = decodeURIComponent(clean.slice(slash + 1)).replace(/\.[a-z0-9]+$/i, "") || "token"; } catch { /* keep default */ }
-  stem = stem.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "token";
+  stem = safeFileStem(stem) || "token";
+  const base = safeFileStem(String(chosen ?? "").replace(/\.(webp|png|jpe?g)$/i, "")) || `${stem}_token`;
   const taken = new Set([...existing].map(n => String(n).toLowerCase()));
   let n = 1;
-  let name = `${stem}_token.webp`;
-  while (taken.has(name.toLowerCase())) name = `${stem}_token-${++n}.webp`;
+  let name = `${base}.webp`;
+  while (taken.has(name.toLowerCase())) name = `${base}-${++n}.webp`;
   return { dir, name, mask: name.replace(/\.webp$/, ".mask.png"), fellBack: !writable };
 }

@@ -115,6 +115,14 @@ await check('token file names: next to the portrait, unique, with a mask sibling
   assert.deepEqual([d.dir, d.name, d.fellBack], ['worlds/w/sta2e-tokens', 'bob_token-2.webp', true]);
 });
 
+await check('token file names: a chosen name replaces <stem>_token, cleaned and still unique', () => {
+  const a = tokenFileNames('assets/crew/bob.png', [], '', { name: 'Lt Bob (away team)' });
+  assert.deepEqual([a.dir, a.name, a.mask], ['assets/crew', 'Lt-Bob-away-team.webp', 'Lt-Bob-away-team.mask.png']);
+  assert.equal(tokenFileNames('assets/crew/bob.png', ['bob-eva.webp'], '', { name: 'bob-eva.webp' }).name, 'bob-eva-2.webp', 'extension typed in is not doubled; taken names get a number');
+  assert.equal(tokenFileNames('assets/crew/bob.png', [], '', { name: '  ../??  ' }).name, 'bob_token.webp', 'nothing usable falls back to the default');
+  assert.equal(tokenFileNames('assets/crew/bob.png', [], '', { name: '../../etc/x' }).name, 'etcx.webp', 'no path separators survive');
+});
+
 await check('rank text → insignia, all four kinds', () => {
   const O = (solid, hollow) => ({ kind: 'officer', solid, hollow });
   const A = (pips) => ({ kind: 'admiral', pips });

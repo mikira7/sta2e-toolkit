@@ -238,6 +238,8 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
       // for the GM's own ring image in `ringImage`.
       frameStyle: "starfield",
       frameColor: "#9c0000",
+      // The saved file's name without extension; blank means "<portrait>_token".
+      fileName: "",
       ...(recipe ?? {}),
     };
     if (recipe?.src) this.r.src = recipe.src;
@@ -940,7 +942,10 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
           </aside>
         </div>
         <footer class="sta2e-tm-footer">
-          <span class="sta2e-tm-muted">Saved next to the portrait as <code>&lt;name&gt;_token.webp</code></span>
+          <label class="sta2e-tm-filename" data-tooltip="Saved next to the portrait. A number is added if the name is taken.">File name
+            <input type="text" data-r="fileName" value="${_esc(r.fileName ?? "")}" placeholder="${_esc(tokenFileNames(r.src, []).name.replace(/\.webp$/, ""))}" spellcheck="false">
+            <span class="sta2e-tm-muted">.webp</span>
+          </label>
           <button type="button" data-act="cancel">Cancel</button>
           <button type="button" data-act="save" class="is-primary"><i class="fas fa-floppy-disk"></i> Save Token</button>
         </footer>
@@ -1020,7 +1025,7 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
       const out = el.querySelector(`[data-out="${f}"]`);
       if (out) out.textContent = this._fmt(f, value);
       if (f === "brushSize") this._updateCursorSize();
-      if (f !== "outSize") this._requestDraw();
+      if (f !== "outSize" && f !== "fileName") this._requestDraw();
     });
 
     el.addEventListener("change", async (ev) => {
@@ -1307,7 +1312,8 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
       const fallback = `worlds/${game.world.id}/sta2e-tokens`;
       const near = this._portraitFolder();
       let where = near ?? fallback;
-      let names = tokenFileNames(this.r.src, await this._existing(where), fallback, { forceFallback: !near });
+      const name = this.r.fileName;
+      let names = tokenFileNames(this.r.src, await this._existing(where), fallback, { forceFallback: !near, name });
       let tokenPath;
       try {
         tokenPath = await this._upload(where, new File([blob], names.name, { type: "image/webp" }));
@@ -1315,7 +1321,7 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
         if (names.fellBack) throw new Error("could not save the token — check file upload permissions");
         // The portrait's folder refused the write; use the world folder instead.
         where = fallback;
-        names = tokenFileNames(this.r.src, await this._existing(fallback), fallback, { forceFallback: true });
+        names = tokenFileNames(this.r.src, await this._existing(fallback), fallback, { forceFallback: true, name });
         tokenPath = await this._upload(where, new File([blob], names.name, { type: "image/webp" }));
       }
       if (names.fellBack) ui.notifications.info(`Token saved to ${fallback} — the portrait's own folder isn't writable.`);
