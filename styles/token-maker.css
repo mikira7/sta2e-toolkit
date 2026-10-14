@@ -1,0 +1,330 @@
+/* sta2e-toolkit | token-maker.css
+ *
+ * Shape for the Token Maker (scripts/token-maker.js). Colour arrives inline as
+ * `--tm-*` custom properties from getLcCssVars. Which rows are visible follows
+ * three attributes on the root — data-tool, data-ring-mode, data-fill-mode —
+ * so a mode change is a CSS change and never rebuilds the panel.
+ */
+
+.sta2e-token-maker .window-content { padding: 0; }
+
+.sta2e-tm {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--tm-bg);
+  color: var(--tm-text);
+  font-family: var(--tm-font);
+}
+.sta2e-tm button {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin: 0;
+  line-height: 1.5;
+}
+.sta2e-tm-muted { color: var(--tm-text-dim); font-size: 0.9em; }
+
+/* Header — the same elbow as the Appearance Manager. */
+.sta2e-tm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 12px 0;
+  padding: 8px 14px 8px 18px;
+  background: var(--tm-panel);
+  border-left: 12px solid var(--tm-primary);
+  border-top: 6px solid var(--tm-primary);
+  border-top-left-radius: 24px;
+}
+.sta2e-tm-title {
+  color: var(--tm-text-bright);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.sta2e-tm-title i { color: var(--tm-primary); margin-right: 4px; }
+.sta2e-tm-title span { color: var(--tm-text-dim); font-weight: 400; letter-spacing: 0.04em; }
+.sta2e-tm-size { display: flex; align-items: center; gap: 6px; color: var(--tm-text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
+.sta2e-tm-size select { width: auto; }
+
+.sta2e-tm-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 300px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+/* Tool rail */
+.sta2e-tm-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  background: var(--tm-panel);
+  border-radius: 20px;
+}
+.sta2e-tm-rail-gap { flex: 1 1 auto; }
+.sta2e-tm-tool {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--tm-text);
+  font-size: 14px;
+}
+.sta2e-tm-tool:hover { border-color: var(--tm-primary); color: var(--tm-text-bright); }
+.sta2e-tm-tool.is-active { background: var(--tm-primary); color: var(--tm-bg); }
+.sta2e-tm-tool.is-danger:hover { border-color: var(--tm-red); color: var(--tm-red); }
+
+/* Stage — the canvas over a checkerboard, a dashed outline for the grid square. */
+.sta2e-tm-stage {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  container-type: size;
+}
+.sta2e-tm-canvas-wrap {
+  position: relative;
+  aspect-ratio: 1;
+  width: min(100cqw, calc(100cqh - 26px));
+  flex: 0 0 auto;
+  background:
+    conic-gradient(#20242c 25%, #2c313b 0 50%, #20242c 0 75%, #2c313b 0) 0 0 / 24px 24px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+.sta2e-tm-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.sta2e-tm[data-tool="move"] .sta2e-tm-canvas { cursor: grab; }
+.sta2e-tm[data-tool="magic"] .sta2e-tm-canvas { cursor: crosshair; }
+.sta2e-tm[data-tool="erase"] .sta2e-tm-canvas,
+.sta2e-tm[data-tool="restore"] .sta2e-tm-canvas { cursor: none; }
+.sta2e-tm-cursor {
+  position: absolute;
+  left: -100px;
+  top: -100px;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  visibility: hidden;
+}
+.sta2e-tm[data-tool="erase"] .sta2e-tm-canvas-wrap:hover .sta2e-tm-cursor,
+.sta2e-tm[data-tool="restore"] .sta2e-tm-canvas-wrap:hover .sta2e-tm-cursor { visibility: visible; }
+.sta2e-tm[data-tool="restore"] .sta2e-tm-cursor { border-color: var(--tm-green); }
+.sta2e-tm[data-tool="erase"] .sta2e-tm-cursor { border-color: var(--tm-red); }
+
+.sta2e-tm-hint { color: var(--tm-text-dim); font-size: 11px; text-align: center; }
+.sta2e-tm-hint span { display: none; }
+.sta2e-tm[data-tool="move"] [data-hint="move"],
+.sta2e-tm[data-tool="erase"] [data-hint="erase"],
+.sta2e-tm[data-tool="restore"] [data-hint="restore"],
+.sta2e-tm[data-tool="magic"] [data-hint="magic"] { display: inline; }
+
+/* Panel */
+.sta2e-tm-panel {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sta2e-tm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 10px 10px;
+  background: var(--tm-panel);
+  border-left: 4px solid var(--tm-secondary);
+}
+.sta2e-tm-group > header {
+  margin: 0 -10px 2px;
+  padding: 3px 10px;
+  background: var(--tm-secondary);
+  color: var(--tm-bg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sta2e-tm-range {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 8px;
+  color: var(--tm-text-dim);
+  font-size: 11px;
+}
+.sta2e-tm-range input { width: 100%; accent-color: var(--tm-primary); }
+.sta2e-tm-range output { color: var(--tm-text-bright); text-align: right; font-variant-numeric: tabular-nums; }
+
+.sta2e-tm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--tm-text-dim);
+  font-size: 11px;
+}
+.sta2e-tm-row select { flex: 1 1 auto; min-width: 0; }
+.sta2e-tm-row input[type="color"] { width: 54px; height: 24px; padding: 0; border: 1px solid var(--tm-border-dim); }
+
+.sta2e-tm-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--tm-text); }
+.sta2e-tm-effects { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+
+.sta2e-tm-seg { display: flex; gap: 2px; }
+.sta2e-tm-seg button {
+  flex: 1 1 0;
+  height: 26px;
+  padding: 0 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-radius: 0;
+  color: var(--tm-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sta2e-tm-seg button:first-child { border-radius: 13px 0 0 13px; }
+.sta2e-tm-seg button:last-child { border-radius: 0 13px 13px 0; }
+.sta2e-tm-seg button:hover { background: rgba(255, 255, 255, 0.14); }
+.sta2e-tm-seg button.is-active { background: var(--tm-primary); color: var(--tm-bg); }
+
+.sta2e-tm-source { display: flex; align-items: center; gap: 4px; }
+.sta2e-tm-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  font-size: 11px;
+}
+.sta2e-tm-source button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--tm-text);
+  font-size: 11px;
+}
+.sta2e-tm-source button:hover { border-color: var(--tm-primary); }
+
+.sta2e-tm-note {
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 2px solid var(--tm-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.sta2e-tm-note button {
+  display: inline-block;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+.sta2e-tm-dyn { display: flex; flex-direction: column; gap: 8px; }
+
+/* Mode visibility */
+.sta2e-tm [data-show-ring],
+.sta2e-tm [data-show-fill],
+.sta2e-tm [data-show-tools] { display: none; }
+.sta2e-tm[data-ring-mode="image"] [data-show-ring="image"],
+.sta2e-tm[data-fill-mode="image"] [data-show-fill="image"] { display: flex; }
+.sta2e-tm[data-ring-mode="dynamic"] [data-show-ring="dynamic"] { display: flex; }
+.sta2e-tm[data-fill-mode="color"] [data-show-fill="color"] { display: flex; }
+.sta2e-tm[data-ring-mode="dynamic"] [data-hide-ring="dynamic"] { display: none; }
+.sta2e-tm[data-tool="erase"] [data-show-tools~="erase"],
+.sta2e-tm[data-tool="restore"] [data-show-tools~="restore"],
+.sta2e-tm[data-tool="magic"] [data-show-tools~="magic"] { display: flex; flex-direction: column; gap: 8px; }
+
+.sta2e-tm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 3px solid var(--tm-primary);
+}
+.sta2e-tm-footer .sta2e-tm-muted { margin-right: auto; }
+.sta2e-tm-footer button {
+  height: 28px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--tm-border-dim);
+  border-radius: 14px;
+  color: var(--tm-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sta2e-tm-footer button.is-primary { background: var(--tm-primary); border-color: var(--tm-primary); color: var(--tm-bg); }
+.sta2e-tm-footer button:disabled { opacity: 0.5; }
+
+.sta2e-tm [data-show-pips] { display: none; }
+.sta2e-tm[data-pips-mode="auto"] [data-show-pips="auto"] { display: block; }
+.sta2e-tm[data-pips-mode="manual"] [data-show-pips="manual"] { display: flex; }
+
+.sta2e-tm .sta2e-tm-source button.sta2e-tm-wide {
+  flex: 1 1 auto;
+  width: auto;
+  padding: 0 12px;
+  border-radius: 13px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Image ring: built-in frames show colour controls, Custom shows the file row.
+   Written after the data-show-ring rules so it wins at equal specificity. */
+.sta2e-tm[data-ring-mode="image"][data-frame-kind="builtin"] [data-show-frame="custom"],
+.sta2e-tm[data-ring-mode="image"][data-frame-kind="custom"] [data-show-frame="builtin"] { display: none; }
+.sta2e-tm .sta2e-tm-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.sta2e-tm .sta2e-tm-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: var(--tm-sw);
+}
+.sta2e-tm .sta2e-tm-swatch:hover { border-color: #fff; }
+
+/* Manual rank insignia: show only the chosen kind's controls. */
+.sta2e-tm [data-show-kind] { display: none; }
+.sta2e-tm [data-pips-kind="officer"] [data-show-kind="officer"],
+.sta2e-tm [data-pips-kind="admiral"] [data-show-kind="admiral"],
+.sta2e-tm [data-pips-kind="enlisted"] [data-show-kind="enlisted"],
+.sta2e-tm [data-pips-kind="cadet"] [data-show-kind="cadet"] { display: flex; }
+

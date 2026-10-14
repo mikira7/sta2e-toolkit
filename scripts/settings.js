@@ -51,6 +51,55 @@ export function registerSettings() {
     default: { rules: [] },
   });
 
+  // ── Appearances (token / portrait looks) ───────────────────────────────
+  game.settings.register("sta2e-toolkit", "appearanceArtRoot", {
+    name:    "Appearances: Art Library Folder",
+    hint:    "Folder the Appearance art browser searches (including subfolders), e.g. \"assets/tokens\". Leave blank to browse from the Data root.",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "",
+    filePicker: "folder",
+  });
+  game.settings.register("sta2e-toolkit", "appearanceTokenKeywords", {
+    name:    "Appearances: Token Keywords",
+    hint:    "Comma-separated words that mark a file as token art when filling looks from a folder (e.g. \"token, topdown\").",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "token",
+  });
+  game.settings.register("sta2e-toolkit", "appearancePortraitKeywords", {
+    name:    "Appearances: Portrait Keywords",
+    hint:    "Comma-separated words that mark a file as a portrait. Folder fill pairs these with token art, and wildcard token art never picks them.",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "portrait, bust, profile",
+  });
+
+  game.settings.register("sta2e-toolkit", "mimicAccess", {
+    name:    "Appearances: Who Can Use Mimic",
+    hint:    "Mimic copies another token's look and name onto a token (changelings, shapeshifters). The GM can always use it.",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    choices: {
+      trait:  "Characters with a mimic trait",
+      anyone: "Anyone, on tokens they own",
+      gm:     "GM only",
+    },
+    default: "trait",
+  });
+  game.settings.register("sta2e-toolkit", "mimicTraits", {
+    name:    "Appearances: Mimic Traits",
+    hint:    "Comma-separated trait names that let a player use Mimic (when the setting above is \"Characters with a mimic trait\"). Matched as whole words, so \"Changeling\" also matches \"Changeling (Founder)\".",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "Changeling, Shapeshifter",
+  });
+
   game.settings.registerMenu("sta2e-toolkit", "characterCreatorMenu", {
     name:       "STA2E.Settings.CharacterCreator.Name",
     label:      "STA2E.Settings.CharacterCreator.Label",
@@ -111,7 +160,11 @@ export function registerSettings() {
     config:   true,
     type:     Boolean,
     default:  true,
-    onChange: () => game.sta2eToolkit?.sfxWidget?.refresh?.(),
+    onChange: () => {
+      game.sta2eToolkit?.sfxWidget?.refresh?.();
+      // Add or drop the SFX Board button in the left-hand scene controls.
+      ui.controls?.render?.({ reset: true });
+    },
   });
 
   // Internal — per-user button arrangement for the SFX widget.

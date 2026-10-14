@@ -19,6 +19,7 @@ const context = vm.createContext({
   console, setTimeout: fn => timers.push(fn),
   registerSpawnTab() {}, protoHalfSize: () => ({ halfW: 50, halfH: 50 }),
   buildSpawnTokenData: async (_actor, data) => data,
+  usesAppearances: () => false, captureAppearance: () => null,
   centreToTopLeft: (centre, halfW, halfH) => ({ x: centre.x - halfW, y: centre.y - halfH }),
   runTransporterShader: async (_token, type, phase) => { calls.push([type, phase]); return true; },
   TransporterVFX: { beamIn: (_token, type) => calls.push([type, 'in']) },

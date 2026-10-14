@@ -105,6 +105,14 @@ import {
 } from "./scene-warp.js";
 import { registerStarfieldSettingsCache } from "./starfield-common.js";
 import { registerTokenToolkitHud } from "./token-toolkit-hud.js";
+import { registerAppearance, handleAppearanceRequest, applyLook, setWorn, applyMimic, endMimic, storeMimicForm, APPEARANCE_SOCKET_ACTION } from "./appearance.js";
+import { registerAppearanceSheet } from "./appearance-sheet.js";
+import { registerAppearanceHud } from "./appearance-hud.js";
+import { openAppearanceManager } from "./appearance-manager.js";
+import { pickArt } from "./art-browser.js";
+import { openTokenMaker } from "./token-maker.js";
+import { registerStarfleetRings } from "./starfleet-ring.js";
+import { registerEmblemSettings } from "./token-emblems.js";
 import { registerTrekFx } from "./trek-fx.js";
 import { playNativeWarpFlash, playWarpChargeGlow, stopWarpChargeGlow } from "./warp-jump-vfx.js";
 import { playWarpStretch, stopWarpStretch, registerWarpStretch } from "./warp-stretch-vfx.js";
@@ -588,6 +596,11 @@ Hooks.once("init", () => {
   registerRegionTerrainBehaviors();
   registerSensorContacts();
   registerTokenToolkitHud();
+  registerAppearance();
+  registerAppearanceSheet();
+  registerAppearanceHud();
+  registerStarfleetRings();
+  registerEmblemSettings();
   registerTrekFx();
   registerHullDecals();
   registerTraitItemSheetFields();
@@ -907,6 +920,20 @@ Hooks.on("getSceneControlButtons", (controls) => {
     onChange: () => game.sta2eToolkit?.toolkitWidget?.toggle(),
   };
 
+  // The SFX Board's own tab sits beside the hotbar, where other modules' UI
+  // can cover it. This is a second way in that nothing can sit on top of.
+  if (game.settings.get("sta2e-toolkit", "sfxWidgetEnabled") !== false) {
+    tokenGroup.tools.sta2eSfxBoard = {
+      name:    "sta2eSfxBoard",
+      title:   game.i18n.localize("STA2E.SceneControl.SfxBoard.Title"),
+      icon:    "fas fa-volume-high",
+      button:  true,
+      visible: true,
+      order:   Object.keys(tokenGroup.tools).length,
+      onChange: () => game.sta2eToolkit?.sfxWidget?.toggleFromControls(),
+    };
+  }
+
 });
 
 // Swap the FA placeholder for our SVG after the toolbar renders.
@@ -1153,6 +1180,14 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.testShieldIdleVFX = level => testShieldIdle(level);
   game.sta2eToolkit.openShipVfxAnchorEditor = openShipVfxAnchorEditor;
   game.sta2eToolkit.openObjectVfxEditor = openShipVfxAnchorEditor;
+  game.sta2eToolkit.applyLook = applyLook;
+  game.sta2eToolkit.setWorn = setWorn;
+  game.sta2eToolkit.applyMimic = applyMimic;
+  game.sta2eToolkit.endMimic = endMimic;
+  game.sta2eToolkit.storeMimicForm = storeMimicForm;
+  game.sta2eToolkit.openAppearanceManager = openAppearanceManager;
+  game.sta2eToolkit.pickArt = pickArt;
+  game.sta2eToolkit.openTokenMaker = openTokenMaker;
   game.sta2eToolkit.isDestructible = isDestructible;
   game.sta2eToolkit.applyObjectDamage = requestObjectOperation;
   game.sta2eToolkit.cleanHardWrappedParagraphs = cleanHardWrappedParagraphs;
@@ -1986,6 +2021,12 @@ Hooks.once("ready", async () => {
       const ship  = game.actors.get(msg.shipId);
       const actor = game.actors.get(msg.actorId);
       if (ship && actor) await applyShipCrewRequest(msg.op, ship, actor);
+    }
+
+    else if (msg.action === APPEARANCE_SOCKET_ACTION && _isResponsibleGM()) {
+      // A user picked a look on a figure they own but cannot update — see
+      // appearance.js; ownership is re-checked on this side.
+      await handleAppearanceRequest(msg);
     }
 
     else if (msg.action === "assistPendingUpdate" && _isResponsibleGM()) {

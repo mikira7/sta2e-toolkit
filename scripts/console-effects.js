@@ -202,18 +202,59 @@ function tokenInElectricalRadius(token, point, radius) {
   return Math.hypot(x - point.x, y - point.y) <= radius;
 }
 
-let skeletonTexturePromise;
+// The skeleton portrait. Two rules this loader rests on, both learned on hosted
+// games (The Forge), where module files come off a CDN and can be slow or fail
+// a first fetch:
+//   • Foundry's loadTexture RETURNS null on a failed fetch rather than throwing,
+//     so every loader is tried in turn and only a usable texture is accepted.
+//   • A failure is never cached. The old single cached promise turned one slow
+//     fetch into the cartoon fallback for the whole session. A cached texture is
+//     also re-checked before reuse: TextureLoader evicts and destroys
+//     least-recently-used textures on scene load (the hull-decals.js rule).
+const SKELETON_PATH = `modules/${MODULE}/assets/vfx/electrocution-token.png`;
+let skeletonTexture = null;
+let skeletonLoading = null;
+
+function textureUsable(texture) {
+  if (!texture || texture.destroyed) return false;
+  const base = texture.baseTexture ?? texture.source;
+  return !base?.destroyed;
+}
+
+/** Last resort: decode the file through a plain <img>, outside every loader cache. */
+function imageTexture(path) {
+  if (typeof Image !== "function" || !PIXI.Texture?.from) return null;
+  return new Promise(resolve => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => { try { resolve(PIXI.Texture.from(image)); } catch { resolve(null); } };
+    image.onerror = () => resolve(null);
+    image.src = path;
+  });
+}
+
 function loadSkeletonTexture() {
-  if (!skeletonTexturePromise) skeletonTexturePromise = (async () => {
-    const path = `modules/${MODULE}/assets/vfx/electrocution-token.png`;
-    try {
-      if (globalThis.foundry?.canvas?.loadTexture) return await foundry.canvas.loadTexture(path);
-      if (globalThis.loadTexture) return await loadTexture(path);
-      if (PIXI.Assets?.load) return await PIXI.Assets.load(path);
-    } catch (error) { console.warn("STA2e Toolkit | Skeleton portrait unavailable:", error); }
+  if (textureUsable(skeletonTexture)) return Promise.resolve(skeletonTexture);
+  skeletonTexture = null;
+  if (skeletonLoading) return skeletonLoading;
+  skeletonLoading = (async () => {
+    const loaders = [
+      () => globalThis.foundry?.canvas?.loadTexture?.(SKELETON_PATH),
+      () => globalThis.loadTexture?.(SKELETON_PATH),
+      () => PIXI.Assets?.load?.(SKELETON_PATH),
+      () => imageTexture(SKELETON_PATH),
+    ];
+    let lastError = null;
+    for (const load of loaders) {
+      try {
+        const texture = await load();
+        if (textureUsable(texture)) { skeletonTexture = texture; return texture; }
+      } catch (error) { lastError = error; }
+    }
+    console.warn(`STA2e Toolkit | Skeleton portrait unavailable (${SKELETON_PATH}); using the drawn skeleton. Will retry on the next shock.`, lastError ?? "");
     return null;
-  })();
-  return skeletonTexturePromise;
+  })().finally(() => { skeletonLoading = null; });
+  return skeletonLoading;
 }
 
 /** Reference portrait with the procedural skeleton retained as a loading fallback. */
@@ -448,5 +489,7 @@ function playBurst(point, event, index, audio) {
 
 export function registerConsoleEffectHooks() {
   void loadSkeletonTexture();
+  // Warm the portrait on every scene, so a slow first fetch is not paid by the first shock.
+  Hooks.on("canvasReady", () => { void loadSkeletonTexture(); });
   Hooks.on("canvasTearDown", () => { stopConsoleEffectsLocal(); clearConsoleCinematicTextures(); seen.clear(); });
 }

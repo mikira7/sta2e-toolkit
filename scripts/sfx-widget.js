@@ -234,6 +234,47 @@ export class SfxWidget {
     this._syncOpenState();
   }
 
+  /**
+   * Toggle from the left-hand scene controls. The docked spot beside the
+   * hotbar can sit under another module's UI, which is what hides the tab in
+   * the first place — so when the board opens docked and something else is on
+   * top of it, float it into the clear beside the scene controls and keep it
+   * there (the pin control re-docks it).
+   */
+  toggleFromControls() {
+    if (!this._enabled) {
+      ui.notifications.info("STA2e Toolkit: The SFX Board is turned off in the module settings.");
+      return;
+    }
+    this.toggle();
+    if (!this._isOpen || this._floating) return;
+    requestAnimationFrame(() => {
+      if (!this._container || !this._isCovered()) return;
+      const controls = document.getElementById("scene-controls")?.getBoundingClientRect?.();
+      const x = Math.round((controls?.right ?? 60) + 12);
+      const y = Math.round(Math.max(60, (controls?.top ?? 60)));
+      this._savePos(x, y);
+      this._applyDockPosition();
+      this._renderGrid();   // reveals the Re-dock control
+    });
+  }
+
+  /** Is anything else drawn over the board's header? */
+  _isCovered() {
+    const header = this._widget?.querySelector(".sta2e-sfx-header");
+    const rect = header?.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    const points = [
+      [rect.left + rect.width / 2, rect.top + rect.height / 2],
+      [rect.left + 8, rect.top + rect.height / 2],
+      [rect.right - 8, rect.top + rect.height / 2],
+    ];
+    return points.some(([x, y]) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit && !this._container.contains(hit);
+    });
+  }
+
   show() { this._setOpen(true);  this._syncOpenState(); }
   hide() { this._setOpen(false); this._syncOpenState(); }
 

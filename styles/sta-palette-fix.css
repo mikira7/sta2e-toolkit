@@ -1,0 +1,40 @@
+/* ------------------------------------------------------------------
+ * TEMPORARY workaround for the sta system 2.8.0.
+ *
+ * sta.css styles its actor-sheet palette icon with a bare `.palette`
+ * selector (inline-block, 0.85em square, currentColor fill, SVG mask).
+ * Foundry's Token HUD uses `.palette` for every submenu — status
+ * effects, levels, movement actions — as do modules such as Token
+ * Variant Art, so all of them render as an invisible 0.85em speck.
+ *
+ * Specificity cannot fix this from core's side: core's HUD rules sit in
+ * the `applications` cascade layer, sta.css in the later `system` layer,
+ * and a later layer wins regardless of specificity. Module stylesheets
+ * land in the `modules` layer, later still, so a rule here beats sta.css
+ * outright. That is also why these rules are wrapped in `:where()`: they
+ * only need to outrank sta, and keeping specificity at (0,1,0) lets a
+ * module's own palette rule (TVA's `#token-hud .token-variants-palette`)
+ * keep its display and width.
+ *
+ * `revert-layer` is no use here — from the `modules` layer it rolls back
+ * to sta's own value — so core's values are restored explicitly.
+ *
+ * Delete this file (and its module.json entry) once the system scopes
+ * its selector.
+ * ------------------------------------------------------------------ */
+
+:where(.placeable-hud) .palette {
+  display: block;
+  background-color: var(--control-bg-color);
+  mask: none;
+  width: auto;
+  height: auto;
+}
+
+:where(#token-hud) .palette.status-effects {
+  display: grid;
+}
+
+:where(#token-hud) .palette.palette-list {
+  display: flex;
+}

@@ -128,6 +128,201 @@ Colour is deliberately static LCARS orange. The Token HUD sits outside the theme
 sizes itself off `.sta2e-hud-flyout[data-section="weapons"]` — that attribute is
 what replaces the per-feature flyout class each section used to own.
 
+**The one deliberate exception is Appearance**, which has its own theatre-masks
+control ([appearance-hud.js](scripts/appearance-hud.js)) rather than a section
+under the arrowhead: players use it on their own tokens, and the arrowhead is a
+GM-only menu. It reuses `token-hud-util.js` and the same rebuild-in-place idiom,
+and sits in the same column, so `toggleHudFlyout`'s sweep keeps only one of the
+two panels open.
+
+### Appearances
+
+The toolkit's replacement for Token Variant Art and Visage: per-actor **looks**
+(token art + portrait pairs), a random look on placement, a Token HUD switcher,
+and **automatic looks** driven by worn gear or a condition. Five files:
+[appearance-data.js](scripts/appearance-data.js) (the rules — a leaf with **no
+imports**, covered by [tests/appearance-data.mjs](tests/appearance-data.mjs)),
+[appearance.js](scripts/appearance.js) (hooks and writes),
+[appearance-manager.js](scripts/appearance-manager.js) (the GM editor, from a
+header control on every STA sheet; Looks and Automatic Looks tabs, a card
+gallery beside a live editor stage after Visage's layout),
+[appearance-hud.js](scripts/appearance-hud.js) (its own Token HUD button)
+and [appearance-sheet.js](scripts/appearance-sheet.js) (the Wear toggle on
+armour/gear rows). [art-browser.js](scripts/art-browser.js) is the searchable
+picker.
+
+- **Nothing browses a folder at spawn time.** A look is picked from the stored
+  list, synchronously. The old wildcard roll browsed per spawn and `Klingon*`
+  matched `Klingon_portrait.webp`, which is how a beam-in put a portrait on the
+  map. `buildSpawnTokenData` applies the look and stamps `appearanceState`;
+  the `preCreateToken` roll (sidebar drags) stands aside for any token that
+  already has it. The transporter and Q loops skip their own wildcard re-roll
+  for an Appearances actor (`usesAppearances`) — without that guard they painted
+  a wildcard image straight over the look. Beam-out records `captureAppearance`
+  in the buffer entry, so a restore brings back the same face **and** portrait.
+- **State lives on the token for an unlinked token and on the ACTOR for a
+  linked one** (`appearanceState: {lookId, ruleLookId, baseline}`), because a
+  linked character's portrait is shared — two tokens of one PC must agree on
+  whether the suit is on. The portrait goes to `delta.img` (unlinked) or
+  `actor.img` (linked).
+- **The baseline is "original art".** Captured the first time the art leaves
+  its original state, dropped when it returns, so taking a suit off restores
+  what was there even with no look made for it. A rule overrides the chosen
+  look (`lookId`) without replacing it; the pick shows once the rule clears.
+- **Worn is the item flag `worn`, not the system's `ArmorData.equipped`** — that
+  defaults to `true`, no sheet shows it and nothing reads it, so carried armour
+  would always count. Item rules match by trimmed, case-insensitive **name**.
+- **Rules re-evaluate on the active GM only**, off `create/update/deleteActiveEffect`,
+  `updateToken` (toolkit `conditions`/`defenseMode`), `updateItem` (worn or name),
+  `create/deleteItem` and library edits. `settle()` is the single writer and is
+  serialised per figure. With no GM connected, `setWorn` settles locally.
+- **Composition is a stack of layers: rule → mimic → chosen look → baseline.**
+  Each slot (art, portrait, scale, ring, token name) comes from the first layer
+  that sets it. A look's `tokenName` renames the **token only** — the actor and
+  its sheet keep their name — and the baseline remembers the token's own name so
+  Original (or a look without one) puts it back. At creation the baseline only
+  records a name when the look sets one, so restoring never undoes the wildcard
+  namer, which renames a token *after* it is created.
+- **Mimic (`applyMimic` / `endMimic`) is the changeling trick:** `captureMimic`
+  copies another token as drawn right now — art, scale, ring, the portrait its
+  sheet shows (`delta.img` for an unlinked one) and its token name — into
+  `appearanceState.mimic`. It sits under rules (a killed changeling still shows
+  its Fallen look) and over the chosen look, and picking any look or Original
+  ends it. **Starting one is gated** by the world settings `mimicAccess` (`trait`
+  default / `anyone` / `gm`) and `mimicTraits`: `canUseMimic` reads the token's own
+  actor (synthetic for unlinked), and `mayMimic` matches trait items or the
+  `system.traits` text by whole word. GMs always may; *ending* one is never
+  gated. The check runs in the HUD, in `applyMimic`, and again on the active GM
+  for a relayed request — against the requesting user, not the GM. It needs no
+  library, which is why the HUD button is also offered to
+  a player whose token may mimic; the HUD's Mimic key copies the user's single Foundry target. The
+  relay carries the mimic payload, so a player can disguise a token they own but
+  cannot write.
+- **A mimic can be stored as a look** (`storeMimicForm`, the HUD's Store This
+  Form): `storeMimicInLibrary` copies it into the base actor's library, named
+  after the token it came from, and skips an exact duplicate. Stored looks carry
+  `mimicked: true` and are left out of every random pick (`pickLook` and the
+  HUD's Random Look), so a changeling NPC with randomize on never spawns wearing
+  a face it copied. Same mimic gate as starting one; a user who can't update
+  the base actor is relayed (`op: "storeMimic"`), and the active GM re-checks
+  the rule against the requester and reads the mimic from the token itself.
+- **A new token is dressed by composition, not by copying fields.**
+  `applyCreationAppearance` runs the same `composeAppearance` the live tokens
+  use and writes the whole visual (art, scale, ring, portrait, **token name**):
+  for a restored transporter / Q pattern from its captured state, for a linked
+  figure from its actor's state. That is what carries a mimic across scenes and
+  through a beam — the old path restored only the art and portrait, so a
+  disguise rematerialised under the actor's real name. Both creation paths
+  (`preCreateToken`, `buildSpawnTokenData`) admit an actor with no looks when
+  its state is dressed (`stateIsDressed`), because a mimic needs no library. The
+  composed name overrides the buffer's display name, which is the actor's.
+- **Read Visage's flag from `_source`, not `getFlag`** — `getFlag` throws for an
+  inactive module's scope, which is exactly when Import from Visage is used.
+- **A look may carry a dynamic ring** (`look.ring`, null = leave the token's ring
+  alone; the Token Maker's baked output stores `{enabled: false}` so a painted
+  frame is never doubled). The baseline captures the token's ring too, so
+  Original Art switches a ring back off. `ringUpdates` always writes
+  `ring.subject.texture` for an enabled ring — core then treats the subject as
+  explicit and skips its fit-mode shrinking (`TokenRing`), which the maker's
+  subject sizing depends on.
+
+#### Token Maker
+
+[token-maker.js](scripts/token-maker.js) (window) and
+[token-maker-compose.js](scripts/token-maker-compose.js) (maths, a leaf, covered by
+[tests/token-maker.mjs](tests/token-maker.mjs)): portrait → masked token, opened
+from the wand key on the manager's token stage. Four things it rests on:
+
+- **Compositing order:** background (clipped to the shape) → subject ∩ shape −
+  erase → frame → subject ∩ restore − erase − shape. The last layer is what lets
+  Restore strokes pop out over a ring. In dynamic mode Foundry draws the ring
+  *under* the subject (core's ring shader blends the token over it), so the export
+  is the two subject layers only and the subject is sized to end inside the colour
+  band (~0.66 of the token).
+- **Erase/restore masks live in SOURCE space**, mapped through the inverse of
+  `subjectMatrix`, so re-framing after masking keeps them on the hair they were
+  painted over. They are saved as one PNG beside the token (restore in R, erase in
+  G) and reloaded from `maker.maskPath`.
+- **Saves go next to the portrait** as `<stem>_token.webp`, a fresh `-2`, `-3`
+  name each time so no client shows a cached copy; core/system/module paths and
+  refused uploads fall back to `worlds/<world>/sta2e-tokens/`.
+- **Image ring mode has built-in baked frames** ([token-frames.js](scripts/token-frames.js)):
+  Solid, Double, Starfield, Metal, Stone and Marble, drawn at the output size in one colour
+  (`frameStyle` / `frameColor`; bevel shades are derived from it) and painted
+  into the token — so unlike a dynamic ring, each token can wear its own frame
+  and colour. `frameStyle: "custom"` uses `ringImage` instead; a recipe saved
+  before built-ins existed (no `frameStyle`, has `ringImage`) loads as custom.
+  Stone and Marble are procedural (seeded value-noise fBm in coordinates
+  normalised to the token size, so the grain matches at every size), and every
+  frame is drawn once per size/style/colour onto a cached layer — the preview
+  redraws on each pointer move, and the texture costs ~13 ms to build.
+  Each frame declares its `opening` (the maker fits the mask to it) and its
+  `pips` / `emblem` placement, as the dynamic rings' spritesheets do.
+- **Every render replaces the canvas**, so its pointer handlers are attached in
+  `_onRender`; panel handlers are delegated once in `_onFirstRender`. Mode rows are
+  shown by `data-tool` / `data-ring-mode` / `data-fill-mode` on the root.
+
+**Toolkit dynamic rings** ([starfleet-ring.js](scripts/starfleet-ring.js)):
+the **Starfleet Metal Ring** (id `sta2eStarfleetDelta`, kept from when it carried
+a delta) and the **Starfield Ring**, registered on
+`initializeDynamicTokenRingConfig` (fired once after `setup`; `addConfig` throws
+afterwards). An LCARS style and two commbadge rings were tried and retired; the
+retired commbadge ids are moved to the Starfield Ring by the active GM on
+`ready` (`RETIRED_RINGS`), since core silently falls back to steel for an
+unknown id. The art in `assets/rings/` is generated by
+[tools/starfleet-ring-atlas.js](tools/starfleet-ring-atlas.js) in a browser and
+committed — that file documents how core tints a ring (colour × red channel
+inside the band, art as drawn outside it, background overlay-blended). **Core
+uses one ring configuration per world** (`core.dynamicTokenRing`, requires
+reload), so choosing one restyles every dynamic ring — which is why **no ring
+carries a badge**: anything per token is stamped by the Token Maker.
+
+Three things the rings rest on, all easy to break:
+
+- **The Starfield Ring tints through mask frames** (`token-ring-<size>-msk`).
+  With a mask core zeroes the colour band and lays colour × the mask's red
+  channel over the art wherever the mask is drawn — the only way to tint *two*
+  separate rings while the starfield between them stays as drawn. The ring
+  frames also carry `ringColor` / `backgroundColor`, core's per-frame defaults,
+  so an untinted token shows red.
+- **Spritesheet `config` keys of the toolkit's own** (core ignores them):
+  `subjectRadius`, where the Token Maker sizes the portrait; `pips`
+  (`{dist, scale}`) and `emblem` (`{dist, r}`), where the rank plate and the
+  emblem disc sit on that ring; and `cutouts`, discs removed from both subject
+  layers (supported, currently unused). Add any of them to a new ring and the
+  maker follows it.
+- **A ring's opening must be at Foundry's 0.6667, not wherever the art looks
+  good.** Core assumes a ring's subject fills 0.6667 of the token
+  (`TokenRing#defaultSubjectThickness`) and fits tokens against that. The first
+  commbadge rings opened at 0.812 — 1.22× — and the portrait visibly spilled over
+  the ring in Foundry while looking right in the maker's preview. The Starfield
+  Ring opens at 0.6667 with the outer edge at 0.817, and each ring frame declares
+  `ringThickness` (0.15, outer − opening) so core's grid fit mode scales the ring
+  to the grid square. Any new ring style needs the same.
+
+**Rank pips and emblems are stamped by the Token Maker, never drawn in the
+ring** — a world has one ring design, so ring art cannot vary by rank or by
+faction.
+- `rankInsignia` parses the actor's free-text `system.rank` into one of four kinds —
+  officer pips (plus Chief Warrant Officer as one hollow pip), a flag officer's
+  gold-framed bar (Commodore/Rear Admiral LH 1 … Fleet Admiral 5), an enlisted
+  arrow tab (PO3–PO1 chevrons, Chief/Senior/Master Chief add dots) or cadet bars.
+  Flag and enlisted grades are matched before officer words, and a bare "Chief"
+  is never read as enlisted ("Chief Engineer" is a post). `rankPips` is the
+  officer-only alias older callers used. Abbreviations ("(jg)",
+  "LCDR", "CPO", "RADM"…) are handled; crewmen and yeomen return null. `pipPlate` lays
+  the plate on the ring's tangent at the bottom left, hollow (half-grade) pips at
+  the upper-left end.
+- Emblems ([token-emblems.js](scripts/token-emblems.js)) sit in a disc at the
+  bottom right (`emblemDisc`): the two built-in commbadges (TNG, DS9/VOY) are
+  drawn in vector; anything else comes from the world setting `tokenEmblems`,
+  added in the maker. **Adding a PNG/JPG converts it to WebP** (`convertToWebp`)
+  and saves it to `worlds/<world>/sta2e-emblems/`; SVG and WebP are used where
+  they are. A library emblem can sit on the gold starfield disc or plain.
+- Both are the last layers, so in dynamic mode they ride on the subject over
+  Foundry's ring. A promotion or a change of insignia means re-saving the token
+  from the maker.
+
 ### Zone System
 
 Three-file system:
@@ -1521,6 +1716,17 @@ through `lcarsChatCard`.
 | [scripts/ship-command-hud.js](scripts/ship-command-hud.js) | Ship Command section — warp, tractor, scan, cloak, shields. Also owns `isShipActor`, the widest of the ship tests |
 | [scripts/token-weapon-hud.js](scripts/token-weapon-hud.js) | Weapons section — the weapon grid and the Hit / Miss / roller strip. The only stateful section |
 | [scripts/q-hud.js](scripts/q-hud.js) | Q section of the toolkit menu, GM-only, every token type |
+| [scripts/appearance-hud.js](scripts/appearance-hud.js) | The Token HUD's own Appearance button — looks as a three-across card grid (Original first) under an icon toolbar (Random, Gear, Manage); Gear is a row view of Wear toggles. Offered to players on tokens they own |
+| [scripts/token-maker.js](scripts/token-maker.js) | The Token Maker window — framing, shape/brush/magic masks, ring modes, save next to the portrait |
+| [scripts/token-maker-compose.js](scripts/token-maker-compose.js) | Token Maker maths — subject transform, shapes, flood fill, file naming. A leaf with **no imports** |
+| [scripts/starfleet-ring.js](scripts/starfleet-ring.js) | Registers the Starfleet Metal Ring and Starfield Ring dynamic ring configurations, and moves worlds off retired ring ids |
+| [scripts/file-storage.js](scripts/file-storage.js) | Which FilePicker storage a path lives in — local `data`, The Forge's `forgevtt` Assets Library, or an S3 bucket — plus `uploadFile` (creates parent folders) and `browseFolder`. A leaf with **no imports**. The Token Maker and art browser use it, chiefly so a portrait that is a Forge Assets Library or S3 URL gets its token saved beside it. The other generated-image savers hard-code `"data"`, which works on The Forge in practice (uploads land in the Assets Library) — no need to convert them. Covered by [tests/file-storage.mjs](tests/file-storage.mjs) |
+| [scripts/token-frames.js](scripts/token-frames.js) | Built-in baked ring frames for the Token Maker (Solid, Double, Starfield, Metal, procedural Stone and Marble) in any colour, with each frame's opening and pip/emblem placement |
+| [scripts/token-emblems.js](scripts/token-emblems.js) | Token Maker emblems — built-in vector commbadges, the `tokenEmblems` library, PNG→WebP conversion, the badge-disc drawing |
+| [tools/starfleet-ring-atlas.js](tools/starfleet-ring-atlas.js) | Browser-run generator for `assets/rings/*` — not loaded by the module |
+| [styles/token-maker.css](styles/token-maker.css) | Shape for the Token Maker |
+| [styles/appearance.css](styles/appearance.css) | Shape for the Appearance Manager, art browser, sheet Wear toggle and HUD thumbnails |
+| [styles/sta-palette-fix.css](styles/sta-palette-fix.css) | TEMPORARY: undoes sta 2.8.0's unscoped `.palette` rule that hid every Token HUD palette. Delete when the system fixes it |
 | [scripts/deflector-hud.js](scripts/deflector-hud.js) | Deflector Dish section — four effect rows plus a Stop row while a sustained one runs. The only file in that feature that may import `spawn-picker.js` |
 | [scripts/deflector-vfx.js](scripts/deflector-vfx.js) | The four deflector renderers, the per-token instance registry and the `deflectorVfx` broadcast. Imports only `ship-vfx-anchors`, `starfield-common`, `bolt-glow-vfx` and `beam-shader` |
 | [scripts/q-vfx.js](scripts/q-vfx.js) | Q's white screen flash and the composed snap sequences |

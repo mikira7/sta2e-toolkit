@@ -23,7 +23,7 @@ import { TransporterVFX } from "./transporter-vfx.js";
 import { runTransporterShader, isTransporterShaderRunning } from "./transporter-shader-playback.js";
 import { TRANSPORTER_SHADER_SETTING } from "./transporter-shader-config.js";
 import { SPAWN_PATTERNS } from "./spawn-patterns.js";
-import { getWildcardImage, buildSpawnTokenData, protoHalfSize } from "./token-spawn-utils.js";
+import { getWildcardImage, buildSpawnTokenData, protoHalfSize, captureAppearance, usesAppearances } from "./token-spawn-utils.js";
 import { centreToTopLeft, pickSpawnCentres } from "./spawn-picker.js";
 import { buildLocationOptions, parseLocation } from "./spawn-regions.js";
 import { registerSpawnTab, openSpawnWindow, getSpawnPref, setSpawnPref } from "./spawn-window.js";
@@ -432,6 +432,7 @@ async function _beamOutSelected(transporterType, effects) {
       name:         t.actor.name,
       img:          t.document.texture?.src ?? t.actor.img,
       resolvedImg:  t.document.texture?.src ?? t.actor.img,
+      appearance:   captureAppearance(t.document),
       wildcardPath: t.actor.prototypeToken?.texture?.src ?? t.actor.prototypeToken?.img,
       isLinked:     t.document.actorLink,
       isWildcard:   t.actor.prototypeToken?.randomImg ?? false,
@@ -501,10 +502,10 @@ async function _beamOutSelected(transporterType, effects) {
  * from the prototype means a mounted or large actor no longer lands half a cell
  * off the pattern the GM saw.
  */
-function _beamItem({ actor, displayName, isWildcard, wildcardPath, resolvedImg }) {
+function _beamItem({ actor, displayName, isWildcard, wildcardPath, resolvedImg, appearance = null }) {
   const { halfW, halfH } = protoHalfSize(actor);
   return {
-    actor, displayName, isWildcard, wildcardPath, resolvedImg,
+    actor, displayName, isWildcard, wildcardPath, resolvedImg, appearance,
     halfW, halfH,
     radius: Math.max(Math.max(halfW, halfH) * 0.9, 25),
   };
@@ -553,15 +554,18 @@ async function _materializeItems(items, centres, effectType, effects, { snap = f
 
     try {
       const newTokenData = await buildSpawnTokenData(item.actor, {
-        name: item.displayName, x, y, alpha: 0,
+        name: item.displayName, x, y, alpha: 0, appearance: item.appearance,
       });
 
       // A restored pattern comes back wearing the image it left with, rather
       // than a fresh wildcard roll — the same person rematerialises.
       const proto    = item.actor.prototypeToken;
       const protoImg = proto?.texture?.src ?? proto?.img;
+      // An Appearances actor already wears a look from its own list (or the
+      // captured one) — a wildcard roll here would paint over it.
+      const ownLook  = !!item.appearance || usesAppearances(item.actor);
       let img = item.resolvedImg ?? null;
-      if (!img && item.isWildcard && item.wildcardPath) img = await getWildcardImage(item.wildcardPath);
+      if (!img && !ownLook && item.isWildcard && item.wildcardPath) img = await getWildcardImage(item.wildcardPath);
       if (img && img !== protoImg) {
         newTokenData.texture = foundry.utils.mergeObject(newTokenData.texture ?? {}, { src: img });
       }
@@ -664,6 +668,7 @@ async function _spawnGroupEntries(group, transporterType, spacing, effects, patt
       isWildcard:   entry.isWildcard,
       wildcardPath: entry.wildcardPath,
       resolvedImg:  entry.resolvedImg,
+      appearance:   entry.appearance ?? null,
     }));
   }
   if (!items.length) {

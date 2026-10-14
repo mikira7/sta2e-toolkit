@@ -25,6 +25,7 @@ import {
   stroked,
 } from "./spawn-picker.js";
 import { Q_COLOR, playQSceneFlash, qFlashKick, qFlashMove, qSnapOut } from "./q-vfx.js";
+import { captureAppearance } from "./token-spawn-utils.js";
 
 /**
  * Whoever Q has taken out of the scene. World-scoped, and deliberately separate
@@ -82,6 +83,7 @@ export async function qSnapOutTokens(tokens) {
     name:         t.document.name ?? t.actor.name,
     img:          t.document.texture?.src ?? t.actor.img,
     resolvedImg:  t.document.texture?.src ?? t.actor.img,
+    appearance:   captureAppearance(t.document),
     wildcardPath: t.actor.prototypeToken?.texture?.src ?? t.actor.prototypeToken?.img,
     isLinked:     t.document.actorLink,
     isWildcard:   t.actor.prototypeToken?.randomImg ?? false,

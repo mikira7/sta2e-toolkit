@@ -298,6 +298,7 @@
   "STA2E.Keybinding.ToggleZoneEditor.Hint": "Open or close the Zone Editor toolbar (GM only).",
 
   "STA2E.SceneControl.Sta2eWidget.Title": "STA2e Toolkit",
+  "STA2E.SceneControl.SfxBoard.Title": "SFX Board",
 
   "STA2E.Campaign.DefaultName": "New Campaign",
 

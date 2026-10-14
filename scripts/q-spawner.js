@@ -29,7 +29,7 @@ import {
   swColumns, swPanel, swGrid, swField, swSelect, swInput, swKey,
 } from "./spawn-chrome.js";
 import { SPAWN_PATTERNS } from "./spawn-patterns.js";
-import { buildSpawnTokenData, protoHalfSize, getWildcardImage } from "./token-spawn-utils.js";
+import { buildSpawnTokenData, protoHalfSize, getWildcardImage, usesAppearances } from "./token-spawn-utils.js";
 import { centreToTopLeft, pickSpawnCentres } from "./spawn-picker.js";
 import { buildLocationOptions, parseLocation } from "./spawn-regions.js";
 import { registerSpawnTab, openSpawnWindow, getSpawnPref, setSpawnPref } from "./spawn-window.js";
@@ -68,10 +68,10 @@ function _defaultSpacing() {
 // ── Spawn ─────────────────────────────────────────────────────────────────────
 
 /** One arrival. `radius` drives the placement preview, halfW/halfH the maths. */
-function _qItem({ actor, displayName, isWildcard, wildcardPath, resolvedImg }) {
+function _qItem({ actor, displayName, isWildcard, wildcardPath, resolvedImg, appearance = null }) {
   const { halfW, halfH } = protoHalfSize(actor);
   return {
-    actor, displayName, isWildcard, wildcardPath, resolvedImg,
+    actor, displayName, isWildcard, wildcardPath, resolvedImg, appearance,
     halfW, halfH,
     radius: Math.max(Math.max(halfW, halfH) * 0.9, 25),
   };
@@ -95,15 +95,18 @@ async function _materializeQ(items, centres, { snap = false } = {}) {
 
     try {
       const data = await buildSpawnTokenData(item.actor, {
-        name: item.displayName, x, y, alpha: 0,
+        name: item.displayName, x, y, alpha: 0, appearance: item.appearance,
       });
 
       // A restored guest comes back wearing the image they left with, rather
       // than a fresh wildcard roll.
       const proto    = item.actor.prototypeToken;
       const protoImg = proto?.texture?.src ?? proto?.img;
+      // An Appearances actor already wears a look from its own list (or the
+      // captured one) — a wildcard roll here would paint over it.
+      const ownLook  = !!item.appearance || usesAppearances(item.actor);
       let img = item.resolvedImg ?? null;
-      if (!img && item.isWildcard && item.wildcardPath) img = await getWildcardImage(item.wildcardPath);
+      if (!img && !ownLook && item.isWildcard && item.wildcardPath) img = await getWildcardImage(item.wildcardPath);
       if (img && img !== protoImg) {
         data.texture = foundry.utils.mergeObject(data.texture ?? {}, { src: img });
       }
@@ -171,6 +174,7 @@ async function _restoreHeldGroup(group, { pattern, spacing, location }) {
       isWildcard:   entry.isWildcard,
       wildcardPath: entry.wildcardPath,
       resolvedImg:  entry.resolvedImg,
+      appearance:   entry.appearance ?? null,
     }));
   }
   if (!items.length) {

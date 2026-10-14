@@ -1,0 +1,226 @@
+{
+  "config": {
+    "defaultColorBand": {
+      "startRadius": 0.64,
+      "endRadius": 0.715
+    },
+    "subjectRadius": 0.62,
+    "pips": {
+      "dist": 0.74,
+      "scale": 0.8
+    },
+    "emblem": {
+      "dist": 0.74,
+      "r": 0.17
+    }
+  },
+  "frames": {
+    "token-ring-gargantuan-bkg": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 2048,
+        "h": 2048
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 2048,
+        "h": 2048
+      },
+      "sourceSize": {
+        "w": 2048,
+        "h": 2048
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "token-ring-gargantuan": {
+      "frame": {
+        "x": 2048,
+        "y": 0,
+        "w": 2048,
+        "h": 2048
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 2048,
+        "h": 2048
+      },
+      "sourceSize": {
+        "w": 2048,
+        "h": 2048
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "gridTarget": 3
+    },
+    "token-ring-large-huge-bkg": {
+      "frame": {
+        "x": 2048,
+        "y": 2048,
+        "w": 1024,
+        "h": 1024
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 1024,
+        "h": 1024
+      },
+      "sourceSize": {
+        "w": 1024,
+        "h": 1024
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "token-ring-large-huge": {
+      "frame": {
+        "x": 3072,
+        "y": 2048,
+        "w": 1024,
+        "h": 1024
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 1024,
+        "h": 1024
+      },
+      "sourceSize": {
+        "w": 1024,
+        "h": 1024
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "gridTarget": 2
+    },
+    "token-ring-med-bkg": {
+      "frame": {
+        "x": 3072,
+        "y": 3072,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "token-ring-med": {
+      "frame": {
+        "x": 3584,
+        "y": 3072,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "gridTarget": 1
+    },
+    "token-ring-tiny-bkg": {
+      "frame": {
+        "x": 3584,
+        "y": 3584,
+        "w": 256,
+        "h": 256
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 256
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 256
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "token-ring-tiny": {
+      "frame": {
+        "x": 3840,
+        "y": 3584,
+        "w": 256,
+        "h": 256
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 256
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 256
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "gridTarget": 0.5
+    }
+  },
+  "meta": {
+    "app": "sta2e-toolkit tools/starfleet-ring-atlas.js",
+    "version": "1.1",
+    "image": "starfleet-delta.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 4096,
+      "h": 4096
+    },
+    "scale": "1"
+  }
+}
