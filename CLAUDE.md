@@ -76,6 +76,8 @@ Bonus Momentum has the same shape of trap: it is summed independently in `npc-ro
 - **Crew writes self-route.** They land on the *character*, which a ship's owner usually cannot update, so `addShipCrew` / `removeShipCrew` fall back to the socket action `shipCrewUpdate`, run by the active GM. Station writes land on the ship (or the token, for an unlinked ship), which only its owners edit, so they need no relay.
 - **The tab never moves the system's markup.** The 2e ship sheets have no tabs of their own, so the strip is ours, placed after the toolkit's NPC Ship block (or the name header). Switching toggles `sta2e-crew-active` on `.right-column` and CSS hides the other children. The chosen tab lives on the app instance (`_sta2eShipTab`) because the sheet re-renders constantly. Membership changes land on characters and never re-render the ship sheet, so `updateActor` / `updateToken` hooks rebuild the panel in open sheets. The tab is registered after the sheet-roller hooks in `main.js` so the NPC Ship block exists when the strip is placed.
 
+**Departments.** The ship's company has department sub-tabs (All, Command, Conn, Engineering, Security, Science, Medical). A member's department is, in order: an explicit choice stored **on the ship** (`crewDepartments` flag, same store as the manifest, so the ship's owner can set it without writing the character), the department of the station they hold, then their best discipline (`crewDepartment` / `autoDepartment` in `crew-manifest.js`). The open sub-tab lives on the app instance (`_sta2eCrewDept`), like the Ship/Crew tab.
+
 **Combat tracker.** `addManifestOfficersToCombat` (main.js) adds a tokenless, actor-only "Officer (Station)" combatant per manifest officer. It runs when a ship joins combat (`createCombatant`) **and** whenever the ship's `crewManifest` flag changes while it is already in a combat — `updateActor` for linked ships, `updateToken` for unlinked — on the active GM only, so one hook covers all three editors. A moved officer's combatant is renamed; a **replaced officer is deliberately left in the tracker**, since deleting a combatant mid-round would disturb the sequence `initiative-order.js` keeps. Covered by [tests/crew-manifest.mjs](tests/crew-manifest.mjs).
 
 ### Token HUD
@@ -216,6 +218,21 @@ picker.
   (`preCreateToken`, `buildSpawnTokenData`) admit an actor with no looks when
   its state is dressed (`stateIsDressed`), because a mimic needs no library. The
   composed name overrides the buffer's display name, which is the actor's.
+- **The Original is editable in the manager** — a card first in the gallery
+  (`BASE_ID`), a look-shaped working copy of the prototype token (art, scale,
+  ring) and the portrait, so every stage handler and the Token Maker work on it
+  unchanged; its maker recipe is the library's `baseMaker`. A linked character
+  in a look keeps its original portrait in the state baseline, not `actor.img`,
+  so the portrait is read from and written to there. On Save,
+  `_followPlacedTokens` runs **before** the library write (whose re-evaluation
+  would otherwise race it): `rebaseVisual` moves a slot only where a placed
+  token still holds the old original, and rewrites a dressed token's baseline
+  by flat paths. A ring is compared without its art, since core stores the art
+  as the ring's subject.
+- **WebP conversion** ([webp-convert.js](scripts/webp-convert.js)) swaps
+  PNG/JPEG token and portrait paths in the working copy for a copy saved beside
+  them (Save applies it). A copy that is not smaller is skipped, and the
+  original file is never deleted — Foundry has no API for it.
 - **Read Visage's flag from `_source`, not `getFlag`** — `getFlag` throws for an
   inactive module's scope, which is exactly when Import from Visage is used.
 - **A look may carry a dynamic ring** (`look.ring`, null = leave the token's ring
@@ -245,9 +262,12 @@ from the wand key on the manager's token stage. Four things it rests on:
   G) and reloaded from `maker.maskPath`.
 - **Saves go next to the portrait** as `<stem>_token.webp`, a fresh `-2`, `-3`
   name each time so no client shows a cached copy; core/system/module paths and
-  refused uploads fall back to `worlds/<world>/sta2e-tokens/`.
+  refused uploads fall back to `worlds/<world>/sta2e-tokens/`. The stem drops
+  the portrait's own "Portrait" word (`Kira_Portrait` → `Kira_token`); a name
+  the GM types is kept as typed.
 - **Image ring mode has built-in baked frames** ([token-frames.js](scripts/token-frames.js)):
-  Solid, Double, Starfield, Metal, Stone and Marble, drawn at the output size in one colour
+  Solid, Double, Starfield, Metal, Stone, Marble, Federation Citizen,
+  LCARS, Duty Uniform, Klingon Carved Stone and Romulan Crescent, drawn at the output size in one colour
   (`frameStyle` / `frameColor`; bevel shades are derived from it) and painted
   into the token — so unlike a dynamic ring, each token can wear its own frame
   and colour. `frameStyle: "custom"` uses `ringImage` instead; a recipe saved
@@ -257,7 +277,13 @@ from the wand key on the manager's token stage. Four things it rests on:
   frame is drawn once per size/style/colour onto a cached layer — the preview
   redraws on each pointer move, and the texture costs ~13 ms to build.
   Each frame declares its `opening` (the maker fits the mask to it) and its
-  `pips` / `emblem` placement, as the dynamic rings' spritesheets do.
+  `pips` / `emblem` placement, as the dynamic rings' spritesheets do. The
+  Klingon frame's edges are seeded polygons (`_jaggedRing`, straight chords
+  looked up by angle, each cut lit by its own normal); its **inner edge may
+  only bite inward past the opening** — outward it would leave a gap between
+  portrait and stone. The Romulan crescent lies *over* the portrait's edge
+  (opening 0.905) rather than in a gap of its own, which would leave a dead
+  black band round the bottom.
 - **Every render replaces the canvas**, so its pointer handlers are attached in
   `_onRender`; panel handlers are delegated once in `_onFirstRender`. Mode rows are
   shown by `data-tool` / `data-ring-mode` / `data-fill-mode` on the root.
@@ -1720,6 +1746,7 @@ through `lcarsChatCard`.
 | [scripts/token-maker.js](scripts/token-maker.js) | The Token Maker window — framing, shape/brush/magic masks, ring modes, save next to the portrait |
 | [scripts/token-maker-compose.js](scripts/token-maker-compose.js) | Token Maker maths — subject transform, shapes, flood fill, file naming. A leaf with **no imports** |
 | [scripts/starfleet-ring.js](scripts/starfleet-ring.js) | Registers the Starfleet Metal Ring and Starfield Ring dynamic ring configurations, and moves worlds off retired ring ids |
+| [scripts/webp-convert.js](scripts/webp-convert.js) | `saveAsWebp` — a WebP copy of a PNG/JPEG saved beside it (world-folder fallback), skipped when not smaller. Used by the Appearance Manager's convert keys |
 | [scripts/file-storage.js](scripts/file-storage.js) | Which FilePicker storage a path lives in — local `data`, The Forge's `forgevtt` Assets Library, or an S3 bucket — plus `uploadFile` (creates parent folders) and `browseFolder`. A leaf with **no imports**. The Token Maker and art browser use it, chiefly so a portrait that is a Forge Assets Library or S3 URL gets its token saved beside it. The other generated-image savers hard-code `"data"`, which works on The Forge in practice (uploads land in the Assets Library) — no need to convert them. Covered by [tests/file-storage.mjs](tests/file-storage.mjs) |
 | [scripts/token-frames.js](scripts/token-frames.js) | Built-in baked ring frames for the Token Maker (Solid, Double, Starfield, Metal, procedural Stone and Marble) in any colour, with each frame's opening and pip/emblem placement |
 | [scripts/token-emblems.js](scripts/token-emblems.js) | Token Maker emblems — built-in vector commbadges, the `tokenEmblems` library, PNG→WebP conversion, the badge-disc drawing |

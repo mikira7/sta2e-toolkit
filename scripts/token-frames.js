@@ -28,6 +28,10 @@ export const BAKED_FRAMES = {
   stone:     { name: "Stone",       opening: 0.875, pips: { dist: 0.955, scale: 0.8 }, emblem: { dist: 0.91, r: 0.17 } },
   marble:    { name: "Marble",      opening: 0.875, pips: { dist: 0.955, scale: 0.8 }, emblem: { dist: 0.91, r: 0.17 } },
   citizen:   { name: "Federation Citizen", opening: 0.885, pips: { dist: 0.94, scale: 0.8 }, emblem: { dist: 0.91, r: 0.17 }, color: "#2b4c70" },
+  lcars:     { name: "LCARS",           opening: 0.86, pips: { dist: 0.925, scale: 0.85 }, emblem: { dist: 0.9, r: 0.18 }, color: "#f29b38" },
+  uniform:   { name: "Duty Uniform",    opening: 0.85, pips: { dist: 0.92, scale: 0.85 }, emblem: { dist: 0.9, r: 0.18 } },
+  klingon:   { name: "Klingon Carved Stone", opening: 0.8, pips: { dist: 0.875, scale: 0.75 }, emblem: { dist: 0.865, r: 0.15 }, color: "#5c4740" },
+  romulan:   { name: "Romulan Crescent",     opening: 0.905, pips: { dist: 0.955, scale: 0.7 }, emblem: { dist: 0.93, r: 0.16 }, color: "#2c6e4f" },
 };
 
 // ── Colour ───────────────────────────────────────────────────────────────────
@@ -183,6 +187,131 @@ function stoneBand(ctx, c, h, r0, r1, color, mode = "stone") {
   ctx.putImageData(img, 0, 0);
 }
 
+// ── Carved stone (Klingon) ───────────────────────────────────────────────────
+//
+// A ring of rough-hewn stone: its outer edge is a polygon of uneven straight
+// chisel cuts with the odd deep chip, its inner edge a gentler polygon that
+// only ever bites INWARD past the portrait's opening (outward it would leave a
+// gap between the portrait and the stone). Each cut is a bevel lit by its own
+// normal, so the edge reads as facets rather than as a wobble; the face between
+// carries the granite noise, hairline cracks and a broken engraved channel.
+
+const TAU = Math.PI * 2;
+const LIGHT = [-Math.SQRT1_2, -Math.SQRT1_2];   // from the top left, canvas y down
+
+/**
+ * An irregular closed polygon round the centre, as an angular lookup table:
+ * `at(θ)` → `{r, nx, ny}` — the radius where the ray at θ meets the polygon
+ * (straight chords between vertices, not a polar interpolation) and that
+ * chord's outward unit normal.
+ */
+function _jaggedRing(seed, n, rMin, rMax, { chip = 0, chipR = rMin, teeth = null } = {}) {
+  let k = 0;
+  const rnd = () => _hash(k++, 7, seed);
+  const verts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i + (rnd() - 0.5) * 0.7) / n * TAU;
+    let r = rMin + rnd() * (rMax - rMin);
+    // Teeth: every other vertex drawn in to [lo, hi], so the edge is serrated.
+    if (teeth && i % 2) r = teeth[0] + rnd() * (teeth[1] - teeth[0]);
+    if (rnd() < chip) r = chipR;
+    verts.push([Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  const BINS = 4096;
+  const table = new Array(BINS);
+  const angleOf = (p) => (Math.atan2(p[1], p[0]) + TAU) % TAU;
+  for (let b = 0; b < BINS; b++) {
+    const t = (b + 0.5) / BINS * TAU;
+    const u = [Math.cos(t), Math.sin(t)];
+    for (let i = 0; i < n; i++) {
+      const P1 = verts[i], P2 = verts[(i + 1) % n];
+      const a1 = angleOf(P1);
+      let span = (angleOf(P2) - a1 + TAU) % TAU;
+      if (((t - a1 + TAU) % TAU) > span) continue;
+      const D = [P2[0] - P1[0], P2[1] - P1[1]];
+      const r = (P1[0] * D[1] - P1[1] * D[0]) / (u[0] * D[1] - u[1] * D[0]);
+      const len = Math.hypot(D[0], D[1]) || 1;
+      let nx = D[1] / len, ny = -D[0] / len;
+      if (nx * (P1[0] + P2[0]) + ny * (P1[1] + P2[1]) < 0) { nx = -nx; ny = -ny; }
+      table[b] = { r, nx, ny };
+      break;
+    }
+    table[b] ??= { r: (rMin + rMax) / 2, nx: u[0], ny: u[1] };
+  }
+  return (t) => table[Math.floor(((t % TAU) + TAU) % TAU / TAU * BINS) % BINS];
+}
+
+function carvedStone(ctx, c, h, color, { seed = 2161, opening = 0.86 } = {}) {
+  const S = Math.round(c * 2);
+  const img = ctx.getImageData(0, 0, S, S);
+  const px = img.data;
+  const dark = rgb(shade(color, -0.82)), mid = rgb(color), light = rgb(shade(color, 0.38));
+  // Outer: uneven cuts, a few deep chips. Inner: never wider than the opening.
+  const outer = _jaggedRing(seed, 34, 0.968, 0.998, { teeth: [0.9, 0.945], chip: 0.08, chipR: 0.89 });
+  const inner = _jaggedRing(seed + 1, 18, opening - 0.025, opening - 0.002);
+  const bevel = 0.032 * h;
+  const lo = Math.max(0, Math.floor(c - h)), hi = Math.min(S, Math.ceil(c + h));
+  for (let y = lo; y < hi; y++) {
+    for (let x = lo; x < hi; x++) {
+      const dx = x + 0.5 - c, dy = y + 0.5 - c;
+      const d = Math.hypot(dx, dy);
+      if (d < (opening - 0.04) * h || d > h) continue;
+      const t = Math.atan2(dy, dx);
+      const o = outer(t), q = inner(t);
+      const eo = o.r * h - d, ei = d - q.r * h;
+      const cover = Math.min(1, eo + 0.5, ei + 0.5);
+      if (cover <= 0) continue;
+
+      const nx = x / S * 8, ny = y / S * 8;
+      const grain = _fbm(nx, ny, seed);
+      const speck = _noise(x / S * 150, y / S * 150, seed + 99);
+      const n = grain * 0.8 + (speck > 0.84 ? 0.18 : speck < 0.1 ? -0.16 : 0);
+      let k;
+      if (eo < bevel) {
+        // Outer chisel cut, facing out along its chord's normal.
+        const lit = o.nx * LIGHT[0] + o.ny * LIGHT[1];
+        k = 0.46 + lit * 0.42 + (n - 0.5) * 0.3 - (1 - eo / bevel) * 0.08;
+      } else if (ei < bevel * 0.8) {
+        // Inner cut slopes down towards the portrait, so it faces inward.
+        const lit = -(q.nx * LIGHT[0] + q.ny * LIGHT[1]);
+        k = 0.38 + lit * 0.36 + (n - 0.5) * 0.3;
+      } else {
+        // The face: granite, with a slab-to-slab shift every few degrees.
+        const slab = _hash(Math.floor((t + Math.PI) / TAU * 11), 3, seed);
+        k = n * 0.85 + 0.08 + (slab - 0.5) * 0.14;
+        // Hairline cracks where a second noise field crosses its midline.
+        const crack = Math.abs(_fbm(nx * 1.4 + 3, ny * 1.4, seed + 7, 4) - 0.5);
+        if (crack < 0.007) k *= 0.35 + crack * 45;
+        // An engraved channel round the middle of the face, broken into
+        // glyph-length runs: dark on the wall facing the light, lit on the other.
+        const mid = (opening + 0.07) * h, cw = 0.008 * h;
+        const off = d - mid;
+        if (Math.abs(off) < cw) {
+          // Nine long carved strokes with uneven gaps between them.
+          const pos = (t + Math.PI) / TAU * 9, run = Math.floor(pos);
+          const from = _hash(run, 11, seed) * 0.25, to = 0.7 + _hash(run, 12, seed) * 0.25;
+          if (pos % 1 > from && pos % 1 < to) {
+            const wall = off / cw;                       // −1 inner wall … +1 outer wall
+            const facing = (dx * LIGHT[0] + dy * LIGHT[1]) / Math.max(1, d);
+            k = 0.14 + Math.max(0, -wall * facing) * 0.35 + (n - 0.5) * 0.12;
+          }
+        }
+      }
+      k = Math.max(0, Math.min(1, k));
+      const a0 = k < 0.5 ? dark : mid, a1 = k < 0.5 ? mid : light, f = k < 0.5 ? k * 2 : (k - 0.5) * 2;
+      const i = (y * S + x) * 4;
+      const ea = px[i + 3] / 255;
+      const outA = cover + ea * (1 - cover);
+      for (let ch = 0; ch < 3; ch++) {
+        const v = a0[ch] + (a1[ch] - a0[ch]) * f;
+        px[i + ch] = outA > 0 ? (v * cover + px[i + ch] * ea * (1 - cover)) / outA : 0;
+      }
+      px[i + 3] = Math.round(outA * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 /** A four-point sparkle: a star with pinched concave sides, long axis vertical. */
 function sparkle(ctx, x, y, r) {
   const k = r * 0.12;
@@ -212,6 +341,111 @@ function _stoneFrame(mode) {
 const DRAW = {
   stone:  _stoneFrame("stone"),
   marble: _stoneFrame("marble"),
+  /** Rough-hewn Klingon stone — jagged chisel-cut edges, cracks, an engraved channel. */
+  klingon(ctx, c, h, color) {
+    carvedStone(ctx, c, h, color, { opening: BAKED_FRAMES.klingon.opening });
+  },
+  /**
+   * Romulan: one bevelled outer ring between fine silver rims, and inside it a
+   * hairline crescent — thickest at the crown, its horns tapering away just
+   * below 3 and 9 o'clock. The crescent lies over the portrait's edge rather
+   * than in a gap of its own, so the bottom of the ring has no dead black band.
+   */
+  romulan(ctx, c, h, color) {
+    keyline(ctx, c, h, 0.898, 0.993, "#05090a");
+    metal(ctx, c, h, 0.92, 0.928);
+    band(ctx, c, h, 0.928, 0.982, color, 0.85);
+    metal(ctx, c, h, 0.982, 0.99);
+    // The crescent: an outer circle less the same circle dropped by `off`.
+    const R = 0.905 * h, off = 0.04 * h;
+    const x0 = Math.sqrt(R * R - (off / 2) ** 2);
+    const aR = Math.atan2(off / 2, x0), aL = Math.PI - aR;
+    const bR = Math.atan2(-off / 2, x0), bL = Math.PI - bR;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(c, c, R, aL, aR, false);           // over the crown
+    ctx.arc(c, c + off, R, bR, bL, true);      // back along the inner edge
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, c - R, 0, c + off / 2);
+    g.addColorStop(0, shade(color, 0.62));
+    g.addColorStop(0.5, shade(color, 0.3));
+    g.addColorStop(1, shade(color, -0.1));
+    ctx.fillStyle = g;
+    // A dark shadow, not a glow: it is what parts the crescent from the
+    // portrait it lies over.
+    ctx.shadowColor = "rgba(0,0,0,0.85)";
+    ctx.shadowBlur = h * 0.014;
+    ctx.shadowOffsetY = h * 0.004;
+    ctx.fill();
+    ctx.restore();
+    // A bright edge along the crown, so the crescent reads as polished metal.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(c, c, R - h * 0.003, aL + 0.12, aR - 0.12 + TAU, false);
+    ctx.lineWidth = Math.max(1, h * 0.005);
+    ctx.lineCap = "round";
+    ctx.strokeStyle = shade(color, 0.85);
+    ctx.globalAlpha = 0.85;
+    ctx.stroke();
+    ctx.restore();
+  },
+  /**
+   * LCARS: flat, unshaded segments of the one colour family with black gaps,
+   * a thin rail inside them. Every segment end is cut square.
+   */
+  lcars(ctx, c, h, color) {
+    keyline(ctx, c, h, 0.85, 0.99, "#000000");
+    annulus(ctx, c, 0.862 * h, 0.872 * h);
+    ctx.fillStyle = shade(color, 0.25);
+    ctx.fill();
+    // Degrees, clockwise from 12 o'clock; [length, tone].
+    const tones = [color, shade(color, 0.42), shade(color, -0.28), shade(color, 0.2)];
+    const segs = [[62, 0], [18, 1], [40, 2], [8, 3], [76, 0], [30, 1], [12, 3], [50, 2], [24, 1]];
+    const gap = 3.2;
+    const total = segs.reduce((s, [len]) => s + len, 0) + gap * segs.length;
+    let at = -90 - 6;
+    const rMid = 0.93 * h, w = 0.085 * h;
+    ctx.save();
+    ctx.lineWidth = w;
+    ctx.lineCap = "butt";
+    for (const [len, tone] of segs) {
+      const span = len * (360 - gap * segs.length) / (total - gap * segs.length);
+      const a0 = at * Math.PI / 180, a1 = (at + span) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.arc(c, c, rMid, a0, a1);
+      ctx.strokeStyle = tones[tone];
+      ctx.stroke();
+      at += span + gap;
+    }
+    ctx.restore();
+  },
+  /**
+   * TNG duty uniform: black shoulders across the top of the ring, the
+   * division colour below a level seam, as the jumpsuit is cut.
+   */
+  uniform(ctx, c, h, color) {
+    keyline(ctx, c, h, 0.845, 0.99, "#050505");
+    const seam = c - 0.32 * h;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, seam, c * 2, c * 2);
+    ctx.clip();
+    band(ctx, c, h, 0.86, 0.975, color);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, c * 2, seam);
+    ctx.clip();
+    band(ctx, c, h, 0.86, 0.975, "#1b1c20", 0.8);
+    ctx.restore();
+    // The seam itself, a fine dark line.
+    ctx.save();
+    annulus(ctx, c, 0.86 * h, 0.975 * h);
+    ctx.clip();
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
+    ctx.fillRect(0, seam - h * 0.004, c * 2, h * 0.008);
+    ctx.restore();
+  },
   solid(ctx, c, h, color) {
     keyline(ctx, c, h, 0.845, 0.86);
     band(ctx, c, h, 0.86, 0.975, color);

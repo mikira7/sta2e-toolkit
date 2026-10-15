@@ -10,7 +10,7 @@ import {
   composeAppearance, visualUpdates, applyCreationAppearance, pairImages,
   classifyImage, looksFromVisage, nameKey, sameVisual, MODULE, STATE_FLAG,
   normalizeRing, ringUpdates, ringFromToken, normalizeLook, normalizeMimic, actorTraitNames, mayMimic, stateIsDressed,
-  storeMimicInLibrary,
+  storeMimicInLibrary, rebaseVisual,
 } from '../scripts/appearance-data.js';
 
 const results = [];
@@ -339,6 +339,39 @@ await check('a mimic can be stored as a look, once', () => {
   const r = { ...a.library, randomize: true };
   for (let i = 0; i < 50; i++) assert.equal(pickLook(r).id, 'own');
   assert.equal(normalizeLook(a.look).mimicked, true, 'the mark survives normalisation');
+});
+
+await check('rebaseVisual follows only figures still on the old original', () => {
+  const oldBase = { token: 'icons/svg/mystery-man.svg', portrait: 'icons/svg/mystery-man.svg', scale: 1, ring: null };
+  const newBase = { token: 't/kira_token.webp', portrait: 'p/kira.webp', scale: 1.2, ring: { enabled: true, ringColor: '#ff0000' } };
+  // Undressed, still on the default art: every slot follows.
+  const a = rebaseVisual({ oldBase, newBase, current: { token: 'icons/svg/mystery-man.svg', scale: 1, ring: null } });
+  assert.deepEqual([a.patch.token, a.patch.scale, a.patch.ring.enabled, 'portrait' in a.patch], ['t/kira_token.webp', 1.2, true, false]);
+  assert.equal(a.baseline, null);
+  // Undressed but re-skinned by hand: its token stays, its scale still follows.
+  const b = rebaseVisual({ oldBase, newBase, current: { token: 't/other.webp', scale: 1 } });
+  assert.deepEqual(b.patch, { scale: 1.2 });
+  // Dressed: the remembered original is rewritten, nothing drawn now.
+  const c = rebaseVisual({ oldBase, newBase, baseline: { token: 'icons/svg/mystery-man.svg', portrait: null, scale: 1, ring: null, name: 'Kira' } });
+  assert.equal(c.patch, null);
+  assert.deepEqual([c.baseline.token, c.baseline.portrait, c.baseline.scale, c.baseline.name], ['t/kira_token.webp', null, 1.2, 'Kira'],
+    'a null baseline portrait is "use the actor" and is left alone');
+  // Only the art changed: an enabled ring is not read as changed.
+  const ring = { enabled: true, ringColor: '#00ff00' };
+  const e = rebaseVisual({ oldBase: { ...oldBase, ring }, newBase: { ...oldBase, token: 't/new.webp', ring }, current: { token: 'icons/svg/mystery-man.svg', ring } });
+  assert.deepEqual(e.patch, { token: 't/new.webp' });
+  // A placed token's ring names its own art as the subject: it is re-pointed.
+  const placed = { token: 'icons/svg/mystery-man.svg', ring: { ...ring, subjectTexture: 'icons/svg/mystery-man.svg' } };
+  const g = rebaseVisual({ oldBase: { ...oldBase, ring }, newBase: { ...oldBase, token: 't/new.webp', ring }, current: placed });
+  assert.deepEqual([g.patch.token, g.patch.ring.enabled, g.patch.ring.subjectTexture], ['t/new.webp', true, '']);
+  // Nothing changed: nothing to do.
+  const d = rebaseVisual({ oldBase, newBase: oldBase, current: { token: 'icons/svg/mystery-man.svg', scale: 1 } });
+  assert.deepEqual([d.patch, d.baseline], [null, null]);
+});
+
+await check('baseMaker survives normalisation', () => {
+  assert.deepEqual(normalizeLibrary({ baseMaker: { src: 'p/kira.webp', zoom: 1.1 } }).baseMaker, { src: 'p/kira.webp', zoom: 1.1 });
+  assert.equal(normalizeLibrary({}).baseMaker, null);
 });
 
 let failed = 0;

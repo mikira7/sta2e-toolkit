@@ -295,6 +295,68 @@ export function getShipCrew(ship) {
     .sort((a, b) => order(a) - order(b) || a.actor.name.localeCompare(b.actor.name));
 }
 
+// ── Departments ───────────────────────────────────────────────────────────────
+// Which department a crew member belongs to, for the Crew tab's department view.
+// One per discipline. Resolved in order: an explicit choice stored on the ship
+// (per ship, like the manifest, so a ship's owner can set it without writing to
+// the character) → the department of the station they hold → their best
+// discipline. Ties between disciplines go to list order.
+
+export const DEPARTMENTS = [
+  { id: "command",     label: "Command",     disc: "command"     },
+  { id: "conn",        label: "Conn",        disc: "conn"        },
+  { id: "engineering", label: "Engineering", disc: "engineering" },
+  { id: "security",    label: "Security",    disc: "security"    },
+  { id: "science",     label: "Science",     disc: "science"     },
+  { id: "medical",     label: "Medical",     disc: "medicine"    },
+];
+
+const STATION_DEPARTMENT = {
+  command: "command", comms: "command",
+  helm: "conn", navigator: "conn",
+  operations: "engineering", tactical: "security",
+  sensors: "science", medical: "medical",
+};
+
+const DEPT_FLAG = "crewDepartments";
+
+export function getCrewDepartments(ship) {
+  const { doc } = _manifestStore(ship);
+  const raw = doc?.getFlag(MODULE, DEPT_FLAG);
+  const out = {};
+  if (raw && typeof raw === "object") {
+    for (const [id, dept] of Object.entries(raw)) {
+      if (DEPARTMENTS.some(d => d.id === dept)) out[id] = dept;
+    }
+  }
+  return out;
+}
+
+/** Set (or with a blank `dept`, clear) one crew member's department on this ship. */
+export async function setCrewDepartment(ship, actorId, dept) {
+  const { doc } = _manifestStore(ship);
+  if (!doc || !actorId) return;
+  if (DEPARTMENTS.some(d => d.id === dept)) await doc.setFlag(MODULE, `${DEPT_FLAG}.${actorId}`, dept);
+  else await doc.update({ [`flags.${MODULE}.${DEPT_FLAG}.-=${actorId}`]: null });
+}
+
+/** The department this member would get with no explicit choice. */
+export function autoDepartment(actor, stationId = null) {
+  if (stationId && STATION_DEPARTMENT[stationId]) return STATION_DEPARTMENT[stationId];
+  const discs = readOfficerStats(actor)?.disciplines;
+  let best = null, bestValue = -Infinity;
+  for (const d of DEPARTMENTS) {
+    const value = Number(discs?.[d.disc]);
+    if (Number.isFinite(value) && value > bestValue) { best = d.id; bestValue = value; }
+  }
+  return best ?? "command";
+}
+
+/** A getShipCrew entry's department, given the ship's stored choices. */
+export function crewDepartment(entry, overrides = {}) {
+  return overrides[entry.actor.id] ?? autoDepartment(entry.actor, entry.stationId);
+}
+
 /** Is this actor part of the ship's company by any source? */
 export function isShipCrew(ship, actor) {
   return !!actor && getShipCrew(ship).some(e => e.actor.id === actor.id);

@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {
   applyMatrix, invertMatrix, subjectMatrix, baseScale, autoFit, shapeGeometry,
-  floodFill, isWritableNextTo, tokenFileNames, rankPips, pipPlate, emblemDisc,
+  floodFill, isWritableNextTo, tokenFileNames, webpFileNames, rankPips, pipPlate, emblemDisc,
   rankInsignia, insigniaLabel, ENLISTED_RANKS, ADMIRAL_RANKS, OFFICER_RANKS, officerGradeFor,
 } from '../scripts/token-maker-compose.js';
 
@@ -121,6 +121,24 @@ await check('token file names: a chosen name replaces <stem>_token, cleaned and 
   assert.equal(tokenFileNames('assets/crew/bob.png', ['bob-eva.webp'], '', { name: 'bob-eva.webp' }).name, 'bob-eva-2.webp', 'extension typed in is not doubled; taken names get a number');
   assert.equal(tokenFileNames('assets/crew/bob.png', [], '', { name: '  ../??  ' }).name, 'bob_token.webp', 'nothing usable falls back to the default');
   assert.equal(tokenFileNames('assets/crew/bob.png', [], '', { name: '../../etc/x' }).name, 'etcx.webp', 'no path separators survive');
+});
+
+await check('the auto token name drops the portrait\'s "Portrait"', () => {
+  assert.equal(tokenFileNames('a/Klingon_Portrait.webp', []).name, 'Klingon_token.webp');
+  assert.equal(tokenFileNames('a/Worf-portrait.png', []).name, 'Worf_token.webp');
+  assert.equal(tokenFileNames('a/Tharen%20Vosk%20Portrait.jpg', []).name, 'Tharen-Vosk_token.webp');
+  assert.equal(tokenFileNames('a/KlingonPortrait.png', []).name, 'Klingon_token.webp');
+  assert.equal(tokenFileNames('a/Klingon_Portrait_03.png', []).name, 'Klingon_03_token.webp');
+  assert.equal(tokenFileNames('a/Portrait.png', []).name, 'token.webp');
+  assert.equal(tokenFileNames('a/Klingon_Portrait.png', [], '', { name: 'My Portrait' }).name, 'My-Portrait.webp', 'a typed name is kept as typed');
+});
+
+await check('webpFileNames: beside the source, never overwriting', () => {
+  assert.deepEqual(webpFileNames('assets/crew/Kira%20Portrait.png', []), { dir: 'assets/crew', name: 'Kira-Portrait.webp', fellBack: false });
+  assert.equal(webpFileNames('assets/crew/kira.jpg', ['KIRA.webp', 'kira-2.webp']).name, 'kira-3.webp');
+  const f = webpFileNames('icons/svg/x.png', [], 'worlds/w/sta2e-tokens');
+  assert.deepEqual([f.dir, f.fellBack], ['worlds/w/sta2e-tokens', true]);
+  assert.equal(webpFileNames('assets/kira.png', [], 'worlds/w/sta2e-tokens', { forceFallback: true }).dir, 'worlds/w/sta2e-tokens');
 });
 
 await check('rank text → insignia, all four kinds', () => {

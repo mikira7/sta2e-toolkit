@@ -408,11 +408,40 @@ export function tokenFileNames(portraitPath, existing = [], fallbackDir = "", { 
   const dir = writable ? clean.slice(0, slash) : fallbackDir;
   let stem = "token";
   try { stem = decodeURIComponent(clean.slice(slash + 1)).replace(/\.[a-z0-9]+$/i, "") || "token"; } catch { /* keep default */ }
-  stem = safeFileStem(stem) || "token";
-  const base = safeFileStem(String(chosen ?? "").replace(/\.(webp|png|jpe?g)$/i, "")) || `${stem}_token`;
+  // A portrait's own "Portrait" word does not belong in its token's name:
+  // Klingon_Portrait.webp → Klingon_token.webp, not Klingon_Portrait_token.webp.
+  stem = stem.replace(/[\s_-]*portrait/gi, "").replace(/^[\s_-]+|[\s_-]+$/g, "");
+  stem = safeFileStem(stem);
+  const base = safeFileStem(String(chosen ?? "").replace(/\.(webp|png|jpe?g)$/i, "")) || (stem ? `${stem}_token` : "token");
   const taken = new Set([...existing].map(n => String(n).toLowerCase()));
   let n = 1;
   let name = `${base}.webp`;
   while (taken.has(name.toLowerCase())) name = `${base}-${++n}.webp`;
   return { dir, name, mask: name.replace(/\.webp$/, ".mask.png"), fellBack: !writable };
+}
+
+/**
+ * Folder and file name for a WebP copy of an image: `<stem>.webp` beside it,
+ * then `-2`, `-3` … when taken (the copy never overwrites anything). The stem
+ * keeps the file's own name, "Portrait" included — this is the same picture.
+ *
+ * @param {string} srcPath
+ * @param {Iterable<string>} existing  File names already in the target folder
+ * @param {string} [fallbackDir]       Used when the source's folder is not writable
+ * @param {{forceFallback?: boolean}} [opts]
+ */
+export function webpFileNames(srcPath, existing = [], fallbackDir = "", { forceFallback = false } = {}) {
+  const path = String(srcPath ?? "");
+  const writable = !forceFallback && isWritableNextTo(path);
+  const clean = path.split(/[?#]/)[0];
+  const slash = clean.lastIndexOf("/");
+  const dir = writable ? clean.slice(0, slash) : fallbackDir;
+  let stem = "image";
+  try { stem = decodeURIComponent(clean.slice(slash + 1)).replace(/\.[a-z0-9]+$/i, "") || "image"; } catch { /* keep default */ }
+  const base = safeFileStem(stem) || "image";
+  const taken = new Set([...existing].map(n => String(n).toLowerCase()));
+  let n = 1;
+  let name = `${base}.webp`;
+  while (taken.has(name.toLowerCase())) name = `${base}-${++n}.webp`;
+  return { dir, name, fellBack: !writable };
 }

@@ -185,6 +185,27 @@ await check('removeShipCrew also takes them off this ship\'s stations', async ()
   assert.equal(M.findOfficerStation(M.getCrewManifest(ship), 'pilot'), null);
 });
 
+await check('department: station first, then best discipline', () => {
+  const doc = makeActor('doc', 'Ira');
+  doc.system.disciplines = { medicine: { value: 5 }, science: { value: 4 }, command: { value: 1 } };
+  assert.equal(M.autoDepartment(doc), 'medical');
+  assert.equal(M.autoDepartment(doc, 'tactical'), 'security');
+  assert.equal(M.autoDepartment(doc, 'comms'), 'command');
+  assert.equal(M.autoDepartment(makeActor('blank', 'Jo', {})), 'conn');
+});
+
+await check('department: an explicit choice on the ship wins over the station', () => {
+  const entry = { actor: makeActor('xo2', 'Kel'), stationId: 'helm' };
+  assert.equal(M.crewDepartment(entry, {}), 'conn');
+  assert.equal(M.crewDepartment(entry, { xo2: 'science' }), 'science');
+});
+
+await check('department choices drop unknown ids', () => {
+  const s = makeActor('ship2', 'USS Nova', { type: 'starship' });
+  s._flags.crewDepartments = { a: 'science', b: 'bogus' };
+  assert.deepEqual({ ...M.getCrewDepartments(s) }, { a: 'science' });
+});
+
 // ── Report ──────────────────────────────────────────────────────────────────
 for (const [status, name, msg] of results) console.log(`${status}  ${name}${msg ? `\n      ${msg}` : ''}`);
 const failed = results.filter(r => r[0] === 'FAIL').length;

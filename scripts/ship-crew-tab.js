@@ -22,9 +22,11 @@ import {
   getCrewManifest, setCrewManifest, readOfficerStats,
   assignOfficer, unassignOfficer, stationLabel,
   getShipCrew, isShipCrew, addShipCrew, removeShipCrew, actorFromDragData,
+  DEPARTMENTS, getCrewDepartments, setCrewDepartment, autoDepartment, crewDepartment,
 } from "./crew-manifest.js";
 
 const TAB_KEY = "_sta2eShipTab";
+const DEPT_KEY = "_sta2eCrewDept";
 const SOURCE_LABEL = { toolkit: "Toolkit", assignment: "Assignment", manifest: "Manifest" };
 
 function esc(value) {
@@ -90,12 +92,33 @@ function _stationsHtml(ship, crew, manifest, editable) {
     </section>`;
 }
 
-function _companyHtml(crew, editable) {
-  const rows = crew.map(e => `
+function _deptSelect(entry, overrides) {
+  const chosen = overrides[entry.actor.id] ?? "";
+  const auto = DEPARTMENTS.find(d => d.id === autoDepartment(entry.actor, entry.stationId))?.label ?? "";
+  return `<select class="sta2e-crew-dept-select" title="Department">
+    <option value="" ${chosen ? "" : "selected"}>Auto (${esc(auto)})</option>
+    ${DEPARTMENTS.map(d => `<option value="${d.id}" ${d.id === chosen ? "selected" : ""}>${esc(d.label)}</option>`).join("")}
+  </select>`;
+}
+
+function _companyHtml(crew, editable, overrides, activeDept) {
+  const deptOf = new Map(crew.map(e => [e.actor.id, crewDepartment(e, overrides)]));
+  const counts = Object.fromEntries(DEPARTMENTS.map(d => [d.id, 0]));
+  for (const dept of deptOf.values()) counts[dept] = (counts[dept] ?? 0) + 1;
+  if (!(activeDept in counts)) activeDept = "all";
+  const tabs = [{ id: "all", label: "All", n: crew.length },
+    ...DEPARTMENTS.map(d => ({ id: d.id, label: d.label, n: counts[d.id] }))]
+    .map(t => `<button type="button" class="sta2e-crew-dept-tab${t.id === activeDept ? " is-active" : ""}${t.n ? "" : " is-empty"}"
+      data-dept="${t.id}">${esc(t.label)} <span class="sta2e-crew-dept-n">${t.n}</span></button>`).join("");
+  const shown = activeDept === "all" ? crew : crew.filter(e => deptOf.get(e.actor.id) === activeDept);
+  const deptLabel = (e) => DEPARTMENTS.find(d => d.id === deptOf.get(e.actor.id))?.label ?? "";
+
+  const rows = shown.map(e => `
     <div class="sta2e-crew-member" data-actor-id="${e.actor.id}" ${editable ? `draggable="true"` : ""}>
       <img class="sta2e-crew-portrait" src="${esc(e.actor.img || "icons/svg/mystery-man.svg")}" alt="">
       <span class="sta2e-crew-member-name" title="Open sheet">${esc(e.actor.name)}</span>
       <span class="sta2e-crew-member-post">${e.stationId ? esc(stationLabel(e.stationId, e.seatIndex)) : "Unassigned"}</span>
+      ${editable ? _deptSelect(e, overrides) : `<span class="sta2e-crew-member-dept">${esc(deptLabel(e))}</span>`}
       <span class="sta2e-crew-badges">${e.sources.map(s =>
         `<span class="sta2e-crew-badge" title="${s === "toolkit" ? "Assign Ships on their sheet"
           : s === "assignment" ? "Their Assignment field names this ship (the system's Ship Roster)"
@@ -105,7 +128,8 @@ function _companyHtml(crew, editable) {
   return `
     <section class="sta2e-crew-section">
       <div class="sta2e-crew-heading">Ship's Company <span class="sta2e-crew-count">${crew.length}</span></div>
-      ${rows || `<div class="sta2e-crew-hint">No crew yet.</div>`}
+      ${crew.length ? `<nav class="sta2e-crew-dept-tabs">${tabs}</nav>` : ""}
+      ${rows || `<div class="sta2e-crew-hint">${crew.length ? "No one in this department." : "No crew yet."}</div>`}
       ${editable ? `<div class="sta2e-crew-drop">Drop a character from the sidebar or a token to add them to the crew</div>` : ""}
     </section>`;
 }
@@ -140,7 +164,13 @@ async function _assign(ship, actorId, stationId, seatIndex) {
   if (actor && !isShipCrew(ship, actor)) await _addToCrew(ship, actor);
 }
 
-function _wirePanel(panel, ship, editable) {
+function _wirePanel(panel, app, editable) {
+  const ship = app.document;
+  // Which department is showing is a view choice kept on the sheet, so viewers can switch too.
+  panel.querySelectorAll(".sta2e-crew-dept-tab").forEach(btn => btn.addEventListener("click", () => {
+    app[DEPT_KEY] = btn.dataset.dept;
+    _fillPanel(panel, app);
+  }));
   panel.querySelectorAll(".sta2e-crew-member-name").forEach(el => el.addEventListener("click", () =>
     game.actors.get(el.closest("[data-actor-id]").dataset.actorId)?.sheet?.render(true)));
   if (!editable) return;
@@ -172,6 +202,12 @@ function _wirePanel(panel, ship, editable) {
     _dropTarget(row, async actor => { await _assign(ship, actor.id, stationId, seatIndex); refreshCrewPanels(); });
   });
 
+  panel.querySelectorAll(".sta2e-crew-dept-select").forEach(sel => sel.addEventListener("change", async ev => {
+    ev.stopPropagation();
+    await setCrewDepartment(ship, sel.closest("[data-actor-id]").dataset.actorId, ev.currentTarget.value);
+    refreshCrewPanels();
+  }));
+
   panel.querySelectorAll(".sta2e-crew-remove").forEach(btn => btn.addEventListener("click", async () => {
     const actor = game.actors.get(btn.closest("[data-actor-id]").dataset.actorId);
     if (!actor) return;
@@ -188,8 +224,10 @@ function _fillPanel(panel, app) {
   const editable = !!ship?.isOwner;
   const crew = getShipCrew(ship);
   const manifest = getCrewManifest(ship);
-  panel.innerHTML = _stationsHtml(ship, crew, manifest, editable) + _companyHtml(crew, editable);
-  _wirePanel(panel, ship, editable);
+  const overrides = getCrewDepartments(ship);
+  panel.innerHTML = _stationsHtml(ship, crew, manifest, editable)
+    + _companyHtml(crew, editable, overrides, app[DEPT_KEY] ?? "all");
+  _wirePanel(panel, app, editable);
 }
 
 function _showTab(app, column, tab) {
@@ -251,6 +289,8 @@ export function registerShipCrewTab() {
     || foundry.utils.hasProperty(changes, "flags.sta2e-toolkit.-=assignedShips")
     || foundry.utils.hasProperty(changes, "flags.sta2e-toolkit.crewManifest")
     || foundry.utils.hasProperty(changes, "flags.sta2e-toolkit.crewQuality")
+    || foundry.utils.hasProperty(changes, "flags.sta2e-toolkit.crewDepartments")
+    || foundry.utils.hasProperty(changes, "system.disciplines")
     || foundry.utils.hasProperty(changes, "system.assignment")
     || "name" in changes || "img" in changes;
   Hooks.on("updateActor", (_doc, changes) => { if (touchesCrew(changes)) refreshCrewPanels(); });

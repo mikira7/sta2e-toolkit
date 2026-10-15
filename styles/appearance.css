@@ -299,6 +299,13 @@
 }
 .sta2e-ap-card.is-selected .sta2e-ap-card-name { background: var(--ap-primary); color: var(--ap-bg); }
 
+/* The Original (prototype token + portrait) — first in the grid, set apart by a
+   double rule rather than a colour so it reads the same in every era. */
+.sta2e-ap-card.is-base { border-style: double; border-width: 3px; }
+.sta2e-ap-card.is-base .sta2e-ap-card-name i { margin-right: 4px; opacity: 0.8; }
+.sta2e-ap-editor.is-base > p { margin: 0; }
+.sta2e-ap-base-title { margin: 0; border: none; color: var(--ap-primary); text-transform: uppercase; letter-spacing: 0.1em; }
+
 .sta2e-ap-card.is-new { border: 2px dashed var(--ap-border-dim); background: transparent; }
 .sta2e-ap-card.is-new .sta2e-ap-card-stage { background: transparent; font-size: 28px; color: var(--ap-text-dim); }
 .sta2e-ap-card.is-new:hover { border-color: var(--ap-primary); }

@@ -159,6 +159,8 @@ export function normalizeLibrary(raw) {
     randomize:     r.randomize === true,
     defaultLookId: ids.has(str(r.defaultLookId)) ? str(r.defaultLookId) : null,
     rules:         (Array.isArray(r.rules) ? r.rules : []).map(normalizeRule),
+    // The Token Maker recipe behind the Original (prototype) token art.
+    baseMaker:     _maker(r.baseMaker),
   };
 }
 
@@ -307,6 +309,55 @@ export function composeAppearance({ library, state, rule, current }) {
     name:     first("tokenName") || base.name || null,
   };
   return { visual, state: next };
+}
+
+/**
+ * Carry a change of ORIGINAL art (the prototype token and the actor portrait,
+ * edited in the Appearance Manager) onto a figure already on a scene. A slot
+ * moves only where it still holds the old original — a token the GM has since
+ * re-dressed by hand keeps what it has.
+ *
+ * - Undressed (`baseline` null): `patch` is the slots to write on the token now.
+ * - Dressed (a `baseline` remembered): `baseline` is that record rewritten, so
+ *   taking the look off restores the NEW original; nothing is drawn now.
+ *
+ * Only the slots present in `current` (or the baseline) are compared, so a
+ * caller leaves `portrait` out where the portrait lives somewhere else.
+ *
+ * @returns {{patch: object|null, baseline: object|null}}
+ */
+export function rebaseVisual({ oldBase, newBase, current = null, baseline = null }) {
+  const from = baseline ?? current;
+  if (!from || !oldBase || !newBase) return { patch: null, baseline: null };
+  // A ring is compared without its art: its subject defaults to the token art
+  // (and a token read back from the canvas names that art explicitly), so the
+  // art changing must not read as the ring changing.
+  const ringSansArt = (o) => {
+    const r = normalizeRing(o?.ring);
+    if (r && r.subjectTexture && r.subjectTexture === str(o.token)) r.subjectTexture = "";
+    return _ringKey(r, "");
+  };
+  const same = {
+    token:    (a, b) => str(a.token) === str(b.token),
+    portrait: (a, b) => (str(a.portrait) || null) === (str(b.portrait) || null),
+    scale:    (a, b) => (_scale(a.scale) ?? 1) === (_scale(b.scale) ?? 1),
+    ring:     (a, b) => ringSansArt(a) === ringSansArt(b),
+  };
+  const patch = {};
+  for (const key of Object.keys(same)) {
+    if (!(key in from)) continue;
+    if (same[key](newBase, oldBase)) continue;      // this slot did not change
+    if (!same[key](from, oldBase)) continue;        // the figure moved off the old original
+    patch[key] = newBase[key] ?? null;
+  }
+  // New art under a ring that pointed its subject at the old art: re-point it.
+  const fromRing = normalizeRing(from.ring);
+  if (patch.token && !("ring" in patch) && fromRing?.enabled && fromRing.subjectTexture === str(from.token)) {
+    patch.ring = { ...fromRing, subjectTexture: "" };
+  }
+  if (!Object.keys(patch).length) return { patch: null, baseline: null };
+  if (baseline) return { patch: null, baseline: { ...baseline, ...patch } };
+  return { patch, baseline: null };
 }
 
 /** True when two visuals would draw the same thing. */

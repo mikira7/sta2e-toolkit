@@ -26,9 +26,11 @@
  */
 
 import {
-  MODULE, LIBRARY_FLAG, WEARABLE_TYPES, normalizeLibrary, normalizeLook, newLookId,
-  pairImages, looksFromVisage, parseKeywords,
+  MODULE, LIBRARY_FLAG, STATE_FLAG, WEARABLE_TYPES, normalizeLibrary, normalizeLook, newLookId,
+  pairImages, looksFromVisage, parseKeywords, normalizeState, normalizeRing, ringFromToken,
+  ringUpdates, rebaseVisual,
 } from "./appearance-data.js";
+import { saveAsWebp, isConvertible, formatBytes } from "./webp-convert.js";
 import { pickArt, pickFolder, pickImageFile, listFolderImages } from "./art-browser.js";
 import { getWildcardImages } from "./token-spawn-utils.js";
 import { COMBAT_CONDITIONS } from "./token-conditions.js";
@@ -39,6 +41,9 @@ const _open = new Map();   // actor uuid -> app
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
+
+/** The id the Original (prototype token + portrait) card goes by in the UI. */
+const BASE_ID = "__base__";
 
 function _esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -117,11 +122,44 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     this._lib = normalizeLibrary(foundry.utils.deepClone(actor.getFlag(MODULE, LIBRARY_FLAG) ?? {}));
     this._dirty = false;
     this._tab = "looks";
-    this._sel = this._lib.looks[0]?.id ?? null;
+    // The Original: the prototype token and the sheet portrait, edited as one
+    // more look-shaped working copy so every stage handler works on it as is.
+    this._base = this._readBase();
+    this._baseWas = foundry.utils.deepClone(this._base);
+    this._sel = this._lib.looks[0]?.id ?? BASE_ID;
   }
 
   get _linked() {
     return !!this.actor.prototypeToken?.actorLink;
+  }
+
+  /**
+   * The actor's original art. A linked character in a look has that look's
+   * portrait on `actor.img`; its original portrait is in the state baseline.
+   */
+  _readBase() {
+    const proto = this.actor.prototypeToken;
+    const token = proto?.texture?.src ?? "";
+    const st = this._linked ? normalizeState(this.actor.getFlag(MODULE, STATE_FLAG)) : null;
+    const ring = ringFromToken(proto?.ring);
+    // A subject naming the art itself is "follow the art", so new art is not
+    // left inside a ring still showing the old picture.
+    if (ring?.subjectTexture === token) ring.subjectTexture = "";
+    return {
+      id:       BASE_ID,
+      name:     "Original",
+      token,
+      portrait: st?.baseline?.portrait || this.actor.img || "",
+      scale:    Math.abs(Number(proto?.texture?.scaleX ?? 1)) || 1,
+      ring,
+      maker:    this._lib.baseMaker ?? null,
+    };
+  }
+
+  _baseChanged() {
+    const a = this._base, b = this._baseWas;
+    return a.token !== b.token || a.portrait !== b.portrait || a.scale !== b.scale
+      || JSON.stringify(normalizeRing(a.ring)) !== JSON.stringify(normalizeRing(b.ring));
   }
 
   _selected() {
@@ -169,7 +207,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
         <div class="sta2e-ap-place">
           <span class="sta2e-ap-label">New tokens get</span>
           <div class="sta2e-ap-seg">
-            ${seg("proto", "image", "Prototype", "The prototype token art, unchanged")}
+            ${seg("proto", "image", "Original", "The Original art — the prototype token, unchanged")}
             ${seg("default", "star", def ? _esc(def.name || "Default look") : "Default Look", "The look marked with the star", !lib.looks.length)}
             ${seg("random", "dice", "Random", randomTip, this._linked || !lib.looks.some(l => l.token))}
           </div>
@@ -188,7 +226,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
   // ── Looks tab ────────────────────────────────────────────────────────────────
 
   _card(look) {
-    const sel = look.id === this._selected()?.id;
+    const sel = this._sel !== BASE_ID && look.id === this._selected()?.id;
     const isDefault = look.id === this._lib.defaultLookId;
     const rules = this._rulesFor(look.id);
     const badges = [
@@ -211,8 +249,37 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
       </button>`;
   }
 
+  /** The Original's card — always first, as Original Art is in the Token HUD. */
+  _baseCard() {
+    const b = this._base;
+    const badges = [
+      b.scale !== 1 ? `<span class="sta2e-ap-badge is-scale" data-tooltip="Scale">×${b.scale}</span>` : "",
+      b.ring?.enabled ? `<span class="sta2e-ap-badge is-ring" data-tooltip="Dynamic ring" style="--ap-a:${b.ring.ringColor ?? "var(--ap-primary)"}"><i class="fas fa-ring"></i></span>` : "",
+    ].join("");
+    return `
+      <button type="button" class="sta2e-ap-card is-base ${this._sel === BASE_ID ? "is-selected" : ""}" data-action="ap-select" data-look="${BASE_ID}"
+        data-tooltip="What this character wears with no look on">
+        <div class="sta2e-ap-card-stage">
+          ${b.token ? _media(b.token, "sta2e-ap-card-token") : `<i class="fas fa-circle-user sta2e-ap-card-missing"></i>`}
+          ${b.portrait ? `<div class="sta2e-ap-card-portrait">${_media(b.portrait)}</div>` : ""}
+          <div class="sta2e-ap-badges">${badges}</div>
+        </div>
+        <div class="sta2e-ap-card-name"><i class="fas fa-user"></i> Original</div>
+      </button>`;
+  }
+
+  /** Every token/portrait slot (the Original's included) holding a PNG or JPEG. */
+  _convertibleSlots() {
+    const out = [];
+    for (const obj of [this._base, ...this._lib.looks]) {
+      for (const slot of ["token", "portrait"]) if (isConvertible(obj[slot])) out.push({ obj, slot });
+    }
+    return out;
+  }
+
   _gallery() {
     const lib = this._lib;
+    const convertible = new Set(this._convertibleSlots().map(t => t.obj[t.slot])).size;
     const visage = _visageLooks(this.actor);
     const hasVisage = !!visage && Object.keys(visage).length > 0;
     const proto = this.actor.prototypeToken;
@@ -224,8 +291,10 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
           <button type="button" data-action="ap-add-folder" data-tooltip="One look per image, pairing token and portrait files by name"><i class="fas fa-folder-plus"></i> Folder</button>
           ${hasWildcard ? `<button type="button" data-action="ap-import-wildcard" data-tooltip="Import from ${_esc(proto.texture.src)}"><i class="fas fa-dice"></i> Wildcard</button>` : ""}
           ${hasVisage ? `<button type="button" data-action="ap-import-visage" data-tooltip="Import this actor's Visage looks"><i class="fas fa-masks-theater"></i> Visage</button>` : ""}
+          ${convertible ? `<button type="button" data-action="ap-webp-all" data-tooltip="Save a WebP copy of every PNG/JPEG token and portrait here (${convertible}) and use it instead — usually far smaller. The originals are left in place."><i class="fas fa-file-zipper"></i> WebP</button>` : ""}
         </div>
         <div class="sta2e-ap-grid">
+          ${this._baseCard()}
           ${lib.looks.map(l => this._card(l)).join("")}
           <button type="button" class="sta2e-ap-card is-new" data-action="ap-add-look">
             <div class="sta2e-ap-card-stage"><i class="fas fa-plus"></i></div>
@@ -255,15 +324,42 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
           <span>${isToken ? "Token" : "Portrait"}</span>
           <span class="sta2e-ap-stage-keys">
             ${isToken ? `<button type="button" data-action="ap-maker" data-tooltip="${look.maker ? "Edit in the Token Maker" : "Token Maker — make this token from a portrait"}"><i class="fas fa-wand-magic-sparkles"></i></button>` : ""}
+            ${isConvertible(path) ? `<button type="button" data-action="ap-webp" data-tooltip="Convert to WebP — saves a smaller copy beside it and uses that"><i class="fas fa-file-zipper"></i></button>` : ""}
             <button type="button" data-action="ap-browse" data-tooltip="Art library"><i class="fas fa-images"></i></button>
             <button type="button" data-action="ap-file" data-tooltip="File picker"><i class="fas fa-folder-open"></i></button>
-            ${path ? `<button type="button" data-action="ap-clear" data-tooltip="Clear"><i class="fas fa-xmark"></i></button>` : ""}
+            ${path && look.id !== BASE_ID ? `<button type="button" data-action="ap-clear" data-tooltip="Clear"><i class="fas fa-xmark"></i></button>` : ""}
           </span>
         </figcaption>
       </figure>`;
   }
 
+  /** The Original's editor: the two stages and the scale, nothing look-specific. */
+  _baseEditor() {
+    const b = this._base;
+    const proto = this.actor.prototypeToken;
+    const wildcard = !!proto?.randomImg && String(proto?.texture?.src ?? "").includes("*");
+    return `
+      <section class="sta2e-ap-editor is-base" data-look="${BASE_ID}">
+        <div class="sta2e-ap-editor-head">
+          <h3 class="sta2e-ap-base-title"><i class="fas fa-user"></i> Original</h3>
+        </div>
+        <p class="sta2e-ap-muted">What ${_esc(this.actor.name)} wears with no look on — the prototype token and the sheet portrait. Saving updates placed tokens still showing the old original art.</p>
+        ${wildcard ? `<p class="sta2e-ap-muted"><i class="fas fa-dice"></i> The prototype rolls from a wildcard; setting a token here replaces it.</p>` : ""}
+        <div class="sta2e-ap-stages">
+          ${this._stage(b, "token")}
+          ${this._stage(b, "portrait")}
+        </div>
+        <div class="sta2e-ap-scale">
+          <span class="sta2e-ap-label">Token scale</span>
+          <input type="range" data-field="scale" min="${SCALE_MIN}" max="${SCALE_MAX}" step="0.05" value="${b.scale}">
+          <output data-scale-out>×${b.scale}</output>
+          <button type="button" data-action="ap-scale-reset" ${b.scale === 1 ? "disabled" : ""} data-tooltip="Back to ×1"><i class="fas fa-rotate-left"></i></button>
+        </div>
+      </section>`;
+  }
+
   _editor() {
+    if (this._sel === BASE_ID) return this._baseEditor();
     const look = this._selected();
     if (!look) {
       return `
@@ -431,6 +527,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
 
   _look(el) {
     const id = el?.closest("[data-look]")?.dataset.look;
+    if (id === BASE_ID) return this._base;
     return this._lib.looks.find(l => l.id === id) ?? null;
   }
 
@@ -555,20 +652,24 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
         break;
       }
       case "ap-clear":       if (look && slot) { look[slot] = ""; this._touch(true); } break;
-      case "ap-scale-reset": if (look) { look.scale = null; this._touch(true); } break;
+      // The Original always has a scale; a look's "no scale" means keep the token's.
+      case "ap-scale-reset": if (look) { look.scale = look.id === BASE_ID ? 1 : null; this._touch(true); } break;
+      case "ap-webp":        if (look && slot) await this._convertToWebp([{ obj: look, slot }]); break;
+      case "ap-webp-all":    await this._convertToWebp(this._convertibleSlots()); break;
       case "ap-maker": {
         if (!look) break;
+        const isBase = look.id === BASE_ID;
         const made = await openTokenMaker({
           source:   look.maker?.src || look.portrait || look.token,
           recipe:   look.maker,
           ring:     look.ring,
-          lookName: look.name,
+          lookName: isBase ? this.actor.name : look.name,
           rank:     this.actor.system?.rank ?? "",
         });
         if (!made) break;
         // The working copy may have been re-rendered while the maker was open;
         // find the look again by id rather than trusting the old reference.
-        const target = lib.looks.find(l => l.id === look.id);
+        const target = isBase ? this._base : lib.looks.find(l => l.id === look.id);
         if (!target) break;
         Object.assign(target, { token: made.token, ring: made.ring, maker: made.maker });
         this._touch(true);
@@ -597,7 +698,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
         const i = lib.looks.indexOf(look);
         lib.looks.splice(i, 1);
         if (lib.defaultLookId === look.id) lib.defaultLookId = null;
-        this._sel = lib.looks[Math.min(i, lib.looks.length - 1)]?.id ?? null;
+        this._sel = lib.looks[Math.min(i, lib.looks.length - 1)]?.id ?? BASE_ID;
         this._touch(true);
         break;
       }
@@ -674,13 +775,148 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     this._addLooks(looksFromVisage(_visageLooks(this.actor)));
   }
 
+  /**
+   * Swap PNG/JPEG art for a WebP copy saved beside it, in the working copy —
+   * Save writes it. One conversion per distinct file, however many slots use it.
+   * @param {{obj: object, slot: string}[]} targets
+   */
+  async _convertToWebp(targets) {
+    if (this._converting || !targets.length) return;
+    this._converting = true;
+    const cache = new Map();
+    let converted = 0, skipped = 0, failed = 0, savedBytes = 0;
+    const distinct = new Set(targets.map(t => t.obj[t.slot])).size;
+    ui.notifications.info(`Converting ${distinct} image${distinct === 1 ? "" : "s"} to WebP…`);
+    try {
+      for (const { obj, slot } of targets) {
+        const src = obj[slot];
+        if (!cache.has(src)) {
+          try {
+            const r = await saveAsWebp(src);
+            cache.set(src, r);
+            if (r.skipped) skipped++;
+            else { converted++; savedBytes += r.before - r.after; }
+          } catch (err) {
+            failed++;
+            cache.set(src, null);
+            console.warn(`STA2e Toolkit | WebP: could not convert ${src}`, err);
+          }
+        }
+        const r = cache.get(src);
+        if (r && !r.skipped) obj[slot] = r.path;
+      }
+      // A Token Maker recipe that started from a converted portrait follows it.
+      for (const obj of [this._base, ...this._lib.looks]) {
+        const r = obj.maker?.src ? cache.get(obj.maker.src) : null;
+        if (r && !r.skipped) obj.maker.src = r.path;
+      }
+    } finally {
+      this._converting = false;
+    }
+    const parts = [];
+    if (converted) parts.push(`Converted ${converted} to WebP, ${formatBytes(savedBytes)} smaller — Save to use them. The originals are still on disk; delete them from your file host to free the space.`);
+    if (skipped)   parts.push(`${skipped} skipped (WebP would not be smaller).`);
+    if (failed)    parts.push(`${failed} could not be converted (see the console).`);
+    (failed ? ui.notifications.warn : ui.notifications.info).call(ui.notifications, parts.join(" ") || "Nothing to convert.");
+    if (converted) this._touch(true);
+  }
+
+  /** Flat prototype-token / actor updates that make the edited Original stick. */
+  _baseActorUpdate() {
+    const n = this._base, o = this._baseWas;
+    const tex = this.actor.prototypeToken?.texture ?? {};
+    const out = {};
+    if (n.token !== o.token) out["prototypeToken.texture.src"] = n.token;
+    if (n.scale !== o.scale) {
+      out["prototypeToken.texture.scaleX"] = Math.sign(tex.scaleX || 1) * n.scale;
+      out["prototypeToken.texture.scaleY"] = Math.sign(tex.scaleY || 1) * n.scale;
+    }
+    const ringChanged = JSON.stringify(normalizeRing(n.ring)) !== JSON.stringify(normalizeRing(o.ring));
+    // New art under an enabled ring re-points the ring's subject at it.
+    if (ringChanged || (n.token !== o.token && n.ring?.enabled)) {
+      for (const [k, v] of Object.entries(ringUpdates(n.ring, n.token))) out[`prototypeToken.${k}`] = v;
+    }
+    if (n.portrait !== o.portrait) {
+      // A linked character in a look shows that look's portrait; its original
+      // waits in the baseline until the look comes off.
+      const st = this._linked ? normalizeState(this.actor.getFlag(MODULE, STATE_FLAG)) : null;
+      if (st?.baseline) out[`flags.${MODULE}.${STATE_FLAG}.baseline.portrait`] = n.portrait;
+      else out.img = n.portrait;
+    }
+    return out;
+  }
+
+  /**
+   * Carry the new Original onto tokens already on a scene: a token still on the
+   * old original art takes the new one, and a token in a look has its
+   * remembered original rewritten so taking the look off shows the new art.
+   */
+  async _followPlacedTokens(oldBase, newBase) {
+    const strip = ({ token, scale, ring }) => ({ token, scale, ring });
+    const oldB = strip(oldBase), newB = strip(newBase);
+    // Flat paths, only for the slots that moved, so nothing else in the state
+    // (the portrait, the name, the chosen look) is rewritten.
+    const baselinePaths = (was, now) => {
+      const out = {};
+      for (const k of ["token", "scale", "ring"]) {
+        if (JSON.stringify(was[k] ?? null) !== JSON.stringify(now[k] ?? null)) out[`flags.${MODULE}.${STATE_FLAG}.baseline.${k}`] = now[k] ?? null;
+      }
+      return out;
+    };
+    let linkedDone = false;
+    for (const scene of game.scenes ?? []) {
+      for (const td of scene.tokens ?? []) {
+        if (td.actorId !== this.actor.id) continue;
+        try {
+          const stateDoc = td.actorLink ? this.actor : td;
+          const st = normalizeState(stateDoc.getFlag(MODULE, STATE_FLAG));
+          if (st.baseline) {
+            // Portraits are not compared here: an unlinked token's baseline
+            // portrait is "use the actor's", and a linked one's is handled by
+            // `_baseActorUpdate`. Linked tokens share the actor's one state.
+            if (td.actorLink && linkedDone) continue;
+            const { baseline } = rebaseVisual({ oldBase: oldB, newBase: newB, baseline: { ...st.baseline } });
+            if (td.actorLink) linkedDone = true;
+            if (baseline) await stateDoc.update(baselinePaths(st.baseline, baseline));
+            continue;
+          }
+          const current = {
+            token: td.texture?.src ?? "",
+            scale: Math.abs(Number(td.texture?.scaleX ?? 1)) || 1,
+            ring:  ringFromToken(td.ring),
+          };
+          const { patch } = rebaseVisual({ oldBase: oldB, newBase: newB, current });
+          if (!patch) continue;
+          const data = {};
+          if ("token" in patch) data["texture.src"] = patch.token;
+          if ("scale" in patch) {
+            data["texture.scaleX"] = Math.sign(td.texture?.scaleX || 1) * patch.scale;
+            data["texture.scaleY"] = Math.sign(td.texture?.scaleY || 1) * patch.scale;
+          }
+          if ("ring" in patch) Object.assign(data, ringUpdates(patch.ring, patch.token ?? current.token));
+          await td.update(data);
+        } catch (err) {
+          console.warn(`STA2e Toolkit | Appearance: could not update ${td.name} to the new original art`, err);
+        }
+      }
+    }
+  }
+
   async _save() {
-    const lib = normalizeLibrary(this._lib);
+    const lib = normalizeLibrary({ ...this._lib, baseMaker: this._base.maker });
     const bad = lib.rules.filter(r => !r.match || !r.lookId);
     if (bad.length) {
       ui.notifications.warn(`${bad.length} automatic look${bad.length === 1 ? " is" : "s are"} missing an item/condition or a look, and will be ignored until completed.`);
     }
-    await this.actor.update({ [`flags.${MODULE}.${LIBRARY_FLAG}`]: lib });
+    const baseChanged = this._baseChanged();
+    // Placed tokens first: the library write below sets the active GM
+    // re-evaluating every token of this actor, and that pass must read the
+    // rewritten baselines rather than race them.
+    if (baseChanged) await this._followPlacedTokens(this._baseWas, this._base);
+    await this.actor.update({
+      [`flags.${MODULE}.${LIBRARY_FLAG}`]: lib,
+      ...(baseChanged ? this._baseActorUpdate() : {}),
+    });
     this._lib = lib;
     this._dirty = false;
     ui.notifications.info(`Appearances saved for ${this.actor.name}.`);

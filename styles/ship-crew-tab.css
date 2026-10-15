@@ -123,9 +123,49 @@
 }
 
 /* ── Ship's company ────────────────────────────────────────────────────── */
+/* Department sub-tabs: a wrapping row of small pills under the heading. */
+.sta2e-crew-dept-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 1px 0 3px;
+}
+.sta2e-crew-dept-tabs .sta2e-crew-dept-tab {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: var(--sta2e-crew-idle, var(--sta-palestbluedark, #6699ff));
+  color: var(--sta2e-crew-ink, var(--sta-darkestblue, #00273F));
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.sta2e-crew-dept-tabs .sta2e-crew-dept-tab:hover {
+  filter: brightness(1.15);
+}
+.sta2e-crew-dept-tabs .sta2e-crew-dept-tab.is-empty {
+  opacity: 0.45;
+}
+.sta2e-crew-dept-tabs .sta2e-crew-dept-tab.is-active {
+  background: var(--sta2e-crew-active, var(--sta-borderblue, #89CFF0));
+  opacity: 1;
+}
+.sta2e-crew-dept-n {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
 .sta2e-crew-member {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) minmax(0, 8em) auto auto;
+  grid-template-columns: 26px minmax(0, 1fr) minmax(0, 8em) minmax(0, 8em) auto auto;
   align-items: center;
   gap: 6px;
   padding: 2px 4px;
@@ -156,6 +196,18 @@
 }
 .sta2e-crew-member-post {
   font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sta2e-crew-dept-select {
+  min-width: 0;
+  width: 100%;
+  font-size: 0.85em;
+}
+.sta2e-crew-member-dept {
+  font-size: 0.85em;
+  opacity: 0.85;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
