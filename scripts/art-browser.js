@@ -15,11 +15,12 @@
 
 import { classifyImage, parseKeywords } from "./appearance-data.js";
 import { getLcCssVars } from "./lcars-theme.js";
-import { browseFolder, childLocation } from "./file-storage.js";
+import { browseFolder, childLocation, onTheForge, storageForFile } from "./file-storage.js";
 
 const MODULE = "sta2e-toolkit";
 const IMAGE_EXT = /\.(webp|png|jpe?g|gif|svg|avif|webm)$/i;
 const MAX_DIRS = 2000;     // a runaway tree (a whole Data root) stops here
+const FORGE_MAX_DIRS = 150; // the same walk on The Forge, where each folder is an API call
 const MAX_SHOWN = 240;     // thumbnails rendered at once — refine the search past this
 
 const _cache = new Map();  // root -> Promise<string[]>
@@ -33,15 +34,47 @@ function _esc(s) {
 }
 
 /**
- * Every image under `root`, breadth first, capped at MAX_DIRS folders. The
- * walk stays in whichever storage the root was found in (local data, the
- * Forge Assets Library, an S3 bucket) — see file-storage.js.
+ * Every image under `root`.
+ *
+ * On The Forge, an Assets Library root is read in ONE call — the Forge's
+ * browse takes `recursive: true` and returns every file under the folder.
+ * Walking it folder by folder is one Forge API call per folder; with the
+ * default blank root that is the whole library, which kept `assets/browse`
+ * at the Forge's rate limit for minutes and tripped its rate monitor. When
+ * that call finds nothing (a root that lives in the game data, not the
+ * library) or fails, it falls back to the walk.
+ *
+ * Everywhere else: breadth first, capped at MAX_DIRS folders, staying in
+ * whichever storage the root was found in (local data, an S3 bucket) — see
+ * file-storage.js.
  */
 async function _index(root) {
+  const forge = await _forgeIndex(root);
+  if (forge) return forge;
+  return _walk(root);
+}
+
+async function _forgeIndex(root) {
+  if (!onTheForge()) return null;
+  const loc = root && typeof root === "object" ? root : storageForFile(`${String(root ?? "").replace(/\/+$/, "")}/x`);
+  if (loc?.source !== "forgevtt") return null;
+  try {
+    const res = await browseFolder({ ...loc, options: { ...(loc.options ?? {}), recursive: true } });
+    const files = (res?.files ?? []).filter(f => IMAGE_EXT.test(String(f).split(/[?#]/)[0]));
+    return files.length ? files.sort((a, b) => a.localeCompare(b)) : null;
+  } catch (err) {
+    console.warn("STA2e Toolkit | Art browser: recursive Forge browse failed, walking folders instead", err);
+    return null;
+  }
+}
+
+async function _walk(root) {
   const files = [];
   const queue = [root];
   let seen = 0;
-  while (queue.length && seen < MAX_DIRS) {
+  // Every folder is a Forge API call there, so the walk stops much sooner.
+  const maxDirs = onTheForge() ? FORGE_MAX_DIRS : MAX_DIRS;
+  while (queue.length && seen < maxDirs) {
     const dir = queue.shift();
     seen++;
     try {
@@ -53,7 +86,7 @@ async function _index(root) {
     }
   }
   if (queue.length) {
-    ui.notifications.warn(`Art library: stopped after ${MAX_DIRS} folders — point the Art Library Folder setting at a narrower folder.`);
+    ui.notifications.warn(`Art library: stopped after ${maxDirs} folders — point the Art Library Folder setting at a narrower folder.`);
   }
   return files.sort((a, b) => a.localeCompare(b));
 }
