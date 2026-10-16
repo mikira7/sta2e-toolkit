@@ -10,7 +10,7 @@ import {
   composeAppearance, visualUpdates, applyCreationAppearance, pairImages,
   classifyImage, looksFromVisage, nameKey, sameVisual, MODULE, STATE_FLAG,
   normalizeRing, ringUpdates, ringFromToken, normalizeLook, normalizeMimic, actorTraitNames, mayMimic, stateIsDressed,
-  storeMimicInLibrary, rebaseVisual,
+  storeMimicInLibrary, rebaseVisual, ruleKey, findVersion,
 } from '../scripts/appearance-data.js';
 
 const results = [];
@@ -372,6 +372,89 @@ await check('rebaseVisual follows only figures still on the old original', () =>
 await check('baseMaker survives normalisation', () => {
   assert.deepEqual(normalizeLibrary({ baseMaker: { src: 'p/kira.webp', zoom: 1.1 } }).baseMaker, { src: 'p/kira.webp', zoom: 1.1 });
   assert.equal(normalizeLibrary({}).baseMaker, null);
+});
+
+// ── Per-look versions of a rule ──────────────────────────────────────────────
+
+const vlib = normalizeLibrary({
+  looks: [
+    { id: 'dress', name: 'Dress', token: 't/dress.webp', portrait: 'p/dress.webp', scale: 0.9, ring: { enabled: false },
+      versions: [
+        { kind: 'status', match: 'dead', token: 't/dress-dead.webp' },
+        { kind: 'item', match: 'ev suit', token: 't/dress-ev.webp', portrait: 'p/dress-ev.webp' },
+        { kind: 'status', match: 'stun', token: 't/dress-stun.webp' },
+        { kind: 'status', match: '', token: 'x' },
+        { kind: 'status', match: 'dying' },
+      ] },
+    { id: 'duty', name: 'Duty', token: 't/duty.webp', portrait: 'p/duty.webp' },
+    { id: 'dead', name: 'Fallen', token: 't/dead.webp', portrait: 'p/dead.webp', scale: 1.5, ring: { enabled: true, ringColor: '#ff0000' } },
+    { id: 'ev', name: 'EV', token: 't/ev.webp', portrait: 'p/ev.webp' },
+  ],
+  baseVersions: [{ kind: 'status', match: 'dead', token: 't/orig-dead.webp', portrait: 'p/orig-dead.webp' }],
+  rules: [
+    { kind: 'status', match: 'dead', lookId: 'dead' },
+    { kind: 'item', match: 'EV  Suit', lookId: 'ev', portrait: false },
+    { kind: 'status', match: 'stun', lookId: 'dead' },
+  ],
+});
+const vcur = { token: 't/proto.webp', portrait: 'p/actor.webp', scale: 1 };
+const vrule = (k, m) => vlib.rules.find(r => r.kind === k && r.match === m);
+
+await check('versions: normalisation drops empty and unmatched entries', () => {
+  assert.deepEqual(vlib.looks[0].versions.map(ruleKey), ['status:dead', 'item:ev suit', 'status:stun']);
+  assert.deepEqual(vlib.looks[1].versions, []);
+  assert.equal(vlib.baseVersions.length, 1);
+  assert.deepEqual(normalizeLibrary({}).baseVersions, []);
+});
+
+await check('versions: a look\'s own token replaces the rule look, empty portrait falls back to it', () => {
+  const r = composeAppearance({ library: vlib, state: normalizeState({ lookId: 'dress' }), rule: vrule('status', 'dead'), current: vcur });
+  assert.equal(r.visual.token, 't/dress-dead.webp');
+  assert.equal(r.visual.portrait, 'p/dead.webp');
+  // Framing comes from the worn look, not the rule look.
+  assert.equal(r.visual.scale, 0.9);
+  assert.equal(r.visual.ring.enabled, false);
+  assert.equal(r.state.ruleLookId, 'dead');
+  assert.equal(r.state.ruleKey, 'status:dead');
+});
+
+await check('versions: explicit portrait shows even when the rule leaves portraits alone', () => {
+  const r = composeAppearance({ library: vlib, state: normalizeState({ lookId: 'dress' }), rule: vrule('item', 'EV  Suit'), current: vcur });
+  assert.equal(r.visual.token, 't/dress-ev.webp');
+  assert.equal(r.visual.portrait, 'p/dress-ev.webp');
+});
+
+await check('versions: a look without one shows the rule look as before', () => {
+  const r = composeAppearance({ library: vlib, state: normalizeState({ lookId: 'duty' }), rule: vrule('status', 'dead'), current: vcur });
+  assert.equal(r.visual.token, 't/dead.webp');
+  assert.equal(r.visual.portrait, 'p/dead.webp');
+  assert.equal(r.visual.scale, 1.5);
+});
+
+await check('versions: the Original\'s apply with no look on, but not under a mimic', () => {
+  const r = composeAppearance({ library: vlib, state: normalizeState(null), rule: vrule('status', 'dead'), current: vcur });
+  assert.equal(r.visual.token, 't/orig-dead.webp');
+  assert.equal(r.visual.portrait, 'p/orig-dead.webp');
+  const m = composeAppearance({ library: vlib, state: normalizeState({ mimic: { token: 't/odo.webp' } }), rule: vrule('status', 'dead'), current: vcur });
+  assert.equal(m.visual.token, 't/dead.webp');
+});
+
+await check('versions: two rules sharing one look keep their own versions, including at creation', () => {
+  const stun = composeAppearance({ library: vlib, state: normalizeState({ lookId: 'dress' }), rule: vrule('status', 'stun'), current: vcur });
+  assert.equal(stun.visual.token, 't/dress-stun.webp');
+  // A linked token placed while stunned re-finds the stun rule by key, not the dead rule by look.
+  const data = { actorLink: true, texture: { src: 't/proto.webp' } };
+  applyCreationAppearance(data, vlib, { actorState: stun.state });
+  assert.equal(data.texture.src, 't/dress-stun.webp');
+  // An old state with no ruleKey still resolves through the look id.
+  const old = { actorLink: true, texture: { src: 't/proto.webp' } };
+  applyCreationAppearance(old, vlib, { actorState: { lookId: 'dress', ruleLookId: 'dead' } });
+  assert.equal(old.texture.src, 't/dress-dead.webp');
+});
+
+await check('versions: findVersion matches item rules by name key', () => {
+  assert.equal(findVersion(vlib.looks[0], { kind: 'item', match: '  ev SUIT ' })?.token, 't/dress-ev.webp');
+  assert.equal(findVersion(vlib.looks[1], vrule('status', 'dead')), null);
 });
 
 let failed = 0;

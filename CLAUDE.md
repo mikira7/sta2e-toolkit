@@ -185,6 +185,17 @@ picker.
   Original (or a look without one) puts it back. At creation the baseline only
   records a name when the look sets one, so restoring never undoes the wildcard
   namer, which renames a token *after* it is created.
+- **A look (and the Original, `baseVersions`) may carry its own version of a
+  rule** (`versions: [{kind, match, token, portrait}]`, matched by `ruleKey`, so
+  reordering rules keeps them attached). When the matched rule has one on the
+  worn look — on the Original when no look and no mimic is on — it takes the
+  rule look's place in the rule layer. An empty slot falls back to the rule's
+  look; scale, ring and token name come from the layers beneath, since a version
+  is drawn for its own look's framing; and its portrait shows even when the rule
+  leaves portraits alone. The rule's look stays required: it is the fallback for
+  every look without a version. State stores `ruleKey` beside `ruleLookId`
+  because two rules may share one look and still carry different versions —
+  `_ruleFor` re-finds the rule by it when a token is created.
 - **Mimic (`applyMimic` / `endMimic`) is the changeling trick:** `captureMimic`
   copies another token as drawn right now — art, scale, ring, the portrait its
   sheet shows (`delta.img` for an unlinked one) and its token name — into

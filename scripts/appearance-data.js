@@ -9,12 +9,18 @@
  * Two documents carry state:
  *
  *   Actor flag `appearance` — the library, edited in the Appearance Manager:
- *     { looks: [{id, name, token, portrait, scale}],
- *       randomize, defaultLookId,
+ *     { looks: [{id, name, token, portrait, scale, versions}],
+ *       randomize, defaultLookId, baseVersions,
  *       rules: [{kind: "status"|"item", match, lookId, portrait}] }
+ *   `versions` (and `baseVersions`, the Original's) are a look's own art for a
+ *   rule — `{kind, match, token, portrait}`, keyed to the rule by `ruleKey` —
+ *   so a look can have its own "dead" or "EV suit" form. The rule's look is the
+ *   fallback for a look with none, and for a version's empty slot.
  *
  *   `appearanceState` — what this figure is wearing:
- *     { lookId, ruleLookId, mimic, baseline: {token, portrait, scale, ring, name} | null }
+ *     { lookId, ruleLookId, ruleKey, mimic, baseline: {token, portrait, scale, ring, name} | null }
+ *   `ruleKey` names the rule in force; `ruleLookId` alone cannot, since two
+ *   rules may share one look and still carry different versions.
  *   `mimic` is another token's appearance copied wholesale (the changeling
  *   trick) — art, scale, ring, portrait and token name — or null.
  *   It lives on the TOKEN for an unlinked token and on the ACTOR for a linked
@@ -97,6 +103,45 @@ function _maker(raw) {
   try { return JSON.parse(JSON.stringify(raw)); } catch { return null; }
 }
 
+/** A rule's identity, by what triggers it — reordering rules keeps versions attached. */
+export function ruleKey(rule) {
+  if (!rule) return "";
+  const kind = rule.kind === "item" ? "item" : "status";
+  const match = kind === "item" ? nameKey(rule.match) : str(rule.match);
+  return match ? `${kind}:${match}` : "";
+}
+
+/** A look's own art for one rule, or null when it has no match or no art. */
+export function normalizeVersion(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const v = {
+    kind:     raw.kind === "item" ? "item" : "status",
+    match:    str(raw.match),
+    token:    str(raw.token),
+    portrait: str(raw.portrait),
+  };
+  return v.match && (v.token || v.portrait) ? v : null;
+}
+
+function _versions(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const v of (Array.isArray(raw) ? raw : []).map(normalizeVersion)) {
+    const key = ruleKey(v);
+    if (!v || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+/** The version `owner` (a look, or `{versions}`) carries for `rule`, or null. */
+export function findVersion(owner, rule) {
+  const key = ruleKey(rule);
+  if (!key || !owner?.versions?.length) return null;
+  return owner.versions.find(v => ruleKey(v) === key && (v.token || v.portrait)) ?? null;
+}
+
 export function normalizeLook(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
   return {
@@ -111,6 +156,7 @@ export function normalizeLook(raw) {
     tokenName: str(r.tokenName),
     // A form stored from a mimic: never rolled for a new token at random.
     mimicked: r.mimicked === true,
+    versions: _versions(r.versions),
   };
 }
 
@@ -161,6 +207,8 @@ export function normalizeLibrary(raw) {
     rules:         (Array.isArray(r.rules) ? r.rules : []).map(normalizeRule),
     // The Token Maker recipe behind the Original (prototype) token art.
     baseMaker:     _maker(r.baseMaker),
+    // The Original's own versions, used while no look (and no mimic) is on.
+    baseVersions:  _versions(r.baseVersions),
   };
 }
 
@@ -170,7 +218,8 @@ export function normalizeState(raw) {
   return {
     lookId:     str(r.lookId) || null,
     ruleLookId: str(r.ruleLookId) || null,
-    mimic:      normalizeMimic(r.mimic),
+    ruleKey:    str(r.ruleKey) || null,
+    mimic:     normalizeMimic(r.mimic),
     baseline:   b ? { token: str(b.token), portrait: str(b.portrait) || null, scale: _scale(b.scale), ring: normalizeRing(b.ring), name: str(b.name) || null } : null,
   };
 }
@@ -267,12 +316,30 @@ export function matchRule(library, triggers) {
  *   `visual` null means "leave the art alone" (no look, no baseline to restore).
  */
 export function composeAppearance({ library, state, rule, current }) {
-  const next = { ...state, ruleLookId: rule?.lookId ?? null };
+  const next = { ...state, ruleLookId: rule?.lookId ?? null, ruleKey: rule ? (ruleKey(rule) || null) : null };
   const chosen = findLook(library, next.lookId);
   if (!chosen) next.lookId = null;
-  const ruled = rule ? findLook(library, rule.lookId) : null;
+  const ruleLook = rule ? findLook(library, rule.lookId) : null;
 
   const mimic = next.mimic ?? null;
+
+  // The worn look's own version of this rule (the Original's, when nothing is
+  // worn) takes the rule look's place. Its empty slots fall back to the rule's
+  // look; scale, ring and name come from the layers beneath, since a version is
+  // drawn for its own look's framing. Its portrait is explicit, so it shows even
+  // when the rule leaves the portrait alone.
+  const version = ruleLook
+    ? findVersion(chosen ?? (mimic ? null : { versions: library?.baseVersions }), rule)
+    : null;
+  const ruled = version
+    ? {
+        token:     version.token || ruleLook.token,
+        portrait:  version.portrait || (rule.portrait === false ? "" : ruleLook.portrait),
+        scale:     null,
+        ring:      null,
+        tokenName: "",
+      }
+    : ruleLook;
 
   // Back to original: restore the baseline once, then forget it.
   if (!ruled && !chosen && !mimic) {
@@ -303,7 +370,7 @@ export function composeAppearance({ library, state, rule, current }) {
   const unset = (v) => v === null || v === undefined;
   const visual = {
     token:    first("token") || base.token,
-    portrait: first("portrait", { skipRule: !!ruled && rule.portrait === false }) || base.portrait,
+    portrait: first("portrait", { skipRule: !!ruled && !version && rule.portrait === false }) || base.portrait,
     scale:    first("scale", { empty: unset }) ?? base.scale,
     ring:     first("ring", { empty: unset }) ?? base.ring ?? null,
     name:     first("tokenName") || base.name || null,
@@ -465,7 +532,9 @@ function _dataCurrent(data) {
  */
 function _ruleFor(library, state) {
   if (!state.ruleLookId) return null;
-  return library.rules.find(r => r.lookId === state.ruleLookId) ?? { kind: "status", match: "", lookId: state.ruleLookId, portrait: true };
+  // By key first: two rules can share a look but carry different versions.
+  const byKey = state.ruleKey ? library.rules.find(r => r.lookId === state.ruleLookId && ruleKey(r) === state.ruleKey) : null;
+  return byKey ?? library.rules.find(r => r.lookId === state.ruleLookId) ?? { kind: "status", match: "", lookId: state.ruleLookId, portrait: true };
 }
 
 /** True when a stored state is wearing anything — a look, a rule's look or a mimic. */

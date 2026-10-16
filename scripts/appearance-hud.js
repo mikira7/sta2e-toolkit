@@ -20,7 +20,7 @@
 import {
   buildHudControl, buildHudFlyout, buildHudItem, resolveHudToken, toggleHudFlyout,
 } from "./token-hud-util.js";
-import { WEARABLE_TYPES, hasLooks, storeMimicInLibrary } from "./appearance-data.js";
+import { WEARABLE_TYPES, hasLooks, storeMimicInLibrary, findVersion, ruleKey } from "./appearance-data.js";
 import {
   libraryFor, lookStateFor, applyLook, applyRandomLook, isWorn, setWorn, applyMimic, endMimic, canUseMimic,
   storeMimicForm,
@@ -168,11 +168,20 @@ function _looksView(host) {
 
   if (st.ruleLookId) {
     const ruled = lib.looks.find(l => l.id === st.ruleLookId);
+    // The worn look's (or the Original's) own version of the rule, if it has one.
+    const rule = st.ruleKey ? lib.rules.find(r => ruleKey(r) === st.ruleKey) : null;
+    const chosen = lib.looks.find(l => l.id === st.lookId);
+    const owner = chosen ?? (st.mimic ? null : { name: "Original", versions: lib.baseVersions });
+    const versioned = rule && owner && findVersion(owner, rule);
     const note = document.createElement("div");
     note.className = "sta2e-ap-hud-note";
-    note.dataset.tooltip = "Gear or a condition is choosing this look. Your pick shows once it ends.";
+    note.dataset.tooltip = versioned
+      ? "Gear or a condition is showing this look's own version of it. The look returns once it ends."
+      : "Gear or a condition is choosing this look. Your pick shows once it ends.";
     note.innerHTML = `<i class="fas fa-bolt"></i> `;
-    note.append(`Auto: ${ruled?.name || "look"}`);
+    note.append(versioned
+      ? `Auto: ${owner.name || "look"} (${ruled?.name || rule.match})`
+      : `Auto: ${ruled?.name || "look"}`);
     out.push(note);
   }
 

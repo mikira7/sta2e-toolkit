@@ -479,6 +479,23 @@
 .sta2e-ap-chip.is-add { border-style: dashed; border-color: var(--ap-border-dim); color: var(--ap-text-dim); }
 .sta2e-ap-chip:hover { color: var(--ap-text-bright); border-color: var(--ap-primary); }
 
+/* A look's own versions for the automatic rules — a compact stage pair per rule. */
+.sta2e-ap-versions { display: flex; flex-direction: column; gap: 8px; }
+.sta2e-ap-version {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 3px solid var(--ap-a, var(--ap-primary));
+}
+.sta2e-ap-version-label { color: var(--ap-text-bright); font-size: 11px; font-weight: 700; }
+.sta2e-ap-version .sta2e-ap-stages { max-width: 300px; }
+.sta2e-ap-version .sta2e-ap-stage-empty i { font-size: 24px; }
+.sta2e-ap-version .sta2e-ap-stage figcaption { padding: 2px 4px 2px 6px; font-size: 9px; }
+.sta2e-ap-version .sta2e-ap-stage-keys button { width: 20px; height: 20px; font-size: 10px; }
+.sta2e-ap-stage-art.is-fallback { opacity: 0.35; filter: grayscale(0.6); }
+.sta2e-ap-badge.is-version { color: var(--ap-tertiary); }
+
 /* ── Automatic Looks tab ──────────────────────────────────────────────────── */
 
 .sta2e-ap-rules-tab {

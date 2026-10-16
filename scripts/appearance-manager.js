@@ -28,7 +28,7 @@
 import {
   MODULE, LIBRARY_FLAG, STATE_FLAG, WEARABLE_TYPES, normalizeLibrary, normalizeLook, newLookId,
   pairImages, looksFromVisage, parseKeywords, normalizeState, normalizeRing, ringFromToken,
-  ringUpdates, rebaseVisual,
+  ringUpdates, rebaseVisual, ruleKey, findVersion,
 } from "./appearance-data.js";
 import { saveAsWebp, isConvertible, formatBytes } from "./webp-convert.js";
 import { pickArt, pickFolder, pickImageFile, listFolderImages } from "./art-browser.js";
@@ -153,6 +153,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
       scale:    Math.abs(Number(proto?.texture?.scaleX ?? 1)) || 1,
       ring,
       maker:    this._lib.baseMaker ?? null,
+      versions: this._lib.baseVersions ?? [],
     };
   }
 
@@ -175,6 +176,24 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
   /** Rules that point at a look — shown as chips on the card and the editor. */
   _rulesFor(lookId) {
     return this._lib.rules.filter(r => r.lookId === lookId && r.match);
+  }
+
+  /** Complete rules, one per trigger — the rows a look can have its own version for. */
+  _versionRules() {
+    const seen = new Set();
+    const out = [];
+    for (const r of this._lib.rules) {
+      const key = ruleKey(r);
+      if (!key || !r.lookId || seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    return out;
+  }
+
+  /** The versions a look (or the Original) has art in, as labels for a badge. */
+  _versionLabels(owner) {
+    return this._versionRules().filter(r => findVersion(owner, r)).map(r => this._ruleLabel(r));
   }
 
   _ruleLabel(rule) {
@@ -229,8 +248,10 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     const sel = this._sel !== BASE_ID && look.id === this._selected()?.id;
     const isDefault = look.id === this._lib.defaultLookId;
     const rules = this._rulesFor(look.id);
+    const versions = this._versionLabels(look);
     const badges = [
       isDefault ? `<span class="sta2e-ap-badge is-star" data-tooltip="Default look"><i class="fas fa-star"></i></span>` : "",
+      versions.length ? `<span class="sta2e-ap-badge is-version" data-tooltip="${_esc(`Own versions: ${versions.join(" · ")}`)}"><i class="fas fa-layer-group"></i></span>` : "",
       rules.length ? `<span class="sta2e-ap-badge is-auto" data-tooltip="${_esc(rules.map(r => this._ruleLabel(r)).join(" · "))}"><i class="fas fa-bolt"></i></span>` : "",
       look.scale ? `<span class="sta2e-ap-badge is-scale" data-tooltip="Scale">×${look.scale}</span>` : "",
       look.mimicked ? `<span class="sta2e-ap-badge is-mimic" data-tooltip="Stored from a Mimic — never rolled at random"><i class="fas fa-user-secret"></i></span>` : "",
@@ -252,7 +273,9 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
   /** The Original's card — always first, as Original Art is in the Token HUD. */
   _baseCard() {
     const b = this._base;
+    const versions = this._versionLabels(b);
     const badges = [
+      versions.length ? `<span class="sta2e-ap-badge is-version" data-tooltip="${_esc(`Own versions: ${versions.join(" · ")}`)}"><i class="fas fa-layer-group"></i></span>` : "",
       b.scale !== 1 ? `<span class="sta2e-ap-badge is-scale" data-tooltip="Scale">×${b.scale}</span>` : "",
       b.ring?.enabled ? `<span class="sta2e-ap-badge is-ring" data-tooltip="Dynamic ring" style="--ap-a:${b.ring.ringColor ?? "var(--ap-primary)"}"><i class="fas fa-ring"></i></span>` : "",
     ].join("");
@@ -271,8 +294,10 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
   /** Every token/portrait slot (the Original's included) holding a PNG or JPEG. */
   _convertibleSlots() {
     const out = [];
-    for (const obj of [this._base, ...this._lib.looks]) {
-      for (const slot of ["token", "portrait"]) if (isConvertible(obj[slot])) out.push({ obj, slot });
+    for (const owner of [this._base, ...this._lib.looks]) {
+      for (const obj of [owner, ...(owner.versions ?? [])]) {
+        for (const slot of ["token", "portrait"]) if (isConvertible(obj[slot])) out.push({ obj, slot });
+      }
     }
     return out;
   }
@@ -333,6 +358,56 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
       </figure>`;
   }
 
+  /**
+   * One slot of a look's own version for a rule. An empty slot shows the rule
+   * look's art, dimmed — that is what the token will wear in its place.
+   */
+  _versionStage(owner, rule, slot) {
+    const key = ruleKey(rule);
+    const version = owner.versions?.find(v => ruleKey(v) === key);
+    const path = version?.[slot] ?? "";
+    const fallback = this._lib.looks.find(l => l.id === rule.lookId);
+    const fbPath = fallback?.[slot] && (slot === "token" || rule.portrait) ? fallback[slot] : "";
+    const isToken = slot === "token";
+    const fbName = fallback?.name || "the rule's look";
+    const view = path
+      ? `<div class="sta2e-ap-stage-art">${_media(path)}</div>`
+      : fbPath
+        ? `<div class="sta2e-ap-stage-art is-fallback" data-tooltip="${_esc(`Empty — uses ${fbName}`)}">${_media(fbPath)}</div>`
+        : `<div class="sta2e-ap-stage-empty"><i class="fas fa-${isToken ? "circle-user" : "image-portrait"}"></i></div>`;
+    return `
+      <figure class="sta2e-ap-stage is-${slot} ${path ? "has-art" : ""}" data-slot="${slot}" data-look="${owner.id}" data-version="${_esc(key)}">
+        <div class="sta2e-ap-stage-view">${view}</div>
+        <figcaption>
+          <span>${isToken ? "Token" : "Portrait"}</span>
+          <span class="sta2e-ap-stage-keys">
+            ${isConvertible(path) ? `<button type="button" data-action="ap-webp" data-tooltip="Convert to WebP"><i class="fas fa-file-zipper"></i></button>` : ""}
+            <button type="button" data-action="ap-browse" data-tooltip="Art library"><i class="fas fa-images"></i></button>
+            <button type="button" data-action="ap-file" data-tooltip="File picker"><i class="fas fa-folder-open"></i></button>
+            ${path ? `<button type="button" data-action="ap-clear" data-tooltip="Clear — use ${_esc(fbName)}"><i class="fas fa-xmark"></i></button>` : ""}
+          </span>
+        </figcaption>
+      </figure>`;
+  }
+
+  /** A look's (or the Original's) own art for each automatic rule. */
+  _versionsSection(owner) {
+    const rules = this._versionRules();
+    const rows = rules.map(r => `
+      <div class="sta2e-ap-version" style="--ap-a:${r.kind === "item" ? "var(--ap-secondary)" : "var(--ap-tertiary)"}">
+        <span class="sta2e-ap-version-label"><i class="fas fa-${r.kind === "item" ? "shirt" : "heart-pulse"}"></i> ${_esc(this._ruleLabel(r))}</span>
+        <div class="sta2e-ap-stages">
+          ${this._versionStage(owner, r, "token")}
+          ${this._versionStage(owner, r, "portrait")}
+        </div>
+      </div>`).join("");
+    return `
+      <div class="sta2e-ap-versions">
+        <span class="sta2e-ap-label" data-tooltip="This look's own art while an automatic rule is on. An empty slot uses the rule's look.">Own versions for automatic looks</span>
+        ${rows || `<span class="sta2e-ap-muted">Add an automatic look rule to give this look its own version of it.</span>`}
+      </div>`;
+  }
+
   /** The Original's editor: the two stages and the scale, nothing look-specific. */
   _baseEditor() {
     const b = this._base;
@@ -355,6 +430,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
           <output data-scale-out>×${b.scale}</output>
           <button type="button" data-action="ap-scale-reset" ${b.scale === 1 ? "disabled" : ""} data-tooltip="Back to ×1"><i class="fas fa-rotate-left"></i></button>
         </div>
+        ${this._versionsSection(b)}
       </section>`;
   }
 
@@ -407,6 +483,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
             : `<span class="sta2e-ap-muted">Never — pick it from the Token HUD, or add a rule.</span>`}
           <button type="button" class="sta2e-ap-chip is-add" data-action="ap-rule-for"><i class="fas fa-plus"></i> Rule</button>
         </div>
+        ${this._versionsSection(look)}
       </section>`;
   }
 
@@ -527,8 +604,25 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
 
   _look(el) {
     const id = el?.closest("[data-look]")?.dataset.look;
-    if (id === BASE_ID) return this._base;
-    return this._lib.looks.find(l => l.id === id) ?? null;
+    const owner = id === BASE_ID ? this._base : (this._lib.looks.find(l => l.id === id) ?? null);
+    const key = el?.closest("[data-version]")?.dataset.version;
+    return key && owner ? this._version(owner, key) : owner;
+  }
+
+  /**
+   * A look's version for a rule, made on first use. It has `token` / `portrait`
+   * like a look, so the stage handlers (`obj[slot] = path`) work on it as is;
+   * one left empty is dropped by normalization on Save.
+   */
+  _version(owner, key) {
+    owner.versions ??= [];
+    let v = owner.versions.find(x => ruleKey(x) === key);
+    if (v) return v;
+    const rule = this._lib.rules.find(r => ruleKey(r) === key);
+    if (!rule) return null;
+    v = { kind: rule.kind, match: rule.match, token: "", portrait: "" };
+    owner.versions.push(v);
+    return v;
   }
 
   _onFirstRender(context, options) {
@@ -903,7 +997,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
   }
 
   async _save() {
-    const lib = normalizeLibrary({ ...this._lib, baseMaker: this._base.maker });
+    const lib = normalizeLibrary({ ...this._lib, baseMaker: this._base.maker, baseVersions: this._base.versions });
     const bad = lib.rules.filter(r => !r.match || !r.lookId);
     if (bad.length) {
       ui.notifications.warn(`${bad.length} automatic look${bad.length === 1 ? " is" : "s are"} missing an item/condition or a look, and will be ignored until completed.`);
