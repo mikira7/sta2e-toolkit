@@ -84,6 +84,9 @@ export async function toggleGearDamage(item, damaged, { reason = "", potency = 1
 
 const GEAR_TRAIT_FLAG = "gearTraitFor";
 
+/** Raising a trait's potency costs 2 Threat a step (STA 2e), against a player character. */
+export const POTENCY_THREAT_COST = 2;
+
 /** The trait standing for a damaged item, on the same actor, or null. */
 export function gearTraitFor(item) {
   const actor = item?.parent;
@@ -142,7 +145,8 @@ async function _syncGearTrait(item) {
 
 /**
  * Raise a damaged item's potency by one. Against a player character it costs
- * the GM 1 Threat; an NPC's gear is the GM's own to make worse.
+ * the GM 2 Threat (POTENCY_THREAT_COST); an NPC's gear is the GM's own to make
+ * worse.
  */
 export async function raiseGearDamagePotency(item) {
   if (!isGearDamaged(item)) return false;
@@ -151,8 +155,11 @@ export async function raiseGearDamagePotency(item) {
   if (item.parent?.hasPlayerOwner) {
     const { readPool, adjustPool } = await import("./pool-service.js");
     const threat = Number(readPool("threat")) || 0;
-    if (threat < 1) { ui.notifications.warn("No Threat to spend."); return false; }
-    await adjustPool("threat", -1, { source: "toolkit" });
+    if (threat < POTENCY_THREAT_COST) {
+      ui.notifications.warn(`Raising potency costs ${POTENCY_THREAT_COST} Threat — ${threat} in the pool.`);
+      return false;
+    }
+    await adjustPool("threat", -POTENCY_THREAT_COST, { source: "toolkit" });
   }
   return setGearDamagePotency(item, current + 1);
 }
@@ -242,17 +249,18 @@ export async function openBreakGearDialog(actor, { reason = "Complication", comp
     </label>`).join("");
   // Potency: 1 for the complication that broke it, plus one per further
   // complication spent on it — and, against a player character, the GM may
-  // add more by spending Threat.
+  // add more at 2 Threat a step.
   const maxComp = Math.max(1, Math.min(5, Math.trunc(Number(complications)) || 1));
   const isPc = !!actor.hasPlayerOwner;
   let threat = 0;
   if (isPc) { try { threat = Number((await import("./pool-service.js")).readPool("threat")) || 0; } catch { /* none */ } }
+  const maxBought = Math.min(4, Math.floor(threat / POTENCY_THREAT_COST));
   const potencyRow = `
     <div class="sta2e-gear-potency">
       <label>Complications spent <input type="number" name="sta2e-gear-comp" min="1" max="${maxComp}" value="1"></label>
-      ${isPc ? `<label>+ Threat <input type="number" name="sta2e-gear-threat" min="0" max="${Math.min(4, threat)}" value="0"></label>
-        <span class="sta2e-gear-pick-kind">(${threat} in the pool)</span>` : ""}
-      <p class="sta2e-gear-pick-kind" style="margin:4px 0 0;">Each adds 1 potency to the item's broken trait (max 5) — the Difficulty to repair it.</p>
+      ${isPc ? `<label>+ Potency for Threat <input type="number" name="sta2e-gear-threat" min="0" max="${maxBought}" value="0"></label>
+        <span class="sta2e-gear-pick-kind">(${POTENCY_THREAT_COST} Threat each · ${threat} in the pool)</span>` : ""}
+      <p class="sta2e-gear-pick-kind" style="margin:4px 0 0;">Each complication, and each step bought with Threat, adds 1 potency to the item's broken trait (max 5) — the Difficulty to repair it.</p>
     </div>`;
   const choice = await foundry.applications.api.DialogV2.wait({
     window: { title: `${actor.name} — Break Gear` },
@@ -266,7 +274,7 @@ export async function openBreakGearDialog(actor, { reason = "Complication", comp
           return {
             id:     el.querySelector("input[name=sta2e-gear-pick]:checked")?.value ?? null,
             comp:   Math.max(1, Math.min(maxComp, parseInt(el.querySelector("input[name=sta2e-gear-comp]")?.value, 10) || 1)),
-            threat: isPc ? Math.max(0, Math.min(threat, 4, parseInt(el.querySelector("input[name=sta2e-gear-threat]")?.value, 10) || 0)) : 0,
+            bought: isPc ? Math.max(0, Math.min(maxBought, parseInt(el.querySelector("input[name=sta2e-gear-threat]")?.value, 10) || 0)) : 0,
           };
         },
       },
@@ -275,13 +283,14 @@ export async function openBreakGearDialog(actor, { reason = "Complication", comp
   }).catch(() => null);
   const item = choice?.id ? actor.items.get(choice.id) : null;
   if (!item) return null;
-  if (choice.threat > 0) {
+  const threatSpent = choice.bought * POTENCY_THREAT_COST;
+  if (threatSpent > 0) {
     const { adjustPool } = await import("./pool-service.js");
-    await adjustPool("threat", -choice.threat, { source: "toolkit" });
+    await adjustPool("threat", -threatSpent, { source: "toolkit" });
   }
-  const potency = Math.min(5, choice.comp + choice.threat);
+  const potency = Math.min(5, choice.comp + choice.bought);
   await toggleGearDamage(item, true, {
-    reason: `${reason}, potency ${potency}${choice.threat ? ` (${choice.threat} Threat)` : ""}`,
+    reason: `${reason}, potency ${potency}${threatSpent ? ` (${threatSpent} Threat)` : ""}`,
     potency,
   });
   return item;

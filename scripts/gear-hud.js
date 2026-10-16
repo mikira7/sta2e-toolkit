@@ -9,7 +9,7 @@
  *   - every row: a key that marks the item damaged / broken / burnt out, or
  *     repairs it (gear-damage-ui.js);
  *   - a damaged row: a + key that raises its broken trait's potency by one —
- *     1 Threat against a player character, free on an NPC.
+ *     2 Threat against a player character, free on an NPC.
  *
  * It used to be a view of the Appearance button; it moved here because breaking
  * and repairing gear is a GM call. Players still put their own gear on and take
@@ -20,7 +20,7 @@ import { buildHudItem } from "./token-hud-util.js";
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
 import { isGearDamaged, gearDamageWords } from "./gear-damage.js";
-import { buildGearDamageKey, gearDamagePotency, raiseGearDamagePotency } from "./gear-damage-ui.js";
+import { buildGearDamageKey, gearDamagePotency, raiseGearDamagePotency, POTENCY_THREAT_COST } from "./gear-damage-ui.js";
 
 function _wearables(token) {
   return (token?.actor?.items?.contents ?? []).filter(i => WEARABLE_TYPES.has(i.type));
@@ -36,7 +36,7 @@ function _raiseKey(item, onDone) {
   const key = document.createElement("button");
   key.type = "button";
   key.className = "sta2e-gear-dmg-key";
-  key.dataset.tooltip = `Potency ${gearDamagePotency(item)} — raise by 1${pc ? " (1 Threat)" : ""}`;
+  key.dataset.tooltip = `Potency ${gearDamagePotency(item)} — raise by 1${pc ? ` (${POTENCY_THREAT_COST} Threat)` : ""}`;
   key.innerHTML = `<i class="fas fa-plus"></i>`;
   key.addEventListener("click", async (event) => {
     event.preventDefault();
