@@ -9,6 +9,8 @@
  *   - every row: a key that marks the item damaged / broken / burnt out, or
  *     repairs it (gear-damage-ui.js) — an energy weapon gets two, Broken and
  *     Burnt out, which differ only in wording;
+ *   - a pulse grenade row: − / + keys for how many are left (gear-damage.js
+ *     `grenadeCount`, 3 to start, one used per throw, unusable at 0);
  *   - a damaged row: a + key that raises its broken trait's potency by one —
  *     2 Threat against a player character, free on an NPC.
  *
@@ -20,8 +22,8 @@
 import { buildHudItem } from "./token-hud-util.js";
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
-import { isGearDamaged, gearDamageWords, gearDamageModes } from "./gear-damage.js";
-import { buildGearDamageKey, gearDamagePotency, raiseGearDamagePotency, POTENCY_THREAT_COST } from "./gear-damage-ui.js";
+import { isGearDamaged, gearDamageWords, gearDamageModes, grenadeCount } from "./gear-damage.js";
+import { buildGearDamageKey, gearDamagePotency, raiseGearDamagePotency, POTENCY_THREAT_COST, setGrenadeCount } from "./gear-damage-ui.js";
 
 function _wearables(token) {
   return (token?.actor?.items?.contents ?? []).filter(i => WEARABLE_TYPES.has(i.type));
@@ -29,6 +31,22 @@ function _wearables(token) {
 
 function _weapons(token) {
   return (token?.actor?.items?.contents ?? []).filter(i => i.type === "characterweapon2e");
+}
+
+/** A small − / + key that changes a pulse grenade's count. */
+function _countKey(item, delta, onDone) {
+  const key = document.createElement("button");
+  key.type = "button";
+  key.className = "sta2e-gear-dmg-key";
+  key.dataset.tooltip = delta > 0 ? "Restock one grenade" : "Remove one grenade";
+  key.innerHTML = `<i class="fas fa-${delta > 0 ? "plus" : "minus"}"></i>`;
+  key.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await setGrenadeCount(item, (grenadeCount(item) ?? 0) + delta);
+    onDone?.();
+  });
+  return key;
 }
 
 /** The + key on a damaged row: one more potency on its broken trait. */
@@ -76,11 +94,17 @@ function _buildRows(host) {
     }), item));
   }
   for (const item of _weapons(host.token)) {
-    rows.push(row(buildHudItem({
-      icon:    "fas fa-gun",
-      label:   item.name + stateNote(item),
-      tooltip: isGearDamaged(item) ? `${gearDamageWords(item).state} — can't be used in combat` : "Weapon",
-    }, () => {}), item));
+    const left = grenadeCount(item);
+    const main = buildHudItem({
+      icon:    left !== null ? "fas fa-bomb" : "fas fa-gun",
+      label:   item.name + (left !== null ? ` ×${left}` : "") + stateNote(item),
+      tooltip: isGearDamaged(item) ? `${gearDamageWords(item).state} — can't be used in combat`
+        : left === 0 ? "None left — restock with +" : left !== null ? `${left} left — one is used per throw` : "Weapon",
+    }, () => {});
+    const wrap = row(main, item);
+    // A pulse grenade also carries its count keys, ahead of the damage keys.
+    if (left !== null) main.after(_countKey(item, -1, rebuild), _countKey(item, +1, rebuild));
+    rows.push(wrap);
   }
   return rows;
 }

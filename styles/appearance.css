@@ -755,13 +755,15 @@
    delete), so a third pushed Delete out of the row. Let a cell holding the Wear
    toggle size to its icons and the item name give up the room instead. */
 .section .row.entry .control:has(> .sta2e-wear),
-.section .row.entry .control:has(> .sta2e-gear-dmg) {
+.section .row.entry .control:has(> .sta2e-gear-dmg),
+.section .row.entry .control:has(> .sta2e-grenade-count) {
   width: auto;
   flex: 0 0 auto;
   gap: 6px;
 }
 .section .row.entry:has(.sta2e-wear) .item-name,
-.section .row.entry:has(.sta2e-gear-dmg) .item-name {
+.section .row.entry:has(.sta2e-gear-dmg) .item-name,
+.section .row.entry:has(.sta2e-grenade-count) .item-name {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -1025,3 +1027,7 @@
 .sta2e-repair-row input[type="number"] { width: 38px; height: 22px; font-size: 10px; }
 .sta2e-gear-potency { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; }
 .sta2e-gear-potency input[type="number"] { width: 42px; }
+
+/* Pulse grenade count on the sheet row. */
+.sta2e-grenade-count { font-size: 11px; font-weight: 700; color: #ff9c00; white-space: nowrap; }
+.sta2e-grenade-count.is-empty { color: #cc4444; }

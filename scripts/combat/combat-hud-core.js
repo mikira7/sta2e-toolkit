@@ -147,8 +147,9 @@ import {
 } from "./initiative-order.js";
 import { resolveActingOfficer, resolveActingOfficerIndex } from "./acting-officer.js";
 import { playPersonalShieldHits, activePersonalShield, burnOutPersonalShield } from "../personal-shield-vfx.js";
-import { isGearDamaged, assertWeaponUsable, gearDamageWords, isEnergyWeapon } from "../gear-damage.js";
-import { toggleGearDamage } from "../gear-damage-ui.js";
+import { isGearDamaged, assertWeaponUsable, gearDamageWords, isPulseGrenade, grenadeCount } from "../gear-damage.js";
+import { useGrenade, offerGrenadeMisfire } from "../gear-damage-ui.js";
+import { requestComplicationResolution } from "../complication-card.js";
 import {
   alliesWithinClose,
   defensiveTrainingPenalty,
@@ -1769,6 +1770,47 @@ export class CombatHUD {
    * @param {boolean} isHit
    * @param {{salvoMode?: "area"|"spread"|null, useStun?: boolean}} [options]
    */
+  /**
+   * A missed pulse grenade going off somewhere else (gear-damage-ui.js misfire
+   * card): resolved as a hit with `target` as the primary, so the ordinary
+   * ground damage card, its Area spill and the injury decisions all follow.
+   * Uses no grenade and no Major Action. True when the card was posted.
+   */
+  async triggerGrenadeMisfire(attackerToken, weaponId, target, { useStun = false } = {}) {
+    const weapon = attackerToken?.actor?.items?.get(weaponId);
+    if (!weapon || !target) {
+      ui.notifications.warn("STA2e Toolkit: The grenade or where it lands is gone.");
+      return false;
+    }
+    const restore = {
+      token:     this._token,
+      weapon:    this._pendingWeapon,
+      salvoMode: this._pendingSalvoMode,
+      stunMode:  this._pendingStunMode,
+      charge:    this._pendingChargeQuality,
+    };
+    try {
+      this._token                = attackerToken;
+      this._pendingWeapon        = weapon;
+      this._pendingSalvoMode     = null;
+      this._pendingChargeQuality = null;
+      this._pendingStunMode      = useStun;
+      await this._resolveWeapon(true, { targets: [target], misfire: true });
+      return true;
+    } catch (err) {
+      console.error("STA2e Toolkit | Grenade misfire failed:", err);
+      ui.notifications.error("The misfire could not be resolved — see console.");
+      return false;
+    } finally {
+      this._token                = restore.token;
+      this._pendingWeapon        = restore.weapon;
+      this._pendingSalvoMode     = restore.salvoMode;
+      this._pendingStunMode      = restore.stunMode;
+      this._pendingChargeQuality = restore.charge;
+      this._refresh?.();
+    }
+  }
+
   async triggerHudHitMiss(token, weaponId, isHit, { salvoMode = null, useStun = true } = {}) {
     const weapon = token?.actor?.items?.get(weaponId);
     if (!weapon) {
@@ -2367,7 +2409,9 @@ export class CombatHUD {
 
         // A broken character weapon stays in the row, greyed out, and refuses
         // the click (assertWeaponUsable below) until it is repaired.
-        const isBroken = weapon.type === "characterweapon2e" && isGearDamaged(weapon);
+        // An empty pulse grenade is out of action the same way (assertWeaponUsable).
+        const grenadesLeft = grenadeCount(weapon);
+        const isBroken = weapon.type === "characterweapon2e" && (isGearDamaged(weapon) || grenadesLeft === 0);
         if (isBroken) {
           btn.style.filter  = "grayscale(1)";
           btn.style.opacity = "0.4";
@@ -2403,7 +2447,7 @@ export class CombatHUD {
         const noAnim    = config ? "" : "\n⚠ No animation config";
         btn.title = isNpcShip
           ? `${weapon.name}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}\n🎲 Opens NPC Dice Roller`
-          : `${weapon.name}${isBroken ? ` — ${gearDamageWords(weapon).state.toUpperCase()}, ${gearDamageWords(weapon).fix.toLowerCase()} before use` : ""}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
+          : `${weapon.name}${isGearDamaged(weapon) ? ` — ${gearDamageWords(weapon).state.toUpperCase()}, ${gearDamageWords(weapon).fix.toLowerCase()} before use` : grenadesLeft === 0 ? " — NONE LEFT" : ""}${grenadesLeft !== null ? ` (${grenadesLeft} left)` : ""}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
 
         btn.addEventListener("mouseenter", () => {
           if (this._pendingWeapon?.id !== weapon.id)
@@ -4463,103 +4507,23 @@ export class CombatHUD {
   }
 
   /**
-   * A complication on a character weapon attack can be the weapon malfunctioning
-   * rather than costing Severity: offered once per attack, it resolves one
-   * complication and marks the weapon broken (gear-damage.js), so it can't be
-   * used again until repaired. Asked of whoever confirms the attack — the GM,
-   * or the weapon's owner. True when the weapon broke.
+   * Settle an attack's complications before its damage is built. This no
+   * longer prompts: it posts the working COMPLICATIONS card
+   * (complication-card.js) — reduce Severity / damage, an NPC's Threat
+   * buy-off, the weapon malfunctioning or burning out, breaking other gear —
+   * and waits until any GM clicks Done, so a table with several GMs is not
+   * stopped by a dialog on whichever machine confirmed the roll. With nothing
+   * to choose it returns at once, every complication a penalty, as before.
+   * Same return shape as always: {total, boughtOff, unresolved, penalty,
+   * threatSpent, malfunction}.
    */
-  static async _offerWeaponMalfunction(weapon, total, attackerName) {
-    if (weapon?.type !== "characterweapon2e" || isGearDamaged(weapon)) return false;
-    if (!game.user?.isGM && !weapon.isOwner) return false;
-    const choice = await foundry.applications.api.DialogV2.wait({
-      window: { title: `${attackerName} - Complications` },
-      content: `
-        <div style="padding:8px 10px;font-family:${LC.font};">
-          <p style="font-size:11px;color:${LC.text};margin:0 0 6px;">
-            ${total} complication${total !== 1 ? "s" : ""} rolled. Each one reduces attack Severity by 1.
-          </p>
-          <p style="font-size:10px;color:${LC.textDim};margin:0;">
-            Or the weapon can malfunction instead: one complication is resolved, and
-            <strong style="color:${LC.red};">${weapon.name}</strong> is out of action until
-            ${isEnergyWeapon(weapon) ? "repaired (broken) or recharged (power cell burnt out)" : "repaired"}.
-          </p>
-        </div>`,
-      buttons: [
-        { action: "damage", label: "Reduce Severity", icon: "fas fa-minus", default: true },
-        { action: "malfunction", label: "Weapon Malfunctions", icon: "fas fa-screwdriver-wrench" },
-        // Same rules, different story: the power cell gives out.
-        ...(isEnergyWeapon(weapon)
-          ? [{ action: "burnout", label: "Power Cell Burns Out", icon: "fas fa-battery-empty" }]
-          : []),
-      ],
-    }).catch(() => "damage");
-    if (choice !== "malfunction" && choice !== "burnout") return false;
-    try {
-      return await toggleGearDamage(weapon, true, {
-        reason: choice === "burnout" ? "power cell burnt out (complication)" : "weapon malfunction (complication)",
-        mode:   choice === "burnout" ? "burnt" : "broken",
-      });
-    } catch (err) {
-      console.warn("STA2e Toolkit | Weapon malfunction failed:", err);
-      return false;
-    }
-  }
-
-  static async _resolveComplicationDamagePenalty({ complications = 0, attackerIsNpc = false, attackerName = "Attacker", weapon = null } = {}) {
-    let total = Math.max(0, Number(complications) || 0);
+  static async _resolveComplicationDamagePenalty({ complications = 0, attackerIsNpc = false, attackerName = "Attacker", weapon = null, attackerActor = null } = {}) {
+    const total = Math.max(0, Number(complications) || 0);
     if (total <= 0) return { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
-    // A malfunction resolves one complication outright; its own chat card says
-    // so, and the damage card counts only what is left.
-    const malfunction = await CombatHUD._offerWeaponMalfunction(weapon, total, attackerName);
-    if (malfunction) total -= 1;
-    if (total <= 0) return { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0, malfunction };
-
-    let boughtOff = 0;
-    if (attackerIsNpc && game.user?.isGM) {
-      const currentThreat = readPool("threat");
-      const maxBuyoff = Math.min(total, Math.floor(currentThreat / 2));
-      if (maxBuyoff > 0) {
-        let captured = 0;
-        const result = await foundry.applications.api.DialogV2.wait({
-          window: { title: `${attackerName} - Complications` },
-          content: `
-            <div style="padding:8px 10px;font-family:${LC.font};">
-              <p style="font-size:11px;color:${LC.text};margin:0 0 8px;">
-                ${total} complication${total !== 1 ? "s" : ""} rolled. Each unresolved complication reduces attack damage by 1.
-              </p>
-              <div style="font-size:10px;color:${LC.textDim};margin-bottom:8px;">
-                Threat: <strong style="color:${LC.tertiary};">${currentThreat}</strong> · Buy off cost: <strong>2 Threat each</strong>
-              </div>
-              <label style="display:flex;align-items:center;gap:8px;font-size:10px;color:${LC.text};">
-                Buy off
-                <input id="sta2e-comp-buyoff" type="number" min="0" max="${maxBuyoff}" value="0"
-                  style="width:56px;padding:3px 5px;background:${LC.bg};border:1px solid ${LC.border};border-radius:2px;color:${LC.text};font-family:${LC.font};"/>
-                <span>max ${maxBuyoff}</span>
-              </label>
-            </div>`,
-          buttons: [
-            {
-              action: "confirm",
-              label: "Apply",
-              icon: "fas fa-check",
-              default: true,
-              callback: (_e, _b, dlg) => {
-                const raw = parseInt(dlg.element.querySelector("#sta2e-comp-buyoff")?.value ?? "0") || 0;
-                return Math.min(maxBuyoff, Math.max(0, raw));
-              },
-            },
-            { action: "none", label: "Buy Off None", icon: "fas fa-times" },
-          ],
-        });
-        captured = Number(result) || 0;
-        boughtOff = Math.min(maxBuyoff, Math.max(0, captured));
-        if (boughtOff > 0) await writePool("threat", currentThreat - (boughtOff * 2));
-      }
-    }
-
-    const unresolved = Math.max(0, total - boughtOff);
-    return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2, malfunction };
+    return requestComplicationResolution({
+      total, attackerIsNpc, attackerName, weapon,
+      actor: attackerActor ?? weapon?.parent ?? null,
+    });
   }
 
   static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false, defenderAlreadyAwarded = false, attackerBonus = 0, defenderBonus = 0 } = {}) {
@@ -4639,11 +4603,12 @@ export class CombatHUD {
     if (!isShip) await _markMajorWasAttack(actor);
   }
 
-  async _resolveWeapon(isHit) {
+  async _resolveWeapon(isHit, { targets: forcedTargets = null, misfire = false } = {}) {
     const weapon  = this._pendingWeapon;
     const token   = this._token;
     const actor   = token.actor;
-    const targets = Array.from(game.user.targets);
+    // A grenade misfire names where it went off rather than reading the GM's targets.
+    const targets = forcedTargets ?? Array.from(game.user.targets);
 
     if (targets.length === 0) {
       ui.notifications.warn("No targets selected. Select a target token first.");
@@ -4651,7 +4616,8 @@ export class CombatHUD {
     }
 
     // An attack is a Major Action. Idempotent per attack — see _markWeaponMajor.
-    await this._markWeaponMajor();
+    // A misfire is the same throw going wrong, not a second attack.
+    if (!misfire) await this._markWeaponMajor();
 
     const config        = getWeaponConfig(weapon);
     const isGroundWeapon = weapon.type === "characterweapon2e";
@@ -4768,6 +4734,10 @@ export class CombatHUD {
           catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
         }, 300);
       }
+
+      // A pulse grenade is used up by the throw, hit or miss — not by a misfire,
+      // which is the same grenade.
+      if (!misfire && isPulseGrenade(weapon)) await useGrenade(weapon);
 
       this._pendingWeapon        = null;
       this._pendingChargeQuality = null;
@@ -4902,6 +4872,8 @@ export class CombatHUD {
           complications,
           attackerIsNpc: CombatHUD.isNpcShip(actor),
           attackerName: token?.name ?? actor?.name ?? "Attacker",
+          weapon,
+          attackerActor: actor,
         })
       : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
     const areaAvailable = areaSpreadMode.needsMode;
@@ -21503,6 +21475,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                     attackerIsNpc: groundIsNpc,
                     attackerName: tokenObj?.name ?? charActor.name,
                     weapon,
+                    attackerActor: charActor,
                   })
                 : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
               const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty - chg.severityPenalty);
@@ -21619,11 +21592,29 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                 speaker: ChatMessage.getSpeaker({ token: tokenObj }),
               });
 
-              if (!passed) {
+              // A missed pulse grenade that rolled a complication may misfire, so
+              // its blast is held back: it plays once, where the GM says it went
+              // off (on the injury card), or as the ordinary miss on No Misfire.
+              // Playing the miss here as well showed the grenade go off twice.
+              const misfireOffered = isPulseGrenade(weapon) && !passed && totalComplications > 0;
+              if (!passed && !misfireOffered) {
                 setTimeout(async () => {
                   try { await fireWeapon(config, false, tokenObj, targets, {weapon, useStun}); }
                   catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
                 }, 300);
+              }
+
+              // A pulse grenade is used up by the throw.
+              if (isPulseGrenade(weapon)) {
+                try {
+                  await useGrenade(weapon);
+                  if (misfireOffered) {
+                    await offerGrenadeMisfire({
+                      attackerToken: tokenObj, weapon, useStun,
+                      missTargetIds: targets.map(t => t?.id).filter(Boolean),
+                    });
+                  }
+                } catch (err) { console.warn("STA2e Toolkit | Grenade count / misfire failed:", err); }
               }
             }
           } else {

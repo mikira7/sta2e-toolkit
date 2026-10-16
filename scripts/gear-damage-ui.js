@@ -5,10 +5,9 @@
  *
  *   - `buildGearDamageKey` — the small key on each Token HUD Gear row
  *     (the GM toolkit menu's Gear section, gear-hud.js) that breaks or repairs that item.
- *   - `openBreakGearDialog` — pick one of an actor's items to put out of action;
- *     what a task card's Break Gear button opens.
- *   - `registerGearDamageCardButton` — that button, added to a Working Results
- *     card for the GM whenever the roll has a complication.
+ *   - `registerGearDamageCardButton` — posts the task COMPLICATIONS working
+ *     card (complication-card.js) when a roll is confirmed with complications,
+ *     where any GM breaks gear with them — no prompt.
  *   - `toggleGearDamage` — the one writer the UI uses: flips the flag and posts
  *     a short chat card, so the table sees it happen.
  *
@@ -20,19 +19,27 @@ import { getLcTokens } from "./lcars-theme.js";
 import {
   isDamageable, isGearDamaged, setGearDamaged, gearDamageWords, gearKind,
   storedGearDamagePotency, setGearDamagePotency, gearDamageChanged, gearDamagePotencyChanged,
-  gearDamageModes,
+  gearDamageModes, isPulseGrenade, grenadeCount, GRENADE_FLAG,
 } from "./gear-damage.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 
 const _esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-/** Announce a change of state in chat. */
-export function postGearDamageCard(item, damaged, { reason = "" } = {}) {
+/**
+ * Announce a change of state in chat. Resolves once the card exists, so a
+ * caller can make sure it lands before whatever follows — a complication spent
+ * on breaking gear posts its own COMPLICATION card ahead of the injury card.
+ *
+ * @param {number} [opts.complications] Complications spent on it; titles the
+ *   card COMPLICATION and says so.
+ */
+export async function postGearDamageCard(item, damaged, { reason = "", complications = 0 } = {}) {
   const words = gearDamageWords(item);
   const owner = item?.parent?.name ?? "";
   const accent = damaged ? LC.red : LC.green;
-  const title = (damaged ? words.state : words.fixed).toUpperCase();
+  const spent = damaged ? Math.max(0, Math.trunc(Number(complications)) || 0) : 0;
+  const title = spent ? `COMPLICATION — ${words.state.toUpperCase()}` : (damaged ? words.state : words.fixed).toUpperCase();
   const line = damaged
     ? `<strong>${_esc(item.name)}</strong> is ${words.state.toLowerCase()}${reason ? ` — ${_esc(reason)}` : ""}.`
     : `<strong>${_esc(item.name)}</strong> is back in service — ${words.fixed}.`;
@@ -43,10 +50,12 @@ export function postGearDamageCard(item, damaged, { reason = "" } = {}) {
     : "";
   const body = `
     <div style="font-size:12px;font-weight:700;color:${LC.textBright};font-family:${LC.font};margin-bottom:3px;">${_esc(owner)}</div>
+    ${spent ? `<div style="font-size:10px;font-weight:700;color:${LC.tertiary};font-family:${LC.font};margin-bottom:3px;">
+      ${spent} complication${spent === 1 ? "" : "s"} spent</div>` : ""}
     <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">${line}</div>
     ${effect ? `<div style="font-size:10px;color:${LC.textDim};font-family:${LC.font};margin-top:3px;">${effect}</div>` : ""}`;
   try {
-    ChatMessage.create({
+    return await ChatMessage.create({
       content: lcarsChatCard({
         title, accent, body,
         legacy: () => `<div style="border-left:3px solid ${accent};padding:4px 8px;">
@@ -56,14 +65,16 @@ export function postGearDamageCard(item, damaged, { reason = "" } = {}) {
     });
   } catch (err) {
     console.warn("STA2e Toolkit | Gear damage card failed:", err);
+    return null;
   }
 }
 
 /** Break or repair an item and announce it. False when nothing changed. */
-export async function toggleGearDamage(item, damaged, { reason = "", potency = 1, mode = "broken" } = {}) {
+export async function toggleGearDamage(item, damaged, { reason = "", potency = 1, mode = "broken", complications = 0 } = {}) {
   if (!isDamageable(item) || isGearDamaged(item) === !!damaged) return false;
   const ok = await setGearDamaged(item, !!damaged, { potency, mode });
-  if (ok) postGearDamageCard(item, !!damaged, { reason });
+  // Awaited: the card must be in chat before the caller posts anything after it.
+  if (ok) await postGearDamageCard(item, !!damaged, { reason, complications });
   return ok;
 }
 
@@ -231,76 +242,6 @@ export function damageableGear(actor) {
     .sort((a, b) => Number(isGearDamaged(a)) - Number(isGearDamaged(b)));
 }
 
-/**
- * Pick one of an actor's working items and put it out of action — a
- * complication's consequence. Resolves to the item, or null if cancelled.
- */
-export async function openBreakGearDialog(actor, { reason = "Complication", complications = 1 } = {}) {
-  const items = damageableGear(actor).filter(i => !isGearDamaged(i));
-  if (!items.length) {
-    ui.notifications.info(`${actor?.name ?? "That character"} has no working gear to break.`);
-    return null;
-  }
-  const kindLabel = { weapon: "Weapon", forcefield: "Forcefield", armor: "Armour", gear: "Gear" };
-  const choices = items.flatMap(item => gearDamageModes(item).map(mode => ({ item, mode })));
-  const rows = choices.map(({ item, mode }, i) => `
-    <label class="sta2e-gear-pick">
-      <input type="radio" name="sta2e-gear-pick" value="${item.id}:${mode}" ${i === 0 ? "checked" : ""}>
-      <img src="${_esc(item.img)}" alt="">
-      <span class="sta2e-gear-pick-name">${_esc(item.name)}</span>
-      <span class="sta2e-gear-pick-kind">${kindLabel[gearKind(item)] ?? ""} → ${gearDamageWords(item, mode).state}</span>
-    </label>`).join("");
-  // Potency: 1 for the complication that broke it, plus one per further
-  // complication spent on it — and, against a player character, the GM may
-  // add more at 2 Threat a step.
-  const maxComp = Math.max(1, Math.min(5, Math.trunc(Number(complications)) || 1));
-  const isPc = !!actor.hasPlayerOwner;
-  let threat = 0;
-  if (isPc) { try { threat = Number((await import("./pool-service.js")).readPool("threat")) || 0; } catch { /* none */ } }
-  const maxBought = Math.min(4, Math.floor(threat / POTENCY_THREAT_COST));
-  const potencyRow = `
-    <div class="sta2e-gear-potency">
-      <label>Complications spent <input type="number" name="sta2e-gear-comp" min="1" max="${maxComp}" value="1"></label>
-      ${isPc ? `<label>+ Potency for Threat <input type="number" name="sta2e-gear-threat" min="0" max="${maxBought}" value="0"></label>
-        <span class="sta2e-gear-pick-kind">(${POTENCY_THREAT_COST} Threat each · ${threat} in the pool)</span>` : ""}
-      <p class="sta2e-gear-pick-kind" style="margin:4px 0 0;">Each complication, and each step bought with Threat, adds 1 potency to the item's broken trait (max 5) — the Difficulty to repair it.</p>
-    </div>`;
-  const choice = await foundry.applications.api.DialogV2.wait({
-    window: { title: `${actor.name} — Break Gear` },
-    content: `<div class="sta2e-gear-pick-list">
-      <p style="font-size:11px;margin:0 0 6px;">Which item does the complication put out of action?</p>${rows}${potencyRow}</div>`,
-    buttons: [
-      {
-        action: "break", label: "Break It", icon: "fas fa-screwdriver-wrench", default: true,
-        callback: (_e, _b, dlg) => {
-          const el = dlg.element;
-          return {
-            id:     el.querySelector("input[name=sta2e-gear-pick]:checked")?.value ?? null,
-            comp:   Math.max(1, Math.min(maxComp, parseInt(el.querySelector("input[name=sta2e-gear-comp]")?.value, 10) || 1)),
-            bought: isPc ? Math.max(0, Math.min(maxBought, parseInt(el.querySelector("input[name=sta2e-gear-threat]")?.value, 10) || 0)) : 0,
-          };
-        },
-      },
-      { action: "cancel", label: "Cancel", icon: "fas fa-times" },
-    ],
-  }).catch(() => null);
-  const [pickedId, pickedMode = "broken"] = String(choice?.id ?? "").split(":");
-  const item = pickedId ? actor.items.get(pickedId) : null;
-  if (!item) return null;
-  const threatSpent = choice.bought * POTENCY_THREAT_COST;
-  if (threatSpent > 0) {
-    const { adjustPool } = await import("./pool-service.js");
-    await adjustPool("threat", -threatSpent, { source: "toolkit" });
-  }
-  const potency = Math.min(5, choice.comp + choice.bought);
-  await toggleGearDamage(item, true, {
-    mode: pickedMode,
-    reason: `${reason}, potency ${potency}${threatSpent ? ` (${threatSpent} Threat)` : ""}`,
-    potency,
-  });
-  return item;
-}
-
 /** The actor a Working Results card was rolled for. */
 function _cardActor(rollData) {
   const tokenObj = rollData?.tokenId ? canvas?.tokens?.get(rollData.tokenId) : null;
@@ -311,43 +252,54 @@ function _cardActor(rollData) {
 
 let _registered = false;
 
+// ── The task COMPLICATIONS card ──────────────────────────────────────────────
+//
+// When a Working Results card is confirmed with complications, the active GM
+// posts the working COMPLICATIONS card (complication-card.js, "task" kind) so
+// any GM can spend them breaking the roller's gear — on the card, no prompt.
+// A weapon attack that HIT is left out: its complications were settled on the
+// attack's own working card before the damage card. A miss gets this one — and
+// a missed pulse grenade its misfire card instead.
+
+async function _postTaskComplications(message) {
+  const flags = message.flags?.["sta2e-toolkit"] ?? {};
+  const rollData = flags.rollData;
+  if (!rollData || flags.gearComplicationCardPosted) return;
+  if (rollData.weaponContext && rollData.confirmedPassed !== false) return;
+  const actor = _cardActor(rollData);
+  if (!actor) return;
+  if (rollData.weaponContext) {
+    const weapon = rollData.weaponContext.weaponId ? actor.items?.get(rollData.weaponContext.weaponId) : null;
+    if (weapon && isPulseGrenade(weapon)) return;
+  }
+  let total = 0;
+  try { total = (await import("./npc-roller.js")).rollComplicationTotal(rollData); } catch { return; }
+  if (total < 1) return;
+  await message.setFlag("sta2e-toolkit", "gearComplicationCardPosted", true);
+  const { postTaskComplicationCard } = await import("./complication-card.js");
+  await postTaskComplicationCard({ total, actor, attackerName: actor.name, taskLabel: rollData.taskLabel ?? "" });
+}
+
 /**
- * A "Break Gear" key on a Working Results card, for the GM, whenever the roll
- * has at least one complication. It never edits the card — it is appended to
- * the rendered DOM on each render, so neither skin's template changes.
+ * Post the task COMPLICATIONS card when a Working Results card is confirmed
+ * with complications. Call once at init.
  */
 export function registerGearDamageCardButton() {
   if (_registered) return;
   _registered = true;
-  Hooks.on("renderChatMessageHTML", async (message, html) => {
-    if (!game.user.isGM) return;
-    const flags = message.flags?.["sta2e-toolkit"] ?? {};
-    if (!flags.playerRollCard || !flags.rollData) return;
-    const actor = _cardActor(flags.rollData);
-    if (!actor || !damageableGear(actor).length) return;
-    let total = 0;
+  Hooks.on("updateChatMessage", async (message, changes) => {
+    // Keyed on the confirmed ROLL DATA, not the bare `confirmed` flag: the confirm
+    // handler sets that flag first, before the result is known (so a weapon
+    // miss looked like an unresolved attack), and its later write leaves it
+    // unchanged, so a hook on it never sees the finished roll.
+    if (foundry.utils.getProperty(changes, "flags.sta2e-toolkit.rollData.confirmed") !== true) return;
+    if (!message.flags?.["sta2e-toolkit"]?.playerRollCard) return;
     try {
-      const { rollComplicationTotal } = await import("./npc-roller.js");
-      total = rollComplicationTotal(flags.rollData);
-    } catch { return; }
-    if (total < 1) return;
-    const root = html.querySelector(".sta2e-task-card") ?? html.querySelector(".message-content") ?? html;
-    if (!root || root.querySelector(".sta2e-break-gear")) return;
-    const row = document.createElement("div");
-    row.className = "sta2e-break-gear";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "sta2e-break-gear-btn";
-    btn.style.color = LC.red;
-    btn.dataset.tooltip = `A complication: put one of ${actor.name}'s items out of action`;
-    btn.innerHTML = `<i class="fas fa-screwdriver-wrench"></i> Break Gear (${total} complication${total === 1 ? "" : "s"})`;
-    btn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openBreakGearDialog(actor, { reason: "complication", complications: total });
-    });
-    row.appendChild(btn);
-    root.appendChild(row);
+      if (!(await import("./gm-authority.js")).isActiveGM()) return;
+      await _postTaskComplications(message);
+    } catch (err) {
+      console.warn("STA2e Toolkit | Complications card failed:", err);
+    }
   });
 }
 
@@ -704,6 +656,170 @@ export function registerGearRepairRequests() {
       if (message) await _resolveRequestCard(message, item, `${_cap(gearDamageWords(item).fixed)} — the repair roll passed.`);
     } catch (err) {
       console.warn("STA2e Toolkit | Relayed gear repair failed:", err);
+    }
+  });
+}
+
+// ── Pulse grenades: count and misfire ────────────────────────────────────────
+//
+// The count (gear-damage.js `grenadeCount`) goes down by one per throw. The
+// throwing client writes it when it owns the item, and otherwise asks the
+// active GM (socket `grenadeCountSet`). The Gear section restocks it.
+//
+// A MISSED throw that rolled a complication can misfire: a card whispered to
+// the active GM offers to set the grenade off on the thrower, or on another
+// token the GM targets — resolved as an ordinary hit through
+// `CombatHUD.triggerGrenadeMisfire`, so the usual ground damage card, Area
+// spill and injury decisions follow — or to let it fall harmlessly.
+
+/** Set how many grenades are left (0–20). Relays to the active GM if needed. */
+export async function setGrenadeCount(item, count) {
+  if (!isPulseGrenade(item)) return false;
+  const n = Math.max(0, Math.min(20, Math.trunc(Number(count)) || 0));
+  if (item.isOwner) {
+    await item.setFlag("sta2e-toolkit", GRENADE_FLAG, n);
+    return true;
+  }
+  game.socket.emit("module.sta2e-toolkit", { action: "grenadeCountSet", itemUuid: item.uuid, count: n });
+  return true;
+}
+
+/** One grenade thrown. Says so when that was the last. */
+export async function useGrenade(item) {
+  const left = grenadeCount(item);
+  if (left === null) return;
+  const next = Math.max(0, left - 1);
+  await setGrenadeCount(item, next);
+  if (next === 0) ui.notifications.info(`That was the last ${item.name}.`);
+}
+
+function _misfireCardHtml(attackerName, weaponName, { resolution = "" } = {}) {
+  const body = `
+    <div style="font-size:12px;font-weight:700;color:${LC.textBright};font-family:${LC.font};margin-bottom:3px;">${_esc(attackerName)}</div>
+    <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
+      The <strong>${_esc(weaponName)}</strong> missed with a complication — it can go off somewhere else.</div>
+    ${resolution
+      ? `<div class="sta2e-misfire-resolved" style="font-size:10px;color:${LC.green};font-family:${LC.font};margin-top:4px;">${resolution}</div>`
+      : `<div class="sta2e-misfire-pending" style="font-size:10px;color:${LC.textDim};font-family:${LC.font};margin-top:4px;">
+          To pick another token, target it (T) first.</div>`}`;
+  return lcarsChatCard({
+    title: "GRENADE MISFIRE", accent: LC.red, body, rootClass: "sta2e-grenade-misfire",
+    legacy: () => `<div class="sta2e-grenade-misfire" style="border-left:3px solid ${LC.red};padding:4px 8px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:${LC.red};font-family:${LC.font};">GRENADE MISFIRE</div>${body}</div>`,
+  });
+}
+
+/**
+ * Offer the GM a misfire for a missed throw that rolled a complication.
+ * Called on the client that confirmed the roll.
+ */
+export async function offerGrenadeMisfire({ attackerToken, weapon, useStun = false, missTargetIds = [] }) {
+  if (!attackerToken || !isPulseGrenade(weapon)) return null;
+  let whisper = game.users.filter(u => u.isGM).map(u => u.id);
+  try { whisper = (await import("./gm-authority.js")).activeGmWhisperIds(); } catch { /* fallback */ }
+  return ChatMessage.create({
+    content: _misfireCardHtml(attackerToken.name, weapon.name),
+    speaker: { alias: "STA2e Toolkit" },
+    whisper,
+    flags: { "sta2e-toolkit": { grenadeMisfire: {
+      attackerTokenId: attackerToken.id,
+      sceneId:         attackerToken.document?.parent?.id ?? canvas.scene?.id ?? null,
+      weaponId:        weapon.id,
+      weaponName:      weapon.name,
+      useStun:         !!useStun,
+      // The miss animation was held back for this card; No Misfire plays it.
+      missTargetIds:   Array.isArray(missTargetIds) ? missTargetIds : [],
+      resolved:        false,
+    } } },
+  });
+}
+
+async function _wireGrenadeMisfire(message, html) {
+  const m = message.flags?.["sta2e-toolkit"]?.grenadeMisfire;
+  if (!m || m.resolved || !game.user.isGM) return;
+  const root = html.querySelector(".sta2e-grenade-misfire") ?? html.querySelector(".message-content") ?? html;
+  if (!root || root.querySelector(".sta2e-repair-controls")) return;
+  const host = root.querySelector(".ccf-body") ?? root;
+  const attacker = canvas.tokens?.get(m.attackerTokenId);
+  const box = document.createElement("div");
+  box.className = "sta2e-repair-controls";
+  box.innerHTML = `
+    <div class="sta2e-repair-row">
+      <button type="button" data-misfire="self" style="${_keyStyle(LC.red)}"><i class="fas fa-person-falling-burst"></i> Goes Off on ${_esc(attacker?.name ?? "the Thrower")}</button>
+    </div>
+    <div class="sta2e-repair-row">
+      <button type="button" data-misfire="target" style="${_keyStyle(LC.primary)}"><i class="fas fa-crosshairs"></i> Goes Off on My Target</button>
+    </div>
+    <div class="sta2e-repair-row">
+      <button type="button" data-misfire="none" style="${_keyStyle(LC.textDim)}"><i class="fas fa-xmark"></i> No Misfire</button>
+    </div>`;
+  host.appendChild(box);
+
+  const settle = async (resolution) => {
+    try {
+      await message.update({
+        content: _misfireCardHtml(attacker?.name ?? "", m.weaponName, { resolution }),
+        "flags.sta2e-toolkit.grenadeMisfire.resolved": true,
+      });
+    } catch (err) { console.warn("STA2e Toolkit | Could not close the misfire card:", err); }
+  };
+
+  box.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-misfire]");
+    if (!btn || btn.disabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const choice = btn.dataset.misfire;
+    if (choice === "none") {
+      box.querySelectorAll("button").forEach(b => { b.disabled = true; });
+      await settle("It falls harmlessly.");
+      // Now show the miss the roll held back.
+      const weapon = attacker?.actor?.items?.get(m.weaponId);
+      const targets = (m.missTargetIds ?? []).map(id => canvas.tokens?.get(id)).filter(Boolean);
+      if (attacker && weapon && targets.length) {
+        try {
+          const { fireWeapon, getWeaponConfig } = await import("./weapon-configs.js");
+          const config = getWeaponConfig(weapon);
+          if (config) await fireWeapon(config, false, attacker, targets, { weapon, useStun: m.useStun });
+        } catch (err) { console.warn("STA2e Toolkit | Grenade miss animation failed:", err); }
+      }
+      return;
+    }
+    if (!attacker) { ui.notifications.warn("The thrower is not on this scene."); return; }
+    let target = attacker;
+    if (choice === "target") {
+      const targets = [...game.user.targets];
+      if (targets.length !== 1) {
+        ui.notifications.info("Target the one token the grenade lands on (hover it and press T), then click again.");
+        return;
+      }
+      target = targets[0];
+    }
+    box.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    const hud = game.sta2eToolkit?.combatHud;
+    if (!hud?.triggerGrenadeMisfire) { ui.notifications.error("STA2e Toolkit: Combat HUD is not ready."); return; }
+    const ok = await hud.triggerGrenadeMisfire(attacker, m.weaponId, target, { useStun: m.useStun });
+    if (ok) await settle(`It goes off on ${_esc(target.name)} — see the damage card.`);
+    else box.querySelectorAll("button").forEach(b => { b.disabled = false; });
+  });
+}
+
+let _grenadeRegistered = false;
+
+/** Misfire card controls and the GM side of a relayed count. Call once at init. */
+export function registerGrenadeTools() {
+  if (_grenadeRegistered) return;
+  _grenadeRegistered = true;
+  Hooks.on("renderChatMessageHTML", (message, html) => { _wireGrenadeMisfire(message, html); });
+  game.socket.on("module.sta2e-toolkit", async (msg) => {
+    if (msg?.action !== "grenadeCountSet") return;
+    try {
+      const { isActiveGM } = await import("./gm-authority.js");
+      if (!isActiveGM()) return;
+      const item = await fromUuid(msg.itemUuid).catch(() => null);
+      if (item && isPulseGrenade(item)) await item.setFlag("sta2e-toolkit", GRENADE_FLAG, Math.max(0, Math.min(20, Math.trunc(Number(msg.count)) || 0)));
+    } catch (err) {
+      console.warn("STA2e Toolkit | Relayed grenade count failed:", err);
     }
   });
 }

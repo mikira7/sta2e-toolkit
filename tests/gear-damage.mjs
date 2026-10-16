@@ -12,7 +12,7 @@ globalThis.foundry = { utils: { getProperty: (o, k) => k.split('.').reduce((v, p
 
 const { isDamageable, isGearDamaged, gearKind, gearDamageWords, assertWeaponUsable, gearDamageChanged, setGearDamaged,
   storedGearDamagePotency, setGearDamagePotency, gearDamagePotencyChanged,
-  isEnergyWeapon, gearDamageModes, gearDamageMode } =
+  isEnergyWeapon, gearDamageModes, gearDamageMode, isPulseGrenade, grenadeCount } =
   await import('../scripts/gear-damage.js');
 
 function item(type, name, flags = {}) {
@@ -120,6 +120,19 @@ await check('a burnt-out phaser is worded for a recharge, and keeps that wording
   const d = item('characterweapon2e', 'Dagger');
   await setGearDamaged(d, true, { mode: 'burnt' });
   assert.equal(gearDamageMode(d), 'broken');
+});
+
+await check('pulse grenades start at 3, read the stored count, and refuse at 0', () => {
+  const g = item('characterweapon2e', 'Pulse Grenade');
+  assert.equal(isPulseGrenade(g), true);
+  assert.equal(isPulseGrenade(item('characterweapon2e', 'Phaser Type-2')), false);
+  assert.equal(grenadeCount(item('characterweapon2e', 'Phaser')), null);
+  assert.equal(grenadeCount(g), 3);
+  assert.equal(grenadeCount(item('characterweapon2e', 'Pulse Grenades', { grenadeCount: 1 })), 1);
+  warnings.length = 0;
+  assert.equal(assertWeaponUsable(item('characterweapon2e', 'Pulse Grenade', { grenadeCount: 0 })), false);
+  assert.equal(warnings.length, 1);
+  assert.equal(assertWeaponUsable(item('characterweapon2e', 'Pulse Grenade', { grenadeCount: 2 })), true);
 });
 
 let failed = 0;

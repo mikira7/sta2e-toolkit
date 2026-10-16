@@ -11,7 +11,7 @@
  *   armour/gear (armor / item)       "Damaged"   — no Protection
  *
  * Set from the Token HUD (GM toolkit menu → Gear), the sheet row, a weapon attack's
- * complication prompt ("weapon malfunctions") or a task card's Break Gear
+ * complication prompt ("weapon malfunctions") or the working COMPLICATIONS card (complication-card.js)
  * button; cleared ("Repair" / "Recharge") from the HUD or the sheet.
  *
  * A leaf with **no imports**, so the damage maths in combat-hud-core.js, the
@@ -177,13 +177,41 @@ export function gearDamagePotencyChanged(changes) {
   return get(changes, `flags.${MODULE}.${POTENCY_FLAG}`) !== undefined;
 }
 
+// ── Pulse grenade count ──────────────────────────────────────────────────────
+//
+// A pulse grenade weapon is a supply, not a gun: 3 to start (the flag is unset
+// until the first throw), one used per throw, hit or miss, and at 0 it cannot
+// be used until restocked from the toolkit HUD's Gear section.
+
+export const GRENADE_FLAG = "grenadeCount";
+export const GRENADE_START = 3;
+const GRENADE_RE = /\bpulse\s*grenades?\b/i;
+
+export function isPulseGrenade(item) {
+  return item?.type === "characterweapon2e" && GRENADE_RE.test(String(item.name ?? ""));
+}
+
+/** Grenades left — GRENADE_START until the item has been thrown. Null for anything else. */
+export function grenadeCount(item) {
+  if (!isPulseGrenade(item)) return null;
+  let raw;
+  try { raw = item.getFlag(MODULE, GRENADE_FLAG); } catch { raw = undefined; }
+  const n = Math.trunc(Number(raw));
+  return raw === undefined || raw === null || !Number.isFinite(n) ? GRENADE_START : Math.max(0, n);
+}
+
 /**
  * Refuse a broken character weapon, with a notice. True when it is usable.
  * Every path that starts an attack calls this — the Combat HUD row, the LCARS
  * ring, the Token HUD's Hit/Miss and roller.
  */
 export function assertWeaponUsable(weapon) {
-  if (weapon?.type !== "characterweapon2e" || !isGearDamaged(weapon)) return true;
+  if (weapon?.type !== "characterweapon2e") return true;
+  if (grenadeCount(weapon) === 0) {
+    ui.notifications?.warn?.(`No ${weapon.name} left — restock from the toolkit's Gear section.`);
+    return false;
+  }
+  if (!isGearDamaged(weapon)) return true;
   const words = gearDamageWords(weapon);
   ui.notifications?.warn?.(`${weapon.name} is ${words.state.toLowerCase()} and can't be used until it is ${words.fixed}.`);
   return false;

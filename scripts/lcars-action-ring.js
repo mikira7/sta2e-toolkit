@@ -7,7 +7,7 @@ import { assignOfficer, COMMAND_SEATS, getCrewManifest, readOfficerStats, setCre
 import { openNpcRoller } from "./npc-roller.js";
 import { BRIDGE_STATIONS, CombatHUD, GROUND_ACTIONS, hasFastTargetingSystems, openWeaponAttackForOfficer, STATION_SVG } from "./combat-hud.js";
 import { getActiveLcThemeKey, getLcCssVars, getLcTokens } from "./lcars-theme.js";
-import { isGearDamaged, gearDamageWords } from "./gear-damage.js";
+import { isGearDamaged, gearDamageWords, grenadeCount } from "./gear-damage.js";
 
 const MODULE = "sta2e-toolkit";
 const RING_ID = "sta2e-lcars-action-ring";
@@ -768,7 +768,9 @@ export class LcarsActionRing {
         // A broken weapon stays listed; the Combat HUD refuses it when picked.
         .map(weapon => ({ kind: "weapon", weapon, title: isGearDamaged(weapon)
           ? `${weapon.name} — ${gearDamageWords(weapon).state.toLowerCase()}, ${gearDamageWords(weapon).fix.toLowerCase()} before use`
-          : `Attack with ${weapon.name}` }));
+          : grenadeCount(weapon) === 0
+            ? `${weapon.name} — none left`
+            : `Attack with ${weapon.name}${grenadeCount(weapon) !== null ? ` (${grenadeCount(weapon)} left)` : ""}` }));
       return [
         { id: "weapons", entries: weapons },
         { id: "minor", entries: GROUND_ACTIONS.minor.map(action => ({ kind: "action", action, station: null })) },

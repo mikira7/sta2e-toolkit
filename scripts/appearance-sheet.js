@@ -19,7 +19,7 @@
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
 import { openAppearanceManager } from "./appearance-manager.js";
-import { isDamageable, isGearDamaged, gearDamageWords } from "./gear-damage.js";
+import { isDamageable, isGearDamaged, gearDamageWords, grenadeCount } from "./gear-damage.js";
 import { requestGearRepair } from "./gear-damage-ui.js";
 
 const SHEET_HOOKS = [
@@ -61,6 +61,24 @@ function _injectWear(app, html) {
 
   }
   _injectDamaged(actor, root);
+  _injectGrenadeCount(actor, root);
+}
+
+/** "×3" on a pulse grenade row — how many are left. The GM restocks from the toolkit HUD. */
+function _injectGrenadeCount(actor, root) {
+  for (const row of root.querySelectorAll("li.row.entry[data-item-id]")) {
+    if (row.querySelector(".sta2e-grenade-count")) continue;
+    const item = actor.items.get(row.dataset.itemId);
+    const left = grenadeCount(item);
+    if (left === null) continue;
+    const badge = document.createElement("span");
+    badge.className = `sta2e-grenade-count${left === 0 ? " is-empty" : ""}`;
+    badge.dataset.tooltip = left === 0 ? "None left — the GM restocks from the toolkit HUD" : `${left} left — one is used per throw`;
+    badge.textContent = `×${left}`;
+    const control = row.querySelector(".control");
+    if (control) control.prepend(badge);
+    else row.appendChild(badge);
+  }
 }
 
 /**

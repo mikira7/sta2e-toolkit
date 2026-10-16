@@ -23,7 +23,7 @@
 
 import { CombatHUD } from "./combat/combat-hud-core.js";
 import { buildWeaponContext, getGroundWeaponSeverity } from "./weapon-configs.js";
-import { isGearDamaged, gearDamageWords } from "./gear-damage.js";
+import { isGearDamaged, gearDamageWords, grenadeCount } from "./gear-damage.js";
 
 const WEAPON_TYPES = ["characterweapon2e", "starshipweapon2e"];
 
@@ -239,6 +239,10 @@ function _buildRows(host, selection) {
     btn.dataset.tooltip = _tooltip(weapon, token.actor);
     // Broken: greyed out here; Hit/Miss and the roller refuse it in the Combat
     // HUD (assertWeaponUsable). Repair it from the Gear section.
+    if (weapon.type === "characterweapon2e" && grenadeCount(weapon) === 0 && !isGearDamaged(weapon)) {
+      btn.classList.add("is-broken");
+      btn.dataset.tooltip = `<strong>NONE LEFT</strong> — restock from the toolkit's Gear section<br>${btn.dataset.tooltip}`;
+    }
     if (weapon.type === "characterweapon2e" && isGearDamaged(weapon)) {
       btn.classList.add("is-broken");
       const words = gearDamageWords(weapon);
