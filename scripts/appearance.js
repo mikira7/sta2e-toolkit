@@ -25,7 +25,7 @@
 import {
   MODULE, LIBRARY_FLAG, STATE_FLAG, WORN_FLAG, WEARABLE_TYPES,
   readLibrary, normalizeState, collectTriggers, matchRules, composeAppearance,
-  sameVisual, visualUpdates, applyCreationAppearance, hasLooks, findLook, ringFromToken, normalizeMimic,
+  sameVisual, visualUpdates, applyCreationAppearance, hasLooks, findLook, ringFromToken, normalizeMimic, ringUpdates,
   actorTraitNames, mayMimic, parseKeywords, stateIsDressed, storeMimicInLibrary,
 } from "./appearance-data.js";
 import { isActiveGM, getActiveGM } from "./gm-authority.js";
@@ -83,6 +83,58 @@ function _currentVisual(fig) {
     ring:     ringFromToken(fig.ref?.ring ?? (fig.linked ? fig.actor.prototypeToken?.ring : null)),
     name:     fig.ref?.name ?? (fig.linked ? fig.actor.prototypeToken?.name : null) ?? null,
   };
+}
+
+/**
+ * A linked character's original token art IS its Prototype Token: one
+ * character, one original. Its placed tokens are only copies, and core never
+ * updates them when the prototype changes — so the art a placed token happened
+ * to show when a look or gear went on is the wrong thing to restore. Changing
+ * the original (Appearance Manager or Prototype Token) and then wearing gear
+ * put the OLD art back when the gear came off.
+ *
+ * Returns the token, scale and ring the prototype draws, the ring following
+ * the art when it names that art as its subject (as core stores it).
+ */
+function _prototypeArt(actor) {
+  const proto = actor?.prototypeToken;
+  if (!proto) return null;
+  const token = proto.texture?.src ?? "";
+  // A wildcard prototype names no one image — the placed token's roll is the original.
+  if (!token || token.includes("*")) return null;
+  const ring = ringFromToken(proto.ring);
+  if (ring?.subjectTexture === token) ring.subjectTexture = "";
+  return { token, scale: Math.abs(Number(proto.texture?.scaleX ?? 1)) || 1, ring };
+}
+
+/**
+ * A linked character's prototype art changed: its placed tokens that are
+ * showing their original art take the new one. A token in a look or gear is
+ * left alone — its original is read from the prototype when that comes off.
+ */
+async function _followPrototype(actor) {
+  if (!actor?.prototypeToken?.actorLink) return;
+  const proto = _prototypeArt(actor);
+  if (!proto) return;
+  if (normalizeState(actor.getFlag(MODULE, STATE_FLAG)).baseline) return;   // dressed
+  for (const td of _linkedTokens(actor)) {
+    const now = {
+      token: td.texture?.src ?? "",
+      scale: Math.abs(Number(td.texture?.scaleX ?? 1)) || 1,
+      ring:  ringFromToken(td.ring),
+    };
+    if (now.ring?.subjectTexture === now.token) now.ring.subjectTexture = "";
+    if (now.token === proto.token && now.scale === proto.scale
+        && JSON.stringify(now.ring) === JSON.stringify(proto.ring)) continue;
+    const data = {
+      "texture.src":    proto.token,
+      "texture.scaleX": Math.sign(td.texture?.scaleX || 1) * proto.scale,
+      "texture.scaleY": Math.sign(td.texture?.scaleY || 1) * proto.scale,
+      ...ringUpdates(proto.ring, proto.token),
+    };
+    try { await td.update(data); }
+    catch (err) { console.warn(`STA2e Toolkit | Appearance: could not update ${td.name}`, err); }
+  }
 }
 
 function _triggers(fig) {
@@ -160,7 +212,16 @@ async function _settle(fig, lookId, mimic) {
   if (mimic !== undefined) state.mimic = normalizeMimic(mimic);
   const { rule, gear } = matchRules(library, _triggers(fig));
   const current = _currentVisual(fig);
-  const { visual, state: next } = composeAppearance({ library, state, rule, gear, current });
+  // A linked character's original is its prototype (see _prototypeArt): both
+  // the baseline it would capture now and one it captured earlier take the
+  // prototype's art. Portrait and name stay as captured.
+  let captureFrom = current;
+  const proto = fig.linked ? _prototypeArt(fig.actor) : null;
+  if (proto) {
+    captureFrom = { ...current, ...proto };
+    if (state.baseline) state.baseline = { ...state.baseline, ...proto };
+  }
+  const { visual, state: next } = composeAppearance({ library, state, rule, gear, current: captureFrom });
 
   const stateChanged = JSON.stringify(next) !== JSON.stringify(stored);
   const visualChanged = visual && !sameVisual(visual, current);
@@ -534,6 +595,9 @@ export function registerAppearance() {
 
   // The GM edited the library — rules or looks may now resolve differently.
   Hooks.on("updateActor", (actor, changes) => {
+    if (foundry.utils.hasProperty(changes, "prototypeToken") && isActiveGM() && !actor.isToken) {
+      _followPrototype(actor).catch(err => console.warn("STA2e Toolkit | Appearance: could not follow the new prototype art", err));
+    }
     if (!foundry.utils.hasProperty(changes, `flags.${MODULE}.${LIBRARY_FLAG}`)) return;
     if (!isActiveGM() || actor.isToken) return;
     refreshActor(actor);

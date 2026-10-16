@@ -167,6 +167,7 @@ picker.
   linked character's portrait is shared — two tokens of one PC must agree on
   whether the suit is on. The portrait goes to `delta.img` (unlinked) or
   `actor.img` (linked).
+- **A linked character's original is its Prototype Token** (`_prototypeArt` in appearance.js), not whatever its placed token shows: core never updates placed tokens when the prototype changes, so a baseline captured from the map restored the OLD art after the original was changed. `_settle` captures a linked baseline from the prototype and rewrites an existing one's token/scale/ring from it (portrait and name stay as captured), and an `updateActor` hook on `prototypeToken` (active GM) moves undressed linked tokens to the new art. A wildcard prototype is skipped. Unlinked tokens keep the old rule.
 - **The baseline is "original art".** Captured the first time the art leaves
   its original state, dropped when it returns, so taking a suit off restores
   what was there even with no look made for it. A rule overrides the chosen
