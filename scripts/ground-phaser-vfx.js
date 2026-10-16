@@ -26,6 +26,7 @@
  */
 
 import { vfxDrop } from "./vfx-diagnostics.js";
+import { personalShieldStopPoint, playPersonalShieldHits } from "./personal-shield-vfx.js";
 import { createFanField } from "./fan-field-shader.js";
 import {
   applyNativeVfxGlow,
@@ -71,7 +72,11 @@ export function usingNativeGroundPhaser() {
 export async function fireGroundPhaserVFX(config, isHit, sourceToken, targets, options = {}) {
   const source = _center(sourceToken);
   const targetList = (targets ?? []).filter(Boolean);
-  const points = targetList.map(_center).filter(Boolean);
+  // A hit on a worn personal forcefield stops on the field, not at the centre.
+  const points = targetList.map(t => {
+    const c = _center(t);
+    return (c && isHit && personalShieldStopPoint(source, t)) || c;
+  }).filter(Boolean);
   if (!source || !points.length) return false;
 
   const style = _resolveStyle(config, options);
@@ -96,6 +101,11 @@ export async function fireGroundPhaserVFX(config, isHit, sourceToken, targets, o
     _beam(source, points[i], isHit, style, {
       impact: { path: config?.impact, token: targetList[i], point: points[i] },
     });
+    // A worn forcefield flashes on the same beat the beam lands.
+    if (isHit) {
+      const target = targetList[i];
+      setTimeout(() => playPersonalShieldHits(sourceToken, [target]), shape.impactDelay);
+    }
   }
 
   // Hold until the shot has actually played out. The caller — the ground injury

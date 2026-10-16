@@ -138,6 +138,7 @@ import {
   registerShieldIdleVfxHooks,
   testShieldIdle,
 } from "./shield-idle-vfx.js";
+import { registerPersonalShieldVfxHooks } from "./personal-shield-vfx.js";
 import { playTorpedoTravelLocal } from "./torpedo-travel-vfx.js";
 import { registerTokenElevationDisplay } from "./token-elevation-display.js";
 import { registerTokenSelectGlow } from "./token-select-glow.js";
@@ -577,6 +578,7 @@ Hooks.once("init", () => {
   registerTractorBeamVfxHooks();
   registerShieldBubbleVfxHooks();
   registerShieldIdleVfxHooks();
+  registerPersonalShieldVfxHooks();
   registerTransporterSettings();
   registerMomentumSpend();
   registerMomentumTracker();

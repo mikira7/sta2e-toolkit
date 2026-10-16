@@ -5,6 +5,7 @@ import { createBeamRibbon } from "./beam-shader.js";
 import { createWeaponEnergyOrb, createWeaponEnergyShockwave } from "./weapon-energy-shader.js";
 import { getBeamVfxSettings, getWeaponAnimationMode, nativeVfxBlendMode,
   nativeVfxContainer, playNativeVfxSound, shouldUseNativeWeaponVFX } from "./native-weapon-vfx.js";
+import { personalShieldStopPoint, playPersonalShieldHits } from "./personal-shield-vfx.js";
 
 export const GROUND_ENERGY_VFX_ACTION = "groundEnergyVfx";
 const MODULE = "sta2e-toolkit";
@@ -49,7 +50,13 @@ export async function fireGroundEnergyVFX(config, isHit, sourceToken, targets, o
   const settings = getBeamVfxSettings(), group = settings.groundPhaser;
   const profile = config.groundEnergyProfile in PROFILES ? config.groundEnergyProfile : "particle";
   const mode = key === "weapon-ground-pulse" ? "shockwave" : config.groundFireMode === "bolt" ? "bolt" : "beam";
-  const ends = tokens.map(center).map(p => isHit ? p : miss(source, p, grid));
+  // A hit on a worn personal forcefield stops on the field — except a pulse
+  // shockwave, which detonates on the target and has no line to stop.
+  const ends = tokens.map(t => {
+    const p = center(t);
+    if (!isHit) return miss(source, p, grid);
+    return (mode !== "shockwave" && personalShieldStopPoint(source, t)) || p;
+  });
   const msg = {
     action: GROUND_ENERGY_VFX_ACTION, sceneId, sourcePoint: source, targetPoints: ends,
     mode, profile, hit: !!isHit, shaded: getWeaponAnimationMode(key) === "shader",
@@ -69,6 +76,18 @@ export async function fireGroundEnergyVFX(config, isHit, sourceToken, targets, o
   }
   const playback = playGroundEnergyVfxFromSocket(msg);
   if (!playback) return false;
+  // A worn forcefield flashes when each shot lands — the same timing drawShot
+  // uses (per-target stagger, then bolt travel or the beam's impact delay).
+  // The shockwave has no line to stop and is left to the damage path.
+  if (isHit && mode !== "shockwave") {
+    tokens.forEach((token, i) => {
+      const end = ends[i];
+      const distance = Math.hypot(end.x - source.x, end.y - source.y);
+      const travel = clamp(distance / grid * 85, 400, 160, 850);
+      const impactAt = mode === "bolt" ? travel : Math.min(msg.duration * .65, msg.impactDelay);
+      setTimeout(() => playPersonalShieldHits(sourceToken, [token]), i * 120 + impactAt);
+    });
+  }
   playNativeVfxSound(options.soundPath ?? (isHit ? config.sound : config.missSound ?? config.sound));
   try { game.socket?.emit?.(`module.${MODULE}`, msg); }
   catch (err) { console.warn("STA2e Toolkit | Ground energy broadcast failed:", err); }

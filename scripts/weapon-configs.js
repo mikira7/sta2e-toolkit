@@ -47,6 +47,7 @@ import {
 import { stampHullDecal } from "./hull-decals.js";
 import { fireGroundMeleeVFX } from "./ground-melee-vfx.js";
 import { fireGroundGooVFX } from "./ground-goo-vfx.js";
+import { personalShieldStopPoint, playPersonalShieldHits } from "./personal-shield-vfx.js";
 // scene-warp.js is deliberately import-free so it can be consulted from here
 // without closing a cycle — see its header.
 import { isSceneWeaponAutoRotateDisabled } from "./scene-warp.js";
@@ -3035,12 +3036,14 @@ async function fireGroundPhaserBoltJb2a(config, isHit, token, targets) {
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = withSound(seq(), soundPath).wait(50);
+    // A worn personal forcefield stops the bolt on the field.
+    const end = sequenceLocation(target, isHit ? personalShieldStopPoint(tokenCenter(token), target) : null);
     let effect = stretchToSequenceLocation(
       atSequenceLocation(
         shipTravelEffect(s.effect().file(animPath), { effect: animPath }),
         sequenceLocation(token, null),
       ),
-      sequenceLocation(target, null),
+      end,
     );
     if (!isHit) {
       // Safe here where it is not on the flown sprite: stretchTo anchors both
@@ -3050,7 +3053,8 @@ async function fireGroundPhaserBoltJb2a(config, isHit, token, targets) {
       continue;
     }
     s = effect.wait(travelMs);
-    if (config.impact) s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+    s.thenDo(() => playPersonalShieldHits(token, [target]));
+    if (config.impact) s.effect().file(config.impact).atLocation(end.location, end.options).scaleToObject(1.5);
     playback.push(s.play());
   }
   await Promise.all(playback);
@@ -3067,15 +3071,18 @@ async function fireGroundPhaserBolt(config, isHit, token, targets) {
   for (const target of targets) {
     const soundPath = isHit ? config.sound : (config.missSound ?? config.sound);
     let s = withSound(seq(), soundPath).wait(50);
-    const flightMs = applyBoltTravel(s, sequenceLocation(token, null), sequenceLocation(target, null), {
+    // A worn personal forcefield stops the bolt on the field.
+    const end = sequenceLocation(target, isHit ? personalShieldStopPoint(tokenCenter(token), target) : null);
+    const flightMs = applyBoltTravel(s, sequenceLocation(token, null), end, {
       energyType: "phaser",
       era,
       missed: !isHit,
       ground: true,
     });
     s = s.wait(flightMs);
+    if (isHit) s.thenDo(() => playPersonalShieldHits(token, [target]));
     if (isHit && config.impact) {
-      s.effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+      s.effect().file(config.impact).atLocation(end.location, end.options).scaleToObject(1.5);
     }
     playback.push(s.play());
   }
@@ -3428,10 +3435,14 @@ async function fireGroundBeam(config, isHit, token, targets) {
     const animPath  = isHit ? config.effect : (config.missEffect ?? config.effect);
     let s = withSound(seq(), soundPath).wait(50);
     if (isHit) {
+      // A worn personal forcefield stops the beam on the field.
+      const end = sequenceLocation(target, personalShieldStopPoint(tokenCenter(token), target));
       s.effect().file(animPath).scale(0.45)
-       .atLocation(token).stretchTo(target)
+       .atLocation(token).stretchTo(end.location, end.options)
        .wait(travelMs)
-       .effect().file(config.impact).atLocation(target).scaleToObject(1.5);
+       // A worn forcefield flashes as the beam lands.
+       .thenDo(() => playPersonalShieldHits(token, [target]))
+       .effect().file(config.impact).atLocation(end.location, end.options).scaleToObject(1.5);
     } else {
       s.effect().file(animPath).scale(0.45)
        .atLocation(token).stretchTo(target).missed();

@@ -19,6 +19,7 @@
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
 import { openAppearanceManager } from "./appearance-manager.js";
+import { isPersonalShieldItem, isBurntOut, rechargePersonalShield } from "./personal-shield-vfx.js";
 
 const SHEET_HOOKS = [
   "renderSTACharacterSheet2e",
@@ -56,6 +57,22 @@ function _injectWear(app, html) {
     const control = row.querySelector(".control");
     if (control) control.prepend(btn);
     else row.appendChild(btn);
+
+    // A personal forcefield sacrificed to an injury is burnt out until recharged.
+    if (isPersonalShieldItem(item) && isBurntOut(item)) {
+      const burnt = document.createElement("a");
+      burnt.className = `sta2e-forcefield-burnt${editable ? "" : " is-locked"}`;
+      burnt.dataset.tooltip = editable
+        ? "Forcefield burnt out — no Protection. Click to recharge."
+        : "Forcefield burnt out — no Protection.";
+      burnt.innerHTML = `<i class="fas fa-battery-empty"></i>`;
+      burnt.addEventListener("click", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (editable) await rechargePersonalShield(item);
+      });
+      btn.after(burnt);
+    }
   }
 }
 

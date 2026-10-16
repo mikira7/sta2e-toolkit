@@ -770,6 +770,15 @@
   text-shadow: 0 0 4px rgba(255, 156, 0, 0.6);
 }
 .sta2e-wear.is-locked { cursor: default; }
+/* A personal forcefield sacrificed to an injury: burnt out until recharged. */
+.sta2e-forcefield-burnt {
+  display: inline-flex;
+  align-items: center;
+  color: #cc4444;
+  cursor: pointer;
+}
+.sta2e-forcefield-burnt:hover { color: #ff6666; }
+.sta2e-forcefield-burnt.is-locked { cursor: default; }
 
 /* ── Token HUD Appearance button ──────────────────────────────────────────────
    Static LCARS orange, like the rest of the HUD flyout. The looks view is a

@@ -146,6 +146,7 @@ import {
   markMajorWasAttack as _markMajorWasAttack,
 } from "./initiative-order.js";
 import { resolveActingOfficer, resolveActingOfficerIndex } from "./acting-officer.js";
+import { playPersonalShieldHits, activePersonalShield, burnOutPersonalShield, isBurntOut } from "../personal-shield-vfx.js";
 import {
   alliesWithinClose,
   defensiveTrainingPenalty,
@@ -3966,6 +3967,8 @@ export class CombatHUD {
         const equipped = item.system?.equipped ?? true;
         if (!equipped) continue;
         if (wornOnly && item.getFlag?.("sta2e-toolkit", "worn") !== true) continue;
+        // A personal forcefield sacrificed to an injury has burnt out.
+        if (isBurntOut(item)) continue;
         const prot = Number(item.system?.protection ?? item.system?.Protection ?? 0);
         if (!isNaN(prot)) total += prot;
       }
@@ -4401,6 +4404,8 @@ export class CombatHUD {
     if (!config) return;
     try { await fireWeapon(config, true, attackerToken, [targetToken], {weapon, useStun:payload.useStun}); }
     catch(e) { console.warn("STA2e Toolkit | Ground weapon animation failed:", e); }
+    // A worn personal forcefield flares where the shot lands. Not for a hypospray.
+    if (config.type !== "hypospray") playPersonalShieldHits(attackerToken, [targetToken]);
   }
 
   /**
@@ -4425,13 +4430,13 @@ export class CombatHUD {
         .map(id => canvas.tokens?.get(id))
         .filter(Boolean);
 
-      if (config.family === "ground-pulse") {
-        return await fireGroundEnergyVFX(config, true, attackerToken, [primaryToken, ...secondaries]);
-      }
-      return playGroundPhaserCone(attackerToken, [primaryToken, ...secondaries], {
-        config,
-        hit: true,
-      });
+      const hit = [primaryToken, ...secondaries];
+      const drew = config.family === "ground-pulse"
+        ? await fireGroundEnergyVFX(config, true, attackerToken, hit)
+        : await playGroundPhaserCone(attackerToken, hit, { config, hit: true });
+      // Every forcefield caught in the cone flares.
+      if (drew) playPersonalShieldHits(attackerToken, hit);
+      return drew;
     } catch (e) {
       console.warn("STA2e Toolkit | Ground area cone animation failed:", e);
       return false;
@@ -16503,6 +16508,20 @@ export class CombatHUD {
       </button>`;
     }
 
+    // Personal forcefield (STA 2e): it may be sacrificed when avoiding an
+    // injury — the injury becomes a Stun injury and the field burns out.
+    // Pointless against a Stun attack, so only offered for Deadly ones.
+    const forcefield = !useStun ? activePersonalShield(actor) : null;
+    if (forcefield) {
+      const fieldName = String(forcefield.name).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+      buttons = `<button class="sta2e-injury-btn" data-choice="sacrifice"
+        data-payload="${encodeURIComponent(JSON.stringify(payload))}"
+        style="${btnStyle(LC.secondary)}"
+        title="The injury becomes a Stun injury, and the forcefield burns out">
+        Sacrifice ${fieldName} — Stun Injury instead
+      </button> ` + buttons;
+    }
+
     const tierBadge = tierLabel
       ? ` <span style="color:${tierColor};font-size:10px;">(${tierLabel})</span>`
       : "";
@@ -16548,6 +16567,35 @@ export class CombatHUD {
     const tokenDoc = canvas.tokens.get(tokenId)?.document ?? null;
     if (!actor) return;
 
+    // Sacrifice the personal forcefield: the shot lands on the field, the field
+    // burns out (every client plays the break off the item update), and the
+    // injury is taken as a Stun injury of the same potency.
+    if (choice === "sacrifice") {
+      const field = !useStun ? activePersonalShield(actor) : null;
+      if (!field) {
+        ui.notifications.warn(`STA2e Toolkit: ${actor.name} has no working personal forcefield to sacrifice — taking the injury.`);
+        return CombatHUD._executeInjuryResolution("take", payload, messageId);
+      }
+      try { await CombatHUD._playGroundAttackAnimation(payload); }
+      catch (e) { console.warn("STA2e Toolkit | Ground attack animation failed:", e); }
+      await burnOutPersonalShield(field);
+      ChatMessage.create({
+        content: lcarsCard("FORCEFIELD SACRIFICED", LC.secondary, `
+          <div style="font-size:12px;font-weight:700;color:${LC.textBright};
+            font-family:${LC.font};margin-bottom:3px;">${actor.name}</div>
+          <div style="font-size:11px;font-weight:700;font-family:${LC.font};
+            color:${LC.secondary};margin-bottom:4px;">${field.name} burns out</div>
+          <div style="font-size:10px;color:${LC.text};font-family:${LC.font};">
+            The Deadly injury becomes a Stun injury. The forcefield gives no further Protection.</div>
+        `),
+        speaker: { alias: "STA2e Toolkit" },
+      });
+      const stunName = CombatHUD._groundInjuryName(payload.weaponName, true, potency, severity);
+      return CombatHUD._executeInjuryResolution("take", {
+        ...payload, useStun: true, injuryName: stunName, _attackAnimationPlayed: true,
+      }, messageId);
+    }
+
     const profile = CombatHUD.getGroundCombatProfile(actor, tokenDoc);
     const resolvedNpcType = npcType ?? profile.npcType ?? "minor";
     const resolvedIsPlayerOwned = typeof isPlayerOwned === "boolean"
@@ -16590,7 +16638,8 @@ export class CombatHUD {
     // the paths that reach the end normally still get exactly one shot, and
     // never allowed to throw: this now runs before the outcome resolves, so a
     // failed animation must not take the injury with it.
-    let attackAnimationPlayed = false;
+    // A sacrificed forcefield already showed the shot before it burnt out.
+    let attackAnimationPlayed = payload._attackAnimationPlayed === true;
     const playAttackAnimation = async () => {
       if (attackAnimationPlayed) return;
       attackAnimationPlayed = true;
@@ -16891,8 +16940,9 @@ export class CombatHUD {
       : profile.isPlayerOwned;
     const isMinorNpc = !resolvedIsPlayerOwned && resolvedNpcType !== "major" && resolvedNpcType !== "notable";
 
-    // Minor NPCs: apply directly, no avoidance choice
-    if (isMinorNpc) {
+    // Minor NPCs: apply directly, no avoidance choice — unless a working
+    // personal forcefield gives them one (sacrifice it for a Stun injury).
+    if (isMinorNpc && (useStun || !activePersonalShield(actor))) {
       await CombatHUD._executeInjuryResolution("take", payload, null);
       return;
     }

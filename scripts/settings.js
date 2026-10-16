@@ -1201,6 +1201,25 @@ export function registerSettings() {
     default: true,
   });
 
+  // A character's personal forcefield: raise/collapse when worn or taken off,
+  // the bubble cap when a ground weapon hits the wearer, a shatter when they go down.
+  game.settings.register("sta2e-toolkit", "personalShieldVFX", {
+    name:    "Personal Shield Effects",
+    hint:    "Plays a forcefield bloom when a personal shield is worn, a shield flash when the wearer is hit by a ground weapon, a collapse when it is taken off and a shatter when the wearer goes down.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+  });
+  game.settings.register("sta2e-toolkit", "personalShieldItems", {
+    name:    "Personal Shield Items",
+    hint:    "Comma-separated item names that count as a personal shield when marked Worn (case doesn't matter).",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "Personal Forcefield, Personal Shield",
+  });
+
   game.settings.register("sta2e-toolkit", "shieldBubbleStandoff", {
     name:    "STA2E.Settings.ShieldBubbleStandoff.Name",
     hint:    "STA2E.Settings.ShieldBubbleStandoff.Hint",
