@@ -19,6 +19,7 @@ import { lcarsChatCard } from "./chat-card-frame.js";
 import { getLcTokens } from "./lcars-theme.js";
 import {
   isDamageable, isGearDamaged, setGearDamaged, gearDamageWords, gearKind,
+  storedGearDamagePotency, setGearDamagePotency, gearDamageChanged, gearDamagePotencyChanged,
 } from "./gear-damage.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
@@ -58,11 +59,136 @@ export function postGearDamageCard(item, damaged, { reason = "" } = {}) {
 }
 
 /** Break or repair an item and announce it. False when nothing changed. */
-export async function toggleGearDamage(item, damaged, { reason = "" } = {}) {
+export async function toggleGearDamage(item, damaged, { reason = "", potency = 1 } = {}) {
   if (!isDamageable(item) || isGearDamaged(item) === !!damaged) return false;
-  const ok = await setGearDamaged(item, !!damaged);
+  const ok = await setGearDamaged(item, !!damaged, { potency });
   if (ok) postGearDamageCard(item, !!damaged, { reason });
   return ok;
+}
+
+// ── The negative trait ───────────────────────────────────────────────────────
+//
+// While an item is out of action its owner carries a trait — "Phaser Type-2
+// (Broken)" — whose potency is how badly it is broken: 1 to start, raised by
+// complications or, against a player character, by the GM spending Threat. It
+// is an ordinary toolkit trait (trait-service.js): a Difficulty effect that
+// scales with potency, offered in the roller like any other trait, and its
+// potency is the base Difficulty to repair the item.
+//
+// The ACTIVE GM is the single writer (`registerGearDamageTraits`): it follows
+// the item's damaged and potency flags from the `updateItem` hook, so every
+// way of breaking something — the Toolkit HUD, a complication, a malfunction
+// confirmed by a player — gets its trait without needing trait permissions.
+// The trait carries `gearTraitFor` (the item id) to find it again; editing the
+// trait's quantity on the sheet is copied back to the item.
+
+const GEAR_TRAIT_FLAG = "gearTraitFor";
+
+/** The trait standing for a damaged item, on the same actor, or null. */
+export function gearTraitFor(item) {
+  const actor = item?.parent;
+  if (!actor?.items || !item?.id) return null;
+  return actor.items.find(t => t.type === "trait" && t.getFlag?.("sta2e-toolkit", GEAR_TRAIT_FLAG) === item.id) ?? null;
+}
+
+/** How badly an item is broken: its trait's potency, else the stored value. 0 when working. */
+export function gearDamagePotency(item) {
+  if (!isGearDamaged(item)) return 0;
+  const trait = gearTraitFor(item);
+  const q = Number(trait?.system?.quantity);
+  return Number.isFinite(q) && q >= 1 ? Math.trunc(q) : storedGearDamagePotency(item);
+}
+
+function _gearTraitName(item) {
+  return `${item.name} (${gearDamageWords(item).state})`;
+}
+
+/** Bring an item's trait in line with its damaged state and potency. Active GM only. */
+async function _syncGearTrait(item) {
+  const actor = item?.parent;
+  if (!actor || !isDamageable(item)) return;
+  const trait = gearTraitFor(item);
+  const svc = await import("./trait-service.js");
+  if (!isGearDamaged(item)) {
+    if (trait) await actor.deleteEmbeddedDocuments("Item", [trait.id]);
+    return;
+  }
+  const potency = storedGearDamagePotency(item);
+  if (trait) {
+    if (Number(trait.system?.quantity) !== potency) await svc.updateActorTraitItem(actor, trait.id, { quantity: potency });
+    return;
+  }
+  const words = gearDamageWords(item);
+  const created = await svc.createActorTrait(actor, {
+    name: _gearTraitName(item),
+    img: item.img,
+    quantity: potency,
+    description: `<p>${_esc(item.name)} is ${words.state.toLowerCase()}. The potency of this trait is the Difficulty to ${words.fix.toLowerCase()} it, and it hinders tasks that would rely on it.</p>`,
+    automation: {
+      duration: "persistent",
+      sourceTags: ["gear-damage"],
+      effects: [{
+        type: "difficulty",
+        label: `${item.name} ${words.state.toLowerCase()}`,
+        value: 1,
+        difficultyDirection: "increase",
+        scalesWithQuantity: true,
+        alwaysOn: false,
+      }],
+    },
+  });
+  await created?.setFlag?.("sta2e-toolkit", GEAR_TRAIT_FLAG, item.id);
+}
+
+/**
+ * Raise a damaged item's potency by one. Against a player character it costs
+ * the GM 1 Threat; an NPC's gear is the GM's own to make worse.
+ */
+export async function raiseGearDamagePotency(item) {
+  if (!isGearDamaged(item)) return false;
+  const current = gearDamagePotency(item);
+  if (current >= 5) { ui.notifications.info(`${item.name} is already at potency 5.`); return false; }
+  if (item.parent?.hasPlayerOwner) {
+    const { readPool, adjustPool } = await import("./pool-service.js");
+    const threat = Number(readPool("threat")) || 0;
+    if (threat < 1) { ui.notifications.warn("No Threat to spend."); return false; }
+    await adjustPool("threat", -1, { source: "toolkit" });
+  }
+  return setGearDamagePotency(item, current + 1);
+}
+
+let _traitsRegistered = false;
+
+/** The active GM keeps each damaged item's trait in step. Call once at init. */
+export function registerGearDamageTraits() {
+  if (_traitsRegistered) return;
+  _traitsRegistered = true;
+  const activeGm = async () => {
+    try { return (await import("./gm-authority.js")).isActiveGM(); } catch { return game.user.isGM; }
+  };
+  Hooks.on("updateItem", async (item, changes) => {
+    // The trait's own quantity edited on the sheet: copy it back to the item.
+    if (item.type === "trait") {
+      const forId = item.getFlag?.("sta2e-toolkit", GEAR_TRAIT_FLAG);
+      if (!forId || foundry.utils.getProperty(changes, "system.quantity") === undefined) return;
+      if (!(await activeGm())) return;
+      const gear = item.parent?.items?.get(forId);
+      const q = Math.max(1, Math.trunc(Number(item.system?.quantity)) || 1);
+      if (gear && isGearDamaged(gear) && storedGearDamagePotency(gear) !== Math.min(5, q)) await setGearDamagePotency(gear, q);
+      return;
+    }
+    if (!gearDamageChanged(changes) && !gearDamagePotencyChanged(changes)) return;
+    if (!(await activeGm())) return;
+    try { await _syncGearTrait(item); }
+    catch (err) { console.warn("STA2e Toolkit | Gear damage trait sync failed:", err); }
+  });
+  // The item itself deleted: its trait goes with it.
+  Hooks.on("deleteItem", async (item) => {
+    if (!isDamageable(item) || !(await activeGm())) return;
+    const actor = item.parent;
+    const trait = actor?.items?.find(t => t.type === "trait" && t.getFlag?.("sta2e-toolkit", GEAR_TRAIT_FLAG) === item.id);
+    if (trait) await actor.deleteEmbeddedDocuments("Item", [trait.id]).catch(() => {});
+  });
 }
 
 /**
@@ -100,7 +226,7 @@ export function damageableGear(actor) {
  * Pick one of an actor's working items and put it out of action — a
  * complication's consequence. Resolves to the item, or null if cancelled.
  */
-export async function openBreakGearDialog(actor, { reason = "Complication" } = {}) {
+export async function openBreakGearDialog(actor, { reason = "Complication", complications = 1 } = {}) {
   const items = damageableGear(actor).filter(i => !isGearDamaged(i));
   if (!items.length) {
     ui.notifications.info(`${actor?.name ?? "That character"} has no working gear to break.`);
@@ -114,21 +240,50 @@ export async function openBreakGearDialog(actor, { reason = "Complication" } = {
       <span class="sta2e-gear-pick-name">${_esc(item.name)}</span>
       <span class="sta2e-gear-pick-kind">${kindLabel[gearKind(item)] ?? ""} → ${gearDamageWords(item).state}</span>
     </label>`).join("");
-  const id = await foundry.applications.api.DialogV2.wait({
+  // Potency: 1 for the complication that broke it, plus one per further
+  // complication spent on it — and, against a player character, the GM may
+  // add more by spending Threat.
+  const maxComp = Math.max(1, Math.min(5, Math.trunc(Number(complications)) || 1));
+  const isPc = !!actor.hasPlayerOwner;
+  let threat = 0;
+  if (isPc) { try { threat = Number((await import("./pool-service.js")).readPool("threat")) || 0; } catch { /* none */ } }
+  const potencyRow = `
+    <div class="sta2e-gear-potency">
+      <label>Complications spent <input type="number" name="sta2e-gear-comp" min="1" max="${maxComp}" value="1"></label>
+      ${isPc ? `<label>+ Threat <input type="number" name="sta2e-gear-threat" min="0" max="${Math.min(4, threat)}" value="0"></label>
+        <span class="sta2e-gear-pick-kind">(${threat} in the pool)</span>` : ""}
+      <p class="sta2e-gear-pick-kind" style="margin:4px 0 0;">Each adds 1 potency to the item's broken trait (max 5) — the Difficulty to repair it.</p>
+    </div>`;
+  const choice = await foundry.applications.api.DialogV2.wait({
     window: { title: `${actor.name} — Break Gear` },
     content: `<div class="sta2e-gear-pick-list">
-      <p style="font-size:11px;margin:0 0 6px;">Which item does the complication put out of action?</p>${rows}</div>`,
+      <p style="font-size:11px;margin:0 0 6px;">Which item does the complication put out of action?</p>${rows}${potencyRow}</div>`,
     buttons: [
       {
         action: "break", label: "Break It", icon: "fas fa-screwdriver-wrench", default: true,
-        callback: (_e, _b, dlg) => dlg.element.querySelector("input[name=sta2e-gear-pick]:checked")?.value ?? null,
+        callback: (_e, _b, dlg) => {
+          const el = dlg.element;
+          return {
+            id:     el.querySelector("input[name=sta2e-gear-pick]:checked")?.value ?? null,
+            comp:   Math.max(1, Math.min(maxComp, parseInt(el.querySelector("input[name=sta2e-gear-comp]")?.value, 10) || 1)),
+            threat: isPc ? Math.max(0, Math.min(threat, 4, parseInt(el.querySelector("input[name=sta2e-gear-threat]")?.value, 10) || 0)) : 0,
+          };
+        },
       },
       { action: "cancel", label: "Cancel", icon: "fas fa-times" },
     ],
   }).catch(() => null);
-  const item = id && id !== "cancel" ? actor.items.get(id) : null;
+  const item = choice?.id ? actor.items.get(choice.id) : null;
   if (!item) return null;
-  await toggleGearDamage(item, true, { reason });
+  if (choice.threat > 0) {
+    const { adjustPool } = await import("./pool-service.js");
+    await adjustPool("threat", -choice.threat, { source: "toolkit" });
+  }
+  const potency = Math.min(5, choice.comp + choice.threat);
+  await toggleGearDamage(item, true, {
+    reason: `${reason}, potency ${potency}${choice.threat ? ` (${choice.threat} Threat)` : ""}`,
+    potency,
+  });
   return item;
 }
 
@@ -175,7 +330,7 @@ export function registerGearDamageCardButton() {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openBreakGearDialog(actor, { reason: "complication" });
+      openBreakGearDialog(actor, { reason: "complication", complications: total });
     });
     row.appendChild(btn);
     root.appendChild(row);
@@ -223,7 +378,7 @@ function _repairCardHtml(item, { resolution = "", offer = null, note = "" } = {}
     <div style="font-size:12px;font-weight:700;color:${LC.textBright};font-family:${LC.font};margin-bottom:3px;">${_esc(owner)}</div>
     <div style="font-size:11px;color:${LC.text};font-family:${LC.font};">
       Wants to ${words.fix.toLowerCase()} <strong>${_esc(item.name)}</strong>
-      <span style="color:${LC.red};">(${words.state.toLowerCase()})</span>.</div>
+      <span style="color:${LC.red};">(${words.state.toLowerCase()}${gearDamagePotency(item) ? `, potency ${gearDamagePotency(item)}` : ""})</span>.</div>
     ${resolution
       ? `<div class="sta2e-repair-resolved" style="font-size:10px;color:${LC.green};font-family:${LC.font};margin-top:4px;">${resolution}</div>`
       : offer
@@ -390,7 +545,7 @@ async function _wireRepairRequest(message, html) {
     <div class="sta2e-repair-row">
       ${_select("attr", REPAIR_ATTRS, "control")}
       ${_select("disc", REPAIR_DISCS, defDisc)}
-      <label style="color:${LC.text};">Diff <input type="number" data-repair="diff" min="0" max="5" value="1" style="${_fieldStyle()}"></label>
+      <label style="color:${LC.text};" data-tooltip="Starts at the broken trait's potency">Diff <input type="number" data-repair="diff" min="0" max="5" value="${Math.max(1, gearDamagePotency(item))}" style="${_fieldStyle()}"></label>
     </div>
     <div class="sta2e-repair-row">
       <button type="button" data-repair-act="roll" style="${_keyStyle(LC.primary)}"><i class="fas fa-dice-d20"></i> Require Roll</button>

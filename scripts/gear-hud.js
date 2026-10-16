@@ -7,7 +7,9 @@
  *   - wearables: the row itself toggles Worn (appearance.js `setWorn`, the same
  *     flag the sheet's shirt key writes);
  *   - every row: a key that marks the item damaged / broken / burnt out, or
- *     repairs it (gear-damage-ui.js).
+ *     repairs it (gear-damage-ui.js);
+ *   - a damaged row: a + key that raises its broken trait's potency by one —
+ *     1 Threat against a player character, free on an NPC.
  *
  * It used to be a view of the Appearance button; it moved here because breaking
  * and repairing gear is a GM call. Players still put their own gear on and take
@@ -18,7 +20,7 @@ import { buildHudItem } from "./token-hud-util.js";
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
 import { isGearDamaged, gearDamageWords } from "./gear-damage.js";
-import { buildGearDamageKey } from "./gear-damage-ui.js";
+import { buildGearDamageKey, gearDamagePotency, raiseGearDamagePotency } from "./gear-damage-ui.js";
 
 function _wearables(token) {
   return (token?.actor?.items?.contents ?? []).filter(i => WEARABLE_TYPES.has(i.type));
@@ -28,16 +30,35 @@ function _weapons(token) {
   return (token?.actor?.items?.contents ?? []).filter(i => i.type === "characterweapon2e");
 }
 
+/** The + key on a damaged row: one more potency on its broken trait. */
+function _raiseKey(item, onDone) {
+  const pc = !!item.parent?.hasPlayerOwner;
+  const key = document.createElement("button");
+  key.type = "button";
+  key.className = "sta2e-gear-dmg-key";
+  key.dataset.tooltip = `Potency ${gearDamagePotency(item)} — raise by 1${pc ? " (1 Threat)" : ""}`;
+  key.innerHTML = `<i class="fas fa-plus"></i>`;
+  key.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await raiseGearDamagePotency(item);
+    onDone?.();
+  });
+  return key;
+}
+
 function _buildRows(host) {
   const rebuild = () => host.rebuild(null);
   const row = (main, item) => {
     const wrap = document.createElement("div");
     wrap.className = "sta2e-gear-row";
     if (isGearDamaged(item)) wrap.classList.add("is-damaged");
-    wrap.append(main, buildGearDamageKey(item, rebuild));
+    if (isGearDamaged(item)) wrap.append(main, _raiseKey(item, rebuild), buildGearDamageKey(item, rebuild));
+    else wrap.append(main, buildGearDamageKey(item, rebuild));
     return wrap;
   };
-  const stateNote = (item) => isGearDamaged(item) ? ` (${gearDamageWords(item).state})` : "";
+  const stateNote = (item) => isGearDamaged(item)
+    ? ` (${gearDamageWords(item).state} ${gearDamagePotency(item)})` : "";
 
   const rows = [];
   for (const item of _wearables(host.token)) {

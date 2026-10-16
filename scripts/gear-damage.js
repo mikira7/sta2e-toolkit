@@ -22,6 +22,21 @@
 
 const MODULE = "sta2e-toolkit";
 export const DAMAGED_FLAG = "gearDamaged";
+/**
+ * How badly it is broken: the potency of the negative trait the active GM keeps
+ * on the character while the item is out of action (gear-damage-ui.js), and the
+ * base Difficulty to repair it. Starts at 1; complications and (against a
+ * player character) Threat raise it.
+ */
+export const POTENCY_FLAG = "gearDamagePotency";
+
+const _potency = (v) => Math.max(1, Math.min(5, Math.trunc(Number(v)) || 1));
+
+/** The stored potency of a damaged item (1–5), or 0 for a working one. */
+export function storedGearDamagePotency(item) {
+  if (!isGearDamaged(item)) return 0;
+  try { return _potency(item.getFlag(MODULE, POTENCY_FLAG) ?? 1); } catch { return 1; }
+}
 const LEGACY_FLAGS = ["forcefieldBurntOut"];
 
 /** Item types this state applies to. Ship weapons keep their own breach system. */
@@ -72,17 +87,23 @@ export function gearDamageWords(item) {
  * the legacy forcefield flag. Returns false (with a warning) when this user
  * cannot write the item — a player marking an NPC's gear goes through the GM.
  */
-export async function setGearDamaged(item, damaged) {
+export async function setGearDamaged(item, damaged, { potency = 1 } = {}) {
   if (!isDamageable(item)) return false;
   if (!item.isOwner) {
     ui.notifications?.warn?.(`STA2e Toolkit: you can't change ${item.name}.`);
     return false;
   }
   if (damaged) {
-    await item.setFlag(MODULE, DAMAGED_FLAG, true);
+    await item.update({
+      [`flags.${MODULE}.${DAMAGED_FLAG}`]: true,
+      [`flags.${MODULE}.${POTENCY_FLAG}`]: _potency(potency),
+    });
     return true;
   }
-  const updates = { [`flags.${MODULE}.-=${DAMAGED_FLAG}`]: null };
+  const updates = {
+    [`flags.${MODULE}.-=${DAMAGED_FLAG}`]: null,
+    [`flags.${MODULE}.-=${POTENCY_FLAG}`]: null,
+  };
   for (const f of LEGACY_FLAGS) {
     try { if (item.getFlag(MODULE, f) !== undefined) updates[`flags.${MODULE}.-=${f}`] = null; } catch { /* none */ }
   }
@@ -94,6 +115,13 @@ export async function setGearDamaged(item, damaged) {
  * Did this item update change the damaged state? Both spellings, as for any
  * flag: `setFlag` puts the key in the diff, an unset sends `-=key`.
  */
+/** Change a damaged item's potency (clamped 1–5). */
+export async function setGearDamagePotency(item, potency) {
+  if (!isGearDamaged(item) || !item.isOwner) return false;
+  await item.setFlag(MODULE, POTENCY_FLAG, _potency(potency));
+  return true;
+}
+
 export function gearDamageChanged(changes) {
   const get = foundry.utils.getProperty;
   for (const f of [DAMAGED_FLAG, ...LEGACY_FLAGS]) {
@@ -101,6 +129,12 @@ export function gearDamageChanged(changes) {
     if (get(changes, `flags.${MODULE}.-=${f}`) !== undefined) return true;
   }
   return false;
+}
+
+/** Did this update change a damaged item's potency (not its state)? */
+export function gearDamagePotencyChanged(changes) {
+  const get = foundry.utils.getProperty;
+  return get(changes, `flags.${MODULE}.${POTENCY_FLAG}`) !== undefined;
 }
 
 /**

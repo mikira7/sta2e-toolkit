@@ -10,7 +10,8 @@ globalThis.ui = { notifications: { warn: (m) => warnings.push(m) } };
 globalThis.game = { settings: { get: () => 'Personal Forcefield, Personal Shield' } };
 globalThis.foundry = { utils: { getProperty: (o, k) => k.split('.').reduce((v, p) => v?.[p], o) } };
 
-const { isDamageable, isGearDamaged, gearKind, gearDamageWords, assertWeaponUsable, gearDamageChanged, setGearDamaged } =
+const { isDamageable, isGearDamaged, gearKind, gearDamageWords, assertWeaponUsable, gearDamageChanged, setGearDamaged,
+  storedGearDamagePotency, setGearDamagePotency, gearDamagePotencyChanged } =
   await import('../scripts/gear-damage.js');
 
 function item(type, name, flags = {}) {
@@ -19,7 +20,12 @@ function item(type, name, flags = {}) {
     type, name, isOwner: true,
     getFlag: (_m, k) => store[k],
     setFlag: async (_m, k, v) => { store[k] = v; },
-    update: async (u) => { for (const k of Object.keys(u)) if (k.includes('-=')) delete store[k.split('-=')[1]]; },
+    update: async (u) => {
+      for (const [k, v] of Object.entries(u)) {
+        if (k.includes('-=')) delete store[k.split('-=')[1]];
+        else store[k.split('.').pop()] = v;
+      }
+    },
     _store: store,
   };
 }
@@ -70,6 +76,25 @@ await check('change detection sees both set and unset spellings', () => {
   assert.equal(gearDamageChanged({ flags: { 'sta2e-toolkit': { '-=gearDamaged': null } } }), true);
   assert.equal(gearDamageChanged({ flags: { 'sta2e-toolkit': { '-=forcefieldBurntOut': null } } }), true);
   assert.equal(gearDamageChanged({ name: 'x' }), false);
+});
+
+await check('potency: set with the damage, clamped 1-5, cleared on repair; 0 when working', async () => {
+  const w = item('characterweapon2e', 'Phaser');
+  assert.equal(storedGearDamagePotency(w), 0);
+  await setGearDamaged(w, true, { potency: 3 });
+  assert.equal(storedGearDamagePotency(w), 3);
+  await setGearDamagePotency(w, 9);
+  assert.equal(storedGearDamagePotency(w), 5);
+  await setGearDamaged(w, false);
+  assert.equal(w._store.gearDamagePotency, undefined);
+  await setGearDamaged(w, true);
+  assert.equal(storedGearDamagePotency(w), 1);
+});
+
+await check('potency changes are told apart from state changes', () => {
+  const c = { flags: { 'sta2e-toolkit': { gearDamagePotency: 2 } } };
+  assert.equal(gearDamagePotencyChanged(c), true);
+  assert.equal(gearDamageChanged(c), false);
 });
 
 let failed = 0;
