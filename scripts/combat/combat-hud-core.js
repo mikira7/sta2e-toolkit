@@ -3954,12 +3954,18 @@ export class CombatHUD {
     if (!actor) return 0;
     let total = 0;
     let hasBraklul = false;
+    // World setting: only armour marked Worn (the Appearances Wear toggle,
+    // item flag `worn`) protects. The system's `equipped` defaults to true and
+    // no sheet shows it, so it cannot stand in for this.
+    let wornOnly = false;
+    try { wornOnly = game.settings.get("sta2e-toolkit", "armorProtectionWornOnly") === true; } catch { /* unregistered */ }
 
     for (const item of actor.items ?? []) {
       // Armor / equipment
       if (item.type === "armor" || item.type === "equipment") {
         const equipped = item.system?.equipped ?? true;
         if (!equipped) continue;
+        if (wornOnly && item.getFlag?.("sta2e-toolkit", "worn") !== true) continue;
         const prot = Number(item.system?.protection ?? item.system?.Protection ?? 0);
         if (!isNaN(prot)) total += prot;
       }

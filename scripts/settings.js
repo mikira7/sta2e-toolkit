@@ -78,6 +78,14 @@ export function registerSettings() {
     default: "portrait, bust, profile",
   });
 
+  game.settings.register("sta2e-toolkit", "armorProtectionWornOnly", {
+    name:    "Appearances: Only Worn Armour Protects",
+    hint:    "When on, damage counts Protection only from armour marked Worn (the shirt toggle on the sheet or the Token HUD). When off, every armour item on the character counts. Applies to every actor — NPC armour must be marked Worn too.",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+  });
   game.settings.register("sta2e-toolkit", "mimicAccess", {
     name:    "Appearances: Who Can Use Mimic",
     hint:    "Mimic copies another token's look and name onto a token (changelings, shapeshifters). The GM can always use it.",

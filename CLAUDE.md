@@ -174,6 +174,10 @@ picker.
 - **Worn is the item flag `worn`, not the system's `ArmorData.equipped`** — that
   defaults to `true`, no sheet shows it and nothing reads it, so carried armour
   would always count. Item rules match by trimmed, case-insensitive **name**.
+  The world setting `armorProtectionWornOnly` (off by default) makes damage
+  read the same flag: `CombatHUD._getTargetProtection`, the single place every
+  ground damage path sums armour, then skips armour not marked worn — for every
+  actor, NPCs included.
 - **Rules re-evaluate on the active GM only**, off `create/update/deleteActiveEffect`,
   `updateToken` (toolkit `conditions`/`defenseMode`), `updateItem` (worn or name),
   `create/deleteItem` and library edits. `settle()` is the single writer and is
