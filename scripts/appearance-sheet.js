@@ -20,7 +20,7 @@ import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
 import { openAppearanceManager } from "./appearance-manager.js";
 import { isDamageable, isGearDamaged, gearDamageWords } from "./gear-damage.js";
-import { toggleGearDamage } from "./gear-damage-ui.js";
+import { requestGearRepair } from "./gear-damage-ui.js";
 
 const SHEET_HOOKS = [
   "renderSTACharacterSheet2e",
@@ -65,7 +65,9 @@ function _injectWear(app, html) {
 
 /**
  * A red key on every damaged / broken / burnt-out row — armour, gear and
- * character weapons — that repairs it. Undamaged rows get nothing; breaking
+ * character weapons. Clicking it does not repair outright: it sends the GM a
+ * repair request card (repair free, require a roll, or charge Momentum /
+ * Threat — gear-damage-ui.js). Undamaged rows get nothing; breaking
  * something is done from the GM toolkit menu's Gear section or a complication.
  */
 function _injectDamaged(actor, root) {
@@ -78,13 +80,13 @@ function _injectDamaged(actor, root) {
     const key = document.createElement("a");
     key.className = `sta2e-gear-dmg${editable ? "" : " is-locked"}`;
     key.dataset.tooltip = editable
-      ? `${words.state} — click to ${words.fix.toLowerCase()}`
+      ? `${words.state} — click to ask the GM to ${words.fix.toLowerCase()} it`
       : words.state;
     key.innerHTML = `<i class="${words.icon}"></i>`;
     key.addEventListener("click", async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if (editable) await toggleGearDamage(item, false);
+      if (editable) await requestGearRepair(item);
     });
     row.classList.add("sta2e-gear-row-damaged");
     const control = row.querySelector(".control");

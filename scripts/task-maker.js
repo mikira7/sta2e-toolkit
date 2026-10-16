@@ -12,6 +12,7 @@ import { decrementTracker } from "./momentum-tracker.js";
 import { readTrackerState } from "./momentum-spend.js";
 import { openNpcRoller } from "./npc-roller.js";
 import { adjustPool, readPool } from "./pool-service.js";
+import { completeGearRepairFromTask } from "./gear-damage-ui.js";
 import { getActorTraitRecords, getSceneTraitRecords, traitDescriptionText, traitSpendPool } from "./trait-service.js";
 
 const MODULE = "sta2e-toolkit";
@@ -1573,6 +1574,8 @@ export async function postTaskRequestCard(snapshot) {
     noShipAssist: !!snapshot.noShipAssist,
     ignoreBreachPenalty: !!snapshot.ignoreBreachPenalty,
     reactorAction: snapshot.reactorAction ?? null,
+    // A repair request (gear-damage-ui.js): a passed roll repairs this item.
+    gearRepair: snapshot.gearRepair ?? null,
     extendedTask: extendedSnapshot ? {
       actorId: extendedSnapshot.actorId,
       actorName: extendedSnapshot.actorName,
@@ -2805,7 +2808,9 @@ function launchTaskRoller(taskData) {
           if (result?.passed) return dispatchReactorActionSuccess(taskData, result, { kind: "taskSuccess" });
           return null;
         }
-        : null,
+        : taskData.gearRepair
+          ? result => (result?.passed ? completeGearRepairFromTask(taskData.gearRepair, result) : null)
+          : null,
     extendedTaskContext: taskData.mode === "extended"
       ? {
         actorId: taskData.extendedTask?.actorId ?? null,

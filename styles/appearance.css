@@ -1015,3 +1015,11 @@
 .sta2e-ap-hud-note.is-store:hover { border-style: solid; background: rgba(204, 153, 204, 0.15); }
 .sta2e-ap-hud-note.is-stored { background: rgba(102, 204, 102, 0.12); color: #9fdc9f; }
 .sta2e-ap-badge.is-mimic { color: #cc99cc; }
+
+/* Repair request card (gear-damage-ui.js) — the GM controls added at render. */
+.sta2e-repair-controls { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+.sta2e-repair-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.sta2e-repair-row button { flex: 1 1 auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.sta2e-repair-row select { flex: 1 1 70px; min-width: 0; font-size: 10px; height: 22px; }
+.sta2e-repair-row label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; }
+.sta2e-repair-row input[type="number"] { width: 38px; height: 22px; font-size: 10px; }
