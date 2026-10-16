@@ -452,6 +452,24 @@ await check('versions: two rules sharing one look keep their own versions, inclu
   assert.equal(old.texture.src, 't/dress-dead.webp');
 });
 
+await check('versions: a Token Maker version brings its own ring and keeps its recipe', () => {
+  const l = normalizeLibrary({
+    looks: [
+      { id: 'a', token: 't/a.webp', ring: { enabled: true, ringColor: '#00ff00' },
+        versions: [{ kind: 'status', match: 'dead', portrait: 'p/a-dead.webp', token: 't/a-dead_token.webp',
+          ring: { enabled: false }, maker: { src: 'p/a-dead.webp', zoom: 1.2 } }] },
+      { id: 'dead', token: 't/dead.webp' },
+    ],
+    rules: [{ kind: 'status', match: 'dead', lookId: 'dead' }],
+  });
+  assert.deepEqual(l.looks[0].versions[0].maker, { src: 'p/a-dead.webp', zoom: 1.2 });
+  const r = composeAppearance({ library: l, state: normalizeState({ lookId: 'a' }), rule: l.rules[0], current: vcur });
+  assert.equal(r.visual.token, 't/a-dead_token.webp');
+  assert.equal(r.visual.ring.enabled, false);
+  // Without a ring of its own, the version wears the look's.
+  assert.equal(vlib.looks[0].versions[0].ring, null);
+});
+
 await check('versions: findVersion matches item rules by name key', () => {
   assert.equal(findVersion(vlib.looks[0], { kind: 'item', match: '  ev SUIT ' })?.token, 't/dress-ev.webp');
   assert.equal(findVersion(vlib.looks[1], vrule('status', 'dead')), null);

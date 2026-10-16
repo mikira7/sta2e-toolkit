@@ -191,7 +191,10 @@ picker.
   worn look — on the Original when no look and no mimic is on — it takes the
   rule look's place in the rule layer. An empty slot falls back to the rule's
   look; scale, ring and token name come from the layers beneath, since a version
-  is drawn for its own look's framing; and its portrait shows even when the rule
+  is drawn for its own look's framing — except a token made in the Token Maker
+  (the version's wand key, sourced from the version's portrait and opened on the
+  look's ring), which keeps the maker's `ring` and `maker` recipe with its art so
+  a baked frame never sits inside the look's dynamic ring; and its portrait shows even when the rule
   leaves portraits alone. The rule's look stays required: it is the fallback for
   every look without a version. State stores `ruleKey` beside `ruleLookId`
   because two rules may share one look and still carry different versions —

@@ -13,7 +13,8 @@
  *       randomize, defaultLookId, baseVersions,
  *       rules: [{kind: "status"|"item", match, lookId, portrait}] }
  *   `versions` (and `baseVersions`, the Original's) are a look's own art for a
- *   rule — `{kind, match, token, portrait}`, keyed to the rule by `ruleKey` —
+ *   rule — `{kind, match, token, portrait, ring, maker}`, keyed to the rule by
+ *   `ruleKey`; `ring`/`maker` only when the Token Maker made the token —
  *   so a look can have its own "dead" or "EV suit" form. The rule's look is the
  *   fallback for a look with none, and for a version's empty slot.
  *
@@ -119,6 +120,10 @@ export function normalizeVersion(raw) {
     match:    str(raw.match),
     token:    str(raw.token),
     portrait: str(raw.portrait),
+    // Set only when the Token Maker made the token: a baked frame needs the
+    // look's dynamic ring switched off, so the ring belongs with the art.
+    ring:     normalizeRing(raw.ring),
+    maker:    _maker(raw.maker),
   };
   return v.match && (v.token || v.portrait) ? v : null;
 }
@@ -336,7 +341,7 @@ export function composeAppearance({ library, state, rule, current }) {
         token:     version.token || ruleLook.token,
         portrait:  version.portrait || (rule.portrait === false ? "" : ruleLook.portrait),
         scale:     null,
-        ring:      null,
+        ring:      version.token ? version.ring : null,
         tokenName: "",
       }
     : ruleLook;

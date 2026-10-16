@@ -370,17 +370,25 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     const fbPath = fallback?.[slot] && (slot === "token" || rule.portrait) ? fallback[slot] : "";
     const isToken = slot === "token";
     const fbName = fallback?.name || "the rule's look";
+    // The Token Maker can build this version's token from its portrait.
+    const canMake = isToken && !!(version?.maker || version?.portrait);
+    const ring = isToken && path && version?.ring?.enabled
+      ? `<div class="sta2e-ap-stage-ring" style="--ap-a:${version.ring.ringColor ?? "var(--ap-primary)"}" data-tooltip="Dynamic ring"></div>` : "";
     const view = path
-      ? `<div class="sta2e-ap-stage-art">${_media(path)}</div>`
-      : fbPath
-        ? `<div class="sta2e-ap-stage-art is-fallback" data-tooltip="${_esc(`Empty — uses ${fbName}`)}">${_media(fbPath)}</div>`
-        : `<div class="sta2e-ap-stage-empty"><i class="fas fa-${isToken ? "circle-user" : "image-portrait"}"></i></div>`;
+      ? `<div class="sta2e-ap-stage-art">${_media(path)}</div>${ring}`
+      : canMake
+        ? `<div class="sta2e-ap-stage-empty"><i class="fas fa-wand-magic-sparkles"></i>
+             <button type="button" class="sta2e-ap-make" data-action="ap-maker">Make from portrait</button></div>`
+        : fbPath
+          ? `<div class="sta2e-ap-stage-art is-fallback" data-tooltip="${_esc(`Empty — uses ${fbName}`)}">${_media(fbPath)}</div>`
+          : `<div class="sta2e-ap-stage-empty"><i class="fas fa-${isToken ? "circle-user" : "image-portrait"}"></i></div>`;
     return `
       <figure class="sta2e-ap-stage is-${slot} ${path ? "has-art" : ""}" data-slot="${slot}" data-look="${owner.id}" data-version="${_esc(key)}">
         <div class="sta2e-ap-stage-view">${view}</div>
         <figcaption>
           <span>${isToken ? "Token" : "Portrait"}</span>
           <span class="sta2e-ap-stage-keys">
+            ${isToken ? `<button type="button" data-action="ap-maker" ${canMake ? "" : "disabled"} data-tooltip="${version?.maker ? "Edit in the Token Maker" : canMake ? "Token Maker — make this token from this version's portrait" : "Give this version a portrait first, then make its token from it"}"><i class="fas fa-wand-magic-sparkles"></i></button>` : ""}
             ${isConvertible(path) ? `<button type="button" data-action="ap-webp" data-tooltip="Convert to WebP"><i class="fas fa-file-zipper"></i></button>` : ""}
             <button type="button" data-action="ap-browse" data-tooltip="Art library"><i class="fas fa-images"></i></button>
             <button type="button" data-action="ap-file" data-tooltip="File picker"><i class="fas fa-folder-open"></i></button>
@@ -772,6 +780,8 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
       case "ap-webp-all":    await this._convertToWebp(this._convertibleSlots()); break;
       case "ap-maker": {
         if (!look) break;
+        const versionKey = btn.closest("[data-version]")?.dataset.version;
+        if (versionKey) { await this._makeVersionToken(btn, versionKey); break; }
         const isBase = look.id === BASE_ID;
         const made = await openTokenMaker({
           source:   look.maker?.src || look.portrait || look.token,
@@ -850,6 +860,35 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     }
   }
 
+  /**
+   * Make a version's token from its portrait in the Token Maker. It opens on the
+   * look's own ring, so a version comes out framed like the look it belongs to;
+   * whatever ring the maker settles on is kept with the version's art.
+   */
+  async _makeVersionToken(btn, key) {
+    const ownerId = btn.closest("[data-look]")?.dataset.look;
+    const ownerOf = () => ownerId === BASE_ID ? this._base : this._lib.looks.find(l => l.id === ownerId);
+    const owner = ownerOf();
+    const version = owner ? this._version(owner, key) : null;
+    if (!version) return;
+    const rule = this._lib.rules.find(r => ruleKey(r) === key);
+    const ownerName = ownerId === BASE_ID ? this.actor.name : (owner.name || this.actor.name);
+    const made = await openTokenMaker({
+      source:   version.maker?.src || version.portrait,
+      recipe:   version.maker,
+      ring:     version.ring ?? owner.ring ?? null,
+      lookName: rule ? `${ownerName} ${this._ruleLabel(rule)}` : ownerName,
+      rank:     this.actor.system?.rank ?? "",
+    });
+    if (!made) return;
+    // Re-find by id and key rather than trusting references held across the await.
+    const fresh = ownerOf();
+    const target = fresh ? this._version(fresh, key) : null;
+    if (!target) return;
+    Object.assign(target, { token: made.token, ring: made.ring, maker: made.maker });
+    this._touch(true);
+  }
+
   _addLooks(list) {
     const known = new Set(this._lib.looks.flatMap(l => [l.token, l.portrait]).filter(Boolean));
     let added = 0;
@@ -920,7 +959,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
         if (r && !r.skipped) obj[slot] = r.path;
       }
       // A Token Maker recipe that started from a converted portrait follows it.
-      for (const obj of [this._base, ...this._lib.looks]) {
+      for (const obj of [this._base, ...this._lib.looks].flatMap(o => [o, ...(o.versions ?? [])])) {
         const r = obj.maker?.src ? cache.get(obj.maker.src) : null;
         if (r && !r.skipped) obj.maker.src = r.path;
       }
