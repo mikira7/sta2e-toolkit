@@ -24,7 +24,7 @@
 
 import {
   MODULE, LIBRARY_FLAG, STATE_FLAG, WORN_FLAG, WEARABLE_TYPES,
-  readLibrary, normalizeState, collectTriggers, matchRule, composeAppearance,
+  readLibrary, normalizeState, collectTriggers, matchRules, composeAppearance,
   sameVisual, visualUpdates, applyCreationAppearance, hasLooks, findLook, ringFromToken, normalizeMimic,
   actorTraitNames, mayMimic, parseKeywords, stateIsDressed, storeMimicInLibrary,
 } from "./appearance-data.js";
@@ -158,9 +158,9 @@ async function _settle(fig, lookId, mimic) {
   const state = { ...stored };
   if (lookId !== undefined) state.lookId = lookId || null;
   if (mimic !== undefined) state.mimic = normalizeMimic(mimic);
-  const rule = matchRule(library, _triggers(fig));
+  const { rule, gear } = matchRules(library, _triggers(fig));
   const current = _currentVisual(fig);
-  const { visual, state: next } = composeAppearance({ library, state, rule, current });
+  const { visual, state: next } = composeAppearance({ library, state, rule, gear, current });
 
   const stateChanged = JSON.stringify(next) !== JSON.stringify(stored);
   const visualChanged = visual && !sameVisual(visual, current);

@@ -178,7 +178,11 @@ picker.
   `updateToken` (toolkit `conditions`/`defenseMode`), `updateItem` (worn or name),
   `create/deleteItem` and library edits. `settle()` is the single writer and is
   serialised per figure. With no GM connected, `setWorn` settles locally.
-- **Composition is a stack of layers: rule → mimic → chosen look → baseline.**
+- **Composition is a stack of layers: condition rule → gear rule → mimic →
+  chosen look → baseline.** `matchRules` takes the first matching rule *of each
+  kind*, so a condition always shows over the gear rather than whichever is
+  listed first hiding the other (an EV suit used to mask Unconscious). Use it,
+  not `matchRule`, which is first-match-overall and kept for the tests.
   Each slot (art, portrait, scale, ring, token name) comes from the first layer
   that sets it. A look's `tokenName` renames the **token only** — the actor and
   its sheet keep their name — and the baseline remembers the token's own name so
@@ -198,7 +202,11 @@ picker.
   leaves portraits alone. The rule's look stays required: it is the fallback for
   every look without a version. State stores `ruleKey` beside `ruleLookId`
   because two rules may share one look and still carry different versions —
-  `_ruleFor` re-finds the rule by it when a token is created.
+  `_ruleFor` re-finds the rule by it when a token is created. **Under gear, a
+  condition's version comes from the gear's look** (the EV suit look's own
+  Unconscious version), falling back to the condition's look; the gear's own
+  version still comes from the chosen look. `gearKey` in state names the gear
+  under the condition, read back by `_gearFor`.
 - **Mimic (`applyMimic` / `endMimic`) is the changeling trick:** `captureMimic`
   copies another token as drawn right now — art, scale, ring, the portrait its
   sheet shows (`delta.img` for an unlinked one) and its token name — into

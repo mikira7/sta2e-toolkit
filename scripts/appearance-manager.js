@@ -547,7 +547,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     const incomplete = !rule.match || !target;
     return `
       <li class="sta2e-ap-rule ${incomplete ? "is-incomplete" : ""}" data-rule="${i}" style="--ap-a:${rule.kind === "item" ? "var(--ap-secondary)" : "var(--ap-tertiary)"}">
-        <div class="sta2e-ap-rule-prio" data-tooltip="Priority — the first matching rule wins">${i + 1}</div>
+        <div class="sta2e-ap-rule-prio" data-tooltip="Priority — the first matching rule of each kind wins">${i + 1}</div>
         <div class="sta2e-ap-rule-when">
           <span class="sta2e-ap-label">When</span>
           <div class="sta2e-ap-seg is-small">
@@ -586,7 +586,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
         <div class="sta2e-ap-toolbar">
           <button type="button" data-action="ap-add-rule" data-kind="item" class="is-primary" ${noLooks ? "disabled" : ""}><i class="fas fa-shirt"></i> Gear Rule</button>
           <button type="button" data-action="ap-add-rule" data-kind="status" class="is-primary" ${noLooks ? "disabled" : ""}><i class="fas fa-heart-pulse"></i> Condition Rule</button>
-          <span class="sta2e-ap-muted">Put gear on with the <i class="fas fa-shirt"></i> Wear toggle on the sheet or the Token HUD. The first matching rule wins.</span>
+          <span class="sta2e-ap-muted">Put gear on with the <i class="fas fa-shirt"></i> Wear toggle on the sheet or the Token HUD. Gear sets the outfit and a condition shows on top of it, using the outfit look's own version when it has one. Within each kind the first matching rule wins.</span>
         </div>
         ${lib.rules.length
           ? `<ol class="sta2e-ap-rule-list">${lib.rules.map((r, i) => this._ruleCard(r, i, lib.rules.length, items, statuses)).join("")}</ol>`

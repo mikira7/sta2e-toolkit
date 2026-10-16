@@ -170,7 +170,10 @@ function _looksView(host) {
     const ruled = lib.looks.find(l => l.id === st.ruleLookId);
     // The worn look's (or the Original's) own version of the rule, if it has one.
     const rule = st.ruleKey ? lib.rules.find(r => ruleKey(r) === st.ruleKey) : null;
-    const chosen = lib.looks.find(l => l.id === st.lookId);
+    // Under gear (an EV suit), the condition's version comes from the gear's look.
+    const gear = st.gearKey ? lib.rules.find(r => r.kind === "item" && ruleKey(r) === st.gearKey) : null;
+    const gearLook = gear ? lib.looks.find(l => l.id === gear.lookId) : null;
+    const chosen = gearLook ?? lib.looks.find(l => l.id === st.lookId);
     const owner = chosen ?? (st.mimic ? null : { name: "Original", versions: lib.baseVersions });
     const versioned = rule && owner && findVersion(owner, rule);
     const note = document.createElement("div");

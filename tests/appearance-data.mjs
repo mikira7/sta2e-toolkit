@@ -10,7 +10,7 @@ import {
   composeAppearance, visualUpdates, applyCreationAppearance, pairImages,
   classifyImage, looksFromVisage, nameKey, sameVisual, MODULE, STATE_FLAG,
   normalizeRing, ringUpdates, ringFromToken, normalizeLook, normalizeMimic, actorTraitNames, mayMimic, stateIsDressed,
-  storeMimicInLibrary, rebaseVisual, ruleKey, findVersion,
+  storeMimicInLibrary, rebaseVisual, ruleKey, findVersion, matchRules,
 } from '../scripts/appearance-data.js';
 
 const results = [];
@@ -468,6 +468,68 @@ await check('versions: a Token Maker version brings its own ring and keeps its r
   assert.equal(r.visual.ring.enabled, false);
   // Without a ring of its own, the version wears the look's.
   assert.equal(vlib.looks[0].versions[0].ring, null);
+});
+
+// ── Gear under a condition ───────────────────────────────────────────────────
+
+const glib = normalizeLibrary({
+  looks: [
+    { id: 'duty', token: 't/duty.webp', portrait: 'p/duty.webp' },
+    { id: 'ev', token: 't/ev.webp', portrait: 'p/ev.webp', scale: 1.2,
+      versions: [{ kind: 'status', match: 'unconscious', token: 't/ev-ko.webp' }] },
+    { id: 'ko', token: 't/ko.webp', portrait: 'p/ko.webp', scale: 0.8 },
+    { id: 'arm', token: 't/arm.webp' },
+  ],
+  // Gear listed first: before layering, it hid the condition entirely.
+  rules: [
+    { kind: 'item', match: 'EV Suit', lookId: 'ev' },
+    { kind: 'item', match: 'Armor', lookId: 'arm' },
+    { kind: 'status', match: 'unconscious', lookId: 'ko' },
+  ],
+});
+const ev = { name: 'EV Suit', type: 'item', worn: true };
+
+await check('gear: matchRules puts the condition on top of the gear whatever the order', () => {
+  const m = matchRules(glib, collectTriggers({ statuses: ['unconscious'], items: [ev] }));
+  assert.equal(m.rule.match, 'unconscious');
+  assert.equal(m.gear.match, 'EV Suit');
+  const only = matchRules(glib, collectTriggers({ items: [ev] }));
+  assert.equal(only.rule.match, 'EV Suit');
+  assert.equal(only.gear, null);
+  assert.deepEqual(matchRules(glib, collectTriggers({})), { rule: null, gear: null });
+});
+
+await check('gear: a condition over the EV suit shows the suit\'s own version', () => {
+  const m = matchRules(glib, collectTriggers({ statuses: ['unconscious'], items: [ev] }));
+  const r = composeAppearance({ library: glib, state: normalizeState({ lookId: 'duty' }), ...m, current: vcur });
+  assert.equal(r.visual.token, 't/ev-ko.webp');
+  assert.equal(r.visual.portrait, 'p/ko.webp', 'empty version portrait falls back to the condition look');
+  assert.equal(r.visual.scale, 1.2, 'framing comes from the suit');
+  assert.equal(r.state.ruleKey, 'status:unconscious');
+  assert.equal(r.state.gearKey, 'item:ev suit');
+});
+
+await check('gear: a suit with no version for the condition shows the condition look', () => {
+  const m = matchRules(glib, collectTriggers({ statuses: ['unconscious'], items: [{ name: 'Armor', type: 'armor', worn: true }] }));
+  const r = composeAppearance({ library: glib, state: normalizeState({ lookId: 'duty' }), ...m, current: vcur });
+  assert.equal(r.visual.token, 't/ko.webp');
+  assert.equal(r.visual.scale, 0.8);
+});
+
+await check('gear: waking up returns to the suit, taking it off to the pick', () => {
+  const ko = composeAppearance({ library: glib, state: normalizeState({ lookId: 'duty' }), ...matchRules(glib, collectTriggers({ statuses: ['unconscious'], items: [ev] })), current: vcur });
+  const awake = composeAppearance({ library: glib, state: ko.state, ...matchRules(glib, collectTriggers({ items: [ev] })), current: ko.visual });
+  assert.equal(awake.visual.token, 't/ev.webp');
+  assert.equal(awake.state.gearKey, null);
+  const off = composeAppearance({ library: glib, state: awake.state, ...matchRules(glib, collectTriggers({})), current: awake.visual });
+  assert.equal(off.visual.token, 't/duty.webp');
+});
+
+await check('gear: a linked token placed while knocked out in the suit keeps the suit\'s version', () => {
+  const ko = composeAppearance({ library: glib, state: normalizeState({ lookId: 'duty' }), ...matchRules(glib, collectTriggers({ statuses: ['unconscious'], items: [ev] })), current: vcur });
+  const data = { actorLink: true, texture: { src: 't/proto.webp' } };
+  applyCreationAppearance(data, glib, { actorState: ko.state });
+  assert.equal(data.texture.src, 't/ev-ko.webp');
 });
 
 await check('versions: findVersion matches item rules by name key', () => {

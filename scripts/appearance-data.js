@@ -19,9 +19,10 @@
  *   fallback for a look with none, and for a version's empty slot.
  *
  *   `appearanceState` — what this figure is wearing:
- *     { lookId, ruleLookId, ruleKey, mimic, baseline: {token, portrait, scale, ring, name} | null }
- *   `ruleKey` names the rule in force; `ruleLookId` alone cannot, since two
- *   rules may share one look and still carry different versions.
+ *     { lookId, ruleLookId, ruleKey, gearKey, mimic, baseline: {token, portrait, scale, ring, name} | null }
+ *   `ruleKey` names the rule on top; `ruleLookId` alone cannot, since two
+ *   rules may share one look and still carry different versions. `gearKey`
+ *   names the gear rule under a condition (an EV suit under Unconscious).
  *   `mimic` is another token's appearance copied wholesale (the changeling
  *   trick) — art, scale, ring, portrait and token name — or null.
  *   It lives on the TOKEN for an unlinked token and on the ACTOR for a linked
@@ -224,7 +225,8 @@ export function normalizeState(raw) {
     lookId:     str(r.lookId) || null,
     ruleLookId: str(r.ruleLookId) || null,
     ruleKey:    str(r.ruleKey) || null,
-    mimic:     normalizeMimic(r.mimic),
+    gearKey:    str(r.gearKey) || null,
+    mimic:    normalizeMimic(r.mimic),
     baseline:   b ? { token: str(b.token), portrait: str(b.portrait) || null, scale: _scale(b.scale), ring: normalizeRing(b.ring), name: str(b.name) || null } : null,
   };
 }
@@ -285,17 +287,59 @@ export function collectTriggers({ statuses = [], conditions = [], defenseMode = 
   return { status, worn };
 }
 
+/** True when `rule` is complete, points at a look that exists, and its trigger is on. */
+function _ruleHits(library, rule, triggers) {
+  if (!rule.match || !findLook(library, rule.lookId)) return false;
+  return rule.kind === "item"
+    ? triggers.worn.has(nameKey(rule.match))
+    : triggers.status.has(rule.match);
+}
+
 /** The first rule that both matches and points at a look that still exists. */
 export function matchRule(library, triggers) {
   if (!library || !triggers) return null;
-  for (const rule of library.rules) {
-    if (!rule.match || !findLook(library, rule.lookId)) continue;
-    const hit = rule.kind === "item"
-      ? triggers.worn.has(nameKey(rule.match))
-      : triggers.status.has(rule.match);
-    if (hit) return rule;
-  }
-  return null;
+  return library.rules.find(r => _ruleHits(library, r, triggers)) ?? null;
+}
+
+/**
+ * The rules in force, in the shape `composeAppearance` takes. Gear sets the
+ * outfit and a condition shows on top of it, so the two kinds are matched
+ * separately — the first matching condition rule and the first matching gear
+ * rule — rather than letting whichever is listed first hide the other. `rule`
+ * is the one on top (the condition when there is one), `gear` the outfit under
+ * it (null when gear is all there is).
+ */
+export function matchRules(library, triggers) {
+  if (!library || !triggers) return { rule: null, gear: null };
+  const hits = library.rules.filter(r => _ruleHits(library, r, triggers));
+  const status = hits.find(r => r.kind === "status") ?? null;
+  const gear   = hits.find(r => r.kind === "item") ?? null;
+  return status ? { rule: status, gear } : { rule: gear, gear: null };
+}
+
+/**
+ * The layer a rule contributes, and whether that layer may set the portrait.
+ * `owner`'s own version of the rule takes the rule look's place: its empty
+ * slots fall back to the rule's look; scale, ring and name come from the layers
+ * beneath, since a version is drawn for its owner's framing (except a ring the
+ * Token Maker made with the version's token). Its portrait is explicit, so it
+ * shows even when the rule leaves the portrait alone.
+ */
+function _ruleLayer(library, rule, owner) {
+  const look = rule ? findLook(library, rule.lookId) : null;
+  if (!look) return null;
+  const version = findVersion(owner, rule);
+  if (!version) return { layer: look, portrait: rule.portrait !== false };
+  return {
+    layer: {
+      token:     version.token || look.token,
+      portrait:  version.portrait || (rule.portrait === false ? "" : look.portrait),
+      scale:     null,
+      ring:      version.token ? version.ring : null,
+      tokenName: "",
+    },
+    portrait: true,
+  };
 }
 
 // ── Composition ──────────────────────────────────────────────────────────────
@@ -303,51 +347,48 @@ export function matchRule(library, triggers) {
 /**
  * The art a figure should show, and the state that produces it.
  *
- * Precedence: a matching rule, then a mimic, then the chosen look, then the
- * baseline. Each slot (art, portrait, scale, ring, token name) is taken from the
- * first layer that sets it, and falls back to the baseline — so switching from a
- * look with a portrait to one without puts the original portrait back rather
- * than leaving the last one stuck, and ending a mimic restores the token's own
- * name. A rule with `portrait: false` changes the map art only; its portrait
- * comes from the layers beneath it.
+ * Precedence: the rule on top (a condition), the gear rule under it, then a
+ * mimic, then the chosen look, then the baseline. Each slot (art, portrait,
+ * scale, ring, token name) is taken from the first layer that sets it, and falls
+ * back to the baseline — so switching from a look with a portrait to one without
+ * puts the original portrait back rather than leaving the last one stuck, and
+ * ending a mimic restores the token's own name. A rule with `portrait: false`
+ * changes the map art only; its portrait comes from the layers beneath it.
+ *
+ * Versions: the gear rule's comes from the chosen look (the Original's when no
+ * look and no mimic is on). The condition's comes from the gear's look while gear
+ * is on — an EV suit look's own Unconscious version — and otherwise from that
+ * same chosen look.
  *
  * @param {object} args
  * @param {object} args.library   normalizeLibrary output
  * @param {object} args.state     normalizeState output
- * @param {object|null} args.rule matchRule output
+ * @param {object|null} args.rule The rule on top (`matchRules().rule`, or `matchRule`)
+ * @param {object|null} [args.gear] The gear rule under it (`matchRules().gear`)
  * @param {{token, portrait, scale}} args.current  What the figure shows right
  *   now — captured as the baseline when the art first leaves its original state.
  * @returns {{visual: {token, portrait, scale}|null, state: object}}
  *   `visual` null means "leave the art alone" (no look, no baseline to restore).
  */
-export function composeAppearance({ library, state, rule, current }) {
-  const next = { ...state, ruleLookId: rule?.lookId ?? null, ruleKey: rule ? (ruleKey(rule) || null) : null };
+export function composeAppearance({ library, state, rule, gear = null, current }) {
+  if (gear && (!rule || gear === rule)) { rule = gear; gear = null; }
+  const next = {
+    ...state,
+    ruleLookId: rule?.lookId ?? null,
+    ruleKey:    rule ? (ruleKey(rule) || null) : null,
+    gearKey:    gear ? (ruleKey(gear) || null) : null,
+  };
   const chosen = findLook(library, next.lookId);
   if (!chosen) next.lookId = null;
-  const ruleLook = rule ? findLook(library, rule.lookId) : null;
-
   const mimic = next.mimic ?? null;
 
-  // The worn look's own version of this rule (the Original's, when nothing is
-  // worn) takes the rule look's place. Its empty slots fall back to the rule's
-  // look; scale, ring and name come from the layers beneath, since a version is
-  // drawn for its own look's framing. Its portrait is explicit, so it shows even
-  // when the rule leaves the portrait alone.
-  const version = ruleLook
-    ? findVersion(chosen ?? (mimic ? null : { versions: library?.baseVersions }), rule)
-    : null;
-  const ruled = version
-    ? {
-        token:     version.token || ruleLook.token,
-        portrait:  version.portrait || (rule.portrait === false ? "" : ruleLook.portrait),
-        scale:     null,
-        ring:      version.token ? version.ring : null,
-        tokenName: "",
-      }
-    : ruleLook;
+  const worn = chosen ?? (mimic ? null : { versions: library?.baseVersions });
+  const gearLook = gear ? findLook(library, gear.lookId) : null;
+  const under = gear ? _ruleLayer(library, gear, worn) : null;
+  const top = _ruleLayer(library, rule, gearLook ?? worn);
 
   // Back to original: restore the baseline once, then forget it.
-  if (!ruled && !chosen && !mimic) {
+  if (!top && !under && !chosen && !mimic) {
     if (!next.baseline) return { visual: null, state: next };
     const visual = { ...next.baseline };
     next.baseline = null;
@@ -364,18 +405,23 @@ export function composeAppearance({ library, state, rule, current }) {
     };
   }
   const base = next.baseline;
-  const layers = [ruled, mimic, chosen].filter(Boolean);
-  const first = (key, { skipRule = false, empty = (v) => !v } = {}) => {
-    for (const l of layers) {
-      if (skipRule && l === ruled) continue;
-      if (!empty(l[key])) return l[key];
+  const layers = [
+    top,
+    under,
+    mimic && { layer: mimic, portrait: true },
+    chosen && { layer: chosen, portrait: true },
+  ].filter(Boolean);
+  const first = (key, { portrait = false, empty = (v) => !v } = {}) => {
+    for (const { layer, portrait: may } of layers) {
+      if (portrait && !may) continue;
+      if (!empty(layer[key])) return layer[key];
     }
     return null;
   };
   const unset = (v) => v === null || v === undefined;
   const visual = {
     token:    first("token") || base.token,
-    portrait: first("portrait", { skipRule: !!ruled && !version && rule.portrait === false }) || base.portrait,
+    portrait: first("portrait", { portrait: true }) || base.portrait,
     scale:    first("scale", { empty: unset }) ?? base.scale,
     ring:     first("ring", { empty: unset }) ?? base.ring ?? null,
     name:     first("tokenName") || base.name || null,
@@ -542,6 +588,12 @@ function _ruleFor(library, state) {
   return byKey ?? library.rules.find(r => r.lookId === state.ruleLookId) ?? { kind: "status", match: "", lookId: state.ruleLookId, portrait: true };
 }
 
+/** The gear rule a stored `gearKey` came from, under the rule on top. */
+function _gearFor(library, state) {
+  if (!state.gearKey) return null;
+  return library.rules.find(r => r.kind === "item" && ruleKey(r) === state.gearKey) ?? null;
+}
+
 /** True when a stored state is wearing anything — a look, a rule's look or a mimic. */
 export function stateIsDressed(raw) {
   const s = normalizeState(raw);
@@ -577,7 +629,7 @@ export function applyCreationAppearance(data, library, { actorState = null, over
   if (override?.state && !linked) {
     const state = normalizeState(override.state);
     const { visual, state: next } = composeAppearance({
-      library, state, rule: _ruleFor(library, state), current: _dataCurrent(data),
+      library, state, rule: _ruleFor(library, state), gear: _gearFor(library, state), current: _dataCurrent(data),
     });
     if (visual) _applyVisualToData(data, visual, { linked: false });
     // The exact portrait it left with wins over the recomposed one.
@@ -589,7 +641,7 @@ export function applyCreationAppearance(data, library, { actorState = null, over
   if (linked) {
     const s = normalizeState(actorState);
     if (!stateIsDressed(s)) return false;
-    const { visual } = composeAppearance({ library, state: s, rule: _ruleFor(library, s), current: _dataCurrent(data) });
+    const { visual } = composeAppearance({ library, state: s, rule: _ruleFor(library, s), gear: _gearFor(library, s), current: _dataCurrent(data) });
     if (!visual) return false;
     _applyVisualToData(data, visual, { linked: true });
     return true;
