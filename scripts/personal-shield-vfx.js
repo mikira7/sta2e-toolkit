@@ -51,6 +51,7 @@ import {
 import { resolveShieldImpactColorHex, resolveShieldStandoffFactor } from "./ship-vfx-anchors.js";
 import { playShieldImpactVFX } from "./shield-impact-vfx.js";
 import { WEARABLE_TYPES, WORN_FLAG, nameKey } from "./appearance-data.js";
+import { isGearDamaged, setGearDamaged, gearDamageChanged } from "./gear-damage.js";
 
 const MODULE = "sta2e-toolkit";
 
@@ -86,14 +87,14 @@ function _isWorn(item) {
 }
 
 /**
- * Item flag set when a forcefield is sacrificed to turn an injury into a Stun
- * injury (STA 2e): it burns out and gives no further Protection until cleared
- * from the sheet. Damage maths and every effect here skip a burnt-out field.
+ * A forcefield sacrificed to turn an injury into a Stun injury (STA 2e) burns
+ * out: it gives no further Protection until recharged. That is the shared
+ * gear-damage state (gear-damage.js), worded "Burnt out" for a forcefield, so
+ * the Token HUD, the sheet and a complication can all set or clear it. Damage
+ * maths and every effect here skip a burnt-out field.
  */
-export const BURNT_OUT_FLAG = "forcefieldBurntOut";
-
 export function isBurntOut(item) {
-  return item?.getFlag?.(MODULE, BURNT_OUT_FLAG) === true;
+  return isGearDamaged(item);
 }
 
 /** The worn, still-working personal forcefield an actor has on, or null. */
@@ -111,13 +112,13 @@ export function wearsPersonalShield(actor) {
 /** Burn a forcefield out (sacrificed). Every client then plays the break. */
 export async function burnOutPersonalShield(item) {
   if (!item) return;
-  await item.setFlag(MODULE, BURNT_OUT_FLAG, true);
+  await setGearDamaged(item, true);
 }
 
 /** Put a burnt-out forcefield back in service (recharged or replaced). */
 export async function rechargePersonalShield(item) {
   if (!item) return;
-  await item.unsetFlag(MODULE, BURNT_OUT_FLAG);
+  await setGearDamaged(item, false);
 }
 
 /**
@@ -659,13 +660,13 @@ export function registerPersonalShieldVfxHooks() {
 
   // Wear toggled: every client sees the item update and plays its own copy.
   Hooks.on("updateItem", (item, changes) => {
-    const get = foundry.utils.getProperty;
-    const burnt = get(changes, `flags.${MODULE}.${BURNT_OUT_FLAG}`);
-    if (burnt !== undefined || get(changes, `flags.${MODULE}.-=${BURNT_OUT_FLAG}`) !== undefined) {
+    if (gearDamageChanged(changes)) {
       if (!isPersonalShieldItem(item) || !_isWorn(item)) return;
-      // Sacrificed: it shatters. Recharged while worn: it comes back on.
+      // Burnt out (sacrificed, or broken by a complication): it shatters.
+      // Recharged while worn: it comes back on.
+      const burnt = isBurntOut(item);
       for (const token of _tokensOf(item.parent)) {
-        if (burnt === true) playPersonalShieldBreak(token, { force: true });
+        if (burnt) playPersonalShieldBreak(token, { force: true });
         else playPersonalShieldRaise(token);
       }
       return;

@@ -146,7 +146,9 @@ import {
   markMajorWasAttack as _markMajorWasAttack,
 } from "./initiative-order.js";
 import { resolveActingOfficer, resolveActingOfficerIndex } from "./acting-officer.js";
-import { playPersonalShieldHits, activePersonalShield, burnOutPersonalShield, isBurntOut } from "../personal-shield-vfx.js";
+import { playPersonalShieldHits, activePersonalShield, burnOutPersonalShield } from "../personal-shield-vfx.js";
+import { isGearDamaged, assertWeaponUsable, gearDamageWords } from "../gear-damage.js";
+import { toggleGearDamage } from "../gear-damage-ui.js";
 import {
   alliesWithinClose,
   defensiveTrainingPenalty,
@@ -1773,6 +1775,7 @@ export class CombatHUD {
       ui.notifications.warn("STA2e Toolkit: Weapon not found.");
       return;
     }
+    if (!assertWeaponUsable(weapon)) return;
 
     const restore = {
       token:          this._token,
@@ -2362,6 +2365,19 @@ export class CombatHUD {
           btn.style.boxShadow   = `0 0 6px ${LC.primary}`;
         }
 
+        // A broken character weapon stays in the row, greyed out, and refuses
+        // the click (assertWeaponUsable below) until it is repaired.
+        const isBroken = weapon.type === "characterweapon2e" && isGearDamaged(weapon);
+        if (isBroken) {
+          btn.style.filter  = "grayscale(1)";
+          btn.style.opacity = "0.4";
+          btn.style.borderColor = LC.red;
+          const mark = document.createElement("i");
+          mark.className = gearDamageWords(weapon).icon;
+          mark.style.cssText = `position:absolute;right:2px;bottom:2px;font-size:11px;color:${LC.red};`;
+          btn.appendChild(mark);
+        }
+
         const config    = getWeaponConfig(weapon);
         const isShip    = weapon.type === "starshipweapon2e";
         const { total, breakdown } = this._weaponDamageBreakdown(weapon, actor);
@@ -2387,7 +2403,7 @@ export class CombatHUD {
         const noAnim    = config ? "" : "\n⚠ No animation config";
         btn.title = isNpcShip
           ? `${weapon.name}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}\n🎲 Opens NPC Dice Roller`
-          : `${weapon.name}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
+          : `${weapon.name}${isBroken ? " — BROKEN, repair before use" : ""}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
 
         btn.addEventListener("mouseenter", () => {
           if (this._pendingWeapon?.id !== weapon.id)
@@ -2399,6 +2415,9 @@ export class CombatHUD {
         });
 
         btn.addEventListener("click", async () => {
+          // A broken weapon cannot be used — this one gate also covers the LCARS
+          // ring, which fires by clicking this button (triggerRingWeapon).
+          if (!assertWeaponUsable(weapon)) return;
           // Fresh attack — the gates below may still cancel it, so nothing is
           // charged until one of the commit points calls _markWeaponMajor().
           this._beginWeaponAttack();
@@ -3967,8 +3986,8 @@ export class CombatHUD {
         const equipped = item.system?.equipped ?? true;
         if (!equipped) continue;
         if (wornOnly && item.getFlag?.("sta2e-toolkit", "worn") !== true) continue;
-        // A personal forcefield sacrificed to an injury has burnt out.
-        if (isBurntOut(item)) continue;
+        // Damaged armour (or a burnt-out forcefield) gives no Protection.
+        if (isGearDamaged(item)) continue;
         const prot = Number(item.system?.protection ?? item.system?.Protection ?? 0);
         if (!isNaN(prot)) total += prot;
       }
@@ -4443,9 +4462,50 @@ export class CombatHUD {
     }
   }
 
-  static async _resolveComplicationDamagePenalty({ complications = 0, attackerIsNpc = false, attackerName = "Attacker" } = {}) {
-    const total = Math.max(0, Number(complications) || 0);
+  /**
+   * A complication on a character weapon attack can be the weapon malfunctioning
+   * rather than costing Severity: offered once per attack, it resolves one
+   * complication and marks the weapon broken (gear-damage.js), so it can't be
+   * used again until repaired. Asked of whoever confirms the attack — the GM,
+   * or the weapon's owner. True when the weapon broke.
+   */
+  static async _offerWeaponMalfunction(weapon, total, attackerName) {
+    if (weapon?.type !== "characterweapon2e" || isGearDamaged(weapon)) return false;
+    if (!game.user?.isGM && !weapon.isOwner) return false;
+    const choice = await foundry.applications.api.DialogV2.wait({
+      window: { title: `${attackerName} - Complications` },
+      content: `
+        <div style="padding:8px 10px;font-family:${LC.font};">
+          <p style="font-size:11px;color:${LC.text};margin:0 0 6px;">
+            ${total} complication${total !== 1 ? "s" : ""} rolled. Each one reduces attack Severity by 1.
+          </p>
+          <p style="font-size:10px;color:${LC.textDim};margin:0;">
+            Or the weapon can malfunction instead: one complication is resolved, and
+            <strong style="color:${LC.red};">${weapon.name}</strong> is broken until repaired.
+          </p>
+        </div>`,
+      buttons: [
+        { action: "damage", label: "Reduce Severity", icon: "fas fa-minus", default: true },
+        { action: "malfunction", label: "Weapon Malfunctions", icon: "fas fa-screwdriver-wrench" },
+      ],
+    }).catch(() => "damage");
+    if (choice !== "malfunction") return false;
+    try {
+      return await toggleGearDamage(weapon, true, { reason: "weapon malfunction (complication)" });
+    } catch (err) {
+      console.warn("STA2e Toolkit | Weapon malfunction failed:", err);
+      return false;
+    }
+  }
+
+  static async _resolveComplicationDamagePenalty({ complications = 0, attackerIsNpc = false, attackerName = "Attacker", weapon = null } = {}) {
+    let total = Math.max(0, Number(complications) || 0);
     if (total <= 0) return { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
+    // A malfunction resolves one complication outright; its own chat card says
+    // so, and the damage card counts only what is left.
+    const malfunction = await CombatHUD._offerWeaponMalfunction(weapon, total, attackerName);
+    if (malfunction) total -= 1;
+    if (total <= 0) return { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0, malfunction };
 
     let boughtOff = 0;
     if (attackerIsNpc && game.user?.isGM) {
@@ -4491,7 +4551,7 @@ export class CombatHUD {
     }
 
     const unresolved = Math.max(0, total - boughtOff);
-    return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2 };
+    return { total, boughtOff, unresolved, penalty: unresolved, threatSpent: boughtOff * 2, malfunction };
   }
 
   static async _autoAwardOpposedShipPool({ attackerToken, defenderToken, attackerSuccesses, defenderSuccesses, opposedDifficulty = null, opposedDefenseType, attackerAlreadyAwarded = false, defenderAlreadyAwarded = false, attackerBonus = 0, defenderBonus = 0 } = {}) {
@@ -21434,6 +21494,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
                     complications: totalComplications,
                     attackerIsNpc: groundIsNpc,
                     attackerName: tokenObj?.name ?? charActor.name,
+                    weapon,
                   })
                 : { total: 0, boughtOff: 0, unresolved: 0, penalty: 0, threatSpent: 0 };
               const effectiveSeverity = Math.max(0, severity - complicationInfo.penalty - chg.severityPenalty);
@@ -22255,7 +22316,8 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
           return;
         }
 
-        const weapons = defenderActor.items.filter(i => i.type === "characterweapon2e");
+        // A broken weapon cannot counterattack.
+        const weapons = defenderActor.items.filter(i => i.type === "characterweapon2e" && !isGearDamaged(i));
         if (!weapons.length) {
           ui.notifications.warn("STA2e Toolkit | Counterattack: defender has no weapons.");
           return;

@@ -754,12 +754,14 @@
 /* The system sizes the row's control cell to exactly two icons (40px, edit and
    delete), so a third pushed Delete out of the row. Let a cell holding the Wear
    toggle size to its icons and the item name give up the room instead. */
-.section .row.entry .control:has(> .sta2e-wear) {
+.section .row.entry .control:has(> .sta2e-wear),
+.section .row.entry .control:has(> .sta2e-gear-dmg) {
   width: auto;
   flex: 0 0 auto;
   gap: 6px;
 }
-.section .row.entry:has(.sta2e-wear) .item-name {
+.section .row.entry:has(.sta2e-wear) .item-name,
+.section .row.entry:has(.sta2e-gear-dmg) .item-name {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -770,15 +772,45 @@
   text-shadow: 0 0 4px rgba(255, 156, 0, 0.6);
 }
 .sta2e-wear.is-locked { cursor: default; }
-/* A personal forcefield sacrificed to an injury: burnt out until recharged. */
-.sta2e-forcefield-burnt {
+/* ── Damaged / broken gear (gear-damage.js) ───────────────────────────────────
+   Sheet: a red key on the row (click to repair) and a struck-through name.
+   Token HUD Gear view: each row carries a small break/repair key. */
+.sta2e-gear-dmg {
   display: inline-flex;
   align-items: center;
   color: #cc4444;
   cursor: pointer;
 }
-.sta2e-forcefield-burnt:hover { color: #ff6666; }
-.sta2e-forcefield-burnt.is-locked { cursor: default; }
+.sta2e-gear-dmg:hover { color: #ff6666; }
+.sta2e-gear-dmg.is-locked { cursor: default; }
+.sta2e-gear-row-damaged .item-name { text-decoration: line-through; opacity: 0.6; }
+
+.sta2e-gear-row { display: flex; align-items: stretch; gap: 3px; }
+.sta2e-gear-row > .sta2e-hud-item { flex: 1 1 auto; min-width: 0; }
+.sta2e-gear-row.is-damaged > .sta2e-hud-item { opacity: 0.6; }
+.sta2e-gear-dmg-key {
+  flex: 0 0 26px;
+  width: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 156, 0, 0.35);
+  color: rgba(255, 204, 102, 0.55);
+  cursor: pointer;
+}
+.sta2e-gear-dmg-key:hover { color: #ffcc66; border-color: #ff9c00; }
+.sta2e-gear-dmg-key.is-damaged { color: #ff5555; border-color: #cc4444; }
+
+/* Break Gear on a Working Results card, and its picker. */
+.sta2e-break-gear { display: flex; justify-content: flex-end; padding: 4px 6px 2px; }
+.sta2e-break-gear-btn { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.sta2e-gear-pick-list { display: flex; flex-direction: column; gap: 4px; }
+.sta2e-gear-pick { display: grid; grid-template-columns: auto 24px minmax(0, 1fr) auto; align-items: center; gap: 6px; cursor: pointer; }
+.sta2e-gear-pick img { width: 24px; height: 24px; border: none; object-fit: contain; }
+.sta2e-gear-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sta2e-gear-pick-kind { font-size: 10px; opacity: 0.65; }
 
 /* ── Token HUD Appearance button ──────────────────────────────────────────────
    Static LCARS orange, like the rest of the HUD flyout. The looks view is a

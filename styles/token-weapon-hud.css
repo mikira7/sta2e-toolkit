@@ -42,6 +42,13 @@
   border-color: #ffcc66;
 }
 
+/* A broken character weapon: greyed out until repaired. */
+.sta2e-token-weapon.is-broken {
+  filter: grayscale(1);
+  opacity: 0.4;
+  border-color: #cc4444;
+}
+
 .sta2e-token-weapon.active {
   border-color: #ff9c00;
   box-shadow: 0 0 6px #ff9c00;

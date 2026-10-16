@@ -2,16 +2,17 @@
  * sta2e-toolkit | appearance-hud.js
  *
  * The Token HUD's Appearance button (a theatre-masks control of its own, not a
- * section of the GM toolkit arrowhead): switch looks, put gear on and take it
- * off, and (GM) open the Appearance Manager.
+ * section of the GM toolkit arrowhead): switch looks and (GM) open the
+ * Appearance Manager. Gear — wearing it, breaking and repairing it — is the
+ * arrowhead's Gear section (gear-hud.js); players wear their own from the sheet.
  *
  * It is a separate control because players use it — a player switches their
  * own character's look and puts their own EV suit on — while the arrowhead is
  * a GM menu. Players see it on tokens they own when there is something to do:
- * looks, gear, or Mimic — which the Appearances settings may limit to a trait.
+ * looks or Mimic — which the Appearances settings may limit to a trait.
  *
  * It reuses the toolkit's HUD plumbing (token-hud-util.js) and its
- * rebuild-in-place idiom: two views, `"looks"` and `"gear"`, and every row
+ * rebuild-in-place idiom: every row
  * rebuilds the panel after its write so the marks always show what was just
  * written. Both controls sit in the same column, so `toggleHudFlyout`'s
  * one-flyout-per-column sweep closes the arrowhead's panel when this one opens.
@@ -20,25 +21,21 @@
 import {
   buildHudControl, buildHudFlyout, buildHudItem, resolveHudToken, toggleHudFlyout,
 } from "./token-hud-util.js";
-import { WEARABLE_TYPES, hasLooks, storeMimicInLibrary, findVersion, ruleKey } from "./appearance-data.js";
+import { hasLooks, storeMimicInLibrary, findVersion, ruleKey } from "./appearance-data.js";
 import {
-  libraryFor, lookStateFor, applyLook, applyRandomLook, isWorn, setWorn, applyMimic, endMimic, canUseMimic,
+  libraryFor, lookStateFor, applyLook, applyRandomLook, applyMimic, endMimic, canUseMimic,
   storeMimicForm,
 } from "./appearance.js";
 import { openAppearanceManager } from "./appearance-manager.js";
 
 const PALETTE_CLASS = "sta2e-appearance-hud-palette";
 
-function _wearables(token) {
-  return (token.actor?.items?.contents ?? []).filter(i => WEARABLE_TYPES.has(i.type));
-}
-
 function _available(token) {
   if (!token?.actor) return false;
   if (game.user.isGM) return true;
   if (!token.document.isOwner) return false;
-  // Something to do: looks, gear to put on, or Mimic (when this token may use it).
-  return hasLooks(libraryFor(token.document)) || _wearables(token).length > 0 || canUseMimic(token.document)
+  // Something to do: looks, or Mimic (when this token may use it).
+  return hasLooks(libraryFor(token.document)) || canUseMimic(token.document)
     || !!lookStateFor(token.document).mimic;   // always able to end a disguise
 }
 
@@ -105,9 +102,6 @@ function _looksView(host) {
   bar.appendChild(title);
   if (lib.looks.filter(l => l.token && !l.mimicked).length > 1) {
     bar.appendChild(_key("fas fa-dice", "Random look", run(() => applyRandomLook(doc))));
-  }
-  if (_wearables(host.token).length) {
-    bar.appendChild(_key("fas fa-shirt", "Gear — put on or take off armour and suits", () => host.rebuild("gear")));
   }
   if (canUseMimic(doc)) bar.appendChild(_key("fas fa-user-secret", "Mimic — copy your targeted token's look and name", async () => {
     const targets = [...game.user.targets].filter(t => t.document?.uuid !== doc.uuid);
@@ -210,26 +204,6 @@ function _looksView(host) {
   return out;
 }
 
-function _gearView(host) {
-  const rows = [buildHudItem({
-    icon: "fas fa-chevron-left", label: "Looks", tooltip: "Back to looks", extraClass: "back",
-  }, () => host.rebuild("looks"))];
-  for (const item of _wearables(host.token)) {
-    const worn = isWorn(item);
-    rows.push(buildHudItem({
-      icon:       worn ? "fas fa-toggle-on" : "fas fa-toggle-off",
-      label:      item.name,
-      tooltip:    worn ? "Worn — click to take off" : "Carried — click to wear",
-      extraClass: worn ? "active" : "",
-    }, async () => {
-      if (!item.isOwner) { ui.notifications.warn("You don't own that item."); return; }
-      await setWorn(item, !worn);
-      host.rebuild();
-    }));
-  }
-  return rows;
-}
-
 /** Build the panel for one view. */
 function _render(token, control, view) {
   const palette = buildHudFlyout(PALETTE_CLASS);
@@ -244,7 +218,7 @@ function _render(token, control, view) {
       palette.replaceWith(fresh);
     },
   };
-  for (const row of view === "gear" ? _gearView(host) : _looksView(host)) palette.appendChild(row);
+  for (const row of _looksView(host)) palette.appendChild(row);
   return palette;
 }
 

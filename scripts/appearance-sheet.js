@@ -19,7 +19,8 @@
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
 import { openAppearanceManager } from "./appearance-manager.js";
-import { isPersonalShieldItem, isBurntOut, rechargePersonalShield } from "./personal-shield-vfx.js";
+import { isDamageable, isGearDamaged, gearDamageWords } from "./gear-damage.js";
+import { toggleGearDamage } from "./gear-damage-ui.js";
 
 const SHEET_HOOKS = [
   "renderSTACharacterSheet2e",
@@ -58,21 +59,37 @@ function _injectWear(app, html) {
     if (control) control.prepend(btn);
     else row.appendChild(btn);
 
-    // A personal forcefield sacrificed to an injury is burnt out until recharged.
-    if (isPersonalShieldItem(item) && isBurntOut(item)) {
-      const burnt = document.createElement("a");
-      burnt.className = `sta2e-forcefield-burnt${editable ? "" : " is-locked"}`;
-      burnt.dataset.tooltip = editable
-        ? "Forcefield burnt out — no Protection. Click to recharge."
-        : "Forcefield burnt out — no Protection.";
-      burnt.innerHTML = `<i class="fas fa-battery-empty"></i>`;
-      burnt.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (editable) await rechargePersonalShield(item);
-      });
-      btn.after(burnt);
-    }
+  }
+  _injectDamaged(actor, root);
+}
+
+/**
+ * A red key on every damaged / broken / burnt-out row — armour, gear and
+ * character weapons — that repairs it. Undamaged rows get nothing; breaking
+ * something is done from the GM toolkit menu's Gear section or a complication.
+ */
+function _injectDamaged(actor, root) {
+  const editable = actor.isOwner;
+  for (const row of root.querySelectorAll("li.row.entry[data-item-id]")) {
+    if (row.querySelector(".sta2e-gear-dmg")) continue;
+    const item = actor.items.get(row.dataset.itemId);
+    if (!isDamageable(item) || !isGearDamaged(item)) continue;
+    const words = gearDamageWords(item);
+    const key = document.createElement("a");
+    key.className = `sta2e-gear-dmg${editable ? "" : " is-locked"}`;
+    key.dataset.tooltip = editable
+      ? `${words.state} — click to ${words.fix.toLowerCase()}`
+      : words.state;
+    key.innerHTML = `<i class="${words.icon}"></i>`;
+    key.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (editable) await toggleGearDamage(item, false);
+    });
+    row.classList.add("sta2e-gear-row-damaged");
+    const control = row.querySelector(".control");
+    if (control) control.prepend(key);
+    else row.appendChild(key);
   }
 }
 
