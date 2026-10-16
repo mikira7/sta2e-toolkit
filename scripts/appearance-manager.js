@@ -393,18 +393,37 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
   /** A look's (or the Original's) own art for each automatic rule. */
   _versionsSection(owner) {
     const rules = this._versionRules();
-    const rows = rules.map(r => `
-      <div class="sta2e-ap-version" style="--ap-a:${r.kind === "item" ? "var(--ap-secondary)" : "var(--ap-tertiary)"}">
-        <span class="sta2e-ap-version-label"><i class="fas fa-${r.kind === "item" ? "shirt" : "heart-pulse"}"></i> ${_esc(this._ruleLabel(r))}</span>
-        <div class="sta2e-ap-stages">
-          ${this._versionStage(owner, r, "token")}
-          ${this._versionStage(owner, r, "portrait")}
-        </div>
-      </div>`).join("");
+    const label = `<span class="sta2e-ap-label" data-tooltip="This look's own art while an automatic rule is on. An empty slot uses the rule's look.">Own versions for automatic looks</span>`;
+    if (!rules.length) {
+      return `
+        <div class="sta2e-ap-versions">${label}
+          <span class="sta2e-ap-muted">Add an automatic look rule to give this look its own version of it.</span>
+        </div>`;
+    }
+    // One rule at a time, picked from a tab strip. The pick is kept across looks,
+    // so stepping through the gallery compares the same condition on each.
+    const active = rules.find(r => ruleKey(r) === this._versionKey) ?? rules[0];
+    const activeKey = ruleKey(active);
+    const accent = (r) => r.kind === "item" ? "var(--ap-secondary)" : "var(--ap-tertiary)";
+    const tabs = rules.map(r => {
+      const key = ruleKey(r);
+      const has = !!findVersion(owner, r);
+      return `
+        <button type="button" class="sta2e-ap-version-tab ${key === activeKey ? "is-active" : ""} ${has ? "has-art" : ""}"
+          data-action="ap-version-tab" data-key="${_esc(key)}" style="--ap-a:${accent(r)}"
+          data-tooltip="${has ? "This look has its own version" : "Uses the rule's look"}">
+          <i class="fas fa-${r.kind === "item" ? "shirt" : "heart-pulse"}"></i> ${_esc(this._ruleLabel(r))}
+        </button>`;
+    }).join("");
     return `
-      <div class="sta2e-ap-versions">
-        <span class="sta2e-ap-label" data-tooltip="This look's own art while an automatic rule is on. An empty slot uses the rule's look.">Own versions for automatic looks</span>
-        ${rows || `<span class="sta2e-ap-muted">Add an automatic look rule to give this look its own version of it.</span>`}
+      <div class="sta2e-ap-versions">${label}
+        <div class="sta2e-ap-version-tabs">${tabs}</div>
+        <div class="sta2e-ap-version" style="--ap-a:${accent(active)}">
+          <div class="sta2e-ap-stages">
+            ${this._versionStage(owner, active, "token")}
+            ${this._versionStage(owner, active, "portrait")}
+          </div>
+        </div>
       </div>`;
   }
 
@@ -722,6 +741,7 @@ class AppearanceManagerApp extends foundry.applications.api.ApplicationV2 {
     switch (action) {
       case "ap-tab":    this._tab = btn.dataset.tab; this.render(); break;
       case "ap-select": this._sel = btn.dataset.look; this.render(); break;
+      case "ap-version-tab": this._versionKey = btn.dataset.key; this.render(); break;
       case "ap-place": {
         const place = btn.dataset.place;
         lib.randomize = place === "random";

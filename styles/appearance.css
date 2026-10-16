@@ -488,7 +488,38 @@
   padding-left: 8px;
   border-left: 3px solid var(--ap-a, var(--ap-primary));
 }
-.sta2e-ap-version-label { color: var(--ap-text-bright); font-size: 11px; font-weight: 700; }
+.sta2e-ap-version-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.sta2e-ap-version-tab {
+  height: 24px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ap-border-dim);
+  border-radius: 12px;
+  color: var(--ap-text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sta2e-ap-version-tab i { color: var(--ap-a, var(--ap-primary)); }
+/* A dot marks a rule this look has its own art for. */
+.sta2e-ap-version-tab.has-art::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--ap-a, var(--ap-primary));
+  vertical-align: middle;
+}
+.sta2e-ap-version-tab:hover { color: var(--ap-text-bright); border-color: var(--ap-a, var(--ap-primary)); }
+.sta2e-ap-version-tab.is-active {
+  background: var(--ap-a, var(--ap-primary));
+  border-color: var(--ap-a, var(--ap-primary));
+  color: #000;
+  font-weight: 700;
+}
+.sta2e-ap-version-tab.is-active i { color: inherit; }
+.sta2e-ap-version-tab.is-active.has-art::after { background: #000; }
 .sta2e-ap-version .sta2e-ap-stages { max-width: 300px; }
 .sta2e-ap-version .sta2e-ap-stage-empty i { font-size: 24px; }
 .sta2e-ap-version .sta2e-ap-stage figcaption { padding: 2px 4px 2px 6px; font-size: 9px; }
