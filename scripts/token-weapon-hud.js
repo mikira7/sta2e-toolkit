@@ -23,7 +23,7 @@
 
 import { CombatHUD } from "./combat/combat-hud-core.js";
 import { buildWeaponContext, getGroundWeaponSeverity } from "./weapon-configs.js";
-import { isGearDamaged } from "./gear-damage.js";
+import { isGearDamaged, gearDamageWords } from "./gear-damage.js";
 
 const WEAPON_TYPES = ["characterweapon2e", "starshipweapon2e"];
 
@@ -241,7 +241,8 @@ function _buildRows(host, selection) {
     // HUD (assertWeaponUsable). Repair it from the Gear section.
     if (weapon.type === "characterweapon2e" && isGearDamaged(weapon)) {
       btn.classList.add("is-broken");
-      btn.dataset.tooltip = `<strong>BROKEN</strong> — repair from the toolkit's Gear section<br>${btn.dataset.tooltip}`;
+      const words = gearDamageWords(weapon);
+      btn.dataset.tooltip = `<strong>${words.state.toUpperCase()}</strong> — ${words.fix.toLowerCase()} from the toolkit's Gear section<br>${btn.dataset.tooltip}`;
     }
     btn.setAttribute("aria-label", weapon.name);
     btn.addEventListener("click", (event) => {

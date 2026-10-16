@@ -72,11 +72,47 @@ export function gearKind(item) {
   return item.type === "armor" ? "armor" : "gear";
 }
 
-/** The words for an item's out-of-action state, its action, and the fix. */
-export function gearDamageWords(item) {
+/**
+ * How an energy weapon is out of action — purely flavour, the rules are the
+ * same: "broken" (the default, repaired) or "burnt" (power cell burnt out,
+ * recharged). Stored on the item while it is damaged; other items only break.
+ */
+export const MODE_FLAG = "gearDamageMode";
+export const DAMAGE_MODES = ["broken", "burnt"];
+
+/** Phasers, disruptors, phase pistols, plasma and the like — anything that runs on a power cell. */
+const ENERGY_RE = /\b(phaser|phased?|disruptor|plasma|polaron|particle|pulse|blaster|tetryon|antiproton|energy)\b/i;
+
+export function isEnergyWeapon(item) {
+  return item?.type === "characterweapon2e" && ENERGY_RE.test(String(item.name ?? ""));
+}
+
+/** The ways this item can be put out of action. */
+export function gearDamageModes(item) {
+  return isEnergyWeapon(item) ? [...DAMAGE_MODES] : ["broken"];
+}
+
+/** The mode a damaged item is in ("broken" when unset or not allowed for it). */
+export function gearDamageMode(item) {
+  let mode = null;
+  try { mode = item?.getFlag?.(MODULE, MODE_FLAG) ?? null; } catch { /* none */ }
+  return gearDamageModes(item).includes(mode) ? mode : "broken";
+}
+
+const BURNT_WORDS = { state: "Burnt out", verb: "Burn out", fix: "Recharge", fixed: "recharged", icon: "fas fa-battery-empty" };
+
+/**
+ * The words for an item's out-of-action state, its action, and the fix. A
+ * weapon names the mode it is in, or the one asked for (`mode`) when offering
+ * a choice before it breaks.
+ */
+export function gearDamageWords(item, mode = null) {
   switch (gearKind(item)) {
-    case "weapon":     return { state: "Broken",    verb: "Break",    fix: "Repair",   fixed: "repaired",  icon: "fas fa-screwdriver-wrench" };
-    case "forcefield": return { state: "Burnt out", verb: "Burn out", fix: "Recharge", fixed: "recharged", icon: "fas fa-battery-empty" };
+    case "weapon":
+      return (mode ?? gearDamageMode(item)) === "burnt" && isEnergyWeapon(item)
+        ? BURNT_WORDS
+        : { state: "Broken", verb: "Break", fix: "Repair", fixed: "repaired", icon: "fas fa-screwdriver-wrench" };
+    case "forcefield": return BURNT_WORDS;
     case "armor":      return { state: "Damaged",   verb: "Damage",   fix: "Repair",   fixed: "repaired",  icon: "fas fa-shield-halved" };
     default:           return { state: "Damaged",   verb: "Damage",   fix: "Repair",   fixed: "repaired",  icon: "fas fa-screwdriver-wrench" };
   }
@@ -87,7 +123,7 @@ export function gearDamageWords(item) {
  * the legacy forcefield flag. Returns false (with a warning) when this user
  * cannot write the item — a player marking an NPC's gear goes through the GM.
  */
-export async function setGearDamaged(item, damaged, { potency = 1 } = {}) {
+export async function setGearDamaged(item, damaged, { potency = 1, mode = "broken" } = {}) {
   if (!isDamageable(item)) return false;
   if (!item.isOwner) {
     ui.notifications?.warn?.(`STA2e Toolkit: you can't change ${item.name}.`);
@@ -97,12 +133,16 @@ export async function setGearDamaged(item, damaged, { potency = 1 } = {}) {
     await item.update({
       [`flags.${MODULE}.${DAMAGED_FLAG}`]: true,
       [`flags.${MODULE}.${POTENCY_FLAG}`]: _potency(potency),
+      [`flags.${MODULE}.${MODE_FLAG}`]: gearDamageModes(item).includes(mode) ? mode : "broken",
     });
     return true;
   }
   const updates = {
     [`flags.${MODULE}.-=${DAMAGED_FLAG}`]: null,
     [`flags.${MODULE}.-=${POTENCY_FLAG}`]: null,
+    // The mode is kept: it is what the repair card and the chat card read to say
+    // "recharged" rather than "repaired" once the flag is gone, and every break
+    // writes it afresh.
   };
   for (const f of LEGACY_FLAGS) {
     try { if (item.getFlag(MODULE, f) !== undefined) updates[`flags.${MODULE}.-=${f}`] = null; } catch { /* none */ }
@@ -111,10 +151,6 @@ export async function setGearDamaged(item, damaged, { potency = 1 } = {}) {
   return true;
 }
 
-/**
- * Did this item update change the damaged state? Both spellings, as for any
- * flag: `setFlag` puts the key in the diff, an unset sends `-=key`.
- */
 /** Change a damaged item's potency (clamped 1–5). */
 export async function setGearDamagePotency(item, potency) {
   if (!isGearDamaged(item) || !item.isOwner) return false;
@@ -122,6 +158,10 @@ export async function setGearDamagePotency(item, potency) {
   return true;
 }
 
+/**
+ * Did this item update change the damaged state? Both spellings, as for any
+ * flag: `setFlag` puts the key in the diff, an unset sends `-=key`.
+ */
 export function gearDamageChanged(changes) {
   const get = foundry.utils.getProperty;
   for (const f of [DAMAGED_FLAG, ...LEGACY_FLAGS]) {
@@ -144,6 +184,7 @@ export function gearDamagePotencyChanged(changes) {
  */
 export function assertWeaponUsable(weapon) {
   if (weapon?.type !== "characterweapon2e" || !isGearDamaged(weapon)) return true;
-  ui.notifications?.warn?.(`${weapon.name} is broken and can't be used until it is repaired.`);
+  const words = gearDamageWords(weapon);
+  ui.notifications?.warn?.(`${weapon.name} is ${words.state.toLowerCase()} and can't be used until it is ${words.fixed}.`);
   return false;
 }

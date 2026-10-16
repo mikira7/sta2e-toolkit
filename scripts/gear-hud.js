@@ -7,7 +7,8 @@
  *   - wearables: the row itself toggles Worn (appearance.js `setWorn`, the same
  *     flag the sheet's shirt key writes);
  *   - every row: a key that marks the item damaged / broken / burnt out, or
- *     repairs it (gear-damage-ui.js);
+ *     repairs it (gear-damage-ui.js) — an energy weapon gets two, Broken and
+ *     Burnt out, which differ only in wording;
  *   - a damaged row: a + key that raises its broken trait's potency by one —
  *     2 Threat against a player character, free on an NPC.
  *
@@ -19,7 +20,7 @@
 import { buildHudItem } from "./token-hud-util.js";
 import { WEARABLE_TYPES } from "./appearance-data.js";
 import { isWorn, setWorn } from "./appearance.js";
-import { isGearDamaged, gearDamageWords } from "./gear-damage.js";
+import { isGearDamaged, gearDamageWords, gearDamageModes } from "./gear-damage.js";
 import { buildGearDamageKey, gearDamagePotency, raiseGearDamagePotency, POTENCY_THREAT_COST } from "./gear-damage-ui.js";
 
 function _wearables(token) {
@@ -54,7 +55,8 @@ function _buildRows(host) {
     wrap.className = "sta2e-gear-row";
     if (isGearDamaged(item)) wrap.classList.add("is-damaged");
     if (isGearDamaged(item)) wrap.append(main, _raiseKey(item, rebuild), buildGearDamageKey(item, rebuild));
-    else wrap.append(main, buildGearDamageKey(item, rebuild));
+    // An energy weapon can break or burn out — one key each.
+    else wrap.append(main, ...gearDamageModes(item).map(mode => buildGearDamageKey(item, rebuild, { mode })));
     return wrap;
   };
   const stateNote = (item) => isGearDamaged(item)
@@ -77,7 +79,7 @@ function _buildRows(host) {
     rows.push(row(buildHudItem({
       icon:    "fas fa-gun",
       label:   item.name + stateNote(item),
-      tooltip: isGearDamaged(item) ? "Broken — can't be used in combat" : "Weapon",
+      tooltip: isGearDamaged(item) ? `${gearDamageWords(item).state} — can't be used in combat` : "Weapon",
     }, () => {}), item));
   }
   return rows;

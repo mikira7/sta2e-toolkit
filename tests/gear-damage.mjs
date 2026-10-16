@@ -11,7 +11,8 @@ globalThis.game = { settings: { get: () => 'Personal Forcefield, Personal Shield
 globalThis.foundry = { utils: { getProperty: (o, k) => k.split('.').reduce((v, p) => v?.[p], o) } };
 
 const { isDamageable, isGearDamaged, gearKind, gearDamageWords, assertWeaponUsable, gearDamageChanged, setGearDamaged,
-  storedGearDamagePotency, setGearDamagePotency, gearDamagePotencyChanged } =
+  storedGearDamagePotency, setGearDamagePotency, gearDamagePotencyChanged,
+  isEnergyWeapon, gearDamageModes, gearDamageMode } =
   await import('../scripts/gear-damage.js');
 
 function item(type, name, flags = {}) {
@@ -95,6 +96,30 @@ await check('potency changes are told apart from state changes', () => {
   const c = { flags: { 'sta2e-toolkit': { gearDamagePotency: 2 } } };
   assert.equal(gearDamagePotencyChanged(c), true);
   assert.equal(gearDamageChanged(c), false);
+});
+
+await check('energy weapons can burn out as well as break; others only break', () => {
+  for (const n of ['Phaser Type-2', 'Klingon Disruptor Pistol', 'Phase Pistol', 'Plasma Rifle']) {
+    assert.equal(isEnergyWeapon(item('characterweapon2e', n)), true, n);
+  }
+  assert.equal(isEnergyWeapon(item('characterweapon2e', "Bat'leth")), false);
+  assert.equal(isEnergyWeapon(item('armor', 'Phaser-proof Vest')), false);
+  assert.deepEqual(gearDamageModes(item('characterweapon2e', 'Phaser')), ['broken', 'burnt']);
+  assert.deepEqual(gearDamageModes(item('characterweapon2e', 'Dagger')), ['broken']);
+});
+
+await check('a burnt-out phaser is worded for a recharge, and keeps that wording once fixed', async () => {
+  const w = item('characterweapon2e', 'Phaser Type-2');
+  await setGearDamaged(w, true, { mode: 'burnt' });
+  assert.equal(gearDamageMode(w), 'burnt');
+  assert.equal(gearDamageWords(w).state, 'Burnt out');
+  assert.equal(gearDamageWords(w, 'broken').state, 'Broken');
+  await setGearDamaged(w, false);
+  assert.equal(gearDamageWords(w).fixed, 'recharged');
+  // A blade asked to burn out still only breaks.
+  const d = item('characterweapon2e', 'Dagger');
+  await setGearDamaged(d, true, { mode: 'burnt' });
+  assert.equal(gearDamageMode(d), 'broken');
 });
 
 let failed = 0;

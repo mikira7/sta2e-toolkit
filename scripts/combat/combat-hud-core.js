@@ -147,7 +147,7 @@ import {
 } from "./initiative-order.js";
 import { resolveActingOfficer, resolveActingOfficerIndex } from "./acting-officer.js";
 import { playPersonalShieldHits, activePersonalShield, burnOutPersonalShield } from "../personal-shield-vfx.js";
-import { isGearDamaged, assertWeaponUsable, gearDamageWords } from "../gear-damage.js";
+import { isGearDamaged, assertWeaponUsable, gearDamageWords, isEnergyWeapon } from "../gear-damage.js";
 import { toggleGearDamage } from "../gear-damage-ui.js";
 import {
   alliesWithinClose,
@@ -2403,7 +2403,7 @@ export class CombatHUD {
         const noAnim    = config ? "" : "\n⚠ No animation config";
         btn.title = isNpcShip
           ? `${weapon.name}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}\n🎲 Opens NPC Dice Roller`
-          : `${weapon.name}${isBroken ? " — BROKEN, repair before use" : ""}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
+          : `${weapon.name}${isBroken ? ` — ${gearDamageWords(weapon).state.toUpperCase()}, ${gearDamageWords(weapon).fix.toLowerCase()} before use` : ""}\n${statLabel}: ${dmgLabel}\nRange: ${range}\nQualities: ${qualities}${noAnim}`;
 
         btn.addEventListener("mouseenter", () => {
           if (this._pendingWeapon?.id !== weapon.id)
@@ -4481,17 +4481,25 @@ export class CombatHUD {
           </p>
           <p style="font-size:10px;color:${LC.textDim};margin:0;">
             Or the weapon can malfunction instead: one complication is resolved, and
-            <strong style="color:${LC.red};">${weapon.name}</strong> is broken until repaired.
+            <strong style="color:${LC.red};">${weapon.name}</strong> is out of action until
+            ${isEnergyWeapon(weapon) ? "repaired (broken) or recharged (power cell burnt out)" : "repaired"}.
           </p>
         </div>`,
       buttons: [
         { action: "damage", label: "Reduce Severity", icon: "fas fa-minus", default: true },
         { action: "malfunction", label: "Weapon Malfunctions", icon: "fas fa-screwdriver-wrench" },
+        // Same rules, different story: the power cell gives out.
+        ...(isEnergyWeapon(weapon)
+          ? [{ action: "burnout", label: "Power Cell Burns Out", icon: "fas fa-battery-empty" }]
+          : []),
       ],
     }).catch(() => "damage");
-    if (choice !== "malfunction") return false;
+    if (choice !== "malfunction" && choice !== "burnout") return false;
     try {
-      return await toggleGearDamage(weapon, true, { reason: "weapon malfunction (complication)" });
+      return await toggleGearDamage(weapon, true, {
+        reason: choice === "burnout" ? "power cell burnt out (complication)" : "weapon malfunction (complication)",
+        mode:   choice === "burnout" ? "burnt" : "broken",
+      });
     } catch (err) {
       console.warn("STA2e Toolkit | Weapon malfunction failed:", err);
       return false;

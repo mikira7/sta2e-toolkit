@@ -20,6 +20,7 @@ import { getLcTokens } from "./lcars-theme.js";
 import {
   isDamageable, isGearDamaged, setGearDamaged, gearDamageWords, gearKind,
   storedGearDamagePotency, setGearDamagePotency, gearDamageChanged, gearDamagePotencyChanged,
+  gearDamageModes,
 } from "./gear-damage.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
@@ -36,7 +37,7 @@ export function postGearDamageCard(item, damaged, { reason = "" } = {}) {
     ? `<strong>${_esc(item.name)}</strong> is ${words.state.toLowerCase()}${reason ? ` — ${_esc(reason)}` : ""}.`
     : `<strong>${_esc(item.name)}</strong> is back in service — ${words.fixed}.`;
   const effect = !damaged ? ""
-    : gearKind(item) === "weapon" ? "It can't be used in combat until it is repaired."
+    : gearKind(item) === "weapon" ? `It can't be used in combat until it is ${words.fixed}.`
     : gearKind(item) === "forcefield" ? "It gives no Protection until it is recharged."
     : gearKind(item) === "armor" ? "It gives no Protection until it is repaired."
     : "";
@@ -59,9 +60,9 @@ export function postGearDamageCard(item, damaged, { reason = "" } = {}) {
 }
 
 /** Break or repair an item and announce it. False when nothing changed. */
-export async function toggleGearDamage(item, damaged, { reason = "", potency = 1 } = {}) {
+export async function toggleGearDamage(item, damaged, { reason = "", potency = 1, mode = "broken" } = {}) {
   if (!isDamageable(item) || isGearDamaged(item) === !!damaged) return false;
-  const ok = await setGearDamaged(item, !!damaged, { potency });
+  const ok = await setGearDamaged(item, !!damaged, { potency, mode });
   if (ok) postGearDamageCard(item, !!damaged, { reason });
   return ok;
 }
@@ -202,9 +203,10 @@ export function registerGearDamageTraits() {
  * The small key a Token HUD Gear row carries: lit red while the item is out of
  * action (click to repair), dim otherwise (click to break).
  */
-export function buildGearDamageKey(item, onDone) {
-  const words = gearDamageWords(item);
+export function buildGearDamageKey(item, onDone, { mode = "broken" } = {}) {
   const damaged = isGearDamaged(item);
+  // A working energy weapon gets one key per mode; a damaged item one repair key.
+  const words = damaged ? gearDamageWords(item) : gearDamageWords(item, mode);
   const key = document.createElement("button");
   key.type = "button";
   key.className = `sta2e-gear-dmg-key${damaged ? " is-damaged" : ""}`;
@@ -217,7 +219,7 @@ export function buildGearDamageKey(item, onDone) {
     event.preventDefault();
     event.stopPropagation();
     if (!item.isOwner) { ui.notifications.warn("You don't own that item."); return; }
-    await toggleGearDamage(item, !damaged);
+    await toggleGearDamage(item, !damaged, { mode });
     onDone?.();
   });
   return key;
@@ -240,12 +242,13 @@ export async function openBreakGearDialog(actor, { reason = "Complication", comp
     return null;
   }
   const kindLabel = { weapon: "Weapon", forcefield: "Forcefield", armor: "Armour", gear: "Gear" };
-  const rows = items.map((item, i) => `
+  const choices = items.flatMap(item => gearDamageModes(item).map(mode => ({ item, mode })));
+  const rows = choices.map(({ item, mode }, i) => `
     <label class="sta2e-gear-pick">
-      <input type="radio" name="sta2e-gear-pick" value="${item.id}" ${i === 0 ? "checked" : ""}>
+      <input type="radio" name="sta2e-gear-pick" value="${item.id}:${mode}" ${i === 0 ? "checked" : ""}>
       <img src="${_esc(item.img)}" alt="">
       <span class="sta2e-gear-pick-name">${_esc(item.name)}</span>
-      <span class="sta2e-gear-pick-kind">${kindLabel[gearKind(item)] ?? ""} → ${gearDamageWords(item).state}</span>
+      <span class="sta2e-gear-pick-kind">${kindLabel[gearKind(item)] ?? ""} → ${gearDamageWords(item, mode).state}</span>
     </label>`).join("");
   // Potency: 1 for the complication that broke it, plus one per further
   // complication spent on it — and, against a player character, the GM may
@@ -281,7 +284,8 @@ export async function openBreakGearDialog(actor, { reason = "Complication", comp
       { action: "cancel", label: "Cancel", icon: "fas fa-times" },
     ],
   }).catch(() => null);
-  const item = choice?.id ? actor.items.get(choice.id) : null;
+  const [pickedId, pickedMode = "broken"] = String(choice?.id ?? "").split(":");
+  const item = pickedId ? actor.items.get(pickedId) : null;
   if (!item) return null;
   const threatSpent = choice.bought * POTENCY_THREAT_COST;
   if (threatSpent > 0) {
@@ -290,6 +294,7 @@ export async function openBreakGearDialog(actor, { reason = "Complication", comp
   }
   const potency = Math.min(5, choice.comp + choice.bought);
   await toggleGearDamage(item, true, {
+    mode: pickedMode,
     reason: `${reason}, potency ${potency}${threatSpent ? ` (${threatSpent} Threat)` : ""}`,
     potency,
   });
