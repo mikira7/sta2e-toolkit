@@ -748,9 +748,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-right: 4px;
   opacity: 0.35;
   cursor: pointer;
+}
+/* The system sizes the row's control cell to exactly two icons (40px, edit and
+   delete), so a third pushed Delete out of the row. Let a cell holding the Wear
+   toggle size to its icons and the item name give up the room instead. */
+.section .row.entry .control:has(> .sta2e-wear) {
+  width: auto;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.section .row.entry:has(.sta2e-wear) .item-name {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .sta2e-wear:hover { opacity: 0.75; }
 .sta2e-wear.is-worn {
