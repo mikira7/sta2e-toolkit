@@ -4283,318 +4283,324 @@ function _applySheetRollerOverride(app, html) {
     }
   }
 
-  if (!overrideSheetRoller) return;
+  // The class-level patch (_patchSheetRollerAction) is the normal route. These
+  // per-render listeners are only the fallback for a system build whose sheets
+  // no longer carry _onAttributeTest.
+  if (!overrideSheetRoller || _sheetRollerPatched) return;
 
   html.querySelectorAll('[data-action="onAttributeTest"]:not([data-sta2e-roller-bound])').forEach(el => {
     el.dataset.sta2eRollerBound = "1";
-
-    el.addEventListener("click", async (e) => {
+    el.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopImmediatePropagation();
-
-      // ApplicationV2 exposes the document as app.document; legacy sheets use app.actor
-      const actor = app.document ?? app.actor;
-      if (!actor) return;
-
-      // Best-available token for the actor on the current scene
-      const pcToken = actor.getActiveTokens(true)[0]?.document
-        ?? canvas.tokens?.placeables.find(t => t.actor?.id === actor.id)?.document
-        ?? null;
-
-      // ── Ship actors: assist roll or full NPC roller based on flag ────
-      if (_isShipActor(actor)) {
-        // Read currently selected system and department from the sheet checkboxes
-        const sheetEl = app.element;
-        let selectedSysKey  = null;
-        let selectedDeptKey = null;
-        sheetEl?.querySelectorAll('input.selector.system').forEach(cb => {
-          if (cb.checked) selectedSysKey = cb.id.replace('.selector', '');
-        });
-        sheetEl?.querySelectorAll('input.selector.department').forEach(cb => {
-          if (cb.checked) selectedDeptKey = cb.id.replace('.selector', '');
-        });
-        const shipOpts = {};
-        if (selectedSysKey)  shipOpts.shipSystemKey = selectedSysKey;
-        if (selectedDeptKey) shipOpts.shipDeptKey   = selectedDeptKey;
-        if (CombatHUD.isNpcShip(actor)) {
-          openNpcRoller(actor, pcToken, shipOpts);           // full NPC task roller
-        } else {
-          openNpcRoller(actor, pcToken, { ...shipOpts, isAssistRoll: true }); // ship assist card
-        }
-        return;
-      }
-
-      // ── Ground NPC characters (any actor type with NPC sheet + attributes) ──
-      // getGroundCombatProfile distinguishes PCs/Supporting (isPlayerOwned:true) from
-      // ground NPCs (minor/notable/major) — regardless of actor.type.
-      // Ships were already handled above; only non-ship non-player actors reach here.
-      const _npcProfile = CombatHUD.getGroundCombatProfile(actor);
-      if (!_npcProfile.isPlayerOwned && !_npcProfile.isShip) {
-        const _npcSheetEl = app.element;
-        let _npcAttrKey = null;
-        let _npcDiscKey = null;
-        _npcSheetEl?.querySelectorAll('.attribute-block .selector.attribute').forEach(cb => {
-          if (cb.checked) _npcAttrKey = cb.id.replace('.selector', '');
-        });
-        _npcSheetEl?.querySelectorAll('.discipline-block .selector.discipline').forEach(cb => {
-          if (cb.checked) _npcDiscKey = cb.id.replace('.selector', '');
-        });
-        const _npcStats = readOfficerStats(actor);
-        const _npcAllShips = _allWorldShips();
-        const _npcSerializedShips = _npcAllShips.map(s => ({
-          label:              s.label,
-          actorId:            s.actorId,
-          systems:            s.shipActor.system?.systems     ?? {},
-          depts:              s.shipActor.system?.departments ?? {},
-          hasAdvancedSensors: s.shipActor.items?.some(i =>
-            i.name.toLowerCase().includes("advanced sensor suites") ||
-            i.name.toLowerCase().includes("advanced sensors")
-          ) ?? false,
-          sensorsBreaches:    s.shipActor.system?.systems?.sensors?.breaches ?? 0,
-        }));
-        openNpcRoller(actor, pcToken, {
-          groundMode:     true,
-          groundIsNpc:    true,
-          officer:        _npcStats || undefined,
-          defaultAttr:    _npcAttrKey || undefined,
-          defaultDisc:    _npcDiscKey || undefined,
-          availableShips: _npcSerializedShips,
-        });
-        return;
-      }
-
-      // ── Player characters: check for ship assist ─────────────────────
-      // Mirror the system's native _onAttributeTest logic: read which attribute
-      // and discipline checkboxes are currently checked on the sheet.
-      const sheetEl = app.element;
-      let selectedAttrKey = null;
-      let selectedDiscKey = null;
-      sheetEl?.querySelectorAll('.attribute-block .selector.attribute').forEach(cb => {
-        if (cb.checked) selectedAttrKey = cb.id.replace('.selector', '');
-      });
-      sheetEl?.querySelectorAll('.discipline-block .selector.discipline').forEach(cb => {
-        if (cb.checked) selectedDiscKey = cb.id.replace('.selector', '');
-      });
-
-      // Read the PC's full stats so the roller can display the character's attr/disc values.
-      const pcStats  = readOfficerStats(actor);
-      const allShips = _allWorldShips();
-
-      const assignedShips = _assignedShipRefs(allShips, actor);
-      const orderedShips = assignedShips.length > 0 ? assignedShips : allShips;
-      const serializedShips = _serializeShipsForRoller(orderedShips);
-      if (assignedShips.length > 0 && serializedShips[0]) serializedShips[0]._defaultShip = true;
-
-      // ── Combat task context (only when character is on a ship in active combat) ──
-      const combatCtx = _getCombatShipContext(actor);
-      const combatTaskContext = combatCtx ? (() => {
-        // Serialize ship weapons for the Tactical station weapon sub-list
-        const shipWeapons = (combatCtx.shipActor.items ?? [])
-          .filter(i => i.type === "starshipweapon2e")
-          .map(i => ({
-            id:         i.id,
-            name:       i.name,
-            img:        i.img ?? "",
-            damage:     i.system?.damage ?? 0,
-            isTorpedo:  (i.system?.qualities?.torpedo ?? false) ||
-                        i.name.toLowerCase().includes("torpedo") ||
-                        i.name.toLowerCase().includes("missile"),
-          }));
-        // Resolve ship token for reading per-token flags (minor action states)
-        const _shipToken = canvas.tokens?.placeables
-          .find(t => t.actor?.id === combatCtx.shipActor.id) ?? null;
-        const _isTactical = combatCtx.stationIds.includes("tactical");
-        const _isHelm     = combatCtx.stationIds.includes("helm");
-        const _isSensors  = combatCtx.stationIds.includes("sensors");
-        return {
-          bridgeStations: BRIDGE_STATIONS,
-          taskParams:     TASK_PARAMS,
-          myStations:     combatCtx.stationIds,
-          combatShip: {
-            label:   combatCtx.shipActor.name,
-            actorId: combatCtx.shipActor.id,
-            // Declared assists live on the ship TOKEN, but the roller is opened with
-            // the character token — same bridge as targetingSolution below.
-            tokenId: _shipToken?.id ?? null,
-            sceneId: _shipToken?.scene?.id ?? null,
-          },
-          shipWeapons,
-          targetShips:  _getCombatTargetShips(combatCtx.shipActor.id),
-          preTargetId:  [...(game.user.targets ?? [])]
-            .find(t => _isShipActor(t.actor))?.actor?.id ?? null,
-          // Initial states for tactical minor action buttons (read once at roller open time)
-          tacticalMinorStates: _isTactical ? {
-            calibrateWeapons:  CombatHUD.hasCalibrateWeapons(_shipToken),
-            targetingSolution: CombatHUD.hasTargetingSolution(_shipToken),
-            weaponsArmed:      CombatHUD.getWeaponsArmed(combatCtx.shipActor),
-            shieldsLowered:    CombatHUD.getShieldsLowered(combatCtx.shipActor),
-          } : null,
-          // Preserve the declared Targeting Solution benefit and system. The
-          // dice roller is opened with the character token, while this state
-          // lives on the combat ship token.
-          targetingSolution: CombatHUD.getTargetingSolution(_shipToken),
-          // Helm minor actions (Impulse + Thrusters are info-only, no persistent state)
-          helmMinorStates: _isHelm ? {} : null,
-          // Sensor minor actions (Calibrate Sensors is a toggle, Launch Probe is info-only)
-          sensorMinorStates: _isSensors ? {
-            calibrateSensors: CombatHUD.hasCalibratesensors(_shipToken),
-          } : null,
-          // Injected here to avoid circular import in npc-roller.js
-          buildWeaponContext: (weapon) => buildWeaponContext(weapon),
-          shipHasRapidFireTorpedo: hasRapidFireTorpedoLauncher(combatCtx.shipActor),
-          openWeaponAttack: (shipActor, shipToken, weapon, officer) =>
-            openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer),
-          applyDefenseMode: (shipActor, shipToken, conditionKey) =>
-            applyDefenseModeForOfficer(shipActor, shipToken, conditionKey),
-          applyModulateShields: (shipActor, shipToken) =>
-            applyModulateShieldsForOfficer(shipActor, shipToken),
-          applyCalibrateWeapons: (shipActor, shipToken) =>
-            applyCalibrateWeaponsForOfficer(shipActor, shipToken),
-          applyTargetingSolution: (shipActor, shipToken) =>
-            applyTargetingSolutionForOfficer(shipActor, shipToken),
-          consumeTargetingSolution: _isTactical ? (shipActor, shipToken, benefit, system) =>
-            consumeTargetingSolutionForOfficer(shipActor, shipToken, benefit, system) : null,
-          applyPrepare: (shipActor, shipToken) =>
-            applyPrepareForOfficer(shipActor, shipToken),
-          applyImpulse: _isHelm ? (shipActor, shipToken) =>
-            applyImpulseForOfficer(shipActor, shipToken) : null,
-          applyThrusters: _isHelm ? (shipActor, shipToken) =>
-            applyThrustersForOfficer(shipActor, shipToken) : null,
-          applyCalibrateSensors: _isSensors ? (shipActor, shipToken) =>
-            applyCalibrateSensorsForOfficer(shipActor, shipToken) : null,
-          consumeCalibrateSensors: _isSensors ? (shipActor, shipToken, benefit) =>
-            consumeCalibrateSensorsForOfficer(shipActor, shipToken, benefit) : null,
-          applyLaunchProbe: _isSensors ? (shipActor, shipToken) =>
-            applyLaunchProbeForOfficer(shipActor, shipToken) : null,
-          getMinorActionStates: () => _isTactical ? {
-            weaponsArmed:  CombatHUD.getWeaponsArmed(combatCtx.shipActor),
-            shieldsLowered: CombatHUD.getShieldsLowered(combatCtx.shipActor),
-          } : null,
-          applyDirect: (shipActor, shipToken) =>
-            applyDirectForOfficer(shipActor, shipToken, actor),
-          // False for NPC/allied NPC ships when the GM leaves them on the RAW
-          // "NPC ships do not have Reserve Power" default — hides Regain Power.
-          shipUsesReservePower: CombatHUD.shipUsesReservePower(combatCtx.shipActor),
-          // Cloaking Device — Tactical station only, if the ship carries the talent
-          shipHasCloakingDevice: _isTactical && hasCloakingDevice(combatCtx.shipActor),
-          cloakingDeviceActive:  _isTactical
-            ? ((combatCtx.shipActor?.statuses?.has("invisible") ?? false)
-               || (_shipToken?.document?.hidden ?? false))
-            : false,
-          // applyCloakDeactivate: instant minor-action decloak (no roll)
-          applyCloakDeactivate: _isTactical && hasCloakingDevice(combatCtx.shipActor)
-            ? (sA, sT) => applyCloakDeactivateForOfficer(sA, sT)
-            : null,
-          applyReroutePower: async (shipActor, shipToken) => {
-            const system = await showRerouteSystemDialog(shipActor);
-            if (!system) return;
-            await handleOfficerTaskResult("reroute-power", shipActor, shipToken, actor,
-              { passed: true, successes: 0, momentum: 0, rerouteSystem: system });
-          },
-          transportConfigDialog: (shipActor) =>
-            showTransportConfigDialog(shipActor),
-        };
-      })() : null;
-
-      // Open the roller directly — ship selection is handled via the inline selector
-      // inside the roller dialog. When no ships are on canvas, open in groundMode.
-      openNpcRoller(actor, pcToken, {
-        playerMode:          true,
-        crewQuality:         null,
-        officer:             pcStats,
-        defaultAttr:         selectedAttrKey,
-        defaultDisc:         selectedDiscKey,
-        sheetMode:           true,
-        groundMode:          serializedShips.length === 0,
-        availableShips:      serializedShips,
-        shipAssist:          false,
-        selectedShipIdx:     -1,
-        combatTaskContext,
-        // Apply target-flagging task effects when roll passes (scan-for-weakness etc.)
-        taskCallback: combatTaskContext ? async ({ passed, successes = 0, momentum = 0 }) => {
-          const sel      = combatTaskContext._selected ?? {};
-          const taskKey  = sel.taskKey;
-          const targetId = sel.targetId;
-          if (!taskKey) return;
-
-          const targetToken = targetId
-            ? canvas.tokens?.placeables.find(t => t.actor?.id === targetId) ?? null
-            : null;
-          const shipToken = canvas.tokens?.placeables
-            .find(t => t.actor?.id === combatTaskContext.combatShip.actorId) ?? null;
-          const shipActor = game.actors.get(combatTaskContext.combatShip.actorId);
-
-          if (taskKey === "scan-for-weakness") {
-            if (!passed) return;
-            if (!targetToken) {
-              ui.notifications.warn("STA2e Toolkit: Target ship not on canvas — scan not applied.");
-              return;
-            }
-            const cardData = await applyScanForWeakness(
-              shipToken, targetToken, combatTaskContext.combatShip.label
-            );
-            ChatMessage.create({
-              ...cardData,
-              speaker:  ChatMessage.getSpeaker({ token: shipToken }),
-            });
-
-          } else if (taskKey === "reveal") {
-            // Resolved by the active GM — candidates never reach this client.
-            if (!shipToken) return;
-            const payload = {
-              action: "sensorReveal", sceneId: shipToken.document.parent?.id ?? canvas.scene?.id,
-              shipTokenId: shipToken.id, successes, passed, requesterUserId: game.user.id,
-            };
-            if (_isResponsibleGM()) await resolveSensorReveal(payload);
-            else game.socket.emit("module.sta2e-toolkit", payload);
-
-          } else if (taskKey === "tractor-beam") {
-            if (!passed) return;
-            if (!targetToken) {
-              ui.notifications.warn("STA2e Toolkit: Target ship not on canvas — tractor beam not applied.");
-              return;
-            }
-            if (!shipToken) {
-              ui.notifications.warn("STA2e Toolkit: Ship token not found on canvas.");
-              return;
-            }
-            await lockTractorBeam(shipToken, targetToken);
-
-          } else if (taskKey === "warp") {
-            // applyWarpForOfficer handles both pass and fail chat cards internally
-            await applyWarpForOfficer(shipActor, shipToken, passed);
-
-          } else if (taskKey === "ram") {
-            if (!shipToken) {
-              ui.notifications.warn("STA2e Toolkit: Ship token not found on canvas.");
-              return;
-            }
-            // applyRamForOfficer handles both pass and fail chat cards internally
-            await applyRamForOfficer(shipToken, targetToken, passed, momentum);
-
-          } else if (["regen-shields","regain-power","damage-control","transport"].includes(taskKey)) {
-            // handleOfficerTaskResult handles all Ops/Engineering task outcomes
-            await handleOfficerTaskResult(taskKey, shipActor, shipToken, actor,
-              { passed, successes, momentum,
-                rerouteSystem:    combatTaskContext._selected?.rerouteSystem    ?? null,
-                transportConfig:  combatTaskContext._selected?.transportConfig  ?? null });
-
-          } else if (taskKey === "cloak-toggle") {
-            // Cloaking Device activation — Reserve Power check + effects handled inside
-            await handleCloakActivateResult(shipActor, shipToken, passed);
-          }
-        } : null,
-        onAssignShips: async () => {
-          await _openAssignShipsDialog(actor);
-          const allShips2  = _allWorldShips();
-          const assigned2  = _assignedShipRefs(allShips2, actor);
-          const source     = assigned2.length > 0 ? assigned2 : allShips2;
-          const ships      = _serializeShipsForRoller(source);
-          if (assigned2.length > 0 && ships[0]) ships[0]._defaultShip = true;
-          return ships;
-        },
-      });
+      _openToolkitSheetRoller(app);
     }, true); // capture phase fires before ApplicationV2's delegated handler
+  });
+}
+
+/** Open the toolkit roller for a sheet's Task button. `app` is the actor sheet. */
+async function _openToolkitSheetRoller(app) {
+  // ApplicationV2 exposes the document as app.document; legacy sheets use app.actor
+  const actor = app.document ?? app.actor;
+  if (!actor) return;
+
+  // Best-available token for the actor on the current scene
+  const pcToken = actor.getActiveTokens(true)[0]?.document
+    ?? canvas.tokens?.placeables.find(t => t.actor?.id === actor.id)?.document
+    ?? null;
+
+  // ── Ship actors: assist roll or full NPC roller based on flag ────
+  if (_isShipActor(actor)) {
+    // Read currently selected system and department from the sheet checkboxes
+    const sheetEl = app.element;
+    let selectedSysKey  = null;
+    let selectedDeptKey = null;
+    sheetEl?.querySelectorAll('input.selector.system').forEach(cb => {
+      if (cb.checked) selectedSysKey = cb.id.replace('.selector', '');
+    });
+    sheetEl?.querySelectorAll('input.selector.department').forEach(cb => {
+      if (cb.checked) selectedDeptKey = cb.id.replace('.selector', '');
+    });
+    const shipOpts = {};
+    if (selectedSysKey)  shipOpts.shipSystemKey = selectedSysKey;
+    if (selectedDeptKey) shipOpts.shipDeptKey   = selectedDeptKey;
+    if (CombatHUD.isNpcShip(actor)) {
+      openNpcRoller(actor, pcToken, shipOpts);           // full NPC task roller
+    } else {
+      openNpcRoller(actor, pcToken, { ...shipOpts, isAssistRoll: true }); // ship assist card
+    }
+    return;
+  }
+
+  // ── Ground NPC characters (any actor type with NPC sheet + attributes) ──
+  // getGroundCombatProfile distinguishes PCs/Supporting (isPlayerOwned:true) from
+  // ground NPCs (minor/notable/major) — regardless of actor.type.
+  // Ships were already handled above; only non-ship non-player actors reach here.
+  const _npcProfile = CombatHUD.getGroundCombatProfile(actor);
+  if (!_npcProfile.isPlayerOwned && !_npcProfile.isShip) {
+    const _npcSheetEl = app.element;
+    let _npcAttrKey = null;
+    let _npcDiscKey = null;
+    _npcSheetEl?.querySelectorAll('.attribute-block .selector.attribute').forEach(cb => {
+      if (cb.checked) _npcAttrKey = cb.id.replace('.selector', '');
+    });
+    _npcSheetEl?.querySelectorAll('.discipline-block .selector.discipline').forEach(cb => {
+      if (cb.checked) _npcDiscKey = cb.id.replace('.selector', '');
+    });
+    const _npcStats = readOfficerStats(actor);
+    const _npcAllShips = _allWorldShips();
+    const _npcSerializedShips = _npcAllShips.map(s => ({
+      label:              s.label,
+      actorId:            s.actorId,
+      systems:            s.shipActor.system?.systems     ?? {},
+      depts:              s.shipActor.system?.departments ?? {},
+      hasAdvancedSensors: s.shipActor.items?.some(i =>
+        i.name.toLowerCase().includes("advanced sensor suites") ||
+        i.name.toLowerCase().includes("advanced sensors")
+      ) ?? false,
+      sensorsBreaches:    s.shipActor.system?.systems?.sensors?.breaches ?? 0,
+    }));
+    openNpcRoller(actor, pcToken, {
+      groundMode:     true,
+      groundIsNpc:    true,
+      officer:        _npcStats || undefined,
+      defaultAttr:    _npcAttrKey || undefined,
+      defaultDisc:    _npcDiscKey || undefined,
+      availableShips: _npcSerializedShips,
+    });
+    return;
+  }
+
+  // ── Player characters: check for ship assist ─────────────────────
+  // Mirror the system's native _onAttributeTest logic: read which attribute
+  // and discipline checkboxes are currently checked on the sheet.
+  const sheetEl = app.element;
+  let selectedAttrKey = null;
+  let selectedDiscKey = null;
+  sheetEl?.querySelectorAll('.attribute-block .selector.attribute').forEach(cb => {
+    if (cb.checked) selectedAttrKey = cb.id.replace('.selector', '');
+  });
+  sheetEl?.querySelectorAll('.discipline-block .selector.discipline').forEach(cb => {
+    if (cb.checked) selectedDiscKey = cb.id.replace('.selector', '');
+  });
+
+  // Read the PC's full stats so the roller can display the character's attr/disc values.
+  const pcStats  = readOfficerStats(actor);
+  const allShips = _allWorldShips();
+
+  const assignedShips = _assignedShipRefs(allShips, actor);
+  const orderedShips = assignedShips.length > 0 ? assignedShips : allShips;
+  const serializedShips = _serializeShipsForRoller(orderedShips);
+  if (assignedShips.length > 0 && serializedShips[0]) serializedShips[0]._defaultShip = true;
+
+  // ── Combat task context (only when character is on a ship in active combat) ──
+  const combatCtx = _getCombatShipContext(actor);
+  const combatTaskContext = combatCtx ? (() => {
+    // Serialize ship weapons for the Tactical station weapon sub-list
+    const shipWeapons = (combatCtx.shipActor.items ?? [])
+      .filter(i => i.type === "starshipweapon2e")
+      .map(i => ({
+        id:         i.id,
+        name:       i.name,
+        img:        i.img ?? "",
+        damage:     i.system?.damage ?? 0,
+        isTorpedo:  (i.system?.qualities?.torpedo ?? false) ||
+                    i.name.toLowerCase().includes("torpedo") ||
+                    i.name.toLowerCase().includes("missile"),
+      }));
+    // Resolve ship token for reading per-token flags (minor action states)
+    const _shipToken = canvas.tokens?.placeables
+      .find(t => t.actor?.id === combatCtx.shipActor.id) ?? null;
+    const _isTactical = combatCtx.stationIds.includes("tactical");
+    const _isHelm     = combatCtx.stationIds.includes("helm");
+    const _isSensors  = combatCtx.stationIds.includes("sensors");
+    return {
+      bridgeStations: BRIDGE_STATIONS,
+      taskParams:     TASK_PARAMS,
+      myStations:     combatCtx.stationIds,
+      combatShip: {
+        label:   combatCtx.shipActor.name,
+        actorId: combatCtx.shipActor.id,
+        // Declared assists live on the ship TOKEN, but the roller is opened with
+        // the character token — same bridge as targetingSolution below.
+        tokenId: _shipToken?.id ?? null,
+        sceneId: _shipToken?.scene?.id ?? null,
+      },
+      shipWeapons,
+      targetShips:  _getCombatTargetShips(combatCtx.shipActor.id),
+      preTargetId:  [...(game.user.targets ?? [])]
+        .find(t => _isShipActor(t.actor))?.actor?.id ?? null,
+      // Initial states for tactical minor action buttons (read once at roller open time)
+      tacticalMinorStates: _isTactical ? {
+        calibrateWeapons:  CombatHUD.hasCalibrateWeapons(_shipToken),
+        targetingSolution: CombatHUD.hasTargetingSolution(_shipToken),
+        weaponsArmed:      CombatHUD.getWeaponsArmed(combatCtx.shipActor),
+        shieldsLowered:    CombatHUD.getShieldsLowered(combatCtx.shipActor),
+      } : null,
+      // Preserve the declared Targeting Solution benefit and system. The
+      // dice roller is opened with the character token, while this state
+      // lives on the combat ship token.
+      targetingSolution: CombatHUD.getTargetingSolution(_shipToken),
+      // Helm minor actions (Impulse + Thrusters are info-only, no persistent state)
+      helmMinorStates: _isHelm ? {} : null,
+      // Sensor minor actions (Calibrate Sensors is a toggle, Launch Probe is info-only)
+      sensorMinorStates: _isSensors ? {
+        calibrateSensors: CombatHUD.hasCalibratesensors(_shipToken),
+      } : null,
+      // Injected here to avoid circular import in npc-roller.js
+      buildWeaponContext: (weapon) => buildWeaponContext(weapon),
+      shipHasRapidFireTorpedo: hasRapidFireTorpedoLauncher(combatCtx.shipActor),
+      openWeaponAttack: (shipActor, shipToken, weapon, officer) =>
+        openWeaponAttackForOfficer(shipActor, shipToken, weapon, officer),
+      applyDefenseMode: (shipActor, shipToken, conditionKey) =>
+        applyDefenseModeForOfficer(shipActor, shipToken, conditionKey),
+      applyModulateShields: (shipActor, shipToken) =>
+        applyModulateShieldsForOfficer(shipActor, shipToken),
+      applyCalibrateWeapons: (shipActor, shipToken) =>
+        applyCalibrateWeaponsForOfficer(shipActor, shipToken),
+      applyTargetingSolution: (shipActor, shipToken) =>
+        applyTargetingSolutionForOfficer(shipActor, shipToken),
+      consumeTargetingSolution: _isTactical ? (shipActor, shipToken, benefit, system) =>
+        consumeTargetingSolutionForOfficer(shipActor, shipToken, benefit, system) : null,
+      applyPrepare: (shipActor, shipToken) =>
+        applyPrepareForOfficer(shipActor, shipToken),
+      applyImpulse: _isHelm ? (shipActor, shipToken) =>
+        applyImpulseForOfficer(shipActor, shipToken) : null,
+      applyThrusters: _isHelm ? (shipActor, shipToken) =>
+        applyThrustersForOfficer(shipActor, shipToken) : null,
+      applyCalibrateSensors: _isSensors ? (shipActor, shipToken) =>
+        applyCalibrateSensorsForOfficer(shipActor, shipToken) : null,
+      consumeCalibrateSensors: _isSensors ? (shipActor, shipToken, benefit) =>
+        consumeCalibrateSensorsForOfficer(shipActor, shipToken, benefit) : null,
+      applyLaunchProbe: _isSensors ? (shipActor, shipToken) =>
+        applyLaunchProbeForOfficer(shipActor, shipToken) : null,
+      getMinorActionStates: () => _isTactical ? {
+        weaponsArmed:  CombatHUD.getWeaponsArmed(combatCtx.shipActor),
+        shieldsLowered: CombatHUD.getShieldsLowered(combatCtx.shipActor),
+      } : null,
+      applyDirect: (shipActor, shipToken) =>
+        applyDirectForOfficer(shipActor, shipToken, actor),
+      // False for NPC/allied NPC ships when the GM leaves them on the RAW
+      // "NPC ships do not have Reserve Power" default — hides Regain Power.
+      shipUsesReservePower: CombatHUD.shipUsesReservePower(combatCtx.shipActor),
+      // Cloaking Device — Tactical station only, if the ship carries the talent
+      shipHasCloakingDevice: _isTactical && hasCloakingDevice(combatCtx.shipActor),
+      cloakingDeviceActive:  _isTactical
+        ? ((combatCtx.shipActor?.statuses?.has("invisible") ?? false)
+           || (_shipToken?.document?.hidden ?? false))
+        : false,
+      // applyCloakDeactivate: instant minor-action decloak (no roll)
+      applyCloakDeactivate: _isTactical && hasCloakingDevice(combatCtx.shipActor)
+        ? (sA, sT) => applyCloakDeactivateForOfficer(sA, sT)
+        : null,
+      applyReroutePower: async (shipActor, shipToken) => {
+        const system = await showRerouteSystemDialog(shipActor);
+        if (!system) return;
+        await handleOfficerTaskResult("reroute-power", shipActor, shipToken, actor,
+          { passed: true, successes: 0, momentum: 0, rerouteSystem: system });
+      },
+      transportConfigDialog: (shipActor) =>
+        showTransportConfigDialog(shipActor),
+    };
+  })() : null;
+
+  // Open the roller directly — ship selection is handled via the inline selector
+  // inside the roller dialog. When no ships are on canvas, open in groundMode.
+  openNpcRoller(actor, pcToken, {
+    playerMode:          true,
+    crewQuality:         null,
+    officer:             pcStats,
+    defaultAttr:         selectedAttrKey,
+    defaultDisc:         selectedDiscKey,
+    sheetMode:           true,
+    groundMode:          serializedShips.length === 0,
+    availableShips:      serializedShips,
+    shipAssist:          false,
+    selectedShipIdx:     -1,
+    combatTaskContext,
+    // Apply target-flagging task effects when roll passes (scan-for-weakness etc.)
+    taskCallback: combatTaskContext ? async ({ passed, successes = 0, momentum = 0 }) => {
+      const sel      = combatTaskContext._selected ?? {};
+      const taskKey  = sel.taskKey;
+      const targetId = sel.targetId;
+      if (!taskKey) return;
+
+      const targetToken = targetId
+        ? canvas.tokens?.placeables.find(t => t.actor?.id === targetId) ?? null
+        : null;
+      const shipToken = canvas.tokens?.placeables
+        .find(t => t.actor?.id === combatTaskContext.combatShip.actorId) ?? null;
+      const shipActor = game.actors.get(combatTaskContext.combatShip.actorId);
+
+      if (taskKey === "scan-for-weakness") {
+        if (!passed) return;
+        if (!targetToken) {
+          ui.notifications.warn("STA2e Toolkit: Target ship not on canvas — scan not applied.");
+          return;
+        }
+        const cardData = await applyScanForWeakness(
+          shipToken, targetToken, combatTaskContext.combatShip.label
+        );
+        ChatMessage.create({
+          ...cardData,
+          speaker:  ChatMessage.getSpeaker({ token: shipToken }),
+        });
+
+      } else if (taskKey === "reveal") {
+        // Resolved by the active GM — candidates never reach this client.
+        if (!shipToken) return;
+        const payload = {
+          action: "sensorReveal", sceneId: shipToken.document.parent?.id ?? canvas.scene?.id,
+          shipTokenId: shipToken.id, successes, passed, requesterUserId: game.user.id,
+        };
+        if (_isResponsibleGM()) await resolveSensorReveal(payload);
+        else game.socket.emit("module.sta2e-toolkit", payload);
+
+      } else if (taskKey === "tractor-beam") {
+        if (!passed) return;
+        if (!targetToken) {
+          ui.notifications.warn("STA2e Toolkit: Target ship not on canvas — tractor beam not applied.");
+          return;
+        }
+        if (!shipToken) {
+          ui.notifications.warn("STA2e Toolkit: Ship token not found on canvas.");
+          return;
+        }
+        await lockTractorBeam(shipToken, targetToken);
+
+      } else if (taskKey === "warp") {
+        // applyWarpForOfficer handles both pass and fail chat cards internally
+        await applyWarpForOfficer(shipActor, shipToken, passed);
+
+      } else if (taskKey === "ram") {
+        if (!shipToken) {
+          ui.notifications.warn("STA2e Toolkit: Ship token not found on canvas.");
+          return;
+        }
+        // applyRamForOfficer handles both pass and fail chat cards internally
+        await applyRamForOfficer(shipToken, targetToken, passed, momentum);
+
+      } else if (["regen-shields","regain-power","damage-control","transport"].includes(taskKey)) {
+        // handleOfficerTaskResult handles all Ops/Engineering task outcomes
+        await handleOfficerTaskResult(taskKey, shipActor, shipToken, actor,
+          { passed, successes, momentum,
+            rerouteSystem:    combatTaskContext._selected?.rerouteSystem    ?? null,
+            transportConfig:  combatTaskContext._selected?.transportConfig  ?? null });
+
+      } else if (taskKey === "cloak-toggle") {
+        // Cloaking Device activation — Reserve Power check + effects handled inside
+        await handleCloakActivateResult(shipActor, shipToken, passed);
+      }
+    } : null,
+    onAssignShips: async () => {
+      await _openAssignShipsDialog(actor);
+      const allShips2  = _allWorldShips();
+      const assigned2  = _assignedShipRefs(allShips2, actor);
+      const source     = assigned2.length > 0 ? assigned2 : allShips2;
+      const ships      = _serializeShipsForRoller(source);
+      if (assigned2.length > 0 && ships[0]) ships[0]._defaultShip = true;
+      return ships;
+    },
   });
 }
 
@@ -4615,6 +4621,50 @@ for (const hookName of [
 ]) {
   Hooks.on(hookName, _applySheetRollerOverride);
 }
+
+// The Task button's action calls `this._onAttributeTest(ev)` on the sheet, so
+// wrapping that method on the system's base class takes over every sheet with
+// nothing per render. Binding a listener to each button on render could miss:
+// any throw earlier in _applySheetRollerOverride (Foundry swallows hook errors)
+// skipped the binding, and that sheet then rolled with the system's dialog
+// until the client reloaded.
+let _sheetRollerPatched = false;
+
+function _patchSheetRollerAction() {
+  const owners = new Set();
+  for (const byId of Object.values(CONFIG.Actor?.sheetClasses ?? {})) {
+    for (const entry of Object.values(byId ?? {})) {
+      let proto = entry?.cls?.prototype;
+      while (proto && proto !== Object.prototype) {
+        if (Object.hasOwn(proto, "_onAttributeTest")) { owners.add(proto); break; }
+        proto = Object.getPrototypeOf(proto);
+      }
+    }
+  }
+  for (const proto of owners) {
+    const original = proto._onAttributeTest;
+    if (original.sta2eToolkitWrapped) continue;
+    const wrapped = function (event, ...rest) {
+      const actor = this.document ?? this.actor;
+      if (game.settings.get("sta2e-toolkit", "overrideSheetRoller")
+          && actor && !actor.getFlag?.("sta2e-toolkit", "starSystem")?.isStarSystem) {
+        event?.preventDefault?.();
+        return _openToolkitSheetRoller(this);
+      }
+      return original.call(this, event, ...rest);
+    };
+    wrapped.sta2eToolkitWrapped = true;
+    proto._onAttributeTest = wrapped;
+  }
+  _sheetRollerPatched = owners.size > 0;
+  if (!_sheetRollerPatched)
+    console.warn("STA2e Toolkit | no sheet defines _onAttributeTest; using per-render Task button listeners");
+}
+
+Hooks.once("ready", () => {
+  try { _patchSheetRollerAction(); }
+  catch (err) { console.error("STA2e Toolkit | sheet roller patch failed", err); }
+});
 
 // ---------------------------------------------------------------------------
 // Supporting Character — Supervisory toggle
