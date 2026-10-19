@@ -239,7 +239,7 @@ check('TOS and TNG keep their own frames, other eras their legacy markup', () =>
   assert.match(lcarsChatCard({ title: 'T', body, legacy }), /sta2e-chat-card--tos/);
   theme = 'lcars-tng';
   const tng = lcarsChatCard({ title: 'T', body, legacy });
-  assert.match(tng, /ccf-bar--top/);
+  assert.match(tng, /sta2e-chat-card--tng tbc/);
   assert.doesNotMatch(tng, /sta2e-chat-card--tmp|--tck-a/);
   theme = 'klingon';
   assert.equal(lcarsChatCard({ title: 'T', body, legacy }), legacy());

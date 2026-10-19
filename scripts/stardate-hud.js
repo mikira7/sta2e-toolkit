@@ -14,7 +14,7 @@ import { formatStardate, formatCalendarDate, formatTime, formatKlingonDate, form
 import { ACTIVE_GM_CHANGED_HOOK, connectedGMs, getActiveGM, setActiveGM } from "./gm-authority.js";
 // scene-flags helpers still used by date-editor; HUD now reads canvas.scene directly
 
-const LCARS_THEMES  = new Set(["lcars-tng", "lcars-tng-blue", "klingon", "romulan"]);
+const LCARS_THEMES  = new Set(["lcars-tng", "lcars-fc", "klingon", "romulan"]);
 const KLINGON_THEMES = new Set(["klingon"]);
 const ROMULAN_THEMES = new Set(["romulan"]);
 const TOS_THEMES    = new Set(["tos-panel"]);

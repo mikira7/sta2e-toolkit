@@ -25,7 +25,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
-import { tosifyBodyHtml } from "./chat-card-frame.js";
+import { tosifyBodyHtml, tngBodyHtml } from "./chat-card-frame.js";
 import {
   readPool as _readPool,
   poolLimit as _poolLimit,
@@ -867,7 +867,9 @@ export function injectSpendPanels(message, html) {
     // The panel arrives after the card's frame was built, so a TOS card's body
     // pass never saw it; run the same pass here so it matches the card.
     const inTosCard = !!controls.closest(".sta2e-chat-card--tos");
-    controls.insertAdjacentHTML("beforebegin", inTosCard ? tosifyBodyHtml(panelHtml) : panelHtml);
+    const inTngCard = !!controls.closest(".sta2e-chat-card--tng");
+    controls.insertAdjacentHTML("beforebegin", inTosCard ? tosifyBodyHtml(panelHtml)
+      : inTngCard ? tngBodyHtml(panelHtml) : panelHtml);
   });
 
   wireSpendPanel(html);

@@ -677,7 +677,7 @@ export function registerSettings() {
     choices: {
       "blue":           "STA2E.Settings.HudTheme.Blue",
       "lcars-tng":      "STA2E.Settings.HudTheme.LcarsTng",
-      "lcars-tng-blue": "STA2E.Settings.HudTheme.LcarsTngBlue",
+      "lcars-fc":       "STA2E.Settings.HudTheme.LcarsFc",
       "tos-panel":      "STA2E.Settings.HudTheme.TosPanel",
       "tmp-console":    "STA2E.Settings.HudTheme.TmpConsole",
       "tmp-monitor":    "STA2E.Settings.HudTheme.TmpMonitor",

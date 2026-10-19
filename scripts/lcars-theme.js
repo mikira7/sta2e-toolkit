@@ -20,11 +20,14 @@ const THEMES = {
     border: "#f6a726", borderDim: "#403000", green: "#48c76b", yellow: "#ffef3a",
     orange: "#f47c20", red: "#d92222", font: FONT,
   },
-  "lcars-tng-blue": {
-    bg: "#000000", panel: "#02080d", primary: "#f0a43a", secondary: "#008c56",
-    tertiary: "#d8b45f", text: "#f2c77a", textDim: "#b8842e", textBright: "#ffffff",
-    border: "#a66f20", borderDim: "#3d2b12", green: "#00a565", yellow: "#d8ca62",
-    orange: "#f1a23a", red: "#b51424", font: FONT,
+  // The Enterprise-E's LCARS from First Contact and Insurrection: periwinkle and
+  // slate-blue frames with tan accents, orange kept for highlights. Replaced
+  // the old "lcars-tng-blue" (RETIRED_THEMES below moves worlds across).
+  "lcars-fc": {
+    bg: "#000000", panel: "#04070f", primary: "#7b93d1", secondary: "#c9a27a",
+    tertiary: "#b5c3e8", text: "#c6d3f0", textDim: "#5d6f9c", textBright: "#f2f5ff",
+    border: "#7b93d1", borderDim: "#1e2840", green: "#5fbf8f", yellow: "#ffd35c",
+    orange: "#ff9c33", red: "#d9443a", font: FONT,
   },
   "tos-panel": {
     bg: "#0a0800", panel: "#141000", primary: "#ddaa00", secondary: "#cc4400",
@@ -73,13 +76,13 @@ const ERA_THEME_DEFAULTS = {
   ent: "ent-panel",
   klingon: "klingon",
   romulan: "romulan",
-  custom: "lcars-tng-blue",
+  custom: "lcars-fc",
 };
 
 const THEME_TEMPLATES = {
   blue: "starfleet-blue",
   "lcars-tng": "tng-lcars",
-  "lcars-tng-blue": "tech-lcars",
+  "lcars-fc": "tech-lcars",
   "tos-panel": "tos-console",
   "tmp-console": "tmp-grid",
   "tmp-monitor": "tmp-grid",
@@ -87,6 +90,57 @@ const THEME_TEMPLATES = {
   klingon: "klingon-tactical",
   romulan: "romulan-grid",
 };
+
+/**
+ * Retired theme ids and what replaced them. getActiveLcThemeKey resolves them at
+ * read time, and migrateRetiredThemes (run by the active GM on ready) rewrites
+ * the stored hudTheme setting and every campaign's theme, because several
+ * readers take the raw stored id rather than going through this module.
+ */
+export const RETIRED_THEMES = { "lcars-tng-blue": "lcars-fc" };
+
+/** Resolve a stored theme id, following a retired id to its replacement. */
+export function canonicalThemeKey(key) { return RETIRED_THEMES[key] ?? key; }
+
+/**
+ * Move the world off retired theme ids. Call on the active GM only. Returns
+ * true when anything was written.
+ */
+export async function migrateRetiredThemes() {
+  let changed = false;
+  const global = game.settings.get("sta2e-toolkit", "hudTheme");
+  if (RETIRED_THEMES[global]) {
+    await game.settings.set("sta2e-toolkit", "hudTheme", RETIRED_THEMES[global]);
+    changed = true;
+  }
+  const retire = c => RETIRED_THEMES[c?.theme] ? { ...c, theme: RETIRED_THEMES[c.theme] } : c;
+  const store = game.sta2eToolkit?.campaignStore;
+  if (store?._mutateCampaigns) {
+    // Through the store's write queue, so it cannot race a pool write at ready.
+    await store._mutateCampaigns(list => {
+      if (!list.some(c => RETIRED_THEMES[c?.theme])) return null;
+      changed = true;
+      return list.map(retire);
+    });
+  } else {
+    const stored = game.settings.get("sta2e-toolkit", "campaigns");
+    const list = Array.isArray(stored?.list) ? stored.list : [];
+    if (list.some(c => RETIRED_THEMES[c?.theme])) {
+      await game.settings.set("sta2e-toolkit", "campaigns", { ...stored, list: list.map(retire) });
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Themes whose task card and chat cards wear the Bracket Console
+ * (task-card-tng.js, tngChatCard in chat-card-frame.js).
+ */
+export const BRACKET_THEME_KEYS = new Set(["lcars-tng", "lcars-fc"]);
+
+/** Whether a theme id wears the Bracket Console cards. */
+export function isBracketTheme(key) { return BRACKET_THEME_KEYS.has(key); }
 
 /** Both TMP themes — Console (grey panels) and Monitor (black screens). */
 export const TMP_THEME_KEYS = new Set(["tmp-console", "tmp-monitor"]);
@@ -103,11 +157,11 @@ export function getActiveLcThemeKey() {
   try {
     const store = game?.sta2eToolkit?.campaignStore;
     const campaign = store?.getActiveCampaign?.();
-    if (campaign?.theme) themeKey = campaign.theme;
+    if (campaign?.theme) themeKey = canonicalThemeKey(campaign.theme);
     else if (campaign?.era) themeKey = themeForEra(campaign.era);
     else {
       const globalTheme = game?.settings?.get("sta2e-toolkit", "hudTheme");
-      if (globalTheme) themeKey = globalTheme;
+      if (globalTheme) themeKey = canonicalThemeKey(globalTheme);
     }
   } catch {
     // Foundry not ready yet.
@@ -171,7 +225,7 @@ export function pillStyle(color, prefix = "tmk", tokens = getLcTokens()) {
 export const THEME_NAMES = {
   blue: "Starfleet Blue",
   "lcars-tng": "LCARS TNG Classic",
-  "lcars-tng-blue": "LCARS TNG Blue-Grey",
+  "lcars-fc": "LCARS First Contact",
   "tos-panel": "TOS Panel",
   "tmp-console": "TMP Console",
   "tmp-monitor": "TMP Monitor",

@@ -134,20 +134,22 @@
 
 
 /* ============================================================
-   THEME 2b: LCARS TNG BLUE-GREY (cool blue/slate variant)
-   Seen in some TNG episodes and DS9/VOY — cooler, more subdued palette.
+   THEME 2b: LCARS FIRST CONTACT
+   The Enterprise-E's LCARS from First Contact and Insurrection:
+   periwinkle and slate-blue frames, tan accents, orange highlights.
+   Replaced the old TNG Blue-Grey theme (lcars-tng-blue).
    ============================================================ */
 
-.sta2e-theme-lcars-tng-blue {
-  --lcars-bg:          #000508;
-  --lcars-primary:     #6699cc;   /* cool slate blue */
-  --lcars-secondary:   #99bbdd;   /* pale blue-grey */
-  --lcars-tertiary:    #aaccee;   /* light blue */
-  --lcars-text-dim:    #446688;
-  --lcars-display-bg:  #000810;
-  --lcars-display-txt: #99ccee;
-  --lcars-stardate:    #ddeeff;
-  --lcars-glow:        rgba(80,140,200,0.35);
+.sta2e-theme-lcars-fc {
+  --lcars-bg:          #000000;
+  --lcars-primary:     #7b93d1;   /* periwinkle frame */
+  --lcars-secondary:   #c9a27a;   /* tan */
+  --lcars-tertiary:    #b5c3e8;   /* pale ice blue */
+  --lcars-text-dim:    #5d6f9c;
+  --lcars-display-bg:  #02050c;
+  --lcars-display-txt: #c6d3f0;
+  --lcars-stardate:    #f2f5ff;
+  --lcars-glow:        rgba(123,147,209,0.35);
   --lcars-cap-r:       22px;
   --lcars-h:           36px;
   --lcars-font:        "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
@@ -1339,16 +1341,16 @@
   --player-font:    "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
 }
 
-/* LCARS TNG Blue-Grey */
-.sta2e-player-theme-lcars-tng-blue {
-  --player-border:  rgba(102, 153, 204, 0.45);
-  --player-bg:      rgba(0, 5, 8, 0.92);
-  --player-glow:    rgba(80, 140, 200, 0.3);
-  --player-ship:    #aaccee;
-  --player-dim:     #446688;
-  --player-accent:  #ddeeff;
-  --player-text:    #99ccee;
-  --player-sep:     #223344;
+/* LCARS First Contact */
+.sta2e-player-theme-lcars-fc {
+  --player-border:  rgba(123, 147, 209, 0.45);
+  --player-bg:      rgba(0, 4, 10, 0.92);
+  --player-glow:    rgba(123, 147, 209, 0.3);
+  --player-ship:    #b5c3e8;
+  --player-dim:     #5d6f9c;
+  --player-accent:  #f2f5ff;
+  --player-text:    #c6d3f0;
+  --player-sep:     #1e2840;
   --player-font:    "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
 }
 
@@ -1952,28 +1954,28 @@
   letter-spacing: 0.1em;
 }
 
-/* ── THEME: lcars-tng-blue (cool blue LCARS) ── */
-#sta2e-alert-container[data-theme="lcars-tng-blue"] #sta2e-alert-widget {
-  background: #000508;
-  border-color: #4477aa;
+/* ── THEME: lcars-fc (First Contact LCARS) ── */
+#sta2e-alert-container[data-theme="lcars-fc"] #sta2e-alert-widget {
+  background: #02050c;
+  border-color: #7b93d1;
   border-left-width: 4px;
   border-right-width: 4px;
-  box-shadow: 0 4px 16px rgba(80,140,200,0.25);
+  box-shadow: 0 4px 16px rgba(123,147,209,0.25);
 }
-#sta2e-alert-container[data-theme="lcars-tng-blue"] #sta2e-alert-tab {
-  background: #6699cc;
-  border-color: #6699cc;
+#sta2e-alert-container[data-theme="lcars-fc"] #sta2e-alert-tab {
+  background: #7b93d1;
+  border-color: #7b93d1;
   color: #000;
   font-weight: 700;
 }
-#sta2e-alert-container[data-theme="lcars-tng-blue"] #sta2e-alert-tab:hover {
-  background: #88bbee;
+#sta2e-alert-container[data-theme="lcars-fc"] #sta2e-alert-tab:hover {
+  background: #9fb2e0;
   color: #000;
 }
-#sta2e-alert-container[data-theme="lcars-tng-blue"] .sta2e-alert__toggle {
+#sta2e-alert-container[data-theme="lcars-fc"] .sta2e-alert__toggle {
   border-radius: 4px;
 }
-#sta2e-alert-container[data-theme="lcars-tng-blue"] .sta2e-alert__toggle-label {
+#sta2e-alert-container[data-theme="lcars-fc"] .sta2e-alert__toggle-label {
   font-family: "Arial Narrow","Roboto Condensed","Helvetica Neue",sans-serif;
   letter-spacing: 0.1em;
 }

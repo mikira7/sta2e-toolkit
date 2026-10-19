@@ -4,7 +4,7 @@
  *
  * openWarpCalc() reads the active campaign era/theme and opens the matching
  * dialog style:
- *   lcars-tng / lcars-tng-blue  → LCARS orange (TNG style)
+ *   lcars-tng / lcars-fc        → LCARS orange (TNG style)
  *   tos-panel                   → Dark panel, crimson/amber (TOS style)
  *   tmp-console                 → Dark panel, crimson/amber (TMP style, same sheet)
  *   ent-panel                   → LCARS orange (ENT has no warp scale, but still useful)

@@ -43,7 +43,7 @@ const GAP_MARGIN = 8;
  *
  *   blue            → --hud-accent            (.sta2e-theme-blue)
  *   lcars-tng       → --lcars-primary         (.sta2e-theme-lcars-tng)
- *   lcars-tng-blue  → --lcars-primary         (.sta2e-theme-lcars-tng-blue)
+ *   lcars-fc        → --lcars-primary         (.sta2e-theme-lcars-fc)
  *   tos-panel       → .tos__btn--amber        (mid gradient stop)
  *   tmp-console     → .tmp__btn               (dark blue fill, light text)
  *   ent-panel       → .ent__btn               (amber readout on gunmetal)
@@ -53,7 +53,7 @@ const GAP_MARGIN = 8;
 const CALENDAR_PALETTE = {
   blue:             { btn: "#f0a43a", text: "#06111d" },
   "lcars-tng":      { btn: "#ff9900", text: "#000000" },
-  "lcars-tng-blue": { btn: "#6699cc", text: "#000508" },
+  "lcars-fc":       { btn: "#7b93d1", text: "#000000" },
   "tos-panel":      { btn: "#c8a010", text: "#1a1200" },
   "tmp-console":    { btn: "#2a4a78", text: "#b8d8f8" },
   "tmp-monitor":    { btn: "#00aef0", text: "#000000" },

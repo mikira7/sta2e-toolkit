@@ -42,10 +42,11 @@
    base so far; the rest are stubs kept here so each era can take its own shape
    without touching the renderer. */
 .sta2e-task-card[data-theme="lcars-tng"] {
+  /* Classic only; lcars-tng now renders its own skin (styles/task-card-tng.css). */
   --tcx-radius: 16px;
 }
 
-.sta2e-task-card[data-theme="lcars-tng-blue"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="lcars-fc"] { /* own skin: styles/task-card-tng.css (Bracket Console) */ }
 .sta2e-task-card[data-theme="blue"] { /* inherits the base shape */ }
 .sta2e-task-card[data-theme="tos-panel"] { /* own skin: styles/task-card-tos.css */ }
 .sta2e-task-card[data-theme="tmp-console"] { /* own skin: styles/task-card-tmp.css */ }

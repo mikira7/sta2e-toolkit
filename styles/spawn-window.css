@@ -866,13 +866,18 @@
    frame it overrides --sw-frame-top / --sw-frame-bottom with its own file,
    rather than this file growing a set of radius variables again. */
 
-/* lcars-tng / lcars-tng-blue are the reference look — geometry untouched.
-   They take the classic LCARS lilac and plum for the decorative blocks, which
-   no era's token set carries. */
-.sta2e-sw[data-theme="lcars-tng"],
-.sta2e-sw[data-theme="lcars-tng-blue"] {
+/* lcars-tng / lcars-fc are the reference look — geometry untouched.
+   TNG takes the classic LCARS lilac and plum for the decorative blocks, which
+   no era's token set carries; First Contact takes its tan and deep slate. */
+.sta2e-sw[data-theme="lcars-tng"] {
   --sw-deco-a: #cc99cc;
   --sw-deco-b: #cc6699;
+  --sw-deco-c: var(--sw-tertiary);
+}
+
+.sta2e-sw[data-theme="lcars-fc"] {
+  --sw-deco-a: #c9a27a;
+  --sw-deco-b: #4f6599;
   --sw-deco-c: var(--sw-tertiary);
 }
 

@@ -1,0 +1,437 @@
+/*
+ * sta2e-toolkit | task-card-tng.css
+ *
+ * Shape for the TNG "Bracket Console" (docs/tng-card-mockups.html, Concept B):
+ * open LCARS brackets at the four corners, the title centred in the top bar's
+ * gap, segmented side arms, dice in stadium-outlined strips, segmented gauges
+ * and a two-column keypad rounded on its outer ends.
+ *
+ * Two parts:
+ *  • The FRAME hangs off `.tbc`, which both the task card
+ *    (scripts/task-card-tng.js) and the chat card frame's TNG path
+ *    (tngChatCard in scripts/chat-card-frame.js) put on their root. Its colour
+ *    is `--tbc-c`, stamped inline by whichever builder made the root.
+ *  • The TASK CARD rules hang off .sta2e-task-card--tng, which only the TNG
+ *    renderer emits.
+ *
+ * ── The two hard rules from styles/task-card.css apply here too ─────────────
+ * 1. No `!important`.
+ * 2. Nothing may set background / border-color / color / opacity on a key.
+ *    _armCardSelection() owns those while a reroll is armed and restores them
+ *    through style.cssText, so a key's colour is entirely inline.
+ *
+ * Specificity: the shared rules in task-card.css go up to (0,2,1)
+ * (.sta2e-task-card .sta2e-task-rerolls > button), and the TNG attribute block
+ * there is (0,2,0), so the rules here use three classes to win on specificity
+ * rather than on stylesheet order.
+ */
+
+/* ── Font ─────────────────────────────────────────────────────────────────── */
+/* Antonio, bundled in fonts/tng (SIL Open Font License, text beside it), under
+   a name of our own so nothing else in a world can collide with it. Latin
+   subset only: ▶ → ★ and the like fall through to the next font in the stack. */
+@font-face {
+  font-family: "STA2e Antonio";
+  src: url("../fonts/tng/Antonio-Variable.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* (0,2,0), to outrank chat-card.css's .sta2e-chat-card font on specificity.
+   Neither root may carry an inline font-family: the task card's renderer
+   emits none, and tngBodyHtml strips the bodies' inline LCARS font. */
+.sta2e-task-card.tbc,
+.sta2e-chat-card.tbc {
+  font-family: var(--tbc-font);
+}
+
+/* Foundry gives form controls a font of their own; follow the card's. */
+.tbc button,
+.tbc input,
+.tbc select,
+.tbc textarea {
+  font-family: inherit;
+}
+
+/* ── Frame ────────────────────────────────────────────────────────────────── */
+.tbc {
+  --tbc-font: "STA2e Antonio", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --tbc-c2: #ffcc99;     /* side arms, bottom rule */
+  --tbc-c3: #cc99cc;     /* short blocks, dice strip outlines */
+  --tbc-ink: #f6c36d;    /* default text */
+  --tbc-seg-off: #2a2010;
+  --tbc-note: #99ccff;   /* note-strip leads, by tone */
+  --tbc-trait: #cc99cc;
+  --tbc-pass: #48c76b;
+  --tbc-fail: #ff5544;
+  --tbc-cost: #ffcc66;
+  --tbc-arm: 12px;       /* thickness of a bracket's vertical arm */
+  --tbc-bar: 8px;        /* thickness of a bracket's horizontal bar */
+  --tbc-brk-h: 24px;     /* height of a corner bracket */
+  --tbc-pad: 2px;        /* gap between the card's edge and the brackets */
+  position: relative;
+  padding: var(--tbc-pad);
+  background: #000;
+  color: var(--tbc-ink);
+}
+
+/* First Contact (lcars-fc): periwinkle arms, tan blocks and outlines, ice-blue
+   text. The frame colour itself (--tbc-c) arrives inline from the builders.
+   (0,2,0), so it outranks the defaults above. */
+.tbc[data-theme="lcars-fc"] {
+  --tbc-c2: #9fb2e0;
+  --tbc-c3: #c9a27a;
+  --tbc-ink: #c6d3f0;
+  --tbc-seg-off: #141a2a;
+  --tbc-note: #9fb2e0;
+  --tbc-trait: #c9a27a;
+  --tbc-pass: #5fbf8f;
+  --tbc-fail: #e0604f;
+  --tbc-cost: #d8b48a;
+}
+
+/* The side arms, between the corner brackets. Pseudo-elements, so neither
+   builder needs markup for them, and they stretch with the body for free. */
+.tbc::before,
+.tbc::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--tbc-pad) + var(--tbc-brk-h) + 3px);
+  bottom: calc(var(--tbc-pad) + var(--tbc-brk-h) + 3px);
+  width: var(--tbc-arm);
+  background: var(--tbc-c2);
+  pointer-events: none;
+}
+.tbc::before { left: var(--tbc-pad); }
+.tbc::after { right: var(--tbc-pad); }
+
+.tbc .tbc-top,
+.tbc .tbc-bot {
+  display: flex;
+  align-items: flex-start;
+  gap: 3px;
+  position: relative;
+  z-index: 1;
+}
+.tbc .tbc-bot { align-items: flex-end; }
+
+/* A corner bracket is a border elbow: the inner radius is the outer radius less
+   the border widths, which draws the concave corner with no fillet. */
+.tbc .tbc-brk {
+  flex: none;
+  box-sizing: border-box;
+  width: 44px;
+  height: var(--tbc-brk-h);
+  border: 0 solid var(--tbc-c);
+  border-left-width: var(--tbc-arm);
+  border-top-width: var(--tbc-bar);
+  border-top-left-radius: 20px;
+}
+.tbc .tbc-brk--r {
+  border-left-width: 0;
+  border-right-width: var(--tbc-arm);
+  border-top-left-radius: 0;
+  border-top-right-radius: 20px;
+}
+.tbc .tbc-bot .tbc-brk {
+  border-top-width: 0;
+  border-bottom-width: var(--tbc-bar);
+  border-radius: 0 0 0 20px;
+}
+.tbc .tbc-bot .tbc-brk--r { border-radius: 0 0 20px 0; }
+
+.tbc .tbc-rule {
+  flex: 1 1 auto;
+  min-width: 6px;
+  height: var(--tbc-bar);
+  background: var(--tbc-c);
+}
+.tbc .tbc-bot .tbc-rule { background: var(--tbc-c2); }
+.tbc .tbc-rule--s,
+.tbc .tbc-bot .tbc-rule--s { flex: 0 0 16px; background: var(--tbc-c3); }
+
+/* The title sits in the top bar's gap, its cap height level with the bar. It
+   may wrap: a long damage title is worth more than a tidy single line. */
+.tbc .tbc-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 66%;
+  margin-top: -2px;
+  padding: 0 2px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--tbc-c);
+  overflow-wrap: anywhere;
+}
+
+.tbc .tbc-code {
+  flex: none;
+  margin-bottom: -2px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tbc-c2);
+}
+
+/* Clear of the side arms on both sides. */
+.tbc .tbc-body {
+  position: relative;
+  z-index: 1;
+  padding: 3px calc(var(--tbc-arm) + 8px) 5px;
+}
+
+/* ── Task card ────────────────────────────────────────────────────────────── */
+.sta2e-task-card.sta2e-task-card--tng[data-theme] {
+  --tcx-radius: 0;
+  /* The reroll tray reads these with fallbacks (combat-hud-core.js). */
+  --tcx-btn-radius: 14px;
+  --tcx-tray-radius: 14px;
+  overflow: hidden;
+}
+
+.sta2e-task-card--tng .tbc-sub {
+  margin-bottom: 4px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--tbc-c2);
+}
+
+/* Dice strips: a stadium outline, the label and target along its top. */
+.sta2e-task-card--tng .tbc-strip {
+  margin-top: 4px;
+  padding: 2px 10px 3px;
+  border: 2px solid var(--tbc-c3);
+  border-radius: 16px;
+}
+
+.sta2e-task-card--tng .tbc-strip-lbl {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tbc-c3);
+}
+.sta2e-task-card--tng .tbc-strip-lbl > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sta2e-task-card--tng .tbc-strip-lbl > span + span { flex: none; color: #f2f2f2; }
+
+.sta2e-task-card--tng .tbc-strip-line {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tbc-c2);
+}
+
+/* Notes: a half-pill lead in the note's tone, the text beside it. */
+.sta2e-task-card--tng .tbc-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.sta2e-task-card--tng .tbc-note {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  color: #f2f2f2;
+}
+
+.sta2e-task-card--tng .tbc-note::before {
+  content: "";
+  flex: 0 0 10px;
+  min-height: 12px;
+  border-radius: 6px 0 0 6px;
+  background: var(--tbc-note);
+}
+.sta2e-task-card--tng .tbc-note--warn::before  { background: #d92222; }
+.sta2e-task-card--tng .tbc-note--bonus::before { background: #48c76b; }
+.sta2e-task-card--tng .tbc-note--trait::before { background: var(--tbc-trait); }
+
+/* ── Gauges ───────────────────────────────────────────────────────────────── */
+/* Label and number size to their content and never wrap; the bar takes the
+   rest (the TMP meters learned this the hard way). --tbc-g is inline. */
+.sta2e-task-card--tng .tbc-readout { margin-top: 6px; }
+
+.sta2e-task-card--tng .tbc-gauge {
+  display: grid;
+  grid-template-columns: max-content minmax(24px, 1fr) max-content;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tbc-c2);
+}
+.sta2e-task-card--tng .tbc-gauge > span:first-child { min-width: 64px; }
+.sta2e-task-card--tng .tbc-gauge--cpx > span:first-child { color: #ff6655; }
+
+.sta2e-task-card--tng .tbc-gauge b {
+  min-width: 2ch;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+  color: #f2f2f2;
+}
+
+.sta2e-task-card--tng .tbc-segs { display: flex; gap: 2px; height: 10px; }
+.sta2e-task-card--tng .tbc-segs i { flex: 1; background: var(--tbc-g, #f6a726); }
+.sta2e-task-card--tng .tbc-segs .tbc-seg--off { background: var(--tbc-seg-off); }
+
+/* ── Spent / Gained ───────────────────────────────────────────────────────── */
+.sta2e-task-card--tng .tbc-res {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 5px;
+}
+
+.sta2e-task-card--tng .tbc-res-lbl,
+.sta2e-task-card--tng .tbc-res-sub {
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tbc-c2);
+}
+.sta2e-task-card--tng .tbc-res-sub { color: var(--tbc-c3); }
+
+/* ── Result ───────────────────────────────────────────────────────────────── */
+.sta2e-task-card--tng .tbc-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+.sta2e-task-card--tng .tbc-result::before,
+.sta2e-task-card--tng .tbc-result::after {
+  content: "";
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.sta2e-task-card--tng .tbc-result strong {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sta2e-task-card--tng .tbc-result--pass { color: var(--tbc-pass); }
+.sta2e-task-card--tng .tbc-result--fail { color: var(--tbc-fail); }
+.sta2e-task-card--tng .tbc-result--cost { color: var(--tbc-cost); }
+
+/* ── Keypad ───────────────────────────────────────────────────────────────── */
+/* Each .sta2e-working-actions section stays a plain block: the reroll tray is
+   appended to it and must land below the keys. The grid is the inner list. */
+.sta2e-task-card--tng .tbc-actions { margin-top: 7px; }
+
+.sta2e-task-card--tng .tbc-sect-lbl {
+  margin: 0 2px 3px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tbc-c3);
+}
+
+.sta2e-task-card.sta2e-task-card--tng .tbc-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+}
+
+/* A key is rounded on its outer end only: the right column on the right, the
+   left column on the left. Colour is inline (rule 2 above). */
+.sta2e-task-card.sta2e-task-card--tng .tbc-key {
+  display: block;
+  box-sizing: border-box;   /* "Completed" / "Applied to" are divs */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 30px;
+  margin: 0;
+  padding: 11px 13px 3px 8px;
+  border: 0;
+  border-radius: 0 14px 14px 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-align: right;
+  text-transform: uppercase;
+  transition: filter 0.11s ease-out;
+}
+
+.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key:nth-child(odd) {
+  padding: 11px 8px 3px 13px;
+  border-radius: 14px 0 0 14px;
+  text-align: left;
+}
+
+/* A wide key spans the pad, and so does a left-column key left on its own —
+   the last one, or one followed straight by a wide key. */
+.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key.tbc-key--wide,
+.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key:nth-child(odd):last-child,
+.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key:nth-child(odd):has(+ .tbc-key--wide) {
+  grid-column: 1 / -1;
+  padding: 10px 14px 4px;
+  border-radius: 14px;
+  text-align: center;
+}
+
+.sta2e-task-card.sta2e-task-card--tng div.tbc-key { cursor: default; }
+
+.sta2e-task-card--tng button.tbc-key:hover:not(:disabled) { filter: brightness(1.15); }
+.sta2e-task-card--tng button.tbc-key:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-task-card--tng button.tbc-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+
+/* The keys are two to a row, so a name wraps rather than ellipsing — the
+   shared rule in task-card.css clips it to one line. */
+.sta2e-task-card--tng .tbc-key .sta2e-rr-name {
+  overflow: visible;
+  white-space: normal;
+}
+.sta2e-task-card--tng .sta2e-rr-cost { font-size: 9.5px; }
+
+/* ── Chat card frame ─────────────────────────────────────────────────────── */
+/* tngChatCard wraps every other card's body in the same brackets. The body's
+   own padding rule in chat-card.css is (0,2,0); this outranks it. */
+.sta2e-chat-card.sta2e-chat-card--tng .tbc-body.ccf-body {
+  padding: 3px calc(var(--tbc-arm) + 8px) 5px;
+}
+
+/* Card bodies set their font sizes inline (mostly 8–11px), chosen for Arial
+   Narrow. Antonio is narrower, so at the same sizes the text reads small, and
+   no rule can outrank an inline size. Zooming the inner wrapper scales the
+   whole body evenly; it lays out in the narrower zoomed width, so it still
+   fits the card. */
+.sta2e-chat-card.sta2e-chat-card--tng .tbc-body.ccf-body > * {
+  zoom: 1.15;
+}

@@ -69,7 +69,7 @@ import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest, findOfficerStation, stationLabel, SHIP_CREW_ACTION, applyShipCrewRequest } from "./crew-manifest.js";
 import { registerShipCrewTab } from "./ship-crew-tab.js";
 import { registerTosSheetTheme, refreshTosSheets } from "./tos-sheet-theme.js";
-import { getLcTokens, getActiveLcThemeKey } from "./lcars-theme.js";
+import { getLcTokens, getActiveLcThemeKey, migrateRetiredThemes } from "./lcars-theme.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
@@ -1033,6 +1033,15 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.diagnoseVfx     = diagnoseVfx;
   game.sta2eToolkit.alertHud        = alertHud;
   game.sta2eToolkit.combatHud       = combatHud;
+
+  // Move the world off retired theme ids (lcars-tng-blue → lcars-fc). Several
+  // readers take the stored id raw, so the stored values must change. Not
+  // awaited, and it cannot throw out of here: nothing after it may be skipped.
+  if (isActiveGM()) {
+    migrateRetiredThemes()
+      .then(changed => { if (changed) console.log("STA2e Toolkit | moved retired HUD theme to LCARS First Contact"); })
+      .catch(err => console.error("STA2e Toolkit | theme migration failed:", err));
+  }
 
   // Exposed so the GM-as-defender path in combat-hud.js can call this directly.
   // game.socket.emit does not loop back to the sender, so when the GM confirms

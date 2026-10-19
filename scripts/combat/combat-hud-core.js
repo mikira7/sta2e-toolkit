@@ -5589,7 +5589,7 @@ export class CombatHUD {
       else { const _g = game?.settings?.get("sta2e-toolkit", "hudTheme"); if (_g) _themeKey = _g; }
     } catch(e) {}
     // TNG / DS9 / VOY era: Command=Red, Ops=Gold. Everything else flips.
-    const _isTng = ["lcars-tng", "lcars-tng-blue"].includes(_themeKey);
+    const _isTng = ["lcars-tng", "lcars-fc"].includes(_themeKey);
     const _cmdColor = _isTng ? LC.red    : LC.yellow;   // Command, Helm, Nav
     const _opsColor = _isTng ? LC.yellow : LC.red;      // Ops/Eng, Tactical, Comms
     const _sciColor = "#33bbcc";                        // Sensors, Medical — teal all eras

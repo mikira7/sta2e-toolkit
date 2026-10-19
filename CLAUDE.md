@@ -43,7 +43,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 ```
 
-Themes: `lcars-tng` (orange), `lcars-tng-blue` (cool blue), `tos-panel`, and others for ENT/Klingon/Romulan.
+Themes: `lcars-tng` (orange), `lcars-fc` (First Contact: periwinkle/slate/tan), `tos-panel`, and others for ENT/Klingon/Romulan.
+
+**`lcars-fc` replaced `lcars-tng-blue`.** `RETIRED_THEMES` maps the old id to the new one: `getActiveLcThemeKey` follows it at read time, and `migrateRetiredThemes` (the active GM, on `ready`) rewrites the stored `hudTheme` setting and every campaign's `theme`. The stored values must change because several readers take the raw id rather than calling `getActiveLcThemeKey` — `alert-hud.js`, `stardate-hud.js`, `transporter.js`, `warp-calc.js`, `elevation-ruler.js` and the department colours in `combat-hud-core.js`. A new retirement is one entry in that map.
 
 ### Combat HUD
 
@@ -1625,12 +1627,44 @@ hold-vs-burst split and the broadcast payload.
 
 ### Chat Card Frame
 
-Every chat card the module posts other than the task card shares one TNG frame —
-**a bar across the top carrying the title, a bar across the bottom, all four corners
-rounded, no spine** — built by `lcarsChatCard` in
-[chat-card-frame.js](scripts/chat-card-frame.js), with geometry in
-[styles/chat-card.css](styles/chat-card.css). A leaf module importing only
-`lcars-theme.js`, so any builder can use it without a cycle.
+Under the Bracket Console themes (`BRACKET_THEME_KEYS` in lcars-theme.js: `lcars-tng` and
+`lcars-fc`), every chat card the module posts other than the task card shares one frame — the
+**Bracket Console**: open brackets at the four corners, the title centred in the top
+bar's gap, segmented side arms — built by `lcarsChatCard` in
+[chat-card-frame.js](scripts/chat-card-frame.js) (`tngChatCard`). It is the task card's
+own frame: the same `bracketTop` / `bracketBottom` markup from
+[task-card-tng.js](scripts/task-card-tng.js) and the same `.tbc` rules in
+[styles/task-card-tng.css](styles/task-card-tng.css), so the two cannot drift. The
+accent becomes `--tbc-c` (brackets and title); the side arms and bottom rule stay tan.
+The module imports only `lcars-theme.js` and `task-card-tng.js` (itself importing only
+`lcars-theme.js`), so any builder can use it without a cycle. The design source is
+`docs/tng-card-mockups.html` (Concept B).
+
+Two things the bracket frame rests on:
+
+- **A corner bracket is a border elbow, not a fillet.** `.tbc-brk` has a thick left and a
+  thinner top border with one outer radius; CSS draws the inner radius as the outer one
+  less the border widths, which is the concave corner. `box-sizing: border-box` on it is
+  load-bearing.
+- **The side arms are the root's `::before` / `::after`**, positioned between the
+  brackets, so neither builder emits markup for them. On a card shorter than two brackets
+  they collapse to nothing, which is correct. The body pads itself clear of them.
+
+**The TNG cards are set in Antonio**, bundled in `fonts/tng/` (Latin subset, SIL OFL,
+licence text beside it) and declared in task-card-tng.css as `STA2e Antonio`, falling
+back to Arial Narrow. Three things make it reach the text:
+
+- **Neither root may carry an inline `font-family`.** The task card's renderer emits none,
+  and `tngChatCard` runs the body through **`tngBodyHtml`**, which strips every inline
+  declaration naming the Arial Narrow stack (bodies write `font-family:${LC.font}` almost
+  everywhere) and keeps any other font a body chose. `injectSpendPanels` runs the same
+  pass on the Momentum spend panel, which arrives after render.
+- **`.tbc button, input, select` inherit the font**, since Foundry gives controls their own.
+- **The chat body's children are zoomed 1.15.** Bodies set their sizes inline for Arial
+  Narrow, which Antonio's narrower letters read small at, and no rule can outrank an inline
+  size. The zoomed children lay out in the narrower zoomed width, so they still fit.
+
+The reroll tray keeps Arial Narrow: `_armCardSelection` writes its font inline.
 
 **`lcarsCard` in [combat-hud-core.js](scripts/combat/combat-hud-core.js) is the leverage
 point**: one private helper builds ~139 of the module's ~175 cards — every damage, injury,
@@ -1725,7 +1759,36 @@ is covered by the one `.sta2e-task-card button, .sta2e-task-card .sta2e-task-btn
 The reroll tray is injected inline by `_armCardSelection()` and reads those same vars
 with literal fallbacks, which must be kept equal to the defaults here.
 
-**The TNG LCARS frame.** When the active theme is `lcars-tng` the renderer adds
+**The TNG Bracket Console skin.** Under `lcars-tng` and `lcars-fc` (`isBracketTheme`) the card is rendered by
+[task-card-tng.js](scripts/task-card-tng.js) (shape in
+[styles/task-card-tng.css](styles/task-card-tng.css)), whatever `taskCardStyle` says and
+from the same `skinView` as TOS and TMP, with the same DOM contract. Dice sit in
+stadium-outlined strips, every readout is a segmented gauge (6–10 segments, the number
+always shown), and the keys are a two-column keypad rounded on their outer ends only. The
+frame colour gives the state: orange working, blue assist, green passed, rose failed (First
+Contact: periwinkle, tan, green, red).
+
+- **Colour is by role, per theme.** `PALETTES` in task-card-tng.js names every inline colour
+  by what it is for (frame state, each gauge, each key); the colours CSS owns (side arms,
+  outlines, text, empty segments, note leads) are `--tbc-*` variables with TNG defaults on
+  `.tbc` and one `.tbc[data-theme="lcars-fc"]` override block. A new bracket theme is a
+  `PALETTES` entry, a CSS block and a `BRACKET_THEME_KEYS` entry.
+
+- **Keys are filled LCARS keys with their colour inline** (`keyStyle`), and every arming
+  key carries `data-filled="1"`, so arming lights it yellow.
+- **The keypad's rounding is positional.** Odd children are the left column (rounded
+  left), even the right. A wide key (`.tbc-key--wide`) spans the pad, and so does a
+  left-column key left alone — the last child, or one followed by a wide key (`:has`).
+  Wide keys therefore only ever go at the end of a section.
+- **Reroll names wrap** inside a key rather than ellipsing (the shared
+  `.sta2e-rr-name` rule clips to one line), since keys are two to a row.
+
+Covered by [tests/tng-cards.mjs](tests/tng-cards.mjs), which also has `--preview`.
+
+**The classic TNG spine frame (no longer reached).** Before the Bracket Console, the
+classic renderer drew a TNG frame of its own. That code is still there, but since
+`lcars-tng` now takes the skin branch first, nothing reaches it. When the active theme
+is `lcars-tng` the renderer adds
 `sta2e-task-card--frame` to the root (`lcarsFrame` in `buildPlayerRollCardHtml`) and emits
 two inert rails; that class, not a `data-theme` selector, is what every frame rule in
 [styles/task-card.css](styles/task-card.css) hangs off. **Opting another era in is that one
@@ -1909,13 +1972,15 @@ through `lcarsChatCard`.
 | [styles/task-card-tos.css](styles/task-card-tos.css) | Shape for that skin — housing, lamps, CRT screens, keys |
 | [scripts/task-card-tmp.js](scripts/task-card-tmp.js) | TMP Console Monitor skin for the task card — used for `tmp-console` regardless of `taskCardStyle`. Imports only `lcars-theme.js` |
 | [styles/task-card-tmp.css](styles/task-card-tmp.css) | Shape for that skin — panel, monitors, meters, key bed, lenses — and the `@font-face` rules for `fonts/tmp/` |
+| [scripts/task-card-tng.js](scripts/task-card-tng.js) | TNG Bracket Console skin for the task card — used for `lcars-tng` regardless of `taskCardStyle` — and the `bracketTop` / `bracketBottom` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |
+| [styles/task-card-tng.css](styles/task-card-tng.css) | The bracket frame (`.tbc`, shared with the TNG chat frame), the task card's strips, gauges and keypad, and the `@font-face` rule for `fonts/tng/` (Antonio) |
 | [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS or TMP overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
 | [styles/tmp-monitor.css](styles/tmp-monitor.css) | The TMP Monitor theme for the Stardate HUD, the task card and the chat frame — repaints the TMP markup from its modifier classes |
 | [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
-| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG top/bottom-bar frame every other chat card shares. Leaf module; `legacy` thunk keeps non-TNG eras frozen |
-| [styles/chat-card.css](styles/chat-card.css) | Shape-only CSS for that frame |
+| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares. Imports only `lcars-theme.js` and `task-card-tng.js`; `legacy` thunk keeps non-TNG eras frozen |
+| [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
 | [scripts/task-maker.js](scripts/task-maker.js) | The GM's task-authoring dialog — Normal / Extended / Opposed tabs, the posted request card, extended-task resolution |
 | [scripts/opposed-panel.js](scripts/opposed-panel.js) | The Opposed Task tab's markup and wiring. A leaf by necessity — it may import only `lcars-theme.js` and `ship-pool.js` |

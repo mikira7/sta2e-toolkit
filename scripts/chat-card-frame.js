@@ -2,17 +2,20 @@
  * sta2e-toolkit | chat-card-frame.js
  *
  * The TNG LCARS frame shared by every chat card the module posts, other than the
- * working task card (which has its own, with a spine) and the two families that
- * keep bespoke skins: the warp navigation cards and the star-system reports.
+ * working task card and the two families that keep bespoke skins: the warp
+ * navigation cards and the star-system reports.
  *
  * Under the TOS theme (tos-panel) the same call gives the TOS Console Viewer
  * frame instead (tosChatCard below), the sibling of task-card-tos.js, and under
  * TMP (tmp-console) the Console Monitor frame (tmpChatCard), the sibling of
  * task-card-tmp.js.
  *
- * Shape: a bar across the top carrying the card's title, a bar across the bottom,
- * all four corners rounded, no spine. Geometry lives in styles/chat-card.css; this
- * module only decides whether the frame applies and stamps the colour on the root.
+ * Shape: the TNG "Bracket Console" (tngChatCard below) — open brackets at the
+ * four corners, the title centred in the top bar's gap, segmented side arms. It
+ * is the same frame the working task card wears (task-card-tng.js), built from
+ * the same bracketTop / bracketBottom markup, and its geometry lives in
+ * styles/task-card-tng.css under `.tbc`. This module only decides whether the
+ * frame applies and stamps the colour on the root.
  *
  * ── The legacy thunk ─────────────────────────────────────────────────────────
  * The frame is TNG-only, and every other era must render exactly as it did before
@@ -29,17 +32,19 @@
  * against a controls element in there. Anything that rebuilt the body would have
  * to re-establish all of it.
  *
- * A leaf module — it imports lcars-theme.js and nothing else, so any builder can
- * use it without risking an import cycle.
+ * Nearly a leaf: it imports lcars-theme.js and task-card-tng.js, which itself
+ * imports only lcars-theme.js, so any builder can use it without risking an
+ * import cycle.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme } from "./lcars-theme.js";
+import { bracketTop, bracketBottom } from "./task-card-tng.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 
 /** The theme gate, matching `lcarsFrame` in npc-roller.js. */
 export function isChatCardFrame() {
-  try { return getActiveLcThemeKey() === "lcars-tng"; }
+  try { return isBracketTheme(getActiveLcThemeKey()); }
   catch { return false; }
 }
 
@@ -47,8 +52,8 @@ export function isChatCardFrame() {
  * Wrap a card body in the TNG frame, or hand back the builder's own markup.
  *
  * @param {object}   o
- * @param {string}   o.title     Top bar label. Uppercased by CSS.
- * @param {string}  [o.accent]   Bar colour; defaults to the theme's primary. Pass
+ * @param {string}   o.title     Title, in the top bar's gap. Uppercased by CSS.
+ * @param {string}  [o.accent]   Frame colour; defaults to the theme's primary. Pass
  *                               the accent the card already codes with (hit/miss,
  *                               injury severity, hazard colour) so the frame
  *                               changes shape without flattening that meaning.
@@ -269,15 +274,42 @@ function tmpChatCard({ title, accent, body, rootClass, attrs }) {
 </div>`;
 }
 
+/**
+ * The TNG body pass: the buttons lose their inline radius (unroundButtons), and
+ * every inline LCARS font declaration goes, so the frame's own typeface
+ * (Antonio, bundled in fonts/tng and set on `.tbc` in task-card-tng.css)
+ * reaches the text. Bodies write `font-family:${LC.font}` on nearly every
+ * element, and inline beats any rule. Only a declaration naming the theme's
+ * Arial Narrow stack is removed; any other font a body chose is kept. Exported
+ * for the spend panel, which is injected after render.
+ */
+export function tngBodyHtml(html) {
+  return unroundButtons(html).replace(
+    /(?<![-\w])font-family\s*:\s*([^;"]*);?/gi,
+    (decl, value) => /Arial Narrow/i.test(value) ? "" : decl,
+  );
+}
+
+/**
+ * The TNG "Bracket Console" frame — the sibling of task-card-tng.js. The
+ * accent colours the corner brackets and the title (--tbc-c); the side arms and
+ * bottom rule stay tan. The body goes through tngBodyHtml and keeps
+ * `.ccf-body`, which several wirers use as their host.
+ */
+function tngChatCard({ title, accent, body, rootClass, attrs }) {
+  const colour = accent || LC.primary;
+  return `
+<div class="sta2e-chat-card sta2e-chat-card--tng tbc${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("cc")}--ccf-c:${colour};--tbc-c:${colour};">
+  ${bracketTop(title)}
+  <div class="tbc-body ccf-body">${tngBodyHtml(body)}</div>
+  ${bracketBottom()}
+</div>`;
+}
+
 export function lcarsChatCard({ title, accent, body, legacy, rootClass = "", attrs = "" }) {
   if (isTosChatCardFrame()) return tosChatCard({ title, accent, body, rootClass, attrs });
   if (isTmpChatCardFrame()) return tmpChatCard({ title, accent, body, rootClass, attrs });
   if (!isChatCardFrame()) return legacy();
-  return `
-<div class="sta2e-chat-card${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
-  style="${getLcCssVars("cc")}--ccf-c:${accent || LC.primary};">
-  <div class="ccf-bar ccf-bar--top">${title ?? ""}</div>
-  <div class="ccf-body">${unroundButtons(body)}</div>
-  <div class="ccf-bar ccf-bar--bottom" aria-hidden="true"></div>
-</div>`;
+  return tngChatCard({ title, accent, body, rootClass, attrs });
 }

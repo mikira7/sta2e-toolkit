@@ -214,7 +214,7 @@ function combatActionIcon(entry) {
 
 function stationDepartmentColor(stationId) {
   const { key, tokens } = ringThemeContext();
-  const tngColors = ["lcars-tng", "lcars-tng-blue"].includes(key);
+  const tngColors = ["lcars-tng", "lcars-fc"].includes(key);
   if (["sensors", "medical"].includes(stationId)) return "#33bbcc";
   if (["command", "helm", "navigator"].includes(stationId)) {
     return tngColors ? tokens.red : tokens.yellow;

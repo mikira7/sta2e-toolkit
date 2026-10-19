@@ -1,10 +1,10 @@
 /*
  * sta2e-toolkit | chat-card.css
  *
- * Geometry for the TNG frame shared by the module's chat cards
- * (scripts/chat-card-frame.js). A bar across the top carrying the title, a bar
- * across the bottom, all four corners rounded, no spine — the sibling of the
- * working task card's frame in styles/task-card.css, which has the spine instead.
+ * Shared rules for the module's chat cards (scripts/chat-card-frame.js), plus
+ * the TOS and TMP frames. The TNG frame's brackets are not here: they are the
+ * task card's own, in styles/task-card-tng.css under `.tbc`, so the two cannot
+ * drift apart.
  *
  * Colours come from the --cc-* custom properties the helper stamps on the root
  * via getLcCssVars("cc"), plus --ccf-c: the accent the card already codes with
@@ -22,46 +22,13 @@
  */
 
 .sta2e-chat-card {
-  /* The card's own corners are square; the bars keep their own radius, which is
-     why these are two variables and not one. */
   --ccf-radius: 0;
-  --ccf-bar-radius: 16px;
-  --ccf-bar-h: 16px;
-  --ccf-bar-inset: 5px;
   --ccf-btn-radius: 16px;
   overflow: hidden;
   border-radius: var(--ccf-radius);
   background: var(--cc-bg);
   font-family: var(--cc-font);
   color: var(--cc-text);
-}
-
-/* ── Bars ─────────────────────────────────────────────────────────────────── */
-/* Each bar is rounded on all four corners and inset from the card's edges, so it
-   reads as a bar laid on the card rather than a band clipped by it. Relying on
-   the root's radius plus overflow:hidden instead only rounds the two outer
-   corners and leaves the inner two square.
-
-   line-height is pinned rather than left at normal so both bars are exactly
-   --ccf-bar-h tall whatever font a theme's stack resolves to, the same reason the
-   task card's bar pins it. */
-.sta2e-chat-card .ccf-bar {
-  min-height: var(--ccf-bar-h);
-  margin: var(--ccf-bar-inset);
-  padding: 3px 12px;
-  border-radius: var(--ccf-bar-radius);
-  background: var(--ccf-c, var(--cc-primary));
-  color: var(--cc-bg);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.sta2e-chat-card .ccf-bar--bottom {
-  height: var(--ccf-bar-h);
-  padding: 0;
 }
 
 /* Buttons match the task card's keys. The helper strips the inline radius the
@@ -196,6 +163,39 @@
 
 /* Raised backlit keys. Three components deep, to outrank the base
    `.sta2e-chat-card .ccf-body button` radius rule and core's chat button
+   height. */
+.sta2e-chat-card.sta2e-chat-card--tos .ccf-body button {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tck-a, #c8a010) 80%, #fff) 0%,
+    var(--tck-a, #c8a010) 60%,
+    color-mix(in srgb, var(--tck-a, #c8a010) 75%, #000) 100%
+  );
+  color: var(--tck-ink, #140e00);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-shadow: none;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+  transition: filter 0.1s;
+}
+
+.sta2e-chat-card--tos .ccf-body button:hover:not(:disabled) { filter: brightness(1.2); }
+.sta2e-chat-card--tos .ccf-body button:active:not(:disabled) {
+  filter: brightness(0.8);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+.sta2e-chat-card--tos .ccf-body button:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
 /* ── TOS body parts ───────────────────────────────────────────────────────────
    The body pass (tosifyBodyHtml in chat-card-frame.js) removes the LCARS
    declarations from a body's inline styles and tags each shape it found; these
@@ -276,39 +276,6 @@
   box-shadow: 0 0 7px rgba(255, 210, 58, 0.85), 0 0 0 1px #000;
 }
 .sta2e-chat-card--tos .ccf-body :is(input[type=checkbox], input[type=radio]):disabled { opacity: 0.45; cursor: default; }
-
-   height. */
-.sta2e-chat-card.sta2e-chat-card--tos .ccf-body button {
-  height: auto;
-  min-height: 0;
-  border: 0;
-  border-radius: 2px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--tck-a, #c8a010) 80%, #fff) 0%,
-    var(--tck-a, #c8a010) 60%,
-    color-mix(in srgb, var(--tck-a, #c8a010) 75%, #000) 100%
-  );
-  color: var(--tck-ink, #140e00);
-  font-family: "Helvetica Neue", Arial, sans-serif;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-shadow: none;
-  cursor: pointer;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
-    0 1px 3px rgba(0, 0, 0, 0.6);
-  transition: filter 0.1s;
-}
-
-.sta2e-chat-card--tos .ccf-body button:hover:not(:disabled) { filter: brightness(1.2); }
-.sta2e-chat-card--tos .ccf-body button:active:not(:disabled) {
-  filter: brightness(0.8);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
-}
-.sta2e-chat-card--tos .ccf-body button:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 
 /* ── TMP Console Monitor frame ────────────────────────────────────────────────
    Emitted by tmpChatCard in chat-card-frame.js when the theme is tmp-console:

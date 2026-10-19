@@ -214,7 +214,7 @@
   "STA2E.Settings.HudTheme.Hint": "Visual theme for the Stardate HUD. Each theme matches a Star Trek era's actual computer aesthetic.",
   "STA2E.Settings.HudTheme.Blue": "Starfleet Blue (modern/default)",
   "STA2E.Settings.HudTheme.LcarsTng": "LCARS — TNG Classic (orange/tan/purple)",
-  "STA2E.Settings.HudTheme.LcarsTngBlue": "LCARS — TNG Blue-Grey (cool blue/slate)",
+  "STA2E.Settings.HudTheme.LcarsFc": "LCARS — First Contact (periwinkle/slate/tan)",
   "STA2E.Settings.HudTheme.TosPanel": "TOS Panel — 2260s (boxy, gold/red/green)",
   "STA2E.Settings.HudTheme.TmpConsole": "TMP Console — 2270s (sleek, blue-white/green mono)",
   "STA2E.Settings.HudTheme.TmpMonitor": "TMP Monitor — 2280s (black screens, cyan/green vector graphics)",

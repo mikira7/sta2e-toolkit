@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TNG Chat Card Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Page chrome (not part of any design) ─────────────────────────────── */
+:root {
+  --page-bg: #121418; --page-ink: #d8dbe0; --page-dim: #858a94; --page-rule: #2a2e36;
+  /* lcars-tng tokens from scripts/lcars-theme.js, plus the classic TNG pastels */
+  --or: #f6a726; --gold: #ffcc66; --tan: #ffcc99; --peach: #ff9966; --lilac: #cc99cc;
+  --blue: #9999ff; --sky: #99ccff; --rose: #cc6666; --red: #d92222; --green: #48c76b;
+  --yellow: #ffef3a; --txt: #f6c36d; --dim: #b78a20;
+  --lc: "Antonio", "Arial Narrow", "Roboto Condensed", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page-bg); color: var(--page-ink);
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1180px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .02em; }
+.lede { color: var(--page-dim); margin: 0 0 30px; max-width: 820px; }
+.lede code, .notes code, .concept-head code { color: #f6c36d; }
+section.concept { margin-bottom: 52px; }
+.concept-head { border-bottom: 1px solid var(--page-rule); padding-bottom: 10px; margin-bottom: 14px; max-width: 860px; }
+.concept-head .tag { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--page-dim); }
+.concept-head h2 { font-size: 18px; margin: 2px 0 4px; }
+.concept-head p { margin: 0; color: var(--page-dim); font-size: 13px; }
+.chatrow { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 22px; }
+@media (max-width: 1000px) { .chatrow { grid-template-columns: minmax(0, 320px); justify-content: center; } }
+.chatlog { background: #0d0e11; border: 1px solid var(--page-rule); border-radius: 6px;
+  padding: 10px; display: flex; flex-direction: column; gap: 12px; align-self: start; min-width: 0; }
+.msg-meta { font-size: 11px; color: #777; margin: 0 0 4px 2px; }
+.notes { margin-top: 18px; color: var(--page-dim); font-size: 13px; max-width: 860px; }
+.notes h3 { color: var(--page-ink); font-size: 15px; margin: 0 0 6px; }
+.notes li { margin-bottom: 4px; }
+button { font: inherit; cursor: pointer; }
+
+/* Shared die: the same markup as the live card — Foundry's d20-grey.svg drawn
+   faint behind the value, which carries the colour. */
+.d20 { position: relative; width: 30px; height: 30px; display: inline-grid; place-items: center; }
+.d20 img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .22; pointer-events: none; }
+.d20 b { position: relative; z-index: 1; font-weight: 700; font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.9); }
+.d20 i { position: absolute; top: 1px; left: 0; right: 0; text-align: center; font-style: normal; font-size: 7px; letter-spacing: -1px; z-index: 1; }
+.d20.c b { padding-top: 6px; }
+.d20.sel img { opacity: .8; filter: sepia(1) saturate(6) hue-rotate(4deg) brightness(1.15) drop-shadow(0 0 5px #ffef3a); }
+.dice { display: flex; gap: 3px; flex-wrap: wrap; }
+.lcars .d20 { color: var(--txt); font-family: var(--lc); }
+.lcars .d20.c { color: var(--yellow); } .lcars .d20.x { color: #ff5544; } .lcars .d20.f { color: #6a5418; }
+@keyframes blink { 50% { opacity: .2; } }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT A — ELBOW SIDEBAR
+   The classic TNG panel: a sidebar of numbered blocks down the left, a
+   rounded elbow sweeping into the title bar at the top and a matching one
+   at the bottom. Keys are full pills with the label in the lower right.
+   ══════════════════════════════════════════════════════════════════════ */
+.a { --c: var(--or); --c2: var(--lilac); --c3: var(--tan); --w: 40px; --bh: 16px;
+  background: #000; font-family: var(--lc); color: var(--txt); padding: 2px; }
+.a-head, .a-foot { display: flex; align-items: flex-start; height: 28px; }
+.a-foot { align-items: flex-end; }
+.a-elbow { flex: none; width: var(--w); align-self: stretch; background: var(--c); border-top-left-radius: 22px; position: relative; }
+.a-foot .a-elbow { border-radius: 0 0 0 22px; }
+.a-elbow::after { content: ""; position: absolute; left: 100%; top: var(--bh); width: 12px; height: 12px;
+  background: radial-gradient(circle at 100% 100%, transparent 12px, var(--c) 12.5px); }
+.a-foot .a-elbow::after { top: auto; bottom: var(--bh);
+  background: radial-gradient(circle at 100% 0%, transparent 12px, var(--c) 12.5px); }
+.a-bar { height: var(--bh); background: var(--c); flex: 1 1 auto; min-width: 10px; }
+.a-title { height: var(--bh); line-height: 15px; padding: 0 6px; font-size: 19px; font-weight: 600; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--c); white-space: nowrap; }
+.a-blk { flex: none; width: 26px; height: var(--bh); background: var(--c2); margin-right: 3px; }
+.a-cap { flex: none; width: 18px; height: var(--bh); background: var(--c3); border-radius: 0 999px 999px 0; }
+.a-code { flex: none; height: var(--bh); line-height: var(--bh); font-size: 11px; color: var(--c); padding: 0 5px; letter-spacing: .06em; }
+.a-mid { display: grid; grid-template-columns: var(--w) minmax(0, 1fr); column-gap: 10px; margin: 3px 0; }
+.a-side { display: flex; flex-direction: column; gap: 3px; }
+.a-side i { min-height: 22px; font-style: normal; font-size: 10px; color: #000; background: var(--c3);
+  display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 4px 1px; letter-spacing: .04em; }
+.a-side i:nth-child(2) { background: var(--c2); } .a-side i:nth-child(3) { background: var(--c); }
+.a-side i.g { flex: 1 1 auto; }
+.a-body { padding: 2px 2px 2px 0; min-width: 0; }
+.a-id { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--c3); margin-bottom: 5px; }
+.a-lbl { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--c2); margin: 4px 0 2px; }
+.a-rows { margin-top: 6px; }
+.a-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; font-size: 12.5px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--c3); border-bottom: 2px solid #1c1508; padding: 1px 0; }
+.a-row b { font-size: 18px; font-weight: 600; color: #f2f2f2; letter-spacing: .03em; line-height: 1.1; }
+.a-result { text-transform: uppercase; margin-top: 6px; border-radius: 999px; background: var(--rc, var(--green)); color: #000;
+  font-size: 17px; font-weight: 700; letter-spacing: .12em; text-align: right; padding: 2px 14px 1px; }
+.a-note { display: flex; gap: 6px; align-items: stretch; margin-top: 5px; font-size: 12px; color: #f2f2f2; letter-spacing: .03em; }
+.a-note::before { content: ""; flex: none; width: 14px; border-radius: 999px 0 0 999px; background: var(--nc, var(--blue)); }
+.a-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; }
+.a-key { border: 0; border-radius: 999px; background: var(--k, var(--or)); color: #000; font-family: var(--lc);
+  font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; text-align: right;
+  line-height: 1.05; min-height: 32px; padding: 12px 13px 3px; }
+.a-key small { display: block; font-size: 9.5px; font-weight: 400; opacity: .7; }
+.a-key.wide { grid-column: 1 / -1; }
+.a-key.armed { background: #000; color: var(--yellow); box-shadow: inset 0 0 0 2px var(--yellow); }
+.a-gauge { display: flex; gap: 2px; margin: 3px 0 1px; }
+.a-gauge i { flex: 1; height: 9px; background: var(--sky); }
+.a-gauge i:first-child { border-radius: 999px 0 0 999px; } .a-gauge i:last-child { border-radius: 0 999px 999px 0; }
+.a-gauge i.lost { background: var(--yellow); animation: blink 1.2s steps(2) infinite; }
+.a-gauge i.off { background: #1c2030; }
+.a-spend { margin-top: 7px; display: grid; grid-template-columns: 1fr auto auto auto; gap: 3px; align-items: center;
+  font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--c2); }
+.a-spend b { min-width: 22px; text-align: center; font-size: 17px; color: #f2f2f2; }
+.a-step { width: 24px; height: 20px; border: 0; background: var(--c2); color: #000; font-weight: 700; padding: 0; }
+.a-step:first-of-type { border-radius: 999px 0 0 999px; } .a-step:last-of-type { border-radius: 0 999px 999px 0; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT B — BRACKET CONSOLE
+   Open brackets at the four corners, a centred title in the top bar's gap,
+   and segmented side arms. Readouts are horizontal LCARS gauges; keys are
+   a two-column keypad rounded only on their outer ends.
+   ══════════════════════════════════════════════════════════════════════ */
+.b { --c: var(--or); --c2: var(--tan); --c3: var(--lilac); background: #000; font-family: var(--lc); color: var(--txt); padding: 2px; }
+.b-top, .b-bot { display: flex; align-items: flex-start; gap: 3px; }
+.b-bot { align-items: flex-end; }
+/* A border elbow: the inner radius falls out of outer radius − border width,
+   which is what gives the concave corner for free. */
+.b-brk { flex: none; width: 48px; height: 26px; border-left: 12px solid var(--c); border-top: 8px solid var(--c); border-top-left-radius: 22px; }
+.b-brk.r { border-left: 0; border-right: 12px solid var(--c); border-top-left-radius: 0; border-top-right-radius: 22px; }
+.b-bot .b-brk { border-top: 0; border-bottom: 8px solid var(--c); border-radius: 0 0 0 22px; }
+.b-bot .b-brk.r { border-radius: 0 0 22px 0; }
+.b-rule { flex: 1 1 auto; height: 8px; background: var(--c); }
+.b-bot .b-rule { background: var(--c2); }
+.b-rule.s { flex: 0 0 18px; background: var(--c3); }
+.b-title { flex: none; max-width: 60%; margin-top: -4px; font-size: 18px; font-weight: 600; line-height: 1; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-code { flex: none; margin-bottom: -3px; font-size: 10.5px; letter-spacing: .1em; color: var(--c2); }
+.b-body { margin: -14px 0 -14px; padding: 16px 20px 16px; border-left: 4px solid #000; border-right: 4px solid #000;
+  background:
+    linear-gradient(var(--c2), var(--c2)) left 0 top 22px / 12px calc(100% - 44px) no-repeat,
+    linear-gradient(var(--c2), var(--c2)) right 0 top 22px / 12px calc(100% - 44px) no-repeat; }
+.b-in { padding: 0 2px; }
+.b-sub { text-align: center; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--c2); margin-bottom: 6px; }
+.b-strip { border: 2px solid var(--c3); border-radius: 999px; padding: 3px 12px 2px; }
+.b-strip + .b-strip { margin-top: 4px; }
+.b-strip .lbl { display: flex; justify-content: space-between; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--c3); }
+.b-meter { display: grid; grid-template-columns: 68px 1fr 24px; gap: 6px; align-items: center; margin-top: 4px;
+  font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--c2); }
+.b-meter b { font-size: 17px; font-weight: 600; color: #f2f2f2; text-align: right; }
+.b-seg { display: flex; gap: 2px; height: 10px; }
+.b-seg i { flex: 1; background: var(--mc, var(--or)); }
+.b-seg i.o { background: #22190a; }
+.b-seg i.lost { background: var(--yellow); animation: blink 1.2s steps(2) infinite; }
+.b-result { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--rc, var(--green)); }
+.b-result::before, .b-result::after { content: ""; flex: 1; height: 6px; background: currentColor; border-radius: 999px; }
+.b-result strong { text-transform: uppercase; font-size: 18px; font-weight: 700; letter-spacing: .22em; }
+.b-note { margin-top: 5px; font-size: 12px; color: #f2f2f2; letter-spacing: .03em; text-align: center; }
+.b-note em { font-style: normal; color: var(--nc, var(--sky)); }
+.b-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 8px; }
+.b-key { border: 0; background: var(--k, var(--blue)); color: #000; font-family: var(--lc); font-size: 12.5px; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase; line-height: 1.05; min-height: 30px; padding: 10px 10px 3px; }
+.b-key:nth-child(odd) { border-radius: 14px 0 0 14px; text-align: left; padding-left: 14px; }
+.b-key:nth-child(even) { border-radius: 0 14px 14px 0; text-align: right; padding-right: 14px; }
+.b-key.wide { grid-column: 1 / -1; border-radius: 14px; text-align: center; }
+.b-key small { display: block; font-size: 9.5px; font-weight: 400; opacity: .7; }
+.b-key.armed { background: #000; color: var(--yellow); box-shadow: inset 0 0 0 2px var(--yellow); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT C — MENU RAIL
+   A thick header bar with the title knocked out in black, sweeping round a
+   corner into a rail of keys down the right edge. The keys ARE the frame:
+   a card with no buttons keeps the rail as numbered blocks.
+   ══════════════════════════════════════════════════════════════════════ */
+.c { --c: var(--or); --c2: var(--peach); --c3: var(--tan); --rw: 84px;
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--rw); background: #000; font-family: var(--lc); color: var(--txt); padding: 2px; }
+.c-head { grid-column: 1 / -1; display: flex; }
+.c-hbar { flex: 1 1 auto; min-width: 0; height: 26px; background: var(--c); border-radius: 13px 0 0 13px;
+  display: flex; align-items: center; gap: 6px; padding: 0 8px 0 14px; color: #000; }
+.c-hbar strong { font-size: 18px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-hbar span { margin-left: auto; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.c-corner { flex: none; width: var(--rw); height: 38px; background: var(--c); border-top-right-radius: 30px; position: relative; }
+.c-corner::before { content: ""; position: absolute; right: 100%; top: 26px; width: 12px; height: 12px;
+  background: radial-gradient(circle at 0% 100%, transparent 12px, var(--c) 12.5px); }
+.c-body { padding: 6px 12px 6px 4px; min-width: 0; }
+.c-rail { display: flex; flex-direction: column; gap: 3px; padding-top: 3px; }
+.c-rk { border: 0; background: var(--k, var(--c3)); color: #000; font-family: var(--lc); font-size: 12px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; text-align: right; line-height: 1.05; min-height: 30px;
+  padding: 10px 7px 3px; display: block; width: 100%; }
+.c-rk small { display: block; font-size: 9px; font-weight: 400; opacity: .7; }
+.c-rk.armed { background: #000; color: var(--yellow); box-shadow: inset 0 0 0 2px var(--yellow); }
+.c-rk.code { font-size: 10px; font-weight: 400; min-height: 22px; cursor: default; }
+.c-rk.g { flex: 1 1 auto; min-height: 12px; }
+.c-foot { grid-column: 1 / -1; display: flex; align-items: flex-end; margin-top: 3px; }
+.c-fbar { flex: 1 1 auto; height: 10px; background: var(--c2); border-radius: 5px 0 0 5px; }
+.c-fbar.s { flex: 0 0 40px; background: var(--c3); border-radius: 5px 0 0 5px; margin-right: 3px; }
+.c-fcorner { flex: none; width: var(--rw); height: 22px; background: var(--c); border-bottom-right-radius: 20px; position: relative; }
+.c-fcorner::before { content: ""; position: absolute; right: 100%; bottom: 10px; width: 10px; height: 10px;
+  background: radial-gradient(circle at 0% 0%, transparent 10px, var(--c) 10.5px); }
+.c-tag { display: grid; grid-template-columns: 82px 1fr; gap: 6px; align-items: center; margin: 3px 0; }
+.c-tag > span { background: var(--t, var(--c3)); color: #000; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  border-radius: 999px 0 0 999px; padding: 1px 6px 0 9px; text-align: right; }
+.c-tag > b { font-size: 17px; font-weight: 600; color: #f2f2f2; letter-spacing: .03em; line-height: 1.1; }
+.c-tag > div { min-width: 0; }
+.c-lbl { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--c2); margin: 4px 0 1px; }
+.c-result { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; margin-top: 6px; }
+.c-result::before { content: ""; height: 14px; background: var(--rc, var(--green)); border-radius: 7px 0 0 7px; }
+.c-result strong { text-transform: uppercase; font-size: 19px; font-weight: 700; letter-spacing: .14em; color: var(--rc, var(--green)); line-height: 1; }
+.c-note { font-size: 12px; color: #f2f2f2; margin-top: 5px; padding-left: 8px; border-left: 6px solid var(--nc, var(--blue)); letter-spacing: .03em; }
+.c-gauge { display: flex; gap: 2px; }
+.c-gauge i { flex: 1; height: 10px; background: var(--sky); }
+.c-gauge i.lost { background: var(--yellow); animation: blink 1.2s steps(2) infinite; }
+.c-gauge i.off { background: #1c2030; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>TNG chat cards</h1>
+  <p class="lede">Three concepts for the <code>lcars-tng</code> era: the Working Results task card, the damage cards (ship and ground) and the smaller cards (Confirmed, Sensor Contact, Hazard Entry). Each concept is one frame used by every card, with the card type given by the frame colour: orange for tasks, red for damage, blue for sensors, gold for hazards. Cards are shown at Foundry's chat sidebar width. Every colour comes from the <code>lcars-tng</code> tokens plus the classic TNG pastels (tan, lilac, peach, blue). Antonio stands in for the LCARS lettering; the live cards currently use Arial Narrow.</p>
+
+  <!-- ═══════════════════════════ A ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept A · the classic TNG panel</div>
+      <h2>Elbow Sidebar</h2>
+      <p>A sidebar of numbered blocks runs down the left. It sweeps through rounded elbows into a title bar at the top and a matching bar at the bottom, with the title in the gap. Readouts are plain rows with bright numbers, the result is a full-width pill, and the keys are full pills with the label in the lower right. This is the nearest to the existing TNG frame (spine plus bar), so it would be the smallest change.</p>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Worf · Working</div>
+        <div class="a lcars">
+          <div class="a-head"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-title">Fire Phasers</span><span class="a-blk"></span><span class="a-cap"></span></div>
+          <div class="a-mid">
+            <div class="a-side"><i>47-1701</i><i>TAC</i><i class="g">03</i></div>
+            <div class="a-body">
+              <div class="a-id">Lt. Worf · Comp Range 20</div>
+              <div class="a-lbl"><span>Control + Security</span><span>Target 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 c"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>15</b></span>
+              </div>
+              <div class="a-lbl"><span>Enterprise · Weapons + Security</span><span>Target 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>7</b></span></div>
+              <div class="a-note" style="--nc:var(--green)">Call Out Targets: +1 bonus Momentum on success</div>
+              <div class="a-rows">
+                <div class="a-row"><span>Successes</span><b>4</b></div>
+                <div class="a-row"><span>Difficulty</span><b>2</b></div>
+                <div class="a-row"><span>Momentum</span><b>2</b></div>
+              </div>
+              <div class="a-result">Success</div>
+              <div class="a-keys">
+                <button class="a-key armed">▶ Determination<small>Multiple dice</small></button>
+                <button class="a-key" style="--k:var(--blue)">Targeting Solution</button>
+                <button class="a-key" style="--k:var(--lilac)">Talent Reroll</button>
+                <button class="a-key" style="--k:var(--tan)">Edit Card</button>
+                <button class="a-key wide" style="--k:var(--peach)">Resolve Hit · 4 Successes</button>
+              </div>
+            </div>
+          </div>
+          <div class="a-foot"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-code">SD 47634.4</span><span class="a-cap"></span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="a lcars" style="--c:var(--rose);--c2:var(--peach);--c3:#ffaa90">
+          <div class="a-head"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-title">Photon Torpedo Hit</span><span class="a-cap"></span></div>
+          <div class="a-mid">
+            <div class="a-side"><i>DMG</i><i>02</i><i class="g">7731</i></div>
+            <div class="a-body">
+              <div class="a-id">U.S.S. Enterprise ▸ I.R.W. Haakona</div>
+              <div class="a-row"><span>Damage</span><b>8</b></div>
+              <div class="a-row"><span>Resistance</span><b>−3</b></div>
+              <div class="a-row" style="border:0"><span>Shields</span><b>12 → 7</b></div>
+              <div class="a-gauge"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i></div>
+              <div class="a-result" style="--rc:var(--rose)">Breach · Weapons</div>
+              <div class="a-note" style="--nc:var(--yellow)">Shields below 50%: one breach to Weapons</div>
+              <div class="a-spend"><span>Spend Momentum · +1 Damage</span><button class="a-step">−</button><b>1</b><button class="a-step">+</button></div>
+              <div class="a-keys">
+                <button class="a-key" style="--k:var(--rose)">Apply Damage</button>
+                <button class="a-key" style="--k:var(--tan)">Undo</button>
+              </div>
+            </div>
+          </div>
+          <div class="a-foot"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-code">Tactical</span><span class="a-cap"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="a lcars" style="--c:var(--rose);--c2:var(--peach);--c3:#ffaa90">
+          <div class="a-head"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-title">Disruptor Hit</span><span class="a-cap"></span></div>
+          <div class="a-mid">
+            <div class="a-side"><i>INJ</i><i>04</i><i class="g">55</i></div>
+            <div class="a-body">
+              <div class="a-id">Klingon Warrior ▸ Lt. Worf</div>
+              <div class="a-row"><span>Severity</span><b>4</b></div>
+              <div class="a-row"><span>Protection</span><b>−1</b></div>
+              <div class="a-row"><span>Stress</span><b>8 → 5</b></div>
+              <div class="a-result" style="--rc:var(--red)">Deadly Injury</div>
+              <div class="a-keys">
+                <button class="a-key" style="--k:var(--red)">Take Injury</button>
+                <button class="a-key" style="--k:var(--lilac)">Avoid<small>2 Momentum</small></button>
+              </div>
+            </div>
+          </div>
+          <div class="a-foot"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-cap"></span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Cmdr. Data · Confirmed</div>
+        <div class="a lcars" style="--c:var(--green);--c2:var(--tan);--c3:#99ddaa">
+          <div class="a-head"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-title">Analyse Anomaly</span><span class="a-cap"></span></div>
+          <div class="a-mid">
+            <div class="a-side"><i>OPS</i><i class="g">20</i></div>
+            <div class="a-body">
+              <div class="a-row"><span>Momentum gained</span><b>+2</b></div>
+              <div class="a-keys"><button class="a-key wide" style="--k:var(--green)">Add Momentum to Pool (+2)</button></div>
+            </div>
+          </div>
+          <div class="a-foot"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-cap"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Lt. Cmdr. Data · Sensors</div>
+        <div class="a lcars" style="--c:var(--blue);--c2:var(--sky);--c3:#ccccff">
+          <div class="a-head"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-title">Sensor Contact</span><span class="a-cap"></span></div>
+          <div class="a-mid">
+            <div class="a-side"><i>SNS</i><i class="g">0047</i></div>
+            <div class="a-body">
+              <div class="a-id">Reveal · Hidden vessel</div>
+              <div class="a-row"><span>Bearing</span><b>047 Mark 15</b></div>
+              <div class="a-row"><span>Range</span><b>Medium</b></div>
+              <div class="a-row" style="border:0"><span>Zone</span><b>Mutara Nebula</b></div>
+            </div>
+          </div>
+          <div class="a-foot"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-cap"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="a lcars" style="--c:var(--gold);--c2:var(--peach);--c3:var(--tan)">
+          <div class="a-head"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-title">Hazard Entry</span><span class="a-cap"></span></div>
+          <div class="a-mid">
+            <div class="a-side"><i>HAZ</i><i class="g">03</i></div>
+            <div class="a-body">
+              <div class="a-id">Mutara Nebula · Lingering</div>
+              <div class="a-row"><span>Enterprise</span><b>Shields offline</b></div>
+              <div class="a-row"><span>Potency</span><b>3</b></div>
+              <div class="a-keys">
+                <button class="a-key" style="--k:var(--gold)">Build &amp; Apply</button>
+                <button class="a-key" style="--k:var(--peach)">Established</button>
+                <button class="a-key wide" style="--k:var(--tan)">Ignore</button>
+              </div>
+            </div>
+          </div>
+          <div class="a-foot"><span class="a-elbow"></span><span class="a-bar"></span><span class="a-cap"></span></div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ B ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept B · the Enterprise-D console readouts</div>
+      <h2>Bracket Console</h2>
+      <p>Open brackets sit at the four corners, with the title centred in the gap of the top bar and segmented side arms between them. Each number is a horizontal gauge with its value beside it, so a glance shows how close a roll came. Dice sit in stadium-outlined strips. The keys are a two-column keypad, each key rounded on its outer end only. The layout is symmetrical and more decorative than A, and the gauges take more height.</p>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Worf · Working</div>
+        <div class="b lcars">
+          <div class="b-top"><span class="b-brk"></span><span class="b-rule"></span><span class="b-title">Fire Phasers</span><span class="b-rule"></span><span class="b-rule s"></span><span class="b-brk r"></span></div>
+          <div class="b-body"><div class="b-in">
+            <div class="b-sub">Lt. Worf · Comp Range 20</div>
+            <div class="b-strip">
+              <div class="lbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 c"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>15</b></span>
+              </div>
+            </div>
+            <div class="b-strip">
+              <div class="lbl"><span>Enterprise · Weapons + Sec</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>7</b></span></div>
+            </div>
+            <div class="b-meter"><span>Successes</span><span class="b-seg"><i></i><i></i><i></i><i></i><i class="o"></i><i class="o"></i></span><b>4</b></div>
+            <div class="b-meter"><span>Difficulty</span><span class="b-seg" style="--mc:var(--lilac)"><i></i><i></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i></span><b>2</b></div>
+            <div class="b-meter"><span>Momentum</span><span class="b-seg" style="--mc:var(--blue)"><i></i><i></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i></span><b>2</b></div>
+            <div class="b-result"><strong>Success</strong></div>
+            <div class="b-note"><em>Call Out Targets</em> · +1 bonus Momentum on success</div>
+            <div class="b-keys">
+              <button class="b-key armed">▶ Determination<small>Multiple dice</small></button>
+              <button class="b-key">Targeting Solution</button>
+              <button class="b-key" style="--k:var(--lilac)">Talent Reroll</button>
+              <button class="b-key" style="--k:var(--tan)">Edit Card</button>
+              <button class="b-key wide" style="--k:var(--peach)">Resolve Hit · 4 Successes</button>
+            </div>
+          </div></div>
+          <div class="b-bot"><span class="b-brk"></span><span class="b-rule"></span><span class="b-code">SD 47634.4</span><span class="b-rule s"></span><span class="b-brk r"></span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="b lcars" style="--c:var(--rose);--c2:var(--peach);--c3:#ffaa90">
+          <div class="b-top"><span class="b-brk"></span><span class="b-rule"></span><span class="b-title">Photon Torpedo Hit</span><span class="b-rule"></span><span class="b-brk r"></span></div>
+          <div class="b-body"><div class="b-in">
+            <div class="b-sub">U.S.S. Enterprise ▸ I.R.W. Haakona</div>
+            <div class="b-meter"><span>Damage</span><span class="b-seg" style="--mc:var(--rose)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="o"></i><i class="o"></i></span><b>8</b></div>
+            <div class="b-meter"><span>Resistance</span><span class="b-seg" style="--mc:var(--tan)"><i></i><i></i><i></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i></span><b>3</b></div>
+            <div class="b-meter"><span>Shields</span><span class="b-seg" style="--mc:var(--sky)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i></span><b>7</b></div>
+            <div class="b-result" style="--rc:var(--rose)"><strong>Breach · Weapons</strong></div>
+            <div class="b-note"><em style="color:var(--yellow)">12 → 7</em> · shields below 50%: one breach</div>
+            <div class="b-meter" style="grid-template-columns:1fr auto auto auto;margin-top:7px"><span>Spend Momentum · +1 Damage</span><button class="a-step">−</button><b style="min-width:18px;text-align:center">1</b><button class="a-step">+</button></div>
+            <div class="b-keys">
+              <button class="b-key" style="--k:var(--rose)">Apply Damage</button>
+              <button class="b-key" style="--k:var(--tan)">Undo</button>
+            </div>
+          </div></div>
+          <div class="b-bot"><span class="b-brk"></span><span class="b-rule"></span><span class="b-code">Tactical</span><span class="b-rule s"></span><span class="b-brk r"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="b lcars" style="--c:var(--rose);--c2:var(--peach);--c3:#ffaa90">
+          <div class="b-top"><span class="b-brk"></span><span class="b-rule"></span><span class="b-title">Disruptor Hit</span><span class="b-rule"></span><span class="b-brk r"></span></div>
+          <div class="b-body"><div class="b-in">
+            <div class="b-sub">Klingon Warrior ▸ Lt. Worf</div>
+            <div class="b-meter"><span>Severity</span><span class="b-seg" style="--mc:var(--rose)"><i></i><i></i><i></i><i></i><i class="o"></i></span><b>4</b></div>
+            <div class="b-meter"><span>Stress</span><span class="b-seg" style="--mc:var(--tan)"><i></i><i></i><i></i><i></i><i></i><i class="lost"></i><i class="lost"></i><i class="lost"></i></span><b>5</b></div>
+            <div class="b-result" style="--rc:var(--red)"><strong>Deadly Injury</strong></div>
+            <div class="b-keys">
+              <button class="b-key" style="--k:var(--red)">Take Injury</button>
+              <button class="b-key" style="--k:var(--lilac)">Avoid<small>2 Momentum</small></button>
+            </div>
+          </div></div>
+          <div class="b-bot"><span class="b-brk"></span><span class="b-rule"></span><span class="b-brk r"></span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Cmdr. Data · Confirmed</div>
+        <div class="b lcars" style="--c:var(--green);--c2:#99ddaa;--c3:var(--tan)">
+          <div class="b-top"><span class="b-brk"></span><span class="b-rule"></span><span class="b-title">Analyse Anomaly</span><span class="b-rule"></span><span class="b-brk r"></span></div>
+          <div class="b-body"><div class="b-in">
+            <div class="b-meter"><span>Momentum</span><span class="b-seg" style="--mc:var(--green)"><i></i><i></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i></span><b>+2</b></div>
+            <div class="b-keys"><button class="b-key wide" style="--k:var(--green)">Add Momentum to Pool (+2)</button></div>
+          </div></div>
+          <div class="b-bot"><span class="b-brk"></span><span class="b-rule"></span><span class="b-brk r"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Lt. Cmdr. Data · Sensors</div>
+        <div class="b lcars" style="--c:var(--blue);--c2:var(--sky);--c3:#ccccff">
+          <div class="b-top"><span class="b-brk"></span><span class="b-rule"></span><span class="b-title">Sensor Contact</span><span class="b-rule"></span><span class="b-brk r"></span></div>
+          <div class="b-body"><div class="b-in">
+            <div class="b-sub">Reveal · Hidden vessel</div>
+            <div class="b-meter" style="grid-template-columns:1fr auto"><span>Bearing</span><b>047 Mark 15</b></div>
+            <div class="b-meter"><span>Range</span><span class="b-seg" style="--mc:var(--sky)"><i></i><i></i><i></i><i class="o"></i><i class="o"></i></span><b style="font-size:13px">Med</b></div>
+            <div class="b-meter" style="grid-template-columns:1fr auto"><span>Zone</span><b>Mutara Nebula</b></div>
+          </div></div>
+          <div class="b-bot"><span class="b-brk"></span><span class="b-rule"></span><span class="b-brk r"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="b lcars" style="--c:var(--gold);--c2:var(--tan);--c3:var(--peach)">
+          <div class="b-top"><span class="b-brk"></span><span class="b-rule"></span><span class="b-title">Hazard Entry</span><span class="b-rule"></span><span class="b-brk r"></span></div>
+          <div class="b-body"><div class="b-in">
+            <div class="b-sub">Mutara Nebula · Lingering</div>
+            <div class="b-meter" style="grid-template-columns:1fr auto"><span>Enterprise</span><b>Shields offline</b></div>
+            <div class="b-meter"><span>Potency</span><span class="b-seg" style="--mc:var(--gold)"><i></i><i></i><i></i><i class="o"></i><i class="o"></i></span><b>3</b></div>
+            <div class="b-keys">
+              <button class="b-key" style="--k:var(--gold)">Build &amp; Apply</button>
+              <button class="b-key" style="--k:var(--peach)">Established</button>
+              <button class="b-key wide" style="--k:var(--tan)">Ignore</button>
+            </div>
+          </div></div>
+          <div class="b-bot"><span class="b-brk"></span><span class="b-rule"></span><span class="b-brk r"></span></div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ C ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept C · the LCARS menu screen</div>
+      <h2>Menu Rail</h2>
+      <p>A thick header bar carries the title in black lettering. It sweeps round a corner into a rail down the right edge, and the card's keys are stacked in that rail, so the buttons form part of the frame. A card with no buttons keeps the rail as numbered blocks. Readouts are rows with a half-pill tag on each label. This is the boldest of the three and the most like a real LCARS screen. The cost is width: the readout column loses about 90px.</p>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Worf · Working</div>
+        <div class="c lcars">
+          <div class="c-head"><div class="c-hbar"><strong>Fire Phasers</strong><span>CR 20</span></div><div class="c-corner"></div></div>
+          <div class="c-body">
+            <div class="c-lbl">Lt. Worf · Control + Security · T12</div>
+            <div class="dice">
+              <span class="sta2e-card-die d20 c"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><i>★★</i><b>1</b></span>
+              <span class="sta2e-card-die d20"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>9</b></span>
+              <span class="sta2e-card-die d20 f sel"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>15</b></span>
+            </div>
+            <div class="c-lbl">Enterprise · Weapons + Sec · T10</div>
+            <div class="dice"><span class="sta2e-card-die d20"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=" alt=""><b>7</b></span></div>
+            <div class="c-tag"><span>Successes</span><b>4</b></div>
+            <div class="c-tag" style="--t:var(--lilac)"><span>Difficulty</span><b>2</b></div>
+            <div class="c-tag" style="--t:var(--blue)"><span>Momentum</span><b>2</b></div>
+            <div class="c-result"><strong>Success</strong></div>
+            <div class="c-note" style="--nc:var(--green)">Call Out Targets: +1 bonus Momentum on success</div>
+          </div>
+          <div class="c-rail">
+            <button class="c-rk armed">▶ Determ&shy;ination<small>Multiple dice</small></button>
+            <button class="c-rk" style="--k:var(--blue)">Targeting Solution</button>
+            <button class="c-rk" style="--k:var(--lilac)">Talent Reroll</button>
+            <button class="c-rk" style="--k:var(--tan)">Edit Card</button>
+            <button class="c-rk" style="--k:var(--peach)">Resolve Hit<small>4 Successes</small></button>
+            <span class="c-rk g code" style="--k:var(--or)">47-1701</span>
+          </div>
+          <div class="c-foot"><span class="c-fbar s"></span><span class="c-fbar"></span><span class="c-fcorner"></span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="c lcars" style="--c:var(--rose);--c2:var(--peach);--c3:#ffaa90">
+          <div class="c-head"><div class="c-hbar"><strong>Photon Torpedo Hit</strong></div><div class="c-corner"></div></div>
+          <div class="c-body">
+            <div class="c-lbl">Enterprise ▸ I.R.W. Haakona</div>
+            <div class="c-tag"><span>Damage</span><b>8</b></div>
+            <div class="c-tag"><span>Resistance</span><b>−3</b></div>
+            <div class="c-tag" style="--t:var(--sky)"><span>Shields</span><b>12 → 7</b></div>
+            <div class="c-gauge"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i></div>
+            <div class="c-result" style="--rc:var(--rose)"><strong>Breach</strong></div>
+            <div class="c-note" style="--nc:var(--yellow)">Shields below 50%: one breach to Weapons</div>
+            <div class="c-tag" style="--t:var(--lilac);grid-template-columns:82px auto 1fr auto;margin-top:6px"><span>+1 Damage</span><button class="a-step" style="border-radius:0">−</button><b style="text-align:center">1</b><button class="a-step" style="border-radius:0 999px 999px 0">+</button></div>
+          </div>
+          <div class="c-rail">
+            <button class="c-rk" style="--k:var(--rose)">Apply Damage</button>
+            <button class="c-rk" style="--k:var(--tan)">Undo</button>
+            <span class="c-rk code" style="--k:var(--peach)">Weapons</span>
+            <span class="c-rk g code" style="--k:var(--rose)">02-7731</span>
+          </div>
+          <div class="c-foot"><span class="c-fbar s"></span><span class="c-fbar"></span><span class="c-fcorner"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="c lcars" style="--c:var(--rose);--c2:var(--peach);--c3:#ffaa90">
+          <div class="c-head"><div class="c-hbar"><strong>Disruptor Hit</strong></div><div class="c-corner"></div></div>
+          <div class="c-body">
+            <div class="c-lbl">Klingon Warrior ▸ Lt. Worf</div>
+            <div class="c-tag"><span>Severity</span><b>4</b></div>
+            <div class="c-tag"><span>Protection</span><b>−1</b></div>
+            <div class="c-tag" style="--t:var(--tan)"><span>Stress</span><b>8 → 5</b></div>
+            <div class="c-result" style="--rc:var(--red)"><strong>Deadly</strong></div>
+          </div>
+          <div class="c-rail">
+            <button class="c-rk" style="--k:var(--red)">Take Injury</button>
+            <button class="c-rk" style="--k:var(--lilac)">Avoid<small>2 Momentum</small></button>
+            <span class="c-rk g code" style="--k:var(--rose)">55</span>
+          </div>
+          <div class="c-foot"><span class="c-fbar s"></span><span class="c-fbar"></span><span class="c-fcorner"></span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Cmdr. Data · Confirmed</div>
+        <div class="c lcars" style="--c:var(--green);--c2:#99ddaa;--c3:var(--tan)">
+          <div class="c-head"><div class="c-hbar"><strong>Analyse Anomaly</strong></div><div class="c-corner"></div></div>
+          <div class="c-body">
+            <div class="c-tag" style="--t:var(--green)"><span>Momentum</span><b>+2</b></div>
+          </div>
+          <div class="c-rail"><button class="c-rk" style="--k:var(--green)">Add to Pool<small>+2 Momentum</small></button></div>
+          <div class="c-foot"><span class="c-fbar s"></span><span class="c-fbar"></span><span class="c-fcorner"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Lt. Cmdr. Data · Sensors</div>
+        <div class="c lcars" style="--c:var(--blue);--c2:var(--sky);--c3:#ccccff">
+          <div class="c-head"><div class="c-hbar"><strong>Sensor Contact</strong></div><div class="c-corner"></div></div>
+          <div class="c-body">
+            <div class="c-lbl">Reveal · Hidden vessel</div>
+            <div class="c-tag"><span>Bearing</span><b>047 Mark 15</b></div>
+            <div class="c-tag"><span>Range</span><b>Medium</b></div>
+            <div class="c-tag"><span>Zone</span><b>Mutara Nebula</b></div>
+          </div>
+          <div class="c-rail">
+            <span class="c-rk code" style="--k:var(--sky)">SNS</span>
+            <span class="c-rk g code" style="--k:var(--blue)">0047</span>
+          </div>
+          <div class="c-foot"><span class="c-fbar s"></span><span class="c-fbar"></span><span class="c-fcorner"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="c lcars" style="--c:var(--gold);--c2:var(--peach);--c3:var(--tan)">
+          <div class="c-head"><div class="c-hbar"><strong>Hazard Entry</strong></div><div class="c-corner"></div></div>
+          <div class="c-body">
+            <div class="c-lbl">Mutara Nebula · Lingering</div>
+            <div class="c-tag"><span>Enterprise</span><b>Shields offline</b></div>
+            <div class="c-tag"><span>Potency</span><b>3</b></div>
+          </div>
+          <div class="c-rail">
+            <button class="c-rk" style="--k:var(--gold)">Build &amp; Apply</button>
+            <button class="c-rk" style="--k:var(--peach)">Established</button>
+            <button class="c-rk" style="--k:var(--tan)">Ignore</button>
+          </div>
+          <div class="c-foot"><span class="c-fbar s"></span><span class="c-fbar"></span><span class="c-fcorner"></span></div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <div class="notes">
+    <h3>Notes for building any of these</h3>
+    <ul>
+      <li>The working card would follow the TOS/TMP route: a <code>task-card-tng.js</code> skin built from the same <code>skinView</code>, keeping the DOM contract (<code>.sta2e-working-actions</code>, <code>.sta2e-card-die</code> dice, button classes, <code>data-*</code>). The other cards would get a new branch in <code>lcarsChatCard</code> in place of the current top/bottom-bar frame. Their bodies are already TNG-styled, so no <code>tosifyBodyHtml</code>-style pass is needed; the readout rows shown here would come from restyling those bodies.</li>
+      <li>Every key is a filled LCARS key, so it would carry <code>data-filled="1"</code>. The armed look shown (black with a yellow outline and <code>▶</code>) is what <code>_armCardSelection</code> already does to a filled key, so arming would not need a new code path. All radii live in CSS, as the no-inline-<code>border-radius</code> rule requires.</li>
+      <li><b>A</b> and <b>B</b> put the reroll tray below the key grid, as today. <b>C</b> puts the keys in a narrow rail, so the tray appended to <code>.sta2e-working-actions</code> would need to span the full card width below the rail, and the Momentum spend panel (injected before the controls) would have to land in the readout column. C is the only concept that needs layout work beyond the frame.</li>
+      <li>The concave corners are the same <code>radial-gradient</code> fillets the current task-card frame uses (A, C). B gets them from a border elbow instead: the inner radius is the outer radius minus the border width.</li>
+      <li>Antonio is a Google font under the SIL OFL. Shipping it would mean bundling the files, as <code>fonts/tmp/</code> does; otherwise it falls back to Arial Narrow.</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

@@ -321,9 +321,9 @@
 }
 
 .sta2e-opposed-setup[data-theme="lcars-tng"],
-.sta2e-opposed-setup[data-theme="lcars-tng-blue"],
+.sta2e-opposed-setup[data-theme="lcars-fc"],
 .sta2e-opposed-task[data-theme="lcars-tng"],
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] {
+.sta2e-opposed-task[data-theme="lcars-fc"] {
   --op-template-line: var(--op-tertiary);
   filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--op-tertiary) 30%, transparent));
 }
@@ -336,8 +336,8 @@
     var(--op-bg) !important;
 }
 
-.sta2e-opposed-setup[data-theme="lcars-tng-blue"],
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] {
+.sta2e-opposed-setup[data-theme="lcars-fc"],
+.sta2e-opposed-task[data-theme="lcars-fc"] {
   background:
     linear-gradient(90deg, var(--op-secondary) 0 14px, transparent 14px 100%),
     radial-gradient(circle at 96% 18%, color-mix(in srgb, var(--op-primary) 28%, transparent) 0 46px, transparent 48px),
@@ -345,7 +345,7 @@
 }
 
 .sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-sidebar,
-.sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-sidebar {
+.sta2e-opposed-setup[data-theme="lcars-fc"] .sta2e-opposed-setup-sidebar {
   border-radius: 36px 0 0 36px !important;
   min-height: 114px !important;
 }
@@ -367,19 +367,19 @@
   display: none;
 }
 
-.sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-sidebar {
+.sta2e-opposed-setup[data-theme="lcars-fc"] .sta2e-opposed-setup-sidebar {
   background:
     linear-gradient(180deg, var(--op-secondary) 0 28%, var(--op-primary) 28% 72%, var(--op-secondary) 72% 100%) !important;
 }
 
 .sta2e-opposed-setup[data-theme="lcars-tng"] .sta2e-opposed-setup-titlebox,
-.sta2e-opposed-setup[data-theme="lcars-tng-blue"] .sta2e-opposed-setup-titlebox {
+.sta2e-opposed-setup[data-theme="lcars-fc"] .sta2e-opposed-setup-titlebox {
   border-top-width: 6px !important;
   border-bottom-width: 6px !important;
 }
 
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-header,
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-header {
+.sta2e-opposed-task[data-theme="lcars-fc"] .sta2e-opposed-card-header {
   border-radius: 28px 0 0 0 !important;
   min-height: 36px;
   padding-left: 20px !important;
@@ -390,7 +390,7 @@
     linear-gradient(90deg, var(--op-primary) 0 28%, var(--op-secondary) 28% 56%, #d0d0d0 56% 70%, var(--op-tertiary) 70%) !important;
 }
 
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-header {
+.sta2e-opposed-task[data-theme="lcars-fc"] .sta2e-opposed-card-header {
   background:
     linear-gradient(90deg, var(--op-secondary) 0 34%, var(--op-primary) 34% 60%, var(--op-tertiary) 60% 78%, var(--op-secondary) 78%) !important;
 }
@@ -398,16 +398,16 @@
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-summary,
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-side,
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-resolution,
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-summary,
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-side,
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-resolution {
+.sta2e-opposed-task[data-theme="lcars-fc"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="lcars-fc"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="lcars-fc"] .sta2e-opposed-resolution {
   background-image:
     linear-gradient(90deg, color-mix(in srgb, var(--op-tertiary) 12%, transparent), transparent 38%),
     linear-gradient(180deg, rgba(255,255,255,0.035), rgba(0,0,0,0.12)) !important;
 }
 
 .sta2e-opposed-task[data-theme="lcars-tng"] .sta2e-opposed-card-sides::before,
-.sta2e-opposed-task[data-theme="lcars-tng-blue"] .sta2e-opposed-card-sides::before {
+.sta2e-opposed-task[data-theme="lcars-fc"] .sta2e-opposed-card-sides::before {
   border-radius: 20px 4px 20px 4px;
   border-width: 3px;
   opacity: 0.5;
