@@ -97,3 +97,134 @@
 .sta2e-chat-card button {
   transition: filter 0.11s ease-out, box-shadow 0.11s ease-out;
 }
+
+/* ── TOS Console Viewer frame ─────────────────────────────────────────────────
+   Emitted by tosChatCard in chat-card-frame.js when the theme is tos-panel: a
+   gunmetal housing, a header with three indicator lamps (the first lit in the
+   card's own accent, --ccf-c), and the body set into a curved amber CRT. It
+   shares the task card's look (styles/task-card-tos.css).
+
+   Body buttons become raised console keys. The helper strips their inline
+   background / border / colour and stamps --tck-a (accent) and --tck-ink, so
+   the gradient below can be built from them; code that repaints a button at
+   runtime still wins, because it writes inline afterwards. The two hard rules at
+   the top of this file still apply. */
+.sta2e-chat-card.sta2e-chat-card--tos {
+  border: 2px solid #111;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #383838 0%, #2a2a2a 45%, #212121 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.5),
+    0 3px 10px rgba(0, 0, 0, 0.6);
+}
+
+.chat-message:has(.sta2e-chat-card--tos) {
+  border-radius: 4px;
+}
+
+.sta2e-chat-card--tos .ccf-tos-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 5px 6px;
+  border-bottom: 3px solid #111;
+  border-left: 4px solid var(--ccf-c, var(--cc-primary));
+  background: linear-gradient(180deg, #444 0%, #2e2e2e 100%);
+}
+
+.sta2e-chat-card--tos .ccf-tos-title {
+  flex: 1;
+  min-width: 0;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #f2f2f2;
+  text-shadow: 0 1px 0 #000;
+}
+
+.sta2e-chat-card--tos .ccf-tos-lamps { display: flex; gap: 3px; flex: 0 0 auto; }
+
+.sta2e-chat-card--tos .ccf-tos-lamps i {
+  width: 9px;
+  height: 9px;
+  border-radius: 1px;
+  background: #333;
+  box-shadow: inset 0 1px 2px #000;
+}
+
+.sta2e-chat-card--tos .ccf-tos-lamps .ccf-tos-lamp--accent {
+  background: var(--ccf-c, var(--cc-primary));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 0 5px var(--ccf-c, var(--cc-primary));
+}
+
+/* The CRT. Scanlines are an ::after with pointer-events:none, and the body sits
+   above it, so every control in it stays usable. */
+.sta2e-chat-card--tos .ccf-tos-screen {
+  position: relative;
+  margin: 7px;
+  overflow: hidden;
+  border-radius: 14px / 10px;
+  border: 3px solid #141414;
+  background: radial-gradient(ellipse at 50% 40%, #171004 0%, #080502 70%, #030201 100%);
+  box-shadow:
+    inset 0 0 14px rgba(0, 0, 0, 0.95),
+    inset 0 0 2px rgba(240, 200, 96, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.sta2e-chat-card--tos .ccf-tos-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
+}
+
+.sta2e-chat-card--tos .ccf-body {
+  position: relative;
+  z-index: 1;
+  padding: 7px 10px 8px;
+  text-shadow: 0 0 3px rgba(240, 200, 96, 0.3);
+}
+
+/* Raised backlit keys. Three components deep, to outrank the base
+   `.sta2e-chat-card .ccf-body button` radius rule and core's chat button
+   height. */
+.sta2e-chat-card.sta2e-chat-card--tos .ccf-body button {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tck-a, #c8a010) 80%, #fff) 0%,
+    var(--tck-a, #c8a010) 60%,
+    color-mix(in srgb, var(--tck-a, #c8a010) 75%, #000) 100%
+  );
+  color: var(--tck-ink, #140e00);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-shadow: none;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+  transition: filter 0.1s;
+}
+
+.sta2e-chat-card--tos .ccf-body button:hover:not(:disabled) { filter: brightness(1.2); }
+.sta2e-chat-card--tos .ccf-body button:active:not(:disabled) {
+  filter: brightness(0.8);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+.sta2e-chat-card--tos .ccf-body button:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }

@@ -47,6 +47,7 @@ import {
   chooseNervePinchDiscipline,
 } from "./combat/ground-talents.js";
 import { renderSlimTaskCard } from "./task-card-slim.js";
+import { renderTosTaskCard } from "./task-card-tos.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { clearAssistPending } from "./assist-pending.js";
 import {
@@ -3894,11 +3895,15 @@ export function buildPlayerRollCardHtml(rollData) {
   // purpose: six of its fields are computed inline inside the classic template
   // below, so building them unconditionally would run — and risk throwing in —
   // new code on the classic path, which must stay byte-identical.
+  //
+  // The TOS era has its own skin (task-card-tos.js) fed the same view. It takes
+  // precedence over taskCardStyle: classic and slim are both LCARS shapes.
   let cardStyle = "classic";
   try { cardStyle = game.settings.get(MODULE, "taskCardStyle") ?? "classic"; } catch { /* pre-init */ }
-  if (cardStyle === "slim") {
+  const tosSkin = getActiveLcThemeKey() === "tos-panel";
+  if (cardStyle === "slim" || tosSkin) {
     const showShipBlock = (shipDice ?? []).length > 0;
-    return renderSlimTaskCard({
+    const skinView = ({
       rollData, diceRow, renderResourceTokens, p,
       headerAccent: confirmed ? passColor : (isAssistRoll ? LC.secondary : LC.primary),
       passColor, passed, finalResultLabel,
@@ -4014,6 +4019,7 @@ export function buildPlayerRollCardHtml(rollData) {
         label: `Add ${poolLabel} to Pool (+${displayMomentum})`,
       },
     });
+    return tosSkin ? renderTosTaskCard(skinView) : renderSlimTaskCard(skinView);
   }
 
   return `

@@ -47,7 +47,7 @@
 
 .sta2e-task-card[data-theme="lcars-tng-blue"] { /* inherits the base shape */ }
 .sta2e-task-card[data-theme="blue"] { /* inherits the base shape */ }
-.sta2e-task-card[data-theme="tos-panel"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="tos-panel"] { /* own skin: styles/task-card-tos.css */ }
 .sta2e-task-card[data-theme="tmp-console"] { /* inherits the base shape */ }
 .sta2e-task-card[data-theme="ent-panel"] { /* inherits the base shape */ }
 .sta2e-task-card[data-theme="klingon"] { /* inherits the base shape */ }

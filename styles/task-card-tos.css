@@ -1,0 +1,309 @@
+/*
+ * sta2e-toolkit | task-card-tos.css
+ *
+ * Shape for the TOS "Console Viewer" task card (scripts/task-card-tos.js): a
+ * gunmetal housing with indicator lamps, curved CRT screens set into it, and
+ * raised backlit keys. Every rule hangs off .sta2e-task-card--tos, which only
+ * the TOS renderer emits, so no other era can be reached by this file.
+ *
+ * ── The two hard rules from styles/task-card.css apply here too ─────────────
+ * 1. No `!important`.
+ * 2. Nothing may set background / border-color / color / opacity on a key.
+ *    _armCardSelection() owns those while a reroll is armed and restores them
+ *    through style.cssText, so a key's colour is entirely inline. The bevel is
+ *    a box-shadow, which that function never touches, so armed keys keep it.
+ *
+ * Specificity: the shared padding rules in task-card.css are two classes deep
+ * (.sta2e-task-card .sta2e-player-confirm), so key rules here use three to win
+ * on specificity rather than on stylesheet order.
+ */
+
+/* ── Housing ──────────────────────────────────────────────────────────────── */
+.sta2e-task-card.sta2e-task-card--tos {
+  --tct-ph: #9ee26a;
+  border-radius: 4px;
+  border: 2px solid #111;
+  overflow: hidden;
+  color: #e8c860;
+  background: linear-gradient(180deg, #383838 0%, #2a2a2a 45%, #212121 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.5),
+    0 3px 10px rgba(0, 0, 0, 0.6);
+  /* The reroll tray reads these with fallbacks (combat-hud-core.js). */
+  --tcx-btn-radius: 2px;
+  --tcx-tray-radius: 2px;
+}
+
+.chat-message:has(.sta2e-task-card--tos) {
+  border-radius: 4px;
+}
+
+.sta2e-task-card--tos .tct-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 5px;
+  border-bottom: 3px solid #111;
+  background: linear-gradient(180deg, #444 0%, #2e2e2e 100%);
+}
+
+.sta2e-task-card--tos .tct-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #f2f2f2;
+  text-shadow: 0 1px 0 #000;
+  line-height: 1.2;
+}
+
+.sta2e-task-card--tos .tct-title small {
+  display: block;
+  margin-top: 1px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #9a9a9a;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── Indicator lamps ──────────────────────────────────────────────────────── */
+.sta2e-task-card--tos .tct-lamps { display: flex; gap: 3px; flex: 0 0 auto; }
+
+.sta2e-task-card--tos .tct-lamp {
+  width: 9px;
+  height: 9px;
+  border-radius: 1px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 0 5px currentColor;
+}
+.sta2e-task-card--tos .tct-lamp--r { background: #e83020; color: #e83020; }
+.sta2e-task-card--tos .tct-lamp--a { background: #e8c030; color: #e8c030; }
+.sta2e-task-card--tos .tct-lamp--g { background: #40cc30; color: #40cc30; }
+.sta2e-task-card--tos .tct-lamp--off {
+  background: #333;
+  color: transparent;
+  box-shadow: inset 0 1px 2px #000;
+}
+
+/* ── CRT screen ───────────────────────────────────────────────────────────── */
+/* A curved black screen in a dark bezel. The phosphor hue arrives inline as
+   --tct-ph. The scanlines are an ::after with pointer-events:none, and every
+   block inside sits above it (z-index) so dice stay clickable. */
+.sta2e-task-card--tos .tct-crt {
+  position: relative;
+  margin: 7px 7px 0;
+  padding: 7px 10px 8px;
+  overflow: hidden;
+  border-radius: 16px / 11px;
+  border: 3px solid #141414;
+  background: radial-gradient(ellipse at 50% 40%, #0d1408 0%, #050805 70%, #020302 100%);
+  box-shadow:
+    inset 0 0 14px rgba(0, 0, 0, 0.95),
+    inset 0 0 2px color-mix(in srgb, var(--tct-ph) 45%, transparent),
+    0 1px 0 rgba(255, 255, 255, 0.07);
+  font: 11.5px/1.35 "Courier New", Courier, monospace;
+  color: var(--tct-ph);
+  text-shadow: 0 0 4px color-mix(in srgb, var(--tct-ph) 55%, transparent);
+}
+
+.sta2e-task-card--tos .tct-crt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0 1px, transparent 1px 3px);
+}
+
+.sta2e-task-card--tos .tct-crt > * { position: relative; z-index: 1; }
+
+.sta2e-task-card--tos .tct-blk--more {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--tct-ph) 35%, transparent);
+}
+
+.sta2e-task-card--tos .tct-lbl {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.sta2e-task-card--tos .tct-lbl span:last-child { flex: 0 0 auto; }
+
+.sta2e-task-card--tos .tct-sub {
+  margin: -2px 0 2px;
+  font-size: 9px;
+  opacity: 0.6;
+}
+
+/* ── Readout ──────────────────────────────────────────────────────────────── */
+.sta2e-task-card--tos .tct-lead {
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.sta2e-task-card--tos .tct-dots { flex: 1; overflow: hidden; opacity: 0.35; }
+.sta2e-task-card--tos .tct-dots::before {
+  content: "..............................................................";
+}
+
+.sta2e-task-card--tos .tct-lead--cpx {
+  color: #ff5a3a;
+  text-shadow: 0 0 4px rgba(255, 80, 50, 0.6);
+}
+
+.sta2e-task-card--tos .tct-res {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 3px;
+  text-shadow: none;
+  font-family: var(--tc-font);
+}
+
+.sta2e-task-card--tos .tct-res-lbl,
+.sta2e-task-card--tos .tct-res-sub {
+  font: 9.5px "Courier New", Courier, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  text-shadow: 0 0 4px color-mix(in srgb, var(--tct-ph) 55%, transparent);
+}
+
+.sta2e-task-card--tos .tct-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--tct-ph) 40%, transparent);
+}
+
+.sta2e-task-card--tos .tct-result span {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.sta2e-task-card--tos .tct-result strong {
+  font-size: 19px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sta2e-task-card--tos .tct-result--pass { color: #7fe060; text-shadow: 0 0 6px rgba(120, 230, 90, 0.7); }
+.sta2e-task-card--tos .tct-result--fail { color: #ff4a30; text-shadow: 0 0 6px rgba(255, 80, 50, 0.7); }
+.sta2e-task-card--tos .tct-result--cost { color: #ffd23a; text-shadow: 0 0 6px rgba(255, 210, 58, 0.7); }
+
+/* ── Notes ────────────────────────────────────────────────────────────────── */
+.sta2e-task-card--tos .tct-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 5px 7px 0;
+}
+
+.sta2e-task-card--tos .tct-note {
+  padding: 3px 6px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  color: #c8a838;
+  background: rgba(232, 192, 48, 0.08);
+  border-left: 3px solid #c8a010;
+}
+
+.sta2e-task-card--tos .tct-note--warn  { color: #ff7a5a; background: rgba(255, 60, 30, 0.08); border-left-color: #c81808; }
+.sta2e-task-card--tos .tct-note--bonus { color: #9ee26a; background: rgba(120, 220, 80, 0.07); border-left-color: #28aa18; }
+.sta2e-task-card--tos .tct-note--trait { color: #c8c8d0; background: rgba(255, 255, 255, 0.05); border-left-color: #777; }
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+.sta2e-task-card--tos .tct-strut {
+  height: 5px;
+  margin-top: 7px;
+  background: linear-gradient(180deg, #1a1a1a, #3a3a3a 50%, #1a1a1a);
+  border-top: 1px solid #111;
+  border-bottom: 1px solid #444;
+}
+
+/* Each section stays a plain block (the reroll tray is appended to it). */
+.sta2e-task-card--tos .tct-sect { padding: 0 7px 6px; }
+.sta2e-task-card--tos .tct-strut + .tct-sect { padding-top: 6px; }
+
+.sta2e-task-card--tos .tct-sect-lbl {
+  margin-bottom: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+
+.sta2e-task-card--tos .tct-btns { display: flex; flex-direction: column; gap: 3px; }
+
+.sta2e-task-card--tos .tct-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+}
+.sta2e-task-card--tos .tct-grid--one { grid-template-columns: 1fr; }
+
+/* The reroll grid comes from task-card.css (.sta2e-task-rerolls); this keeps
+   the column flex above from outranking it. */
+.sta2e-task-card--tos .tct-btns.sta2e-task-rerolls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sta2e-task-card.sta2e-task-card--tos .tct-key {
+  display: block;
+  box-sizing: border-box;   /* "Completed" / "Applied to" are divs, content-box by default */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.07em;
+  text-align: center;
+  text-transform: uppercase;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+  transition: filter 0.1s;
+}
+
+.sta2e-task-card.sta2e-task-card--tos .tct-key--left { text-align: left; }
+.sta2e-task-card.sta2e-task-card--tos .tct-key--big { padding: 7px; font-size: 10.5px; }
+.sta2e-task-card.sta2e-task-card--tos div.tct-key { cursor: default; }
+
+.sta2e-task-card--tos button.tct-key:hover:not(:disabled) { filter: brightness(1.2); }
+.sta2e-task-card--tos button.tct-key:active:not(:disabled) {
+  filter: brightness(0.8);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+
+.sta2e-task-card--tos .sta2e-rr-cost { font-size: 7.5px; letter-spacing: 0.06em; }

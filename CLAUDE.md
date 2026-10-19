@@ -1586,6 +1586,16 @@ Colour is not the frame's business: `--ccf-c` takes whatever accent the builder 
 codes with — hit orange, miss dim, injury red, hazard yellow — so a card keeps its meaning
 and only changes shape.
 
+**Under `tos-panel` the same call returns the TOS Console Viewer frame** (`tosChatCard`):
+a gunmetal housing, a header whose first lamp and left edge take `--ccf-c`, and the body
+in a curved amber CRT. The body is still passed through, inside a `.ccf-body` (wirers use
+it as their host), with one change: `keyifyButtons` turns its buttons into raised keys by
+stripping their inline background / border / colour and stamping `--tck-a` (lifted from
+the button's own inline `color`, else its border colour) and `--tck-ink`, from which the
+CSS builds the gradient. A near-black accent falls back to the theme's primary. Code that
+repaints a button at runtime still wins, since it writes inline afterwards. Every other
+era still gets `legacy()`.
+
 Out of scope by choice: the warp navigation cards
 ([warp-calc.js](scripts/warp-calc.js), [toolkit-api.js](scripts/toolkit-api.js)) and the
 star-system reports, which have deliberate bespoke skins.
@@ -1657,6 +1667,26 @@ both stylesheets:
   so prefixing the button's own `innerHTML` would drop `▶` onto a line of its own.
   `_armCardSelection` also reads `data-filled` there: a filled button inverts to a lit
   key when armed, because darkening one key in a row of lit ones reads as disabled.
+
+**The TOS Console Viewer skin.** Under `tos-panel` the card is rendered by
+[task-card-tos.js](scripts/task-card-tos.js) (shape in
+[styles/task-card-tos.css](styles/task-card-tos.css)) **whatever `taskCardStyle` says** —
+classic and slim are both LCARS shapes. It takes the same prepared view the slim skin
+does (`skinView` in `buildPlayerRollCardHtml`), so the three skins cannot drift in
+content: a gunmetal housing with indicator lamps, curved CRT screens for the dice and
+the dot-leader readout, and raised backlit keys. It keeps the slim skin's DOM contract
+(wrappers, `diceRow` dice with their `<img>`, every button class and data-*), and two
+details of its own:
+
+- **A key's colour is entirely inline** (`keyStyle`); the bevel is a `box-shadow`, which
+  `_armCardSelection` never touches, so an armed key keeps its 3D look. Every key carries
+  `data-filled="1"` so arming lights it yellow instead of darkening it.
+- **The `.tct-key` rules are three classes deep**, to outrank task-card.css's shared
+  two-class padding rules on specificity. `box-sizing: border-box` is load-bearing:
+  "Completed" and "Applied to" are `<div>`s, which otherwise overflow at `width:100%`.
+
+Covered by [tests/tos-cards.mjs](tests/tos-cards.mjs); `--preview out.html` renders every
+state against the real stylesheets.
 
 The card carries **no emoji**; the surviving glyphs are functional and monochrome (`★★`
 on a crit die, `▶` armed, `→` on Add to Task Roll). The roller *dialog* and the static
@@ -1750,6 +1780,8 @@ through `lcarsChatCard`.
 | [scripts/weapon-configs.js](scripts/weapon-configs.js) | Weapon config registry, `buildWeaponContext`, fire functions |
 | [scripts/token-conditions.js](scripts/token-conditions.js) | STA combat conditions (add/remove/query) |
 | [scripts/task-card-slim.js](scripts/task-card-slim.js) | Slim LCARS skin for the Working Results task card (`taskCardStyle`) |
+| [scripts/task-card-tos.js](scripts/task-card-tos.js) | TOS Console Viewer skin for the task card — used for `tos-panel` regardless of `taskCardStyle`. Imports only `lcars-theme.js` |
+| [styles/task-card-tos.css](styles/task-card-tos.css) | Shape for that skin — housing, lamps, CRT screens, keys |
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG top/bottom-bar frame every other chat card shares. Leaf module; `legacy` thunk keeps non-TNG eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shape-only CSS for that frame |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |

@@ -5,6 +5,9 @@
  * working task card (which has its own, with a spine) and the two families that
  * keep bespoke skins: the warp navigation cards and the star-system reports.
  *
+ * Under the TOS theme (tos-panel) the same call gives the TOS Console Viewer
+ * frame instead (tosChatCard below), the sibling of task-card-tos.js.
+ *
  * Shape: a bar across the top carrying the card's title, a bar across the bottom,
  * all four corners rounded, no spine. Geometry lives in styles/chat-card.css; this
  * module only decides whether the frame applies and stamps the colour on the root.
@@ -74,7 +77,83 @@ const unroundButtons = html => String(html ?? "").replace(
   tag => tag.replace(/border-radius\s*:[^;"']*;?/gi, ""),
 );
 
+/** The TOS console frame's theme gate, matching `tosSkin` in npc-roller.js. */
+export function isTosChatCardFrame() {
+  try { return getActiveLcThemeKey() === "tos-panel"; }
+  catch { return false; }
+}
+
+// ── TOS keys ────────────────────────────────────────────────────────────────
+// The TOS frame draws body buttons as raised backlit console keys. Their colour
+// is a gradient built in CSS from --tck-a, so the inline background, border and
+// colour each body writes must go — inline beats any rule. The accent is lifted
+// out of the button's own inline `color` (or, failing that, its border colour)
+// first, so a red Ignore stays red and a green Apply stays green. Code that
+// repaints a button at runtime still wins, since it writes inline afterwards.
+
+const _HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})([0-9a-f]{2})?$/i;
+const _RGB = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i;
+
+/** Relative luminance 0..1 of a hex or rgb() colour, or null if unparseable. */
+function _luma(colour) {
+  const c = String(colour ?? "").trim();
+  let r, g, b;
+  const hex = c.match(_HEX);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].replace(/./g, ch => ch + ch) : hex[1];
+    [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  } else {
+    const rgb = c.match(_RGB);
+    if (!rgb) return null;
+    [r, g, b] = rgb.slice(1, 4).map(Number);
+  }
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+const _COLOUR_IN = /(#[0-9a-f]{3,8}\b|rgba?\([^)]*\))/i;
+
+function _keyify(tag) {
+  const colour = tag.match(/(?<![-\w])color\s*:\s*([^;"']+)/i)?.[1]?.trim();
+  const border = tag.match(/(?<![-\w])border(?:-[a-z]+)*\s*:[^;"']*/i)?.[0]?.match(_COLOUR_IN)?.[1];
+  let accent = [colour, border].find(c => _luma(c) !== null && !/rgba\([^)]*,\s*0(\.0+)?\s*\)/i.test(c))
+    ?? LC.primary;
+  // A near-black accent (text written in the card's bg colour on a filled key)
+  // would draw a black key; fall back to the theme's primary.
+  if ((_luma(accent) ?? 1) < 0.12) accent = LC.primary;
+  const ink = (_luma(accent) ?? 1) > 0.42 ? "#140e00" : "#fff4ee";
+
+  const stripped = tag
+    .replace(/(?<![-\w])background(?:-color|-image)?\s*:[^;"']*;?/gi, "")
+    .replace(/(?<![-\w])border(?:-[a-z]+)*\s*:[^;"']*;?/gi, "")
+    .replace(/(?<![-\w])color\s*:[^;"']*;?/gi, "");
+  const vars = `--tck-a:${accent};--tck-ink:${ink};`;
+  return /\sstyle\s*=\s*(["'])/i.test(stripped)
+    ? stripped.replace(/(\sstyle\s*=\s*)(["'])/i, `$1$2${vars}`)
+    : stripped.replace(/^<button\b/i, `<button style="${vars}"`);
+}
+
+const keyifyButtons = html => String(html ?? "").replace(/<button\b[^>]*>/gi, _keyify);
+
+/**
+ * The TOS "Console Viewer" frame: a gunmetal housing, a header with the title
+ * and three indicator lamps (the first lit in the card's accent), and the body
+ * set into a curved amber CRT. The body is wrapped untouched apart from its
+ * buttons, and keeps `.ccf-body`, which several wirers use as their host.
+ */
+function tosChatCard({ title, accent, body, rootClass, attrs }) {
+  return `
+<div class="sta2e-chat-card sta2e-chat-card--tos${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("cc")}--ccf-c:${accent || LC.primary};">
+  <div class="ccf-tos-head">
+    <div class="ccf-tos-title">${title ?? ""}</div>
+    <div class="ccf-tos-lamps" aria-hidden="true"><i class="ccf-tos-lamp--accent"></i><i></i><i></i></div>
+  </div>
+  <div class="ccf-tos-screen"><div class="ccf-body">${keyifyButtons(body)}</div></div>
+</div>`;
+}
+
 export function lcarsChatCard({ title, accent, body, legacy, rootClass = "", attrs = "" }) {
+  if (isTosChatCardFrame()) return tosChatCard({ title, accent, body, rootClass, attrs });
   if (!isChatCardFrame()) return legacy();
   return `
 <div class="sta2e-chat-card${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
