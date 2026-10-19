@@ -1,0 +1,797 @@
+/*
+ * sta2e-toolkit | tos-sheet.css
+ *
+ * The TOS "Console Viewer" overlay for the 2e actor sheets — character, NPC,
+ * supporting character, starship and small craft. Applied by
+ * scripts/tos-sheet-theme.js, which stamps `.sta2e-tos-sheet` and
+ * `data-sta2e-sheet="<kind>"` on the template root; every rule below is nested
+ * under both. The design source is docs/tos-sheet-mockup.html.
+ *
+ * ── Rules this file lives by ────────────────────────────────────────────────
+ * 1. Style the system's markup where it stands. Nothing is wrapped or moved, so
+ *    the housing panels are the template's own columns, the CRT screens are its
+ *    own blocks, and the decorations are pseudo-elements.
+ * 2. No `!important`. Foundry loads package CSS into cascade layers, and core's
+ *    `.hidden { display: none !important }` is what keeps GM-only icons, the
+ *    Klingon fields and observer-hidden tabs hidden — so `display` may be set
+ *    freely here. sta.css carries a few `!important` border colours; borders on
+ *    inputs are therefore drawn as box-shadows, which it never touches.
+ * 3. The root selector is a class plus an attribute (two components), so every
+ *    nested rule outranks the system's `.character-sheet .x` rules on
+ *    specificity and does not depend on stylesheet order. Tab items need the
+ *    full `nav.sheet-tabs.tabs a.item` chain to outrank the system's.
+ * 4. Inline styles the toolkit writes at runtime win: the NPC Ship block's
+ *    show/hide `display`, and the Crew tab's panel switching.
+ */
+
+.sta2e-tos-sheet[data-sta2e-sheet] {
+  --tos-ph: #9ee26a;
+  --tos-ph-glow: rgba(136, 204, 68, 0.55);
+  --tos-amber: #f0c860;
+  --tos-dim: #9a9a9a;
+  --tos-mono: "Courier New", Courier, monospace;
+  --tos-sans: "Helvetica Neue", Arial, sans-serif;
+  /* The system's palette variables, so anything drawn through them (the Crew
+     tab, rules this file never names) follows the theme. */
+  --sta-borderblue: #c8a010;
+  --sta-borderbluedark: #2a2a2a;
+  --sta-darkestblue: #555;
+  --sta-palestblue: #e8c030;
+  --sta-palestbluedark: #3a3a3a;
+
+  padding: 8px;
+  color: var(--tos-amber);
+  font-family: var(--tos-sans);
+  background: linear-gradient(180deg, #343434 0%, #292929 40%, #222 100%);
+  scrollbar-color: #555 transparent;
+
+  /* ── Shared pieces ──────────────────────────────────────────────────────── */
+
+  /* Housing panels: the template's own columns */
+  .top-left-column, .top-right-column, .bottom-left-column, .bottom-right-column,
+  .left-column, .right-column {
+    position: relative;
+    padding: 0 0 7px;
+    background: linear-gradient(180deg, #383838 0%, #2a2a2a 45%, #212121 100%);
+    border: 2px solid #111;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.09), inset 0 -2px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.5);
+  }
+
+  /* Labels */
+  .title, .tracktitle {
+    margin: 0 0 3px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    color: var(--tos-dim);
+    font: 700 8.5px var(--tos-sans);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+  }
+
+  /* Text plates */
+  .text-entry {
+    width: 100%;
+    height: auto;
+    padding: 4px 7px;
+    background: #070707;
+    border: 0;
+    border-radius: 2px;
+    box-shadow: inset 0 2px 5px #000, 0 0 0 2px #111;
+    color: var(--tos-amber);
+    font: 12px var(--tos-mono);
+    text-shadow: 0 0 4px rgba(240,200,96,.35);
+  }
+  input[type=number] { appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Every checkbox and radio is an indicator lamp. Core draws its own glyph in
+     ::before / ::after, which has to go. */
+  input[type=checkbox], input[type=radio] {
+    appearance: none;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+    margin: 0;
+    border: 0;
+    border-radius: 2px;
+    cursor: pointer;
+    background: #1c1c1c;
+    box-shadow: inset 0 1px 2px #000, 0 0 0 1px #2a2a2a;
+    &::before, &::after { content: none; display: none; }
+    &:checked {
+      background: radial-gradient(circle at 40% 35%, #fff6b0, #ffd23a 45%, #c89010);
+      box-shadow: 0 0 7px rgba(255,210,58,.85), 0 0 0 1px #000;
+    }
+    &:disabled { cursor: default; }
+    &:focus-visible { outline: 1px solid #ffd23a; outline-offset: 1px; }
+  }
+  input[type=radio] { border-radius: 50%; }
+
+  /* Raised backlit keys */
+  .check-button, .btn, .btn2, .btn3 {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 8px 4px;
+    border: 0;
+    border-radius: 2px;
+    cursor: pointer;
+    font: 700 10px var(--tos-sans);
+    letter-spacing: .08em;
+    text-align: center;
+    text-transform: uppercase;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6);
+    &:hover { filter: brightness(1.2); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 1px 3px rgba(0,0,0,.6); }
+    &:active { filter: brightness(.8); box-shadow: inset 0 2px 3px rgba(0,0,0,.6); }
+  }
+  .btn  { background: linear-gradient(180deg,#e83020,#c81808 60%,#a81000); color: #fff0ee; }
+  .btn2 { background: linear-gradient(180deg,#e83020,#c81808 60%,#a81000); color: #fff0ee; }
+  .btn3 { background: linear-gradient(180deg,#e8c030,#c8a010 60%,#aa8808); color: #1a1200; }
+  .btn:hover, .btn2:hover, .btn3:hover { background-color: transparent; }
+
+  /* Portrait viewer: a bezelled screen with a caption plate */
+  .image-field {
+    position: relative;
+    width: auto;
+    height: auto;
+    margin: 7px;
+    padding: 6px 6px 20px;
+    overflow: hidden;
+    background: #141414;
+    border-radius: 18px / 14px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px #000;
+    &::after {
+      content: "Personnel File";
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 4px;
+      color: var(--tos-dim);
+      font: 700 8px var(--tos-sans);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+  }
+  .profile-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: 14px / 10px;
+    object-fit: cover;
+    box-shadow: inset 0 0 16px rgba(0,0,0,.9);
+  }
+
+  /* Name plate and the three system icons as small keys */
+  .name-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 7px 7px 4px;
+    .text-entry {
+      height: auto;
+      padding: 5px 9px;
+      color: var(--tos-amber);
+      font: 700 20px var(--tos-sans);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      text-shadow: 0 0 8px rgba(240,200,96,.5);
+    }
+  }
+  .icon-column {
+    gap: 3px;
+    padding: 0;
+    justify-content: flex-end;
+    font-size: 11px;
+    > i {
+      width: 28px;
+      height: 18px;
+      padding: 0;
+      border-radius: 2px;
+      background-color: #ddd;
+      mask-size: 12px;
+      cursor: pointer;
+    }
+    .linked:not(.unlinked) { background-color: #ffd23a; }
+    .linked.unlinked { opacity: .5; }
+  }
+
+  /* Tracks: rows of keys, lit when selected. The renderer gives each key an
+     inline width; flex-basis 0 overrides it. */
+  .tracktitle { margin: 6px 7px 3px; }
+  .track { margin: 0 7px; }
+  .track .bar:not(.extendedtask) { gap: 3px; padding: 0; }
+  .track .bar .box {
+    flex: 1 1 0;
+    height: 20px;
+    border: 0;
+    border-radius: 2px;
+    color: #555;
+    background: #1b1b1b;
+    font: 700 10px var(--tos-mono);
+    box-shadow: inset 0 1px 3px #000, 0 1px 0 rgba(255,255,255,.05);
+    &:hover { box-shadow: inset 0 1px 3px #000, 0 0 6px rgba(255,210,58,.5); }
+    &.selected { box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 -1px 0 rgba(0,0,0,.4), 0 0 6px var(--lit-glow); }
+    &.rep.selected, &.crew.selected, &.power.selected { background: linear-gradient(180deg,#f0d040,#aa8808); color: #1a1200; --lit-glow: rgba(232,192,48,.45); }
+    &.determination.selected { background: linear-gradient(180deg,#5ab8ff,#1d6fc0); color: #001022; --lit-glow: rgba(80,170,255,.5); }
+    &.stress.selected { background: linear-gradient(180deg,#e83020,#a81000); color: #fff0ee; --lit-glow: rgba(232,48,32,.5); }
+    &.shields.selected { background: linear-gradient(180deg,#7ad0ff,#1f78c8); color: #00121f; --lit-glow: rgba(90,180,255,.6); }
+  }
+  .track .shield-gap { width: 4px; }
+
+  /* CRT screens: attribute / discipline / system / department blocks */
+  .attribute-block, .discipline-block, .systems-block, .departments-block {
+    position: relative;
+    margin: 7px;
+    padding: 6px 8px 7px;
+    overflow: hidden;
+    border-radius: 16px / 11px;
+    border: 3px solid #141414;
+    background: radial-gradient(ellipse at 50% 40%, #0d1408 0%, #050805 70%, #020302 100%);
+    box-shadow: inset 0 0 14px rgba(0,0,0,.95), inset 0 0 2px var(--tos-ph-glow), 0 1px 0 rgba(255,255,255,.07);
+    color: var(--tos-ph);
+    font: 11px/1.4 var(--tos-mono);
+    text-shadow: 0 0 4px var(--tos-ph-glow);
+    &::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      background: repeating-linear-gradient(180deg, rgba(0,0,0,.26) 0 1px, transparent 1px 3px);
+    }
+    > * { position: relative; z-index: 1; }
+    > .title {
+      margin: 0 0 3px;
+      padding-bottom: 3px;
+      border-bottom: 1px dashed rgba(158,226,106,.3);
+      color: var(--tos-ph);
+      opacity: .75;
+      text-shadow: inherit;
+      a { color: inherit; }
+    }
+  }
+
+  /* A readout row: name … lamp value. min-width:0 stops the dot leaders,
+     which cannot wrap, from propping the column open. */
+  .row-right, .stat.row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 5px;
+    width: 100%;
+    margin: 0;
+    padding: 1px 0;
+    .list-entry {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      gap: 4px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-align: left;
+      text-transform: uppercase;
+      &::after { content: "..................................."; flex: 1; overflow: hidden; opacity: .3; }
+    }
+    &:has(.selector:checked) { color: #ffe680; text-shadow: 0 0 6px rgba(255,230,128,.7); }
+  }
+  .numeric-entry {
+    width: 26px;
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 rgba(158,226,106,.35);
+    color: inherit;
+    font: 700 14px var(--tos-mono);
+    text-align: right;
+    text-shadow: inherit;
+  }
+
+  /* Text-plate numerics: stress / shield / crew modifiers */
+  .stressmod, .shieldmod, .crwmod, .rollrepnotdis, .amiklingon {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 6px 7px 0;
+    color: var(--tos-dim);
+    font: 700 9px var(--tos-sans);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    .text-entry { width: 44px; margin: 0; padding: 2px; text-align: center; font-weight: 700; }
+    .checkbox { margin: 0; }
+  }
+  .rollrepnotdis { flex-direction: row-reverse; justify-content: flex-end; }
+  .buttons { display: grid; grid-template-columns: 1.3fr 1fr; gap: 4px; margin: 6px 7px 0; }
+  .buttons:not(:has(.btn3)) { grid-template-columns: 1fr; }
+
+  /* Tabs: a row of console keys */
+  nav.sheet-tabs.tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px 7px;
+    margin: 0;
+    background: linear-gradient(180deg,#3c3c3c,#2c2c2c);
+    border-bottom: 3px solid #111;
+    a.item {
+      flex: 1;
+      width: auto;
+      padding: 6px 4px;
+      border: 0;
+      border-radius: 2px;
+      color: #cfcfcf;
+      background: linear-gradient(180deg,#5a5a5a,#404040 60%,#333);
+      font: 700 10px var(--tos-sans);
+      letter-spacing: .1em;
+      text-align: center;
+      text-transform: uppercase;
+      text-shadow: none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6);
+      &:first-child { border: 0; }
+      &:hover { filter: brightness(1.15); text-shadow: none; }
+      &.active {
+        color: #1a1200;
+        background: linear-gradient(180deg,#e8c030,#c8a010 60%,#aa8808);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 8px rgba(232,192,48,.45);
+      }
+    }
+  }
+
+  /* Item sections */
+  /* width:auto undoes sta.css's `.traits { width: 100% }`, which with these
+     margins pushed the Traits section past its column. */
+  .section {
+    width: auto;
+    margin: 7px;
+    > .title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 4px;
+      color: #f2f2f2;
+      font-size: 9.5px;
+      &::after { content: ""; flex: 1; height: 2px; background: linear-gradient(90deg,#c8a010,transparent); }
+    }
+    .header {
+      align-items: center;
+      gap: 6px;
+      padding: 3px 6px;
+      background: #1a1a1a;
+      border-radius: 0;
+      border-bottom: 1px solid #000;
+      color: #8a8a8a;
+      font: 700 8px var(--tos-sans);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      .image { flex: 0 0 20px; margin: 0; }
+    }
+    .row.entry {
+      position: relative;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      margin: 0;
+      padding: 3px 6px;
+      list-style: none;
+      background: #070707;
+      border-bottom: 1px solid #141414;
+      &:hover { background: #12100a; }
+    }
+    .row .image {
+      flex: 0 0 20px;
+      margin: 0;
+      img { width: 20px; height: 20px; border-radius: 2px; box-shadow: 0 0 0 1px #000; }
+    }
+    /* height:auto undoes core's fixed input height, which made rows 32px tall. */
+    .item-name {
+      flex: 1;
+      min-width: 0;
+      height: auto;
+      min-height: 0;
+      border: 0;
+      padding: 1px 0;
+      background: transparent;
+      color: var(--tos-amber);
+      font: 12px var(--tos-mono);
+      text-shadow: 0 0 4px rgba(240,200,96,.35);
+      &.strike-through { opacity: .5; }
+    }
+    input.item-quantity:not([type=checkbox]), .list-entry.damage, .two-column-with-roll-secondary.list-entry {
+      flex: 0 0 34px;
+      width: 34px;
+      height: auto;
+      padding: 1px 0;
+      background: #141414;
+      border-radius: 2px;
+      box-shadow: inset 0 1px 2px #000;
+      color: var(--tos-ph);
+      font: 700 12px var(--tos-mono);
+      text-align: center;
+    }
+    /* Edit / delete surface on hover or keyboard focus, laid over the row end
+       so names get the full width of a narrow column. Values' used switch is
+       also an a.control, and must stay where it is. */
+    .row.entry > .control:not(.value-used) {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: auto;
+      gap: 2px;
+      padding: 2px 2px 2px 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .12s;
+      background: linear-gradient(90deg, transparent, #0d0d0d 30%);
+    }
+    .row.entry:hover > .control:not(.value-used), .row.entry:focus-within > .control:not(.value-used) { opacity: 1; pointer-events: auto; }
+    .control a {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 16px;
+      border-radius: 2px;
+      color: #ddd;
+      font-size: 9px;
+      background: linear-gradient(180deg,#555,#3a3a3a);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 1px 2px rgba(0,0,0,.6);
+      text-shadow: none;
+      &.delete:hover { color: #fff; background: linear-gradient(180deg,#e83020,#a81000); }
+      &.edit:hover { color: #1a1200; background: linear-gradient(180deg,#e8c030,#aa8808); }
+    }
+    .header .control.create {
+      width: 18px;
+      height: 16px;
+      margin-left: auto;
+      display: grid;
+      place-items: center;
+      border-radius: 2px;
+      color: #001a00;
+      font-size: 9px;
+      background: linear-gradient(180deg,#40cc30,#188808);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 1px 2px rgba(0,0,0,.6);
+    }
+    /* Values' "used" switch: a lamp instead of the slider icon. The <i> keeps
+       the data-action, so it stays the click target. */
+    .value-used { flex: 0 0 34px; width: 34px; }
+    a.value-used i {
+      display: block;
+      width: 22px;
+      height: 10px;
+      border-radius: 2px;
+      font-size: 0;
+      background: #1c1c1c;
+      box-shadow: inset 0 1px 2px #000;
+      cursor: pointer;
+      &::before { content: none; }
+      &.fa-toggle-on { background: linear-gradient(180deg,#e83020,#a81000); box-shadow: 0 0 6px rgba(232,48,32,.6); }
+    }
+  }
+  .item-list-scrollable { scrollbar-color: #555 transparent; }
+
+  /* Notes editor: an inset screen. The sheet sizes .note, but nothing passed
+     that height on to the <prose-mirror> inside, which grew to fit its text and
+     ran out past the bottom of the screen. The box now clips and is a flex
+     column, the editor fills it, and the text scrolls inside the editor (core's
+     .editor-content is absolutely positioned and scrolls itself; the overflow
+     on prose-mirror covers the read-only view, which is content-sized). */
+  .note {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 6px 4px 6px 8px;
+    background: #070707;
+    border-radius: 2px;
+    box-shadow: inset 0 2px 6px #000, 0 0 0 2px #111;
+    color: var(--tos-ph);
+    font-family: var(--tos-mono);
+    > prose-mirror, > .editor {
+      flex: 1 1 auto;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-color: #555 transparent;
+    }
+    .editor-content { scrollbar-color: #555 transparent; }
+  }
+
+  /* ══ Character, NPC and supporting sheets (.character-sheet) ═══════════ */
+
+  &.character-sheet {
+    > .split-section { gap: 8px; }
+    > .split-section + .split-section { margin-top: 8px; }
+    .top-left-column { flex: 0 0 196px; padding-right: 0; }
+    .top-right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .bottom-left-column { flex: 0 0 176px; min-width: 0; padding-right: 0; }
+    .bottom-right-column { flex: 1 1 0; min-width: 0; border-left: 2px solid #111; border-top-left-radius: 4px; padding-bottom: 4px; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .tab .note { height: 520px; margin: 7px; }
+
+    /* The header strip over the record */
+    .top-right-column::before {
+      content: "Starfleet Personnel Record";
+      display: block;
+      padding: 5px 8px 4px;
+      border-bottom: 3px solid #111;
+      background: linear-gradient(180deg,#444 0%,#2e2e2e 100%);
+      color: #f2f2f2;
+      font: 700 10.5px var(--tos-sans);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 0 #000;
+    }
+
+    /* Character tab: field plates in their rows */
+    .tab[data-tab="biography"] {
+      padding: 4px 7px;
+      .row { gap: 6px; margin-bottom: 6px; }
+      .column { min-width: 0; }
+      .acclaimfield .text-entry, .reprimand .text-entry, .influence .text-entry,
+      .might .text-entry, .wealth .text-entry { color: var(--tos-ph); font-weight: 700; text-align: center; }
+    }
+
+    /* NPC / supporting type selector. The NPC template wraps each radio in a
+       .column, so the whole column becomes a key that lights when its radio is
+       checked; the radio is laid invisibly over it, since a div is not a label.
+       The supporting template writes bare text + radios, so there the radio
+       itself is the lamp. */
+    .npc-block {
+      margin: 2px 7px 4px;
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+        color: var(--tos-dim);
+        font: 700 9px var(--tos-sans);
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        > input[type=radio] { margin: 0 12px 0 4px; }
+      }
+      .column {
+        position: relative;
+        flex: 1;
+        flex-direction: row;
+        justify-content: center;
+        padding: 5px 4px;
+        border-radius: 2px;
+        color: #cfcfcf;
+        background: linear-gradient(180deg,#5a5a5a,#404040 60%,#333);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6);
+        input[type=radio] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
+        &:has(input:checked) {
+          color: #fff0ee;
+          background: linear-gradient(180deg,#e83020,#c81808 60%,#a81000);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 8px rgba(232,48,32,.45);
+        }
+        &:has(input:focus-visible) { outline: 1px solid #ffd23a; outline-offset: 1px; }
+      }
+    }
+
+    /* Supporting character improvements: rows of milestone lamps */
+    .supporting-char-grid {
+      margin: 0 7px;
+      background: #070707;
+      border-radius: 2px;
+      box-shadow: inset 0 2px 6px #000, 0 0 0 2px #111;
+      .row { gap: 8px; margin: 0; padding: 5px 8px; border-bottom: 1px solid #141414; }
+      .label { flex: 1; color: var(--tos-amber); font: 12px var(--tos-mono); }
+      .inputs { flex: 0 0 auto; display: flex; gap: 4px; }
+      input[type=checkbox] { width: 22px; height: 14px; }
+      input[type=checkbox]:checked { background: linear-gradient(180deg,#40cc30,#188808); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 6px rgba(64,204,48,.55); }
+    }
+    .milestones input.item-quantity[type=checkbox] { width: 30px; height: 12px; }
+    .milestones input.item-quantity[type=checkbox]:checked { background: linear-gradient(180deg,#40cc30,#188808); }
+  }
+
+  /* Viewer captions and record strips per sheet */
+  &[data-sta2e-sheet="npc"] {
+    .image-field::after { content: "Contact File"; }
+    .top-right-column::before { content: "Non-Player Character"; }
+    /* Personal Threat reuses the Stress keys; the kind stamp tells them apart. */
+    .track .bar .box.stress.selected { background: linear-gradient(180deg,#ff8a30,#c84400); color: #1a0800; --lit-glow: rgba(255,110,40,.55); }
+  }
+  &[data-sta2e-sheet="supporting"] .top-right-column::before { content: "Supporting Character"; }
+
+  /* ══ Starship and small craft (.starship-sheet) ═════════════════════════ */
+
+  &.starship-sheet {
+    > .split-section { gap: 8px; align-items: flex-start; }
+    .left-column { flex: 0 0 226px; min-width: 0; padding-right: 0; }
+    .right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .right-column::before {
+      content: "Vessel Record";
+      position: static;
+      display: block;
+      width: auto;
+      padding: 5px 8px 4px;
+      border-bottom: 3px solid #111;
+      border-radius: 0;
+      background: linear-gradient(180deg,#444 0%,#2e2e2e 100%);
+      color: #f2f2f2;
+      font: 700 10.5px var(--tos-sans);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 0 #000;
+    }
+    .image-field::after { content: "Registry"; }
+    .profile-img { width: 100%; height: auto; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .note { height: 110px; }
+
+    /* Systems: name · lamp · modifier · breaches */
+    .systems-block, .departments-block {
+      .stat.row { display: grid; grid-template-columns: minmax(0,1fr) 12px 22px 22px; }
+      .stat.header.row {
+        display: grid;
+        padding-bottom: 3px;
+        margin-bottom: 2px;
+        background: none;
+        border-bottom: 1px dashed rgba(158,226,106,.3);
+        font-size: 8.5px;
+        letter-spacing: .1em;
+        opacity: .65;
+        .text.secondary-title { grid-column: 1 / 3; }
+        .field.secondary-title { width: auto; text-align: right; }
+      }
+      .numeric-entry { width: 100%; }
+    }
+    .departments-block .stat.row { grid-template-columns: minmax(0,1fr) 12px 22px; }
+    /* Breaches read red when non-zero. The template writes the count as the
+       input's value attribute, so this needs no script. */
+    .systems-block .field.breaches {
+      width: 100%;
+      margin: 0;
+      color: #4a6a38;
+      text-shadow: none;
+      &:not([value="0"]) { color: #ff4a30; text-shadow: 0 0 6px rgba(255,80,50,.8); box-shadow: inset 0 -1px 0 rgba(255,80,50,.5); }
+    }
+    .buttons { grid-template-columns: 1fr; }
+
+    /* The four ship stats as indicator modules */
+    .big-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 5px;
+      width: auto;
+      margin: 7px;
+    }
+    .big-row-column {
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      min-width: 0;
+      padding: 5px 4px;
+      background: #1a1a1a;
+      border: 1px solid #0c0c0c;
+      border-radius: 2px;
+      .tracktitle { margin: 0; text-align: center; }
+      .checkbox { width: 30px; height: 16px; }
+      .numeric-entry {
+        width: 44px;
+        padding: 1px 0;
+        background: #070707;
+        border-radius: 2px;
+        box-shadow: inset 0 2px 5px #000, 0 0 0 2px #111;
+        color: var(--tos-amber);
+        font-size: 16px;
+        text-align: center;
+        text-shadow: 0 0 6px rgba(240,200,96,.5);
+      }
+    }
+    /* Reserve Power lights green, Shaken red. */
+    .big-row-column:first-child .checkbox:checked { background: linear-gradient(180deg,#40cc30,#188808); box-shadow: 0 0 7px rgba(64,204,48,.6); }
+    .big-row-column:nth-child(2) .checkbox:checked { background: linear-gradient(180deg,#e83020,#a81000); box-shadow: 0 0 7px rgba(232,48,32,.6); }
+
+    /* Service record fields */
+    .right-column > .row { gap: 6px; width: auto; margin: 0 7px 6px; }
+    .right-column > .row > .column { min-width: 0; }
+
+    /* Toolkit: NPC Ship block. main.js writes its layout inline (a column,
+       gap and margin) and toggles display, so only the plate is styled here. */
+    .sta2e-npc-ship-block {
+      margin-inline: 7px;
+      padding: 5px 7px;
+      background: #1a1a1a;
+      border: 1px solid #0c0c0c;
+      border-radius: 2px;
+      color: var(--tos-dim);
+      font: 700 9px var(--tos-sans);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      label { cursor: pointer; }
+      .sta2e-crew-quality { flex-basis: 100%; gap: 10px; }
+      .sta2e-cq-title { color: #f2f2f2; font-size: 9px; }
+      .sta2e-cq-option { font-size: 9px; }
+      input[type=radio] { border-radius: 50%; }
+    }
+
+    /* Toolkit: Ship / Crew strip, as console keys */
+    .sta2e-crew-tabs {
+      display: flex;
+      gap: 4px;
+      margin: 0 0 6px;
+      padding: 6px 7px;
+      background: linear-gradient(180deg,#3c3c3c,#2c2c2c);
+      border-top: 3px solid #111;
+      border-bottom: 3px solid #111;
+      .sta2e-crew-tab {
+        flex: 1;
+        border: 0;
+        border-radius: 2px;
+        padding: 6px 4px;
+        cursor: pointer;
+        color: #cfcfcf;
+        background: linear-gradient(180deg,#5a5a5a,#404040 60%,#333);
+        font: 700 10px var(--tos-sans);
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6);
+        &.is-active {
+          color: #1a1200;
+          background: linear-gradient(180deg,#e8c030,#c8a010 60%,#aa8808);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 8px rgba(232,192,48,.45);
+        }
+      }
+    }
+
+    /* Toolkit: Crew tab panel */
+    .sta2e-crew-panel { padding: 0 7px; }
+    .sta2e-crew-section { margin: 7px 0; }
+    .sta2e-crew-heading {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 4px;
+      color: #f2f2f2;
+      font: 700 9.5px var(--tos-sans);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      &::after { content: ""; flex: 1; height: 2px; background: linear-gradient(90deg,#c8a010,transparent); }
+    }
+    .sta2e-crew-station, .sta2e-crew-member { background: #070707; border-bottom: 1px solid #141414; }
+    .sta2e-crew-station-name { color: #cfcfcf; font: 700 9px var(--tos-sans); letter-spacing: .1em; text-transform: uppercase; }
+    .sta2e-crew-select {
+      background: #141414;
+      border: 1px solid #000;
+      border-radius: 2px;
+      color: var(--tos-amber);
+      font: 12px var(--tos-mono);
+    }
+    .sta2e-crew-station.is-vacant .sta2e-crew-select { color: #666; }
+    .sta2e-crew-stat { color: var(--tos-ph); font: 11px var(--tos-mono); text-shadow: 0 0 4px var(--tos-ph-glow); }
+    .sta2e-crew-member-name { color: var(--tos-amber); font: 12px var(--tos-mono); }
+    .sta2e-crew-member-post { color: var(--tos-ph); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .sta2e-crew-badge { border-radius: 2px; background: #2a2a2a; color: #aaa; }
+    .sta2e-crew-dept-tab {
+      border: 0;
+      border-radius: 2px;
+      color: #ddd;
+      background: linear-gradient(180deg,#555,#3a3a3a);
+      font: 700 8.5px var(--tos-sans);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 1px 2px rgba(0,0,0,.6);
+      &.is-active { color: #1a1200; background: linear-gradient(180deg,#e8c030,#aa8808); }
+      &.is-empty { opacity: .45; }
+    }
+    .sta2e-crew-drop { border: 1px dashed #4a4a4a; border-radius: 2px; color: #777; }
+  }
+  &[data-sta2e-sheet="smallcraft"] .image-field::after { content: "Auxiliary Craft"; }
+}
+
+/* The window around a TOS sheet. _applySheetTheme skips TOS sheets, so it no
+   longer themes this header either; the frame takes the console's gunmetal. */
+.window-content:has(.sta2e-tos-sheet[data-sta2e-sheet]) {
+  background: #222;
+}
+.application:has(.sta2e-tos-sheet[data-sta2e-sheet]) > .window-header {
+  background: linear-gradient(180deg, #2c2c2c, #1d1d1d);
+  border-bottom: 2px solid #111;
+  color: #f2f2f2;
+}

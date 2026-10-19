@@ -68,6 +68,7 @@ import { LcarsActionRing } from "./lcars-action-ring.js";
 import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest, findOfficerStation, stationLabel, SHIP_CREW_ACTION, applyShipCrewRequest } from "./crew-manifest.js";
 import { registerShipCrewTab } from "./ship-crew-tab.js";
+import { registerTosSheetTheme, refreshTosSheets } from "./tos-sheet-theme.js";
 import { getLcTokens, getActiveLcThemeKey } from "./lcars-theme.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
@@ -3494,6 +3495,9 @@ function _sheetThemePalette(LC) {
  *  colors to match the currently active toolkit HUD theme.  Idempotent — safe
  *  to call any number of times. */
 function _applySheetTheme() {
+  // The TOS overlay (tos-sheet-theme.js) is tagged per sheet; re-tag open ones
+  // first, since a theme or setting change is exactly what moves them in or out.
+  refreshTosSheets();
   const STYLE_ID = "sta2e-sheet-theme";
   document.getElementById(STYLE_ID)?.remove();
   if (!game.settings.get("sta2e-toolkit", "themeCharacterSheet")) return;
@@ -3633,8 +3637,10 @@ function _applySheetTheme() {
   el.id          = STYLE_ID;
   // An actor given its own palette in the system's colour picker (sta v2.8.0+)
   // keeps it: every rule skips a sheet tagged by the renderActorSheetV2 hook below.
+  // So does a sheet wearing the TOS overlay (styles/tos-sheet.css), which these
+  // !important rules would otherwise fight.
   el.textContent = (css + "\n" + shipCss + "\n" + extendedTaskCss)
-    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *)");
+    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *):not(.sta2e-tos-sheet)");
   document.head.appendChild(el);
 }
 
@@ -4929,6 +4935,8 @@ Hooks.on("renderSTAStarshipSheet2e",  _addShipToolkitSettingsButton);
 // block already exists when the tab strip is placed beneath it.
 registerShipCrewTab();
 Hooks.on("renderSTASmallCraftSheet2e", _addShipToolkitSettingsButton);
+// TOS sheet overlay — tags the 2e sheets' template roots (styles/tos-sheet.css).
+registerTosSheetTheme();
 
 // Existing character/NPC sheets keep their normal sheet; VFX holds object configuration.
 for (const hook of ["renderSTACharacterSheet2e", "renderSTANPCSheet2e", "renderSTASupportingSheet2e"]) {

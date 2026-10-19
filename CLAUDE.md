@@ -80,6 +80,34 @@ Bonus Momentum has the same shape of trap: it is summed independently in `npc-ro
 
 **Combat tracker.** `addManifestOfficersToCombat` (main.js) adds a tokenless, actor-only "Officer (Station)" combatant per manifest officer. It runs when a ship joins combat (`createCombatant`) **and** whenever the ship's `crewManifest` flag changes while it is already in a combat — `updateActor` for linked ships, `updateToken` for unlinked — on the active GM only, so one hook covers all three editors. A moved officer's combatant is renamed; a **replaced officer is deliberately left in the tracker**, since deleting a combatant mid-round would disturb the sequence `initiative-order.js` keeps. Covered by [tests/crew-manifest.mjs](tests/crew-manifest.mjs).
 
+### TOS Sheet Overlay
+
+Under `tos-panel`, with the world setting `themeCharacterSheet` on, the five 2e
+sheets (character, NPC, supporting, starship, small craft) take the TOS Console
+Viewer look of the task card: gunmetal housing, CRT readouts, backlit keys, lamps.
+[tos-sheet-theme.js](scripts/tos-sheet-theme.js) (a leaf) stamps the template root
+with `.sta2e-tos-sheet` and `data-sta2e-sheet="<kind>"` from each sheet class's
+render hook; [styles/tos-sheet.css](styles/tos-sheet.css) does the rest. The design
+source is `docs/tos-sheet-mockup.html`. Four things it rests on:
+
+- **An overlay, never a template.** Nothing in the system's markup is moved or
+  wrapped, so every `data-action` and the track renderer keep working. The panels
+  are the template's own columns, the CRT screens its own blocks, and the header
+  strip, viewer caption and lamps are pseudo-elements.
+- **`_applySheetTheme` skips a tagged sheet** (`:not(.sta2e-tos-sheet)` beside the
+  own-palette exclusion). Its rules are all `!important` and would otherwise fight
+  the overlay, which has none. It also calls `refreshTosSheets()` first, so a theme
+  or setting change re-tags open sheets.
+- **The kind stamp exists because CSS cannot tell the sheets apart.** NPC,
+  supporting and player characters are all actor type `character` on the same
+  `.character-sheet` root, and the NPC's Personal Threat track reuses `box stress`.
+- **The root is a class plus an attribute**, so every nested rule outranks sta.css's
+  `.character-sheet .x` on specificity. Core's `.hidden { display: none !important }`
+  sits in a cascade layer and still wins, so the overlay may set `display` freely.
+  Inputs are underlined with box-shadows, since sta.css forces some border colours
+  with `!important`. Breach counts turn red through `.breaches:not([value="0"])`,
+  which works because the template writes the count as the value attribute.
+
 ### Token HUD
 
 **One control, not four.** [token-toolkit-hud.js](scripts/token-toolkit-hud.js) is
@@ -1782,6 +1810,8 @@ through `lcarsChatCard`.
 | [scripts/task-card-slim.js](scripts/task-card-slim.js) | Slim LCARS skin for the Working Results task card (`taskCardStyle`) |
 | [scripts/task-card-tos.js](scripts/task-card-tos.js) | TOS Console Viewer skin for the task card — used for `tos-panel` regardless of `taskCardStyle`. Imports only `lcars-theme.js` |
 | [styles/task-card-tos.css](styles/task-card-tos.css) | Shape for that skin — housing, lamps, CRT screens, keys |
+| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
+| [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG top/bottom-bar frame every other chat card shares. Leaf module; `legacy` thunk keeps non-TNG eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shape-only CSS for that frame |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |

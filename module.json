@@ -47,6 +47,7 @@
     "styles/sfx-board.css",
     "styles/combat-tracker.css",
     "styles/ship-crew-tab.css",
+    "styles/tos-sheet.css",
     "styles/sta-palette-fix.css",
     "styles/appearance.css",
     "styles/token-maker.css"
