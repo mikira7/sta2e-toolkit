@@ -7,25 +7,37 @@
  * wear the same badge: a ring has one design per world. As a stamped layer an
  * emblem is per token, like the pips.
  *
- * Two kinds:
+ * Three kinds:
  *   built-in  drawn here in vector (`tng`, `ds9` commbadges) — crisp at any size
+ *   shipped   images bundled in assets/emblems/ (Starfleet, Cardassian, Klingon),
+ *             each with its own default framing (`frame`)
  *   library   an image in the world setting `tokenEmblems` ({id, name, src}),
  *             added from the Token Maker. A PNG/JPG is converted to WebP on the
  *             way in (`convertToWebp`) and saved to worlds/<world>/sta2e-emblems/.
  *
  * Framing: `disc` puts the emblem on a gold-rimmed starfield disc (the commbadge
- * look); `plain` draws the image alone, for insignia that bring their own shape.
- * Built-ins always use their disc.
+ * look); `oval` is the same plate drawn as an upright ellipse, for tall insignia
+ * that would sit small in a circle; `plain` draws the image alone, for insignia
+ * that bring their own shape. The vector built-ins always use their disc.
  */
 
 const MODULE = "sta2e-toolkit";
 export const EMBLEM_SETTING = "tokenEmblems";
 export const EMBLEM_DIR = () => `worlds/${game.world.id}/sta2e-emblems`;
 
+const EMBLEM_ASSETS = `modules/${MODULE}/assets/emblems`;
+
 export const BUILTIN_EMBLEMS = [
   { id: "tng", name: "Starfleet Commbadge (TNG)" },
   { id: "ds9", name: "Starfleet Commbadge (DS9/VOY)" },
+  { id: "starfleet-command", name: "Starfleet Command", src: `${EMBLEM_ASSETS}/starfleet-command.webp`, frame: "disc" },
+  { id: "starfleet-delta",   name: "Starfleet Delta",   src: `${EMBLEM_ASSETS}/starfleet-delta.webp`,   frame: "disc" },
+  { id: "cardassian-union",  name: "Cardassian Union",  src: `${EMBLEM_ASSETS}/cardassian-union.webp`,  frame: "oval" },
+  { id: "klingon-empire",    name: "Klingon Empire",    src: `${EMBLEM_ASSETS}/klingon-empire.webp`,    frame: "plain" },
 ];
+
+/** The two commbadges drawn in vector here; every other emblem is an image. */
+export const VECTOR_EMBLEMS = new Set(["tng", "ds9"]);
 
 // ── Library ──────────────────────────────────────────────────────────────────
 
@@ -198,21 +210,34 @@ function badgeDelta(ctx, x, y, r) {
   ctx.restore();
 }
 
-/** The gold-rimmed starfield disc every `disc` emblem sits on. */
-function drawDisc(ctx, x, y, r) {
+/** Width of the `oval` plate as a share of its height (the disc's diameter). */
+export const OVAL_ASPECT = 0.74;
+
+/** Rim thickness as a share of r — the same on both axes, so an oval's matches the disc's. */
+const RIM = 0.12;
+
+/** The starfield window inside the rim, as the current path. */
+function plateWindow(ctx, x, y, r, rx) {
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx - r * RIM, r * (1 - RIM), 0, 0, Math.PI * 2);
+}
+
+/**
+ * The gold-rimmed starfield plate every `disc` and `oval` emblem sits on.
+ * `rx` is the half-width; a disc passes `rx === r`.
+ */
+function drawDisc(ctx, x, y, r, rx = r) {
   ctx.save();
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.ellipse(x, y, rx, r, 0, 0, Math.PI * 2);
   ctx.fillStyle = goldFill(ctx, y - r, y + r);
   ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x, y, r * 0.88, 0, Math.PI * 2);
+  plateWindow(ctx, x, y, r, rx);
   ctx.clip();
   ctx.translate(x - r, y - r);
   drawStarfield(ctx, r * 2, 77);
   ctx.restore();
-  ctx.beginPath();
-  ctx.arc(x, y, r * 0.88, 0, Math.PI * 2);
+  plateWindow(ctx, x, y, r, rx);
   ctx.lineWidth = Math.max(1, r * 0.03);
   ctx.strokeStyle = "rgba(0,0,0,0.6)";
   ctx.stroke();
@@ -271,7 +296,7 @@ function drawDs9(ctx, x, y, r) {
  *   `image` is the loaded library image (null for built-ins).
  */
 export function drawEmblem(ctx, x, y, r, { id, image = null, frame = "disc" } = {}) {
-  if (id === "tng" || id === "ds9") {
+  if (VECTOR_EMBLEMS.has(id)) {
     drawDisc(ctx, x, y, r);
     (id === "ds9" ? drawDs9 : drawTng)(ctx, x, y, r);
     return;
@@ -284,13 +309,14 @@ export function drawEmblem(ctx, x, y, r, { id, image = null, frame = "disc" } = 
     ctx.drawImage(image, x - (iw * k) / 2, y - (ih * k) / 2, iw * k, ih * k);
     return;
   }
-  drawDisc(ctx, x, y, r);
-  // The image sits inside the rim, with a little breathing room.
-  const inner = r * 0.88 * 0.82;
-  const k = (2 * inner) / Math.max(iw, ih);
+  const rx = frame === "oval" ? r * OVAL_ASPECT : r;
+  drawDisc(ctx, x, y, r, rx);
+  // The image sits inside the rim, with a little breathing room. Fitted per
+  // axis, so a tall insignia fills the oval's height; on a disc both terms
+  // reduce to the longest-side fit.
+  const k = Math.min((2 * (rx - r * RIM) * 0.82) / iw, (2 * r * (1 - RIM) * 0.82) / ih);
   ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, r * 0.88, 0, Math.PI * 2);
+  plateWindow(ctx, x, y, r, rx);
   ctx.clip();
   ctx.drawImage(image, x - (iw * k) / 2, y - (ih * k) / 2, iw * k, ih * k);
   ctx.restore();

@@ -43,7 +43,7 @@ import { pickArt, pickImageFile } from "./art-browser.js";
 import { activeRingConfig } from "./starfleet-ring.js";
 import {
   listEmblems, findEmblem, drawEmblem, addEmblemToLibrary, removeEmblemFromLibrary,
-  convertToWebp, EMBLEM_DIR,
+  convertToWebp, EMBLEM_DIR, VECTOR_EMBLEMS,
 } from "./token-emblems.js";
 import { BAKED_FRAMES, drawBakedFrame } from "./token-frames.js";
 import { getLcCssVars } from "./lcars-theme.js";
@@ -549,7 +549,7 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
     return c;
   }
 
-  /** Load a library emblem's image (built-ins are drawn in vector). */
+  /** Load an image emblem (shipped or library); the vector commbadges need none. */
   async _loadEmblem() {
     this._emblemImg = null;
     const e = findEmblem(this.r.emblemId);
@@ -561,7 +561,7 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
   _drawEmblem(ctx, S) {
     const e = findEmblem(this.r.emblemId);
     if (!e) return;
-    if (!e.builtin && !this._emblemImg) return;
+    if (!VECTOR_EMBLEMS.has(e.id) && !this._emblemImg) return;
     const place = this.r.ringMode === "dynamic" && this._ringFrames?.emblem ? this._ringFrames.emblem
       : (this._bakedFrame()?.emblem ?? {});
     const disc = emblemDisc(S, place);
@@ -921,7 +921,7 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
                   ${listEmblems().map(e => `<option value="${_esc(e.id)}" ${e.id === r.emblemId ? "selected" : ""}>${_esc(e.name)}</option>`).join("")}
                 </select>
               </label>
-              ${findEmblem(r.emblemId) && !findEmblem(r.emblemId).builtin ? seg("emblemFrame", [["disc", "Badge Disc"], ["plain", "Plain"]]) : ""}
+              ${findEmblem(r.emblemId)?.src ? seg("emblemFrame", [["disc", "Badge Disc"], ["oval", "Oval"], ["plain", "Plain"]]) : ""}
               <div class="sta2e-tm-source">
                 <button type="button" class="sta2e-tm-wide" data-act="emblem-add" data-tooltip="Add an image to the emblem library — PNG and JPG are converted to WebP"><i class="fas fa-plus"></i> Add Emblem</button>
                 ${findEmblem(r.emblemId) && !findEmblem(r.emblemId).builtin && game.user.isGM
@@ -1061,6 +1061,9 @@ class TokenMakerApp extends foundry.applications.api.ApplicationV2 {
       }
       if (t.dataset.r === "emblemId") {
         this.r.emblemId = t.value;
+        // A shipped emblem brings its own framing (Cardassian oval, Klingon plain).
+        const picked = findEmblem(t.value);
+        if (picked?.frame) this.r.emblemFrame = picked.frame;
         await this._loadEmblem();
         this.render();   // the frame row and Remove key depend on the emblem
       }

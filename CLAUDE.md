@@ -396,7 +396,10 @@ faction.
   the upper-left end.
 - Emblems ([token-emblems.js](scripts/token-emblems.js)) sit in a disc at the
   bottom right (`emblemDisc`): the two built-in commbadges (TNG, DS9/VOY) are
-  drawn in vector; anything else comes from the world setting `tokenEmblems`,
+  drawn in vector; four more ship as WebP in `assets/emblems/` (Starfleet Command,
+  Starfleet Delta, Cardassian Union, Klingon Empire), each carrying a default
+  `frame` the maker switches to when it is picked — the Cardassian sits on an
+  `oval` plate (`OVAL_ASPECT`), the Klingon shield `plain`; anything else comes from the world setting `tokenEmblems`,
   added in the maker. **Adding a PNG/JPG converts it to WebP** (`convertToWebp`)
   and saves it to `worlds/<world>/sta2e-emblems/`; SVG and WebP are used where
   they are. A library emblem can sit on the gold starfield disc or plain.
