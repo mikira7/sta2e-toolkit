@@ -108,6 +108,19 @@ source is `docs/tos-sheet-mockup.html`. Four things it rests on:
   with `!important`. Breach counts turn red through `.breaches:not([value="0"])`,
   which works because the template writes the count as the value attribute.
 
+**The TMP overlay** is the same machinery for `tmp-console`: the tagger stamps
+`.sta2e-tmp-sheet` instead (`ERA_CLASSES` in tos-sheet-theme.js; it toggles every era
+class, so a theme change moves an open sheet across), `_applySheetTheme` skips it too,
+and [styles/tmp-sheet.css](styles/tmp-sheet.css) follows tos-sheet.css rule for rule
+in the TMP task card's look: grey duty panels with a header plate, black monitors for
+the statistics, dark amber-type windows for anything typed, lens keys, and the fonts
+task-card-tmp.css declares. The design source is `docs/tmp-sheet-mockup.html`. Checked
+by rendering the system's real `*2e.hbs` templates with Foundry's Handlebars, which
+turned up one trap the TOS file shares: sta.css gives several blocks `width: 100%` as
+a **content box** (list headers, `.buttons`, `.text-entry`, the supporting
+improvement rows), so any padding the overlay adds pushes them past their column.
+tmp-sheet.css sets `box-sizing: border-box` (or `width: auto`) on each.
+
 ### Token HUD
 
 **One control, not four.** [token-toolkit-hud.js](scripts/token-toolkit-hud.js) is
@@ -1862,8 +1875,9 @@ through `lcarsChatCard`.
 | [styles/task-card-tos.css](styles/task-card-tos.css) | Shape for that skin — housing, lamps, CRT screens, keys |
 | [scripts/task-card-tmp.js](scripts/task-card-tmp.js) | TMP Console Monitor skin for the task card — used for `tmp-console` regardless of `taskCardStyle`. Imports only `lcars-theme.js` |
 | [styles/task-card-tmp.css](styles/task-card-tmp.css) | Shape for that skin — panel, monitors, meters, key bed, lenses — and the `@font-face` rules for `fonts/tmp/` |
-| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
+| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS or TMP overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
+| [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG top/bottom-bar frame every other chat card shares. Leaf module; `legacy` thunk keeps non-TNG eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shape-only CSS for that frame |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |

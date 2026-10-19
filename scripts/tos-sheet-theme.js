@@ -1,16 +1,17 @@
 /**
  * sta2e-toolkit | tos-sheet-theme.js
  *
- * The TOS "Console Viewer" look for the 2e actor sheets — character, NPC,
- * supporting character, starship and small craft — the sibling of the TOS task
- * card (task-card-tos.js). Shape and colour live in styles/tos-sheet.css; this
- * module only decides which sheets get it.
+ * The era overlays for the 2e actor sheets — character, NPC, supporting
+ * character, starship and small craft: the TOS "Console Viewer" look (sibling of
+ * task-card-tos.js, styles/tos-sheet.css) and the TMP "Console Monitor" look
+ * (sibling of task-card-tmp.js, styles/tmp-sheet.css). This module only decides
+ * which sheets get which; shape and colour live in the stylesheets.
  *
  * ── An overlay, never a template ─────────────────────────────────────────────
  * Nothing in the system's markup is moved, wrapped or replaced. A render hook
  * stamps two things on the template root (.character-sheet / .starship-sheet):
- * the class `sta2e-tos-sheet`, and `data-sta2e-sheet="<kind>"`. Every rule in
- * the stylesheet hangs off both. Every data-action, input name and system
+ * the era class (`sta2e-tos-sheet` or `sta2e-tmp-sheet`), and
+ * `data-sta2e-sheet="<kind>"`. Every rule in each stylesheet hangs off both. Every data-action, input name and system
  * script — the track renderer rebuilds its keys on every render — therefore
  * keeps working, and the decorations (header strip, viewer caption, lamps) are
  * pseudo-elements.
@@ -21,11 +22,11 @@
  * `box stress` keys.
  *
  * ── When it applies ──────────────────────────────────────────────────────────
- * Theme `tos-panel`, the world setting `themeCharacterSheet` on (the same switch
- * that gates the toolkit's other sheet theming), and the actor has not picked
- * its own palette in the system's colour picker. _applySheetTheme in main.js
- * skips a tagged sheet, since its rules are all `!important` and would fight
- * this overlay.
+ * Theme `tos-panel` or `tmp-console`, the world setting `themeCharacterSheet`
+ * on (the same switch that gates the toolkit's other sheet theming), and the
+ * actor has not picked its own palette in the system's colour picker.
+ * _applySheetTheme in main.js skips a tagged sheet, since its rules are all
+ * `!important` and would fight the overlay.
  *
  * A leaf: imports only lcars-theme.js.
  */
@@ -41,14 +42,25 @@ const SHEET_KINDS = {
   STASmallCraftSheet2e: "smallcraft",
 };
 
+/** The theme id → the overlay class it stamps. */
+const ERA_CLASSES = {
+  "tos-panel":   "sta2e-tos-sheet",
+  "tmp-console": "sta2e-tmp-sheet",
+};
+
+/** The overlay class on for this client right now, or null. */
+function _activeEraClass() {
+  try {
+    if (!game.settings.get("sta2e-toolkit", "themeCharacterSheet")) return null;
+    return ERA_CLASSES[getActiveLcThemeKey()] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Whether the TOS sheet look is on for this client right now. */
 export function tosSheetThemeActive() {
-  try {
-    return getActiveLcThemeKey() === "tos-panel"
-      && !!game.settings.get("sta2e-toolkit", "themeCharacterSheet");
-  } catch {
-    return false;
-  }
+  return _activeEraClass() === "sta2e-tos-sheet";
 }
 
 function _apply(app, kind) {
@@ -56,9 +68,10 @@ function _apply(app, kind) {
   if (!root) return;
   const palette = app.document?.system?.palette;
   const ownPalette = !!palette && palette !== "default";
-  const on = tosSheetThemeActive() && !ownPalette;
-  root.classList.toggle("sta2e-tos-sheet", on);
-  if (on) root.dataset.sta2eSheet = kind;
+  const era = ownPalette ? null : _activeEraClass();
+  // Toggle every era class, so a theme change moves an open sheet across.
+  for (const cls of Object.values(ERA_CLASSES)) root.classList.toggle(cls, cls === era);
+  if (era) root.dataset.sta2eSheet = kind;
   else delete root.dataset.sta2eSheet;
 }
 

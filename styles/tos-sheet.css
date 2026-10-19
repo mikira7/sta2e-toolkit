@@ -426,10 +426,14 @@
       padding: 2px 2px 2px 10px;
       opacity: 0;
       pointer-events: none;
-      transition: opacity .12s;
       background: linear-gradient(90deg, transparent, #0d0d0d 30%);
     }
-    .row.entry:hover > .control:not(.value-used), .row.entry:focus-within > .control:not(.value-used) { opacity: 1; pointer-events: auto; }
+    /* The fade lives on the revealed state only, so hiding is instant. A
+       re-render (ticking a radio or checkbox redraws the sheet) builds the rows
+       before the render hook stamps the overlay class; with the transition on
+       the base rule, stamping it animated the keys from visible to hidden,
+       so they flashed on every row. */
+    .row.entry:hover > .control:not(.value-used), .row.entry:focus-within > .control:not(.value-used) { opacity: 1; pointer-events: auto; transition: opacity .12s; }
     .control a {
       display: grid;
       place-items: center;
