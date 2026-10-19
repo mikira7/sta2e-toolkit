@@ -1,0 +1,435 @@
+/*
+ * sta2e-toolkit | task-card-tmp.css
+ *
+ * Shape for the TMP "Console Monitor" task card (scripts/task-card-tmp.js): The
+ * Motion Picture's grey duty panel with a header plate, recessed monitor screens
+ * carrying the later films' graphics, and backlit lens keys in a dark key bed.
+ * Every card rule hangs off .sta2e-task-card--tmp, which only the TMP renderer
+ * emits, so no other era can be reached by this file. The chat card frame's TMP
+ * path (styles/chat-card.css) shares the look and the fonts declared here.
+ *
+ * ── The two hard rules from styles/task-card.css apply here too ─────────────
+ * 1. No `!important`.
+ * 2. Nothing may set background / border-color / color / opacity on a key.
+ *    _armCardSelection() owns those while a reroll is armed and restores them
+ *    through style.cssText, so a key's colour is entirely inline. The bezel
+ *    ring is a box-shadow and the sheen a pseudo-element, which that function
+ *    never touches, so an armed key keeps both.
+ *
+ * Specificity: the shared rules in task-card.css go up to (0,2,1)
+ * (.sta2e-task-card .sta2e-task-rerolls > button), so key rules here use three
+ * classes to win on specificity rather than on stylesheet order.
+ */
+
+/* ── Fonts ────────────────────────────────────────────────────────────────── */
+/* Bundled in fonts/tmp (SIL Open Font License, texts beside them), under names
+   of our own so nothing else in a world can collide with them. Jost stands in
+   for the first film's Futura, Michroma for the later films' Microgramma
+   captions, Share Tech Mono for the monitors' readouts. */
+@font-face {
+  font-family: "STA2e Jost";
+  src: url("../fonts/tmp/Jost-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "STA2e Michroma";
+  src: url("../fonts/tmp/Michroma-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "STA2e Share Tech Mono";
+  src: url("../fonts/tmp/ShareTechMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Panel ────────────────────────────────────────────────────────────────── */
+.sta2e-task-card.sta2e-task-card--tmp {
+  --tmc-chrome: "STA2e Jost", "Futura", "Helvetica Neue", Arial, sans-serif;
+  --tmc-caption: "STA2e Michroma", "Eurostile", "Microgramma", Arial, sans-serif;
+  --tmc-mono: "STA2e Share Tech Mono", "Courier New", monospace;
+  --tcx-radius: 5px;
+  /* The reroll tray reads these with fallbacks (combat-hud-core.js). Square
+     inside, like the rest of the card's interior. */
+  --tcx-btn-radius: 2px;
+  --tcx-tray-radius: 0;
+  padding: 0 7px 8px;
+  overflow: hidden;
+  color: #2a2a2c;
+  background: linear-gradient(180deg, #b9b5ad 0%, #a7a39b 55%, #98948c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.25),
+    0 0 0 1px #3a3834,
+    0 4px 12px rgba(0, 0, 0, 0.7);
+}
+
+.chat-message:has(.sta2e-task-card--tmp) {
+  border-radius: 5px;
+}
+
+.sta2e-task-card--tmp .tmc-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 1px 7px;
+}
+
+.sta2e-task-card--tmp .tmc-plate {
+  flex: 0 0 6px;
+  align-self: stretch;
+  border-radius: 1px;
+  background: var(--tmc-plate, #e9c83a);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.sta2e-task-card--tmp .tmc-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--tmc-chrome);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #1d1d1f;
+}
+
+.sta2e-task-card--tmp .tmc-title small {
+  display: block;
+  margin-top: 1px;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: #5a5852;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sta2e-task-card--tmp .tmc-tag {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border: 1px solid #6e6b64;
+  border-radius: 2px;
+  font-family: var(--tmc-chrome);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #5a5852;
+}
+
+/* ── Monitor ──────────────────────────────────────────────────────────────── */
+/* A black screen set into the panel. Its border colour (--tmc-s, inline) gives
+   the card's state. Only the screen's outer corners are rounded; everything
+   inside it is square. Scanlines are an ::after with pointer-events:none, and
+   every block sits above it (z-index) so the dice stay clickable. */
+.sta2e-task-card--tmp .tmc-scr {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 7px;
+  padding: 1px 0 8px;
+  border: 2px solid var(--tmc-s, #00aef0);
+  border-radius: 10px;
+  color: #00d27a;
+  font-family: var(--tmc-caption);
+  background:
+    linear-gradient(rgba(0, 174, 240, 0.07) 1px, transparent 1px) 0 0 / 100% 14px,
+    linear-gradient(90deg, rgba(0, 174, 240, 0.07) 1px, transparent 1px) 0 0 / 14px 100%,
+    radial-gradient(ellipse at 50% 40%, #001a10 0%, #000 78%);
+  box-shadow:
+    0 0 0 2px #55524c,
+    0 0 0 3px #c8c4bb,
+    inset 0 0 22px rgba(0, 0, 0, 0.9),
+    0 0 10px color-mix(in srgb, var(--tmc-s, #00aef0) 35%, transparent);
+}
+
+.sta2e-task-card--tmp .tmc-scr::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.25) 0 1px, transparent 1px 3px);
+}
+
+.sta2e-task-card--tmp .tmc-scr > * { position: relative; z-index: 1; }
+
+/* A bracketed block: a thin frame with two white corner marks and its caption
+   cut into the top border. */
+.sta2e-task-card--tmp .tmc-blk {
+  position: relative;
+  margin: 9px 8px 0;
+  padding: 8px 9px 6px;
+  border: 1px solid color-mix(in srgb, var(--tmc-s, #00aef0) 45%, transparent);
+}
+
+.sta2e-task-card--tmp .tmc-blk::before,
+.sta2e-task-card--tmp .tmc-blk::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 0 solid #e8fff5;
+}
+.sta2e-task-card--tmp .tmc-blk::before { left: -2px; top: -2px; border-width: 2px 0 0 2px; }
+.sta2e-task-card--tmp .tmc-blk::after { right: -2px; bottom: -2px; border-width: 0 2px 2px 0; }
+
+.sta2e-task-card--tmp .tmc-cap {
+  position: absolute;
+  top: -6px;
+  left: 14px;
+  max-width: calc(100% - 70px);
+  padding: 0 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: #000;
+  font-size: 7px;
+  line-height: 1.6;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tmc-s, #00aef0);
+}
+
+.sta2e-task-card--tmp .tmc-cap--r {
+  left: auto;
+  right: 14px;
+  top: -7px;
+  max-width: none;
+  font-family: var(--tmc-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: #ed2f76;
+}
+
+.sta2e-task-card--tmp .tmc-line {
+  margin: 0 0 3px;
+  font-family: var(--tmc-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0d9c5c;
+}
+
+/* ── Meters ───────────────────────────────────────────────────────────────── */
+/* The label and number columns size to their content and never wrap; the bar
+   takes what is left. A fixed label column broke words mid-way ("SUCCESSE / S")
+   wherever text renders larger than designed — a browser minimum font size, a
+   Michroma fallback — so nothing here may depend on the caption's exact width. */
+.sta2e-task-card--tmp .tmc-meter {
+  display: grid;
+  grid-template-columns: max-content minmax(24px, 1fr) max-content;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  font-size: 7.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #8ad8ff;
+}
+
+.sta2e-task-card--tmp .tmc-meter > span:first-child { min-width: 64px; }
+
+.sta2e-task-card--tmp .tmc-meter b {
+  font-family: var(--tmc-mono);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: right;
+  min-width: 2ch;
+  color: #e8fff5;
+}
+
+.sta2e-task-card--tmp .tmc-meter--cpx,
+.sta2e-task-card--tmp .tmc-meter--cpx b { color: #ed2f76; }
+
+.sta2e-task-card--tmp .tmc-segs { display: flex; gap: 2px; height: 9px; }
+.sta2e-task-card--tmp .tmc-segs i { flex: 1; background: #00d27a; }
+.sta2e-task-card--tmp .tmc-segs .tmc-seg--cyan { background: #00aef0; }
+.sta2e-task-card--tmp .tmc-segs .tmc-seg--yellow { background: #e9e95a; }
+.sta2e-task-card--tmp .tmc-segs .tmc-seg--magenta { background: #ed2f76; }
+.sta2e-task-card--tmp .tmc-segs .tmc-seg--off {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 210, 122, 0.35);
+}
+
+/* ── Spent / Gained ───────────────────────────────────────────────────────── */
+.sta2e-task-card--tmp .tmc-res {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 5px;
+  font-family: var(--tmc-chrome);
+}
+
+.sta2e-task-card--tmp .tmc-res-lbl {
+  font-family: var(--tmc-caption);
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8ad8ff;
+}
+
+.sta2e-task-card--tmp .tmc-res-sub {
+  font-family: var(--tmc-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0d9c5c;
+}
+
+/* ── Result ───────────────────────────────────────────────────────────────── */
+.sta2e-task-card--tmp .tmc-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 8px 0;
+}
+
+.sta2e-task-card--tmp .tmc-result strong {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.sta2e-task-card--tmp .tmc-rule {
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, currentColor 0 60%, transparent 60% 66%, currentColor 66% 100%);
+}
+
+.sta2e-task-card--tmp .tmc-result--pass { color: #00d27a; }
+.sta2e-task-card--tmp .tmc-result--fail { color: #ed2f76; }
+.sta2e-task-card--tmp .tmc-result--cost { color: #e9e95a; }
+
+/* ── Notes ────────────────────────────────────────────────────────────────── */
+/* On the panel, so dark text; the tone is the left edge. */
+.sta2e-task-card--tmp .tmc-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+
+.sta2e-task-card--tmp .tmc-note {
+  padding: 2px 6px;
+  font-family: var(--tmc-chrome);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  color: #2e2c28;
+  background: rgba(255, 255, 255, 0.22);
+  border-left: 3px solid #d8a020;
+  border-radius: 0 2px 2px 0;
+}
+
+.sta2e-task-card--tmp .tmc-note--warn  { border-left-color: #c8312a; }
+.sta2e-task-card--tmp .tmc-note--bonus { border-left-color: #3aa060; }
+.sta2e-task-card--tmp .tmc-note--trait { border-left-color: #8a5ad0; }
+
+/* ── Key bed ──────────────────────────────────────────────────────────────── */
+/* Each .sta2e-working-actions section is a dark recess and stays a plain block:
+   the reroll tray is appended to it and must land below the keys, readable. */
+.sta2e-task-card--tmp .tmc-bed {
+  margin-top: 2px;
+  padding: 7px 6px;
+  border-radius: 3px;
+  background: #141514;
+  box-shadow:
+    inset 0 2px 6px #000,
+    0 1px 0 rgba(255, 255, 255, 0.45),
+    0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.sta2e-task-card--tmp .tmc-bed + .tmc-bed { margin-top: 6px; }
+
+.sta2e-task-card--tmp .tmc-sect-lbl {
+  margin: 0 1px 5px;
+  font-family: var(--tmc-chrome);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #8a9894;
+}
+
+.sta2e-task-card--tmp .tmc-btns { display: flex; flex-direction: column; gap: 6px; }
+
+.sta2e-task-card--tmp .tmc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.sta2e-task-card--tmp .tmc-grid--one { grid-template-columns: 1fr; }
+
+/* The reroll grid comes from task-card.css (.sta2e-task-rerolls); this keeps the
+   column flex above from outranking it, and opens the gap for the bezels. */
+.sta2e-task-card--tmp .tmc-btns.sta2e-task-rerolls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+/* ── Lens keys ────────────────────────────────────────────────────────────── */
+/* The button is the lit lens, label inside. Colour is inline (rule 2 above);
+   the bezel ring is the box-shadow, the sheen the ::after. */
+.sta2e-task-card.sta2e-task-card--tmp .tmc-key {
+  display: block;
+  position: relative;
+  box-sizing: border-box;   /* "Completed" / "Applied to" are divs, content-box by default */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 5px 6px 4px;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: var(--tmc-chrome);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+  box-shadow:
+    0 0 0 2px #2c2b28,
+    0 0 0 3px #75726a,
+    inset 0 0 6px rgba(255, 255, 255, 0.3),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25);
+  transition: filter 0.1s;
+}
+
+.sta2e-task-card.sta2e-task-card--tmp .tmc-key::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 2px;
+  height: 4px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+
+.sta2e-task-card.sta2e-task-card--tmp .tmc-key--left { text-align: left; }
+.sta2e-task-card.sta2e-task-card--tmp .tmc-key--big { padding: 6px 6px 5px; font-size: 9.5px; letter-spacing: 0.16em; }
+.sta2e-task-card.sta2e-task-card--tmp div.tmc-key { cursor: default; }
+
+.sta2e-task-card--tmp button.tmc-key:hover:not(:disabled) { filter: brightness(1.15); }
+.sta2e-task-card--tmp button.tmc-key:active:not(:disabled) { filter: brightness(0.8); }
+.sta2e-task-card--tmp button.tmc-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+
+.sta2e-task-card--tmp .sta2e-rr-cost { font-size: 7px; letter-spacing: 0.08em; }

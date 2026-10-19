@@ -6,7 +6,9 @@
  * keep bespoke skins: the warp navigation cards and the star-system reports.
  *
  * Under the TOS theme (tos-panel) the same call gives the TOS Console Viewer
- * frame instead (tosChatCard below), the sibling of task-card-tos.js.
+ * frame instead (tosChatCard below), the sibling of task-card-tos.js, and under
+ * TMP (tmp-console) the Console Monitor frame (tmpChatCard), the sibling of
+ * task-card-tmp.js.
  *
  * Shape: a bar across the top carrying the card's title, a bar across the bottom,
  * all four corners rounded, no spine. Geometry lives in styles/chat-card.css; this
@@ -152,8 +154,36 @@ function tosChatCard({ title, accent, body, rootClass, attrs }) {
 </div>`;
 }
 
+/** The TMP console frame's theme gate, matching `tmpSkin` in npc-roller.js. */
+export function isTmpChatCardFrame() {
+  try { return getActiveLcThemeKey() === "tmp-console"; }
+  catch { return false; }
+}
+
+/**
+ * The TMP "Console Monitor" frame: the first film's grey duty panel with a
+ * header plate in the card's accent, and the body set into a black monitor
+ * whose border takes the same accent — the sibling of task-card-tmp.js. The
+ * whole body goes on the monitor because every body colours its text inline
+ * with the tmp-console tokens, which are made for a black background. Body
+ * buttons go through the same keyify step as TOS and become backlit lenses
+ * (styles/chat-card.css builds them from --tck-a / --tck-ink).
+ */
+function tmpChatCard({ title, accent, body, rootClass, attrs }) {
+  return `
+<div class="sta2e-chat-card sta2e-chat-card--tmp${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("cc")}--ccf-c:${accent || LC.primary};">
+  <div class="ccf-tmp-head">
+    <span class="ccf-tmp-plate" aria-hidden="true"></span>
+    <div class="ccf-tmp-title">${title ?? ""}</div>
+  </div>
+  <div class="ccf-tmp-screen"><div class="ccf-body">${keyifyButtons(body)}</div></div>
+</div>`;
+}
+
 export function lcarsChatCard({ title, accent, body, legacy, rootClass = "", attrs = "" }) {
   if (isTosChatCardFrame()) return tosChatCard({ title, accent, body, rootClass, attrs });
+  if (isTmpChatCardFrame()) return tmpChatCard({ title, accent, body, rootClass, attrs });
   if (!isChatCardFrame()) return legacy();
   return `
 <div class="sta2e-chat-card${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"

@@ -1624,8 +1624,15 @@ it as their host), with one change: `keyifyButtons` turns its buttons into raise
 stripping their inline background / border / colour and stamping `--tck-a` (lifted from
 the button's own inline `color`, else its border colour) and `--tck-ink`, from which the
 CSS builds the gradient. A near-black accent falls back to the theme's primary. Code that
-repaints a button at runtime still wins, since it writes inline afterwards. Every other
-era still gets `legacy()`.
+repaints a button at runtime still wins, since it writes inline afterwards.
+
+**Under `tmp-console` it returns the TMP Console Monitor frame** (`tmpChatCard`): a grey
+duty panel, a header plate in `--ccf-c`, and the whole body on a black monitor whose
+border takes the same accent. The body must sit on the monitor, never on the grey: every
+body colours its text inline with the `tmp-console` tokens, which are made for black. Its
+buttons go through the same `keyifyButtons` and become backlit lenses; the lens rules in
+chat-card.css select on `[style*="--tck-a"]`, so buttons injected after render (the spend
+panel's steppers) keep their own look. Every other era still gets `legacy()`.
 
 Out of scope by choice: the warp navigation cards
 ([warp-calc.js](scripts/warp-calc.js), [toolkit-api.js](scripts/toolkit-api.js)) and the
@@ -1718,6 +1725,28 @@ details of its own:
 
 Covered by [tests/tos-cards.mjs](tests/tos-cards.mjs); `--preview out.html` renders every
 state against the real stylesheets.
+
+**The TMP Console Monitor skin.** Under `tmp-console` the card is rendered by
+[task-card-tmp.js](scripts/task-card-tmp.js) (shape in
+[styles/task-card-tmp.css](styles/task-card-tmp.css)), again whatever `taskCardStyle`
+says and from the same `skinView`. The design source is `docs/tmp-card-mockups.html`
+(Concept D and its coverage check): a grey duty panel with a header plate, monitor
+screens with bracketed blocks and segmented meters (6–10 segments, the number always
+shown), and backlit lens keys. Same DOM contract as TOS, plus two rules that came out of
+checking the design against `_armCardSelection`:
+
+- **The button is the lens, label inside it.** That function repaints the button itself
+  and prefixes `.sta2e-rr-name`, so a lens drawn as a child with the label engraved below
+  it (as the first mockups had) could not show the armed state. Colour is inline
+  (`lensStyle`); the bezel ring is a `box-shadow` and the sheen an `::after`.
+- **Every `.sta2e-working-actions` section is a dark key bed** (`.tmc-bed`). The reroll
+  tray is injected with inline `LC.yellow` text on a near-transparent background, which
+  is unreadable on the light grey panel and cannot be overridden without `!important`.
+
+Its fonts are bundled in `fonts/tmp/` (Jost, Michroma, Share Tech Mono, SIL OFL, licence
+texts beside them) and declared in task-card-tmp.css under `STA2e …` family names, which
+the chat frame's TMP rules reuse. Covered by [tests/tmp-cards.mjs](tests/tmp-cards.mjs),
+which also has `--preview`.
 
 The card carries **no emoji**; the surviving glyphs are functional and monochrome (`★★`
 on a crit die, `▶` armed, `→` on Add to Task Roll). The roller *dialog* and the static
@@ -1813,6 +1842,8 @@ through `lcarsChatCard`.
 | [scripts/task-card-slim.js](scripts/task-card-slim.js) | Slim LCARS skin for the Working Results task card (`taskCardStyle`) |
 | [scripts/task-card-tos.js](scripts/task-card-tos.js) | TOS Console Viewer skin for the task card — used for `tos-panel` regardless of `taskCardStyle`. Imports only `lcars-theme.js` |
 | [styles/task-card-tos.css](styles/task-card-tos.css) | Shape for that skin — housing, lamps, CRT screens, keys |
+| [scripts/task-card-tmp.js](scripts/task-card-tmp.js) | TMP Console Monitor skin for the task card — used for `tmp-console` regardless of `taskCardStyle`. Imports only `lcars-theme.js` |
+| [styles/task-card-tmp.css](styles/task-card-tmp.css) | Shape for that skin — panel, monitors, meters, key bed, lenses — and the `@font-face` rules for `fonts/tmp/` |
 | [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG top/bottom-bar frame every other chat card shares. Leaf module; `legacy` thunk keeps non-TNG eras frozen |

@@ -228,3 +228,141 @@
   box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
 }
 .sta2e-chat-card--tos .ccf-body button:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* ── TMP Console Monitor frame ────────────────────────────────────────────────
+   Emitted by tmpChatCard in chat-card-frame.js when the theme is tmp-console:
+   the first film's grey duty panel, a header plate in the card's accent
+   (--ccf-c), and the whole body set into a black monitor whose border takes the
+   same accent. It shares the task card's look and its bundled fonts, which are
+   declared in styles/task-card-tmp.css.
+
+   The body goes on the monitor, never on the grey, because every body colours
+   its text inline with the tmp-console tokens, made for a black background.
+   Body buttons become backlit lenses: the keyify helper strips their inline
+   background / border / colour and stamps --tck-a and --tck-ink, and the lens
+   below is built from them. Buttons injected after render (the Momentum spend
+   panel's steppers) carry no --tck-a and keep their own look, which is why the
+   lens rules select on it. The two hard rules at the top of this file still
+   apply. */
+.sta2e-chat-card.sta2e-chat-card--tmp {
+  padding: 0 7px 8px;
+  border-radius: 5px;
+  color: #2a2a2c;
+  background: linear-gradient(180deg, #b9b5ad 0%, #a7a39b 55%, #98948c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.25),
+    0 0 0 1px #3a3834,
+    0 4px 12px rgba(0, 0, 0, 0.7);
+}
+
+.chat-message:has(.sta2e-chat-card--tmp) {
+  border-radius: 5px;
+}
+
+.sta2e-chat-card--tmp .ccf-tmp-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 1px 7px;
+}
+
+.sta2e-chat-card--tmp .ccf-tmp-plate {
+  flex: 0 0 6px;
+  align-self: stretch;
+  min-height: 14px;
+  border-radius: 1px;
+  background: var(--ccf-c, var(--cc-primary));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.sta2e-chat-card--tmp .ccf-tmp-title {
+  flex: 1;
+  min-width: 0;
+  font-family: "STA2e Jost", "Futura", "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #1d1d1f;
+}
+
+/* The monitor. Outer corners rounded, the interior square. Scanlines are an
+   ::after with pointer-events:none, and the body sits above it, so every
+   control in it stays usable. */
+.sta2e-chat-card--tmp .ccf-tmp-screen {
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 2px;
+  border: 2px solid var(--ccf-c, var(--cc-primary));
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(0, 174, 240, 0.07) 1px, transparent 1px) 0 0 / 100% 14px,
+    linear-gradient(90deg, rgba(0, 174, 240, 0.07) 1px, transparent 1px) 0 0 / 14px 100%,
+    radial-gradient(ellipse at 50% 40%, #001a10 0%, #000 78%);
+  box-shadow:
+    0 0 0 2px #55524c,
+    0 0 0 3px #c8c4bb,
+    inset 0 0 22px rgba(0, 0, 0, 0.9),
+    0 0 10px color-mix(in srgb, var(--ccf-c, var(--cc-primary)) 35%, transparent);
+}
+
+.sta2e-chat-card--tmp .ccf-tmp-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px);
+}
+
+.sta2e-chat-card.sta2e-chat-card--tmp .ccf-body {
+  position: relative;
+  z-index: 1;
+  padding: 8px 9px 6px;
+  color: var(--cc-text);
+}
+
+/* Backlit lenses. Three components deep, to outrank the base
+   `.sta2e-chat-card .ccf-body button` radius rule and core's chat button
+   height; the hover/active rules restate the bezel, which the base hover's
+   box-shadow would otherwise replace. */
+.sta2e-chat-card.sta2e-chat-card--tmp .ccf-body button[style*="--tck-a"] {
+  position: relative;
+  height: auto;
+  min-height: 0;
+  padding: 4px 8px 3px;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tck-a, #f0c020) 70%, #fff) 0%,
+    var(--tck-a, #f0c020) 45%,
+    color-mix(in srgb, var(--tck-a, #f0c020) 60%, #000) 100%
+  );
+  color: var(--tck-ink, #140e00);
+  font-size: 10px;   /* a body that sets none would get the browser default */
+  font-family: "STA2e Jost", "Futura", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: none;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 2px #2c2b28,
+    0 0 0 3px #75726a,
+    inset 0 0 6px rgba(255, 255, 255, 0.3),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25);
+  transition: filter 0.1s;
+}
+
+.sta2e-chat-card.sta2e-chat-card--tmp .ccf-body button[style*="--tck-a"]:hover:not(:disabled),
+.sta2e-chat-card.sta2e-chat-card--tmp .ccf-body button[style*="--tck-a"]:active:not(:disabled) {
+  box-shadow:
+    0 0 0 2px #2c2b28,
+    0 0 0 3px #75726a,
+    inset 0 0 6px rgba(255, 255, 255, 0.3);
+}
+.sta2e-chat-card--tmp .ccf-body button[style*="--tck-a"]:hover:not(:disabled) { filter: brightness(1.15); }
+.sta2e-chat-card--tmp .ccf-body button[style*="--tck-a"]:active:not(:disabled) { filter: brightness(0.8); }
+.sta2e-chat-card--tmp .ccf-body button[style*="--tck-a"]:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
