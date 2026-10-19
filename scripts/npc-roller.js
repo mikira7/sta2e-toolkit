@@ -52,7 +52,7 @@ import { renderTmpTaskCard } from "./task-card-tmp.js";
 import { renderTngTaskCard } from "./task-card-tng.js";
 import { renderEntTaskCard } from "./task-card-ent.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
-import { isBracketRoller, bracketRollerHtml, seatBracketFooter } from "./roller-skin-tng.js";
+import { isSkinnedRoller, skinRollerHtml, seatRollerFooter } from "./roller-skin.js";
 import { clearAssistPending } from "./assist-pending.js";
 import {
   getExtraActionDifficulty, clearExtraActionDifficulty, markTaskRollMajor,
@@ -1830,10 +1830,10 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
   const shipSysVal = actorSystems[shipSystemKey]?.value ?? state.shipSystems;
   const shipDptVal = actorDepts[shipDeptKey]?.value ?? state.shipDept;
 
-  // Under the bracket themes the header is bare: roller-tng.css draws it and the
-  // block after it as one stadium strip (roller-skin-tng.js).
-  const bracketSkin = isBracketRoller();
-  const sectionHeader = (label) => bracketSkin ? `<div class="tbr-head">${label}</div>` : `
+  // Under an era skin the header is bare: the era stylesheet draws it
+  // (roller-skin.js, styles/roller-<era>.css).
+  const eraSkin = isSkinnedRoller();
+  const sectionHeader = (label) => eraSkin ? `<div class="tbr-head">${label}</div>` : `
     <div style="
       background:${LC.primary};color:${LC.bg};
       font-size:9px;font-weight:700;letter-spacing:0.15em;
@@ -2482,7 +2482,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
              flipping groundMode, which also drives the Momentum/Threat profile. -->
         ${(!isMethodicalPlanningAssist && (!state.groundMode || state.groundIsNpc || availableShips.length > 0)) ? `
         <div id="sta2e-ship-pool-section">
-        ${state.sheetMode && bracketSkin ? `
+        ${state.sheetMode && eraSkin ? `
         <div class="tbr-head"><span>Ship Pool</span>
           <button id="sta2e-manage-ships" type="button" style="color:${LC.tertiary};">Manage</button>
         </div>` : state.sheetMode ? `
@@ -5349,11 +5349,11 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     const _speciesSubjectActor = () =>
       (state.officer?.id ? game.actors.get(state.officer.id) : null) ?? actor ?? null;
 
-    // Under lcars-tng / lcars-fc the content wears the Bracket Console frame
-    // (roller-skin-tng.js); every other era renders exactly as before.
+    // Under an era with a roller skin (roller-skin.js) the content wears that era's
+    // card frame; every other era renders exactly as before.
     const _rawContent = buildDialogContent(state, _shipDataRef.systems, _shipDataRef.depts, actor);
-    const _content = isBracketRoller()
-      ? bracketRollerHtml(_rawContent, {
+    const _content = isSkinnedRoller()
+      ? skinRollerHtml(_rawContent, {
         title: state.weaponContext?.name ?? state.taskLabel ?? "Dice Roller",
         phase: isRolled ? "rolled" : "setup",
         passed: isRolled ? rollSuccessTotal(state) >= taskDifficulty(state) : true,
@@ -5778,8 +5778,8 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     });
 
     await dialog.render(true);
-    // Bracket skin only: Roll / Resolve / Cancel move inside the frame.
-    try { seatBracketFooter(dialog.element); }
+    // Era skins only: Roll / Resolve / Cancel move inside the frame.
+    try { seatRollerFooter(dialog.element); }
     catch (err) { console.warn("STA2e Toolkit | roller footer skin failed:", err); }
 
     if (isRolled) {
@@ -7015,7 +7015,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           // Visually mark chosen button
           el.querySelectorAll(".ts-sys-btn").forEach(b => {
             const chosen = b.dataset.system === sys;
-            // Bracket keys are filled from --tbr-a; an inline wash would beat it.
+            // Skinned keys are filled from --tbr-a; an inline wash would beat it.
             if (b.classList.contains("tbr-key")) {
               b.style.setProperty("--tbr-a", chosen ? LC.primary : LC.secondary);
               return;

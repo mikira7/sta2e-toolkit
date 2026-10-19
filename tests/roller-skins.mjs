@@ -1,15 +1,16 @@
-// node tests/roller-tng.mjs [--preview out.html]
+// node tests/roller-skins.mjs [--preview out.html]
 //
-// The TNG Bracket Console skin for the Adv. Dice Roller dialog
-// (roller-skin-tng.js). The dialog content is the REAL buildDialogContent from
+// The era skins for the Adv. Dice Roller dialog (roller-skin.js): TNG / First
+// Contact and TOS. The dialog content is the REAL buildDialogContent from
 // npc-roller.js, lifted out of the source and run in a vm with its helpers
 // stubbed (the pattern tests/ground-melee-vfx.mjs uses), in the setup and the
-// rolled phase. Checks that the skin keeps every id, class, data-* and
-// wiring-toggled display the content had, that no square corners, LCARS font or
-// accent-color survive, that die pips are left alone, and that the frame and the
-// bare section headers appear under the bracket themes only.
+// rolled phase. Checks that the shared body pass keeps every id, class, data-*
+// and wiring-toggled display the content had, that no square corners, LCARS
+// font or accent-color survive, that die pips are left alone, that each era
+// gets its own frame and footer slot, and that eras without a skin keep the
+// plain dialog.
 //
-// --preview writes a page rendering both phases in TNG and First Contact
+// --preview writes a page rendering both phases in TNG, First Contact and TOS
 // against the real stylesheets, with the footer seated as it is after render.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,7 +28,7 @@ globalThis.game = {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { getLcTokens } = await import('../scripts/lcars-theme.js');
-const skin = await import('../scripts/roller-skin-tng.js');
+const skin = await import('../scripts/roller-skin.js');
 
 // ── Lift the real builder out of npc-roller.js ───────────────────────────────
 // CRLF on a Windows checkout; the markers below are written with \n.
@@ -53,7 +54,7 @@ const constSrc = name => {
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const context = vm.createContext({
   LC, game: globalThis.game, console, Math, Number, String, Object, Array, JSON,
-  isBracketRoller: skin.isBracketRoller,
+  isSkinnedRoller: skin.isSkinnedRoller,
   _rollResourceProfile: () => ({ usesPlayerPayment: true }),
   isFlightControllerPilotTask: () => false,
   _smallCraftDifficultyMod: () => 1,
@@ -137,40 +138,34 @@ const check = (name, fn) => {
 const attrs = (html, attr) => [...html.matchAll(new RegExp(`\\s${attr}="([^"]*)"`, 'g'))].map(m => m[1]).sort();
 const classes = html => attrs(html, 'class').flatMap(c => c.split(/\s+/)).filter(c => c && !c.startsWith('tbr-')).sort();
 
+const withTheme = (t, fn) => { const was = theme; theme = t; try { return fn(); } finally { theme = was; } };
+
+// ── The shared body pass ─────────────────────────────────────────────────────
 for (const [label, make] of [['setup', baseState], ['rolled', rolledState]]) {
   const raw = build(make());
-  const skinned = skin.bracketRollerHtml(raw, { title: 'Phaser Banks', phase: label });
-  check(`${label}: content builds and the skin wraps it`, () => {
+  const body = skin.rollerBodyHtml(raw);
+  check(`${label}: content builds with bare section headers`, () => {
     assert.ok(raw.includes('sta2e-npc-roller'));
-    assert.match(skinned, /class="sta2e-roller sta2e-roller--tng tbc"/);
-    assert.match(skinned, new RegExp(`data-phase="${label}"`));
-    assert.match(skinned, /class="tbc-top"/);
-    assert.match(skinned, /class="tbc-bot"/);
+    assert.match(raw, /<div class="tbr-head">/);
   });
-  check(`${label}: every id, data-* value and content class survives`, () => {
-    const body = skin.bracketRollerBodyHtml(raw);
+  check(`${label}: every id, data-* value and content class survives the pass`, () => {
     assert.deepEqual(attrs(body, 'id'), attrs(raw, 'id'));
     assert.deepEqual(attrs(body, 'data-[a-z-]+'), attrs(raw, 'data-[a-z-]+'));
     assert.deepEqual(classes(body), classes(raw));
   });
   check(`${label}: wiring-toggled display survives`, () => {
-    const body = skin.bracketRollerBodyHtml(raw);
     const count = h => (h.match(/display:\s*none/g) ?? []).length;
     assert.equal(count(body), count(raw));
   });
   check(`${label}: no square corners, LCARS font or accent-color left inline`, () => {
-    const body = skin.bracketRollerBodyHtml(raw);
     assert.equal(/border-radius\s*:\s*(?!50%)/i.test(body), false, body.match(/.{60}border-radius\s*:\s*(?!50%).{30}/)?.[0]);
     assert.equal(/font-family[^;"]*Arial Narrow/i.test(body), false);
     assert.equal(/accent-color/i.test(body), false);
   });
-  check(`${label}: headers are bare under the bracket theme`, () => {
-    assert.match(raw, /<div class="tbr-head">/);
-  });
 }
 
-check('setup: fields, plates and checkbox accents', () => {
-  const body = skin.bracketRollerBodyHtml(build(baseState()));
+check('setup: fields, plates, notes and checkbox accents', () => {
+  const body = skin.rollerBodyHtml(build(baseState()));
   assert.match(body, /<select class="tbr-ctl" id="officer-attr"/);
   assert.match(body, /<input class="tbr-ctl" id="difficulty"/);
   assert.match(body, /class="tbr-plate"/);
@@ -181,7 +176,7 @@ check('setup: fields, plates and checkbox accents', () => {
 
 check('setup: buttons become keys carrying their own accent', () => {
   const st = { ...baseState(), tsChoice: 'system', tsSystem: 'weapons' };
-  const body = skin.bracketRollerBodyHtml(build(st));
+  const body = skin.rollerBodyHtml(build(st));
   const keys = body.match(/<button[^>]*class="tbr-key ts-sys-btn"[^>]*>/g) ?? [];
   assert.equal(keys.length, 7);
   for (const k of keys) {
@@ -194,41 +189,77 @@ check('setup: buttons become keys carrying their own accent', () => {
 
 check('rolled: die pips are not keys', () => {
   const st = { ...rolledState(), hasTargetingSolution: true, tsChoice: 'reroll' };
-  const body = skin.bracketRollerBodyHtml(build(st));
+  const body = skin.rollerBodyHtml(build(st));
   assert.equal(/sta2e-die-pip[^>]*tbr-key|tbr-key[^>]*sta2e-die-pip/.test(body), false);
   assert.match(body, /class="tbr-key reroll-arm-btn"/);
 });
 
 check('decorative emoji are dropped, functional glyphs kept', () => {
-  const body = skin.bracketRollerBodyHtml('<div>⚔ Phaser ★★ ✗ → ▶</div>');
-  assert.equal(body, '<div>Phaser ★★ ✗ → ▶</div>');
+  assert.equal(skin.rollerBodyHtml('<div>⚔ Phaser ★★ ✗ → ▶</div>'), '<div>Phaser ★★ ✗ → ▶</div>');
 });
 
-check('First Contact takes the bracket skin with its own palette', () => {
-  theme = 'lcars-fc';
-  try {
-    assert.equal(skin.isBracketRoller(), true);
-    const out = skin.bracketRollerHtml('<div></div>', { title: 'x' });
-    assert.match(out, /data-theme="lcars-fc"/);
-    assert.match(out, /--tbc-c:#6a86cc/);
-  } finally { theme = 'lcars-tng'; }
+// ── Frames ───────────────────────────────────────────────────────────────────
+check('which skin each theme wears', () => {
+  const want = { 'lcars-tng': 'tng', 'lcars-fc': 'tng', 'tos-panel': 'tos',
+    'tmp-console': null, 'tmp-monitor': null, 'ent-panel': null };
+  for (const [t, s] of Object.entries(want)) {
+    withTheme(t, () => {
+      assert.equal(skin.rollerSkin(), s, t);
+      assert.equal(skin.isSkinnedRoller(), s !== null, t);
+    });
+  }
 });
 
-check('rolled frame colour follows pass / fail', () => {
-  assert.match(skin.bracketRollerHtml('', { phase: 'rolled', passed: true }), /--tbc-c:#48c76b/);
-  assert.match(skin.bracketRollerHtml('', { phase: 'rolled', passed: false }), /--tbc-c:#cc6666/);
+check('TNG: the bracket frame, its keys slot, colour by state', () => {
+  const out = skin.skinRollerHtml('<div id="x"></div>', { title: 'Phaser Banks', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--tng tbc"/);
+  assert.match(out, /data-phase="setup"/);
+  assert.match(out, /class="tbc-top"/);
+  assert.match(out, /class="tbc-bot"/);
+  assert.match(out, /<div class="tbc-body" data-roller-keys><div id="x"><\/div><\/div>/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /--tbc-c:#48c76b/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--tbc-c:#cc6666/);
 });
 
-check('other eras keep the legacy content and headers', () => {
-  for (const t of ['tos-panel', 'tmp-console', 'ent-panel', 'lcars-tng-blue-was-retired']) {
-    theme = t;
-    try {
-      if (t.startsWith('lcars-tng-blue')) continue;
-      assert.equal(skin.isBracketRoller(), false, t);
+check('First Contact takes the bracket frame with its own palette', () => withTheme('lcars-fc', () => {
+  const out = skin.skinRollerHtml('<div></div>', { title: 'x' });
+  assert.match(out, /data-theme="lcars-fc"/);
+  assert.match(out, /--tbc-c:#6a86cc/);
+}));
+
+check('TOS: housing, header lamps, one CRT, strut, keys slot', () => withTheme('tos-panel', () => {
+  const out = skin.skinRollerHtml('<div id="x"></div>', { title: '⚔ Phaser Banks', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--tos sta2e-task-card--tos"/);
+  assert.equal(/sta2e-task-card[" ]/.test(out), false, 'not .sta2e-task-card: task-card.css would reach the buttons');
+  assert.match(out, /<div class="tct-title">Phaser Banks<small>Adv\. Dice Roller · Setup<\/small>/);
+  assert.equal((out.match(/class="tct-crt/g) ?? []).length, 1);
+  assert.match(out, /<div class="tct-crt tbr-screen"><div id="x"><\/div><\/div>/);
+  assert.match(out, /class="tct-strut"/);
+  assert.match(out, /class="tct-sect tbr-keys" data-roller-keys/);
+  const lamps = h => [...h.matchAll(/tct-lamp--(\w+)/g)].map(m => m[1]).join(',');
+  assert.equal(lamps(out), 'a,off,off');
+  assert.equal(lamps(skin.skinRollerHtml('', { phase: 'rolled', passed: true })), 'g,off,a');
+  assert.equal(lamps(skin.skinRollerHtml('', { phase: 'rolled', passed: false })), 'r,off,a');
+}));
+
+check('footer keys: main action, cancel and the rest per era', () => {
+  assert.match(skin.footerKeyStyle('tng', 'roll', 0), /background:#ff9966;color:#000000;/);
+  assert.match(skin.footerKeyStyle('tng', 'cancel', 1), /background:#5a5650;color:#f2f2f2;/);
+  assert.match(skin.footerKeyStyle('tng', 'cancel', 0), /#5a5650/, 'cancel is dim even first');
+  assert.match(skin.footerKeyStyle('tos', 'resolve', 0), /#40cc30/, 'main is the green key');
+  assert.match(skin.footerKeyStyle('tos', 'reroll-all', 2), /#e83020/, 're-roll all is red');
+  assert.match(skin.footerKeyStyle('tos', 'post', 1), /#e8c030/, 'a second post is amber');
+  assert.match(skin.footerKeyStyle('tos', 'cancel', 3), /#666666/, 'cancel is grey');
+  assert.equal(skin.footerKeyStyle('ent', 'roll', 0), '');
+});
+
+check('eras without a skin keep the plain dialog', () => {
+  for (const t of ['tmp-console', 'tmp-monitor', 'ent-panel']) {
+    withTheme(t, () => {
       const raw = build(baseState());
       assert.equal(raw.includes('tbr-head'), false, t);
-      assert.equal(raw.includes('sta2e-roller--tng'), false, t);
-    } finally { theme = 'lcars-tng'; }
+      assert.equal(skin.skinRollerHtml(raw, { title: 'x' }), raw, t);
+    });
   }
 });
 
@@ -236,31 +267,33 @@ check('other eras keep the legacy content and headers', () => {
 const pi = process.argv.indexOf('--preview');
 if (pi > 0) {
   const out = path.resolve(process.argv[pi + 1]);
-  const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'roller-tng.css']
+  const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'roller-tng.css', 'roller-tos.css']
     .map(f => fs.readFileSync(`${root}/styles/${f}`, 'utf8')).join('\n')
     .replace(/url\("\.\.\/fonts\/tng\/([^"]+)"\)/g,
       (_, f) => `url("data:font/woff2;base64,${fs.readFileSync(`${root}/fonts/tng/${f}`).toString('base64')}")`);
   const asset = f => `data:image/svg+xml;base64,${fs.readFileSync(f).toString('base64')}`;
   const d20 = asset('C:/Program Files/Foundry Virtual Tabletop/resources/app/public/icons/svg/d20-grey.svg');
   const coin = { momentum: asset(`${root}/assets/momentum.svg`), threat: asset(`${root}/assets/threat.svg`) };
-  // A dialog as core renders it; the footer is seated by the page script,
-  // exactly as seatBracketFooter does after render.
-  const dialog = (title, inner, buttons) => `
-    <div class="application dialog"><header class="window-header">${title}</header>
+  // A dialog as core renders it. Each footer key carries the style
+  // footerKeyStyle gives it; the page script seats the footer as
+  // seatRollerFooter does (the module itself needs Foundry's game object).
+  const dialog = (skinName, title, inner, buttons) => `
+    <div class="application dialog" data-skin="${skinName}"><header class="window-header">${title}</header>
       <section class="window-content"><form class="dialog-form standard-form">
         <div class="dialog-content standard-form">${inner}</div>
-        <footer class="form-footer">${buttons.map(([a, l]) => `<button type="submit" data-action="${a}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
+        <footer class="form-footer">${buttons.map(([a, l], i) => `<button type="submit" data-action="${a}" data-paint="${skin.footerKeyStyle(skinName, a, i)}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
       </form></section></div>`;
   const panes = [];
-  for (const t of ['lcars-tng', 'lcars-fc']) {
-    theme = t;
-    const setupHtml = skin.bracketRollerHtml(build(baseState()), { title: 'Phaser Banks', phase: 'setup' });
-    const rolledHtml = skin.bracketRollerHtml(build({ ...rolledState(), hasTalentReroll: true }), { title: 'Phaser Banks', phase: 'rolled', passed: true });
-    panes.push([`${t} — setup`, dialog('Lt. Worf — Phaser Banks', setupHtml, [['roll', '🎲 Roll'], ['cancel', 'Cancel']])]);
-    panes.push([`${t} — rolled`, dialog('Lt. Worf — Phaser Banks', rolledHtml, [['resolve', '⚡ Resolve HIT'], ['back', '← Setup'], ['reroll-all', 'Re-roll All 🚨'], ['cancel', 'Cancel']])]);
+  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel']) {
+    withTheme(t, () => {
+      const s = skin.rollerSkin();
+      const setupHtml = skin.skinRollerHtml(build(baseState()), { title: 'Phaser Banks', phase: 'setup' });
+      const rolledHtml = skin.skinRollerHtml(build({ ...rolledState(), hasTalentReroll: true }), { title: 'Phaser Banks', phase: 'rolled', passed: true });
+      panes.push([`${t} — setup`, dialog(s, 'Lt. Worf — Phaser Banks', setupHtml, [['roll', 'Roll'], ['cancel', 'Cancel']])]);
+      panes.push([`${t} — rolled`, dialog(s, 'Lt. Worf — Phaser Banks', rolledHtml, [['resolve', 'Resolve HIT'], ['back', '← Setup'], ['reroll-all', 'Re-roll All'], ['cancel', 'Cancel']])]);
+    });
   }
-  theme = 'lcars-tng';
-  const page = `<!doctype html><meta charset="utf-8"><title>TNG roller</title><style>${css}
+  const page = `<!doctype html><meta charset="utf-8"><title>Roller skins</title><style>${css}
 body{background:#15151a;margin:0;padding:16px;font-family:sans-serif;color:#ccc}
 .grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
 .application{width:min-content;background:#0b0b0d;border:1px solid #333;border-radius:6px}
@@ -269,29 +302,22 @@ body{background:#15151a;margin:0;padding:16px;font-family:sans-serif;color:#ccc}
 h4{margin:0 0 4px;font-size:11px;color:#888}</style>
 <div class="grid">${panes.map(([t, h]) => `<div><h4>${t}</h4>${h}</div>`).join('')}</div>
 <script type="module">
-const P = { "lcars-tng": ${JSON.stringify({ confirmPass: '#ff9966', addToRoll: '#9999ff', poolThreat: '#cc6666', edit: '#ffcc99', dim: '#5a5650' })},
-            "lcars-fc": ${JSON.stringify({ confirmPass: '#ff9c33', addToRoll: '#9fb2e0', poolThreat: '#cf5a4e', edit: '#b5c3e8', dim: '#4a5060' })} };
 document.querySelectorAll('img').forEach(i => {
   const s = i.getAttribute('src') ?? '';
   if (s.endsWith('d20-grey.svg')) i.src = ${JSON.stringify(d20)};
   else if (s.endsWith('momentum.svg')) i.src = ${JSON.stringify(coin.momentum)};
   else if (s.endsWith('threat.svg')) i.src = ${JSON.stringify(coin.threat)};
 });
-// seatBracketFooter, inlined (the module itself needs Foundry's game object).
 document.querySelectorAll('.application').forEach(app => {
-  const frame = app.querySelector('.sta2e-roller--tng'), footer = app.querySelector('.form-footer');
-  const pal = P[frame.dataset.theme];
-  app.classList.add('sta2e-roller-tbc');
-  [...footer.querySelectorAll('button')].forEach((b, i) => {
+  const slot = app.querySelector('[data-roller-keys]'), footer = app.querySelector('.form-footer');
+  app.classList.add('sta2e-roller-win', 'sta2e-roller-win--' + app.dataset.skin);
+  footer.querySelectorAll('button').forEach(b => {
     b.querySelectorAll('i').forEach(x => x.remove());
-    b.textContent = b.textContent.replace(/[\\u{1F000}-\\u{1FAFF}\\u{2600}-\\u{26FF}]\\u{FE0F}?\\s?/gu, '').trim();
-    const role = b.dataset.action === 'cancel' ? 'dim' : i === 0 ? 'confirmPass'
-      : ({ post: 'addToRoll', 'reroll-all': 'poolThreat', back: 'edit' })[b.dataset.action] ?? 'edit';
-    b.style.background = pal[role]; b.style.color = '#000';
+    b.setAttribute('style', b.dataset.paint);
     b.classList.add('tbr-fkey');
   });
   footer.classList.add('tbr-footer');
-  frame.querySelector('.tbc-body').append(footer);
+  slot.append(footer);
 });
 </script>`;
   fs.writeFileSync(out, page);

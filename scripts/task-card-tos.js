@@ -53,6 +53,9 @@ const keyStyle = kind => {
   return `background:linear-gradient(180deg,${top} 0%,${mid} 60%,${low} 100%);color:${ink};`;
 };
 
+/** The same key colours for the TOS dice roller's footer (roller-skin.js). */
+export const tosKeyStyle = keyStyle;
+
 /** Phosphor screen hue per card state. */
 const SCREEN = {
   green: "#9ee26a",

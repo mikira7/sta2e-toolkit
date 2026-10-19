@@ -1,0 +1,267 @@
+/*
+ * sta2e-toolkit | roller-tos.css
+ *
+ * The Adv. Dice Roller dialog under tos-panel: the TOS Console Viewer, the look
+ * of the TOS task and chat cards. The design source is docs/roller-mockups.html;
+ * the markup comes from scripts/roller-skin.js (its `tos` frame). The root also
+ * carries `.sta2e-task-card--tos`, so the card's own header, lamp, CRT and strut
+ * rules in task-card-tos.css draw those parts; this file adds the housing and
+ * the roller's form parts, from the classes the shared body pass leaves:
+ *
+ *   .tbr-head   a section header — an amber caption under a dashed rule
+ *   .tbr-ctl    a select / number / text field — an amber readout window
+ *   .tbr-plate  a box the content drew with a 1px border — a dashed phosphor frame
+ *   .tbr-note   a banner with a thick left border — a tinted strip, edge in --tbr-a
+ *   .tbr-key    a button — a backlit key built from --tbr-a / --tbr-ink (inline)
+ *   .tbr-fkey   the DialogV2 footer keys, moved under the strut; colour inline
+ *
+ * Checkboxes and radios are indicator lamps, lit in their old accent (--tbr-a).
+ *
+ * The whole content sits on ONE CRT, not a screen per section: what the content
+ * leaves between sections (the weapon line, breach banners, the trait list) is
+ * coloured for black and would be unreadable on the grey housing.
+ *
+ * Every rule hangs off `.sta2e-roller--tos`, which only this skin emits. No
+ * `!important`: core's form styles sit in a cascade layer and lose to these
+ * unlayered rules, and what the content writes inline is meant to win.
+ */
+
+/* ── Window ───────────────────────────────────────────────────────────────── */
+.application.sta2e-roller-win--tos .window-content {
+  padding: 4px;
+  background: #161616;
+}
+
+.application.sta2e-roller-win--tos .dialog-form { gap: 0; }
+
+/* ── Housing ──────────────────────────────────────────────────────────────── */
+/* The card's housing rule is .sta2e-task-card.sta2e-task-card--tos, which the
+   roller does not carry (task-card.css's shared button rules hang off
+   .sta2e-task-card), so the housing is restated here. */
+.sta2e-roller.sta2e-roller--tos {
+  overflow: hidden;
+  border: 2px solid #111;
+  border-radius: 4px;
+  color: #e8c860;
+  background: linear-gradient(180deg, #383838 0%, #2a2a2a 45%, #212121 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.5),
+    0 3px 10px rgba(0, 0, 0, 0.6);
+}
+
+.sta2e-roller--tos .tct-crt.tbr-screen {
+  padding: 6px 6px 7px;
+  font-size: 11px;
+}
+
+/* ── Section captions ─────────────────────────────────────────────────────── */
+.sta2e-roller--tos .tbr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 7px 0 1px;
+  padding: 5px 4px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--tct-ph) 35%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f0c860;
+  text-shadow: 0 0 4px rgba(240, 200, 96, 0.5);
+}
+
+.sta2e-roller--tos .tbr-head .tbr-key {
+  padding: 2px 8px;
+  font-size: 8.5px;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+.sta2e-roller--tos .tbr-ctl {
+  box-sizing: border-box;
+  min-height: 20px;
+  height: auto;
+  padding: 1px 5px;
+  border: 1px solid #4a4420;
+  border-radius: 2px;
+  background: #050500;
+  color: #f0c860;
+  box-shadow: inset 0 0 6px rgba(240, 200, 96, 0.15);
+  font-family: "Courier New", Courier, monospace;
+  font-weight: 700;
+  text-shadow: 0 0 4px rgba(240, 200, 96, 0.5);
+  outline: none;
+}
+.sta2e-roller--tos .tbr-ctl:focus { border-color: #c8a010; }
+.sta2e-roller--tos select.tbr-ctl option { background: #050500; color: #f0c860; }
+.sta2e-roller--tos .tbr-ctl[readonly] { border-color: #c8a010; }
+
+.sta2e-roller--tos input[type="number"].tbr-ctl::-webkit-inner-spin-button,
+.sta2e-roller--tos input[type="number"].tbr-ctl::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ── Boxes and banners ────────────────────────────────────────────────────── */
+.sta2e-roller--tos .tbr-plate {
+  border: 1px dashed color-mix(in srgb, var(--tbr-a, var(--tct-ph)) 45%, transparent);
+  border-radius: 4px;
+}
+
+.sta2e-roller--tos .tbr-note {
+  border-left: 3px solid var(--tbr-a, #c8a010);
+  background: color-mix(in srgb, var(--tbr-a, #c8a010) 10%, transparent);
+}
+
+/* ── Indicator lamps ──────────────────────────────────────────────────────── */
+/* The card's lamps: a square light, dark when off and glowing when lit. Core
+   draws checkboxes with an icon pseudo-element, which is switched off. */
+.sta2e-roller--tos input[type="checkbox"],
+.sta2e-roller--tos input[type="radio"] {
+  appearance: none;
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: #333;
+  box-shadow: inset 0 1px 2px #000, 0 0 0 1px #111;
+  cursor: pointer;
+}
+.sta2e-roller--tos input[type="radio"] { border-radius: 50%; }
+.sta2e-roller--tos input[type="checkbox"]::before,
+.sta2e-roller--tos input[type="checkbox"]::after,
+.sta2e-roller--tos input[type="radio"]::before,
+.sta2e-roller--tos input[type="radio"]::after {
+  content: none;
+  display: none;
+}
+.sta2e-roller--tos input[type="checkbox"]:checked,
+.sta2e-roller--tos input[type="radio"]:checked {
+  background: var(--tbr-a, #e8c030);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 0 0 1px #111,
+    0 0 6px var(--tbr-a, #e8c030);
+}
+.sta2e-roller--tos input[type="checkbox"]:disabled,
+.sta2e-roller--tos input[type="radio"]:disabled { opacity: 0.45; cursor: default; }
+
+/* A range is a black slot with a backlit slider key, both in its accent. */
+.sta2e-roller--tos input[type="range"] {
+  appearance: none;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sta2e-roller--tos input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 1px;
+  background: #050505;
+  box-shadow: inset 0 1px 2px #000, 0 0 0 1px #2a2a2a;
+}
+.sta2e-roller--tos input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 14px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tbr-a, #c8a010) 75%, #fff) 0%,
+    var(--tbr-a, #c8a010) 60%,
+    color-mix(in srgb, var(--tbr-a, #c8a010) 70%, #000) 100%);
+  box-shadow: 0 0 5px var(--tbr-a, #c8a010), 0 1px 2px #000;
+}
+.sta2e-roller--tos input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: #050505;
+}
+.sta2e-roller--tos input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 14px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--tbr-a, #c8a010);
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* The chat frame's TOS keys: a backlit gradient built from the key's own
+   colour, a bevel, and the console face's sans. */
+.sta2e-roller--tos .tbr-key {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tbr-a, #c8a010) 80%, #fff) 0%,
+    var(--tbr-a, #c8a010) 60%,
+    color-mix(in srgb, var(--tbr-a, #c8a010) 75%, #000) 100%);
+  color: var(--tbr-ink, #1a1200);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-shadow: none;
+  cursor: pointer;
+  transition: filter 0.1s;
+}
+.sta2e-roller--tos .tbr-key:hover:not(:disabled) { filter: brightness(1.2); }
+.sta2e-roller--tos .tbr-key:active:not(:disabled) {
+  filter: brightness(0.8);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+
+/* ── Footer keys ──────────────────────────────────────────────────────────── */
+.sta2e-roller--tos .tbr-keys { padding: 6px 7px 7px; }
+
+.sta2e-roller--tos .form-footer.tbr-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sta2e-roller--tos .tbr-footer > .tbr-fkey {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 7px;
+  border: 0;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.07em;
+  text-align: center;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.1s;
+}
+.sta2e-roller--tos .tbr-footer > .tbr-fkey:nth-child(odd):last-child { grid-column: 1 / -1; }
+.sta2e-roller--tos .tbr-footer > .tbr-fkey:hover:not(:disabled) { filter: brightness(1.2); }
+.sta2e-roller--tos .tbr-footer > .tbr-fkey:active:not(:disabled) {
+  filter: brightness(0.8);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+.sta2e-roller--tos .tbr-footer > .tbr-fkey:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }

@@ -1935,44 +1935,60 @@ re-roll chat message still use theirs.
 ### Dice Roller Skins
 
 The Adv. Dice Roller dialog (`buildDialogContent` in npc-roller.js) is being given
-each era's chat card look. The design source for all six is `docs/roller-mockups.html`.
-**TNG / First Contact is done** ([roller-skin-tng.js](scripts/roller-skin-tng.js), shape
-in [styles/roller-tng.css](styles/roller-tng.css)); every other era still renders the
-LCARS dialog unchanged.
+each era's chat card look; the design source for all six is `docs/roller-mockups.html`.
+One module, [roller-skin.js](scripts/roller-skin.js), holds the shared pass and one frame
+per era, and `rollerSkin()` names the one the active theme wears:
+
+| skin | themes | frame | shape |
+|---|---|---|---|
+| `tng` | `lcars-tng`, `lcars-fc` | the task card's bracket frame (`bracketTop` / `bracketBottom`, `.tbc`) | [roller-tng.css](styles/roller-tng.css) |
+| `tos` | `tos-panel` | the Console Viewer housing — header and lamps, **one** CRT, strut, keys | [roller-tos.css](styles/roller-tos.css) |
+
+Every other era gets `null` and the LCARS dialog unchanged. Adding an era is a frame
+function, a `FRAMES` and a `FOOTER_PAINT` entry, a `rollerSkin()` case and a stylesheet.
 
 **Wrap, never replace — the chat card frame's rule, for the same reason.** The content
 is ~1100 lines of conditional markup, and `_wireSetupInputs` / `_wireDiePips` find every
 control by id and write `display`, `opacity` and `innerHTML` into it at runtime. So
-`openDialog` passes the built content through `bracketRollerHtml`, which puts it in the
-task card's own bracket frame (`bracketTop` / `bracketBottom`, `.tbc`) and through
-`bracketRollerBodyHtml`, a body pass that strips only what made each element LCARS and
-stamps `tbr-ctl` (fields), `tbr-plate` (1px-bordered boxes), `tbr-note` (thick left
-border) and `tbr-key` (buttons, colour lifted into `--tbr-a` / `--tbr-ink`). Checkbox,
-radio and range inputs keep their old `accent-color` as `--tbr-a`, which is how the
-Complication range stays red. Four things it rests on:
+`openDialog` passes the built content through `skinRollerHtml`, which runs
+`rollerBodyHtml` — one body pass for every era, stripping only what made each element
+LCARS and stamping `tbr-ctl` (fields), `tbr-plate` (1px-bordered boxes), `tbr-note`
+(thick left border) and `tbr-key` (buttons, colour lifted into `--tbr-a` / `--tbr-ink`)
+— and puts the result in the era's frame. Checkbox, radio and range inputs keep their old
+`accent-color` as `--tbr-a`, which is how the Complication range stays red. An era's
+stylesheet draws only those `tbr-*` classes. Five things it rests on:
 
 - **Three changes live in buildDialogContent itself, because a pass cannot regroup
-  markup.** `sectionHeader` emits a bare `.tbr-head` under the skin (in setup, CSS draws
-  it and the element right after it as one stadium strip — so a section's body must stay
-  the header's next sibling); the sheet-mode Ship Pool header does the same with its
+  markup.** `sectionHeader` emits a bare `.tbr-head` under any skin (TNG's setup phase
+  draws it and the element right after it as one stadium strip — so a section's body must
+  stay the header's next sibling); the sheet-mode Ship Pool header does the same with its
   Manage key; and the Targeting Solution system keys repaint through `--tbr-a` instead
   of inline fills, since an inline wash would beat the key's fill.
+- **TOS puts the whole content on one CRT, not a screen per section** (the mockup had
+  one per section). The content leaves things between sections — the weapon line,
+  breach banners, the trait list — coloured for black, which would be unreadable on the
+  grey housing. Its root carries `.sta2e-task-card--tos` so the card's own header, lamp,
+  CRT and strut rules apply, but **not `.sta2e-task-card`**: task-card.css's shared
+  button rules hang off that, so roller-tos.css restates the housing instead.
 - **Die pips are buttons and must not become keys** — the pass skips `.sta2e-die-pip`,
   whose glow is the reroll hint.
 - **Don't use `stripDecorativeEmoji` alone on dice text.** Its U+2600–26FF range covers
   ★, the crit mark; the roller's `stripEmoji` keeps ★/☆. (The chat frames' TOS and ENT
   passes still eat ★ — a known gap in the shared helper.)
 - **The footer is moved, not restyled in place.** Roll / Resolve / Cancel are core's
-  DialogV2 `.form-footer`; `seatBracketFooter` moves it into `.tbc-body` after render
-  (still inside the `<form>`, which is all core's button handling needs), drops icons
-  and emoji, and paints each key inline from `tbcPalette()` — the first button is the
-  main action, Cancel is dim.
+  DialogV2 `.form-footer`; `seatRollerFooter` moves it into the frame's
+  `[data-roller-keys]` element after render (still inside the `<form>`, which is all
+  core's button handling needs), drops icons and emoji, tags the window
+  `sta2e-roller-win--<skin>`, and paints each key inline through `footerKeyStyle` — the
+  first button is the main action (TNG peach, TOS green), Cancel is always the dim key.
+  TOS takes its colours from task-card-tos.js's `tosKeyStyle`.
 
-Covered by [tests/roller-tng.mjs](tests/roller-tng.mjs), which lifts the **real**
+Covered by [tests/roller-skins.mjs](tests/roller-skins.mjs), which lifts the **real**
 `buildDialogContent` out of npc-roller.js into a vm (missing module-level helpers are
-loaded from the source on first `ReferenceError`), renders both phases, and checks that
-every id, data-* value, content class and `display:none` survives the pass. `--preview`
-renders both phases in TNG and First Contact against the real stylesheets.
+loaded from the source on first `ReferenceError`), renders both phases, checks that
+every id, data-* value, content class and `display:none` survives the pass, and checks
+each frame. `--preview` renders both phases in TNG, First Contact and TOS against the
+real stylesheets.
 
 ### Task Maker
 
@@ -2079,8 +2095,9 @@ through `lcarsChatCard`.
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP and ENT frames. Imports only `lcars-theme.js`, `task-card-tng.js` and `task-card-ent.js`; `legacy` thunk keeps the other eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
-| [scripts/roller-skin-tng.js](scripts/roller-skin-tng.js) | The Bracket Console skin for the Adv. Dice Roller dialog under `lcars-tng` / `lcars-fc` — frame wrap, body pass, footer seating. Imports only `lcars-theme.js`, `task-card-tng.js` and `chat-card-frame.js` |
-| [styles/roller-tng.css](styles/roller-tng.css) | Shape for that skin — section strips, stadium fields, pill indicators, range, keys, the footer keypad |
+| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS), footer seating. Imports only `lcars-theme.js`, `task-card-tng.js`, `task-card-tos.js` and `chat-card-frame.js` |
+| [styles/roller-tng.css](styles/roller-tng.css) | Shape for the TNG roller skin — section strips, stadium fields, pill indicators, range, keys, the footer keypad |
+| [styles/roller-tos.css](styles/roller-tos.css) | Shape for the TOS roller skin — housing, section captions on the CRT, amber readout fields, indicator lamps, backlit keys |
 | [scripts/task-maker.js](scripts/task-maker.js) | The GM's task-authoring dialog — Normal / Extended / Opposed tabs, the posted request card, extended-task resolution |
 | [scripts/opposed-panel.js](scripts/opposed-panel.js) | The Opposed Task tab's markup and wiring. A leaf by necessity — it may import only `lcars-theme.js` and `ship-pool.js` |
 | [styles/task-maker.css](styles/task-maker.css) | Shape-only CSS for the Task Maker dialog and its pickers — spine, elbow bars, `[data-mode]` tab visibility, fluid grids, container queries |

@@ -3,7 +3,7 @@
  *
  * The Adv. Dice Roller dialog under the bracket themes (lcars-tng, lcars-fc).
  * The design source is docs/roller-mockups.html; the markup comes from
- * scripts/roller-skin-tng.js, which wraps buildDialogContent's own content in
+ * scripts/roller-skin.js (its `tng` frame), which wraps buildDialogContent's own content in
  * the `.tbc` bracket frame (task-card-tng.css draws the frame) and passes it
  * through a body pass that leaves classes behind:
  *
@@ -26,12 +26,12 @@
  */
 
 /* ── Window ───────────────────────────────────────────────────────────────── */
-.application.sta2e-roller-tbc .window-content {
+.application.sta2e-roller-win--tng .window-content {
   padding: 4px;
   background: #000;
 }
 
-.application.sta2e-roller-tbc .dialog-form { gap: 0; }
+.application.sta2e-roller-win--tng .dialog-form { gap: 0; }
 
 .sta2e-roller.sta2e-roller--tng {
   font-family: var(--tbc-font);
