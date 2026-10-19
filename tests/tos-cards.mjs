@@ -218,6 +218,108 @@ check('TNG still gets its own frame, other eras their legacy markup', () => {
   theme = 'tos-panel';
 });
 
+// ── TOS body pass: a damage card body as combat-hud-core.js writes it ─────────
+const LCF = "'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif";
+const damageBody = `
+  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+    <span title="Piercing quality" style="display:inline-block;padding:1px 6px;border:1px solid #cc4400;
+      border-radius:2px;color:#cc4400;background:rgba(255,255,255,0.03);font-size:9px;font-weight:700;font-family:${LCF};">Piercing</span>
+    <span title="Scan" style="display:inline-block;padding:1px 6px;border:1px solid #cc4400;border-radius:2px;color:#cc4400;font-size:9px;font-family:${LCF};">Scan: +1 dmg</span>
+  </div>
+  <div style="border:1px solid #aa8800;border-left:3px solid #cc4400;background:#141000;border-radius:2px;padding:6px 8px;margin-bottom:5px;">
+    <div style="font-size:11px;font-weight:700;color:#cc4400;margin-bottom:5px;font-family:${LCF};">▶ I.K.S. Gorkon</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-bottom:5px;text-align:center;">
+      <div style="background:rgba(255,153,0,0.07);border:1px solid #2a2000;border-radius:2px;padding:3px;">
+        <div style="font-size:8px;color:#886600;text-transform:uppercase;font-family:${LCF};">Weapon</div>
+        <div style="font-size:15px;font-weight:700;color:#88cc44;">6<span style="color:#ddaa00;font-size:10px;">+1</span></div>
+      </div>
+      <div style="background:rgba(255,153,0,0.07);border:1px solid #2a2000;border-radius:2px;padding:3px;">
+        <div style="font-size:8px;color:#886600;text-transform:uppercase;font-family:${LCF};">−Resist</div>
+        <div style="font-size:15px;font-weight:700;color:#ff6600;">2</div>
+      </div>
+      <div style="background:rgba(255,153,0,0.07);border:1px solid #2a2000;border-radius:2px;padding:3px;" title="Bonus damage">
+        <div style="font-size:8px;color:#886600;text-transform:uppercase;font-family:${LCF};">Extra</div>
+        <div class="sta2e-extra-display" style="font-size:15px;font-weight:700;color:#ddaa00;">0</div>
+      </div>
+      <div style="background:rgba(204,136,255,0.1);border:1px solid #cc4400;border-radius:2px;padding:3px;">
+        <div style="font-size:8px;color:#886600;text-transform:uppercase;font-family:${LCF};">Total</div>
+        <div class="sta2e-total-display" style="font-size:18px;font-weight:700;color:#ffffff;">5</div>
+      </div>
+    </div>
+    <div style="font-size:10px;color:#886600;margin-bottom:5px;text-align:center;font-family:${LCF};">
+      SHIELDS 9 → <span style="color:#ffdd00;font-weight:700;">4</span> / 12
+    </div>
+    <div style="margin-bottom:5px;padding:3px 6px;border-left:3px solid #ff2200;background:rgba(255,50,50,0.08);font-size:10px;color:#ff2200;font-family:${LCF};text-transform:uppercase;">
+      Complications: -1 damage
+    </div>
+    <div style="margin-top:4px;padding:3px 6px;background:rgba(255,50,0,0.1);border-left:3px solid #ff2200;font-size:10px;color:#ff2200;font-family:${LCF};text-transform:uppercase;">
+      ⚠️ SHAKEN — shields at or below 50%
+    </div>
+    <div class="sta2e-damage-controls" style="margin-top:5px;">
+      <div class="sta2e-attack-quality-controls" style="margin-bottom:5px;padding:5px 6px;border:1px solid #2a2000;border-radius:2px;background:rgba(255,153,0,0.035);">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:#eecc77;font-family:${LCF};text-transform:uppercase;cursor:pointer;">
+            <input class="sta2e-main-area-enabled" type="checkbox" style="cursor:pointer;accent-color:#ddaa00;"/> Area
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:#eecc77;font-family:${LCF};text-transform:uppercase;cursor:pointer;">
+            <input class="sta2e-main-spread-enabled" type="checkbox" checked style="cursor:pointer;accent-color:#cc4400;"/> Spread
+          </label>
+        </div>
+        <div class="sta2e-main-area-targets" style="display:none;margin-top:5px;padding:5px 6px;border:1px solid #2a2000;border-radius:2px;background:rgba(0,180,255,0.04);">
+          <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:#eecc77;font-family:${LCF};"><input class="sta2e-main-area-target" type="checkbox" value="T2" disabled style="accent-color:#ddaa00;"/> Bird-of-Prey</label>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+        <input class="sta2e-extra-damage" type="number" value="0" data-base-payload="ENC" style="display:none;"/>
+        <label style="font-size:9px;color:#886600;white-space:nowrap;text-transform:uppercase;font-family:${LCF};">Adj:</label>
+        <input class="sta2e-manual-adj" type="number" value="0" style="width:44px;padding:2px 4px;background:#0a0800;border:1px solid #aa8800;border-radius:2px;color:#eecc77;font-size:12px;text-align:center;font-family:${LCF};"/>
+      </div>
+      <button class="sta2e-apply-damage" data-payload="ENC" style="width:100%;padding:4px;background:#cc4400;border:none;border-radius:2px;color:#0a0800;font-size:10px;font-weight:700;text-transform:uppercase;cursor:pointer;font-family:${LCF};">APPLY DAMAGE → I.K.S. Gorkon</button>
+    </div>
+  </div>`;
+const damageCard = lcarsChatCard({ title: '💥 Disruptor Banks — ✓ HIT', accent: '#88cc44', body: damageBody, legacy });
+
+check('TOS body pass: tiles, plate, notes and chips are classified', () => {
+  assert.equal(count(damageCard, /class="ccf-tos-tile"/g), 4, 'four stat tiles');
+  assert.equal(count(damageCard, /class="ccf-tos-note"/g), 2, 'complication and warning banners');
+  assert.equal(count(damageCard, /class="ccf-tos-chip"/g), 2);
+  assert.match(damageCard, /class="ccf-tos-plate" style="--tn-c:#cc4400;/, 'the target block, with its accent edge');
+  assert.match(damageCard, /class="ccf-tos-plate sta2e-attack-quality-controls"/, 'existing class kept after the new one');
+  assert.match(damageCard, /--tn-c:#ff2200;/, 'banner keeps its own colour');
+  assert.match(damageCard, /--tn-c:#cc4400;/, 'chip keeps its own colour');
+});
+
+check('TOS body pass: LCARS declarations go, meaning and layout stay', () => {
+  const body = damageCard.slice(damageCard.indexOf('class="ccf-body"'));
+  assert.doesNotMatch(body, /font-family/);
+  assert.doesNotMatch(body, /border-radius/);
+  assert.doesNotMatch(body, /accent-color/);
+  assert.doesNotMatch(body, /background:rgba\(/, 'faint washes removed');
+  assert.match(body, /class="sta2e-total-display" style="font-size:18px;font-weight:700;color:#ffffff;"/);
+  assert.match(body, /display:grid;grid-template-columns:repeat\(4,1fr\)/);
+  assert.match(body, /class="ccf-tos-plate sta2e-main-area-targets" style="display:none;/, 'wiring-toggled display survives');
+  assert.match(body, /<input class="ccf-tos-ctl sta2e-extra-damage" type="number" value="0" data-base-payload="ENC" style="display:none;"\/>/);
+  assert.match(body, /class="ccf-tos-ctl sta2e-manual-adj" type="number" value="0" style="width:44px;padding:2px 4px;color:#eecc77;font-size:12px;text-align:center;/);
+  assert.match(body, /<input class="ccf-tos-ctl sta2e-main-spread-enabled" type="checkbox" checked style="cursor:pointer;"\/>/);
+  assert.match(body, /<button class="sta2e-apply-damage" data-payload="ENC" style="--tck-a:#cc4400;/, 'button still keyified');
+});
+
+check('TOS body pass: decorative emoji go, functional glyphs stay', () => {
+  assert.doesNotMatch(damageCard, /💥|⚠/);
+  assert.match(damageCard, /ccf-tos-title">Disruptor Banks — ✓ HIT</);
+  assert.match(damageCard, />▶ I\.K\.S\. Gorkon</);
+  assert.match(damageCard, />\s*SHAKEN — shields at or below 50%/);
+  assert.match(damageCard, /SHIELDS 9 → <span/);
+});
+
+check('TOS body pass: other eras get the body untouched', () => {
+  theme = 'lcars-tng';
+  assert.match(lcarsChatCard({ title: 'T', body: damageBody, legacy }), /💥|font-family:'Arial Narrow'/);
+  theme = 'klingon';
+  assert.equal(lcarsChatCard({ title: 'T', body: damageBody, legacy }), legacy());
+  theme = 'tos-panel';
+});
+
 for (const [status, name, msg] of results) console.log(`${status}  ${name}${msg ? `\n      ${msg}` : ''}`);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
@@ -253,6 +355,20 @@ if (pi > 0) {
     }, { confirmed: true, taskLabel: 'Ramming Speed', shipDice: [], apAssistDice: [], crewDice: [{ value: 2, success: true }, { value: 5, success: true }] }))],
     ['Assist roll', renderTosTaskCard(view({ showMakeYourOwnLuck: false, noteStrips: [], traitNotes: [] }, { isAssistRoll: true, assistOfficerName: 'Lt. Uhura', crewDice: [{ value: 6, success: true }], shipDice: [], apAssistDice: [] }))],
     ['Damage card (frame)', framed],
+    ['Ship damage card (body pass)', damageCard],
+    ['Ship damage card + spend panel', await (async () => {
+      // The real spend panel, as momentum-spend.js builds it, with the few
+      // Foundry globals it reads stubbed.
+      try {
+        globalThis.game.messages = { contents: [], get: () => null };
+        globalThis.game.user = { isGM: true };
+        globalThis.game.actors = { get: () => null };
+        const { injectSpendPanelInline, makeSpendContext } = await import('../scripts/momentum-spend.js');
+        const ctx = makeSpendContext({ floatingMomentum: 4, qualities: { intense: true, piercing: true }, scope: 'ship' });
+        return lcarsChatCard({ title: 'Disruptor Banks — ✓ HIT', accent: '#88cc44',
+          body: injectSpendPanelInline(damageBody, ctx, 'T1'), legacy });
+      } catch (err) { return `<pre>${String(err?.stack ?? err)}</pre>`; }
+    })()],
     ['Info card (frame)', lcarsChatCard({ title: 'Sensor Contact', accent: '#88cc44', legacy,
       body: '<div style="font-size:11px;">Bearing 047 mark 15 · Medium range</div>' })],
   ];

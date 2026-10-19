@@ -117,17 +117,20 @@ const _COLOUR_IN = /(#[0-9a-f]{3,8}\b|rgba?\([^)]*\))/i;
 function _keyify(tag) {
   const colour = tag.match(/(?<![-\w])color\s*:\s*([^;"']+)/i)?.[1]?.trim();
   const border = tag.match(/(?<![-\w])border(?:-[a-z]+)*\s*:[^;"']*/i)?.[0]?.match(_COLOUR_IN)?.[1];
-  let accent = [colour, border].find(c => _luma(c) !== null && !/rgba\([^)]*,\s*0(\.0+)?\s*\)/i.test(c))
-    ?? LC.primary;
-  // A near-black accent (text written in the card's bg colour on a filled key)
-  // would draw a black key; fall back to the theme's primary.
-  if ((_luma(accent) ?? 1) < 0.12) accent = LC.primary;
+  // A filled LCARS key writes its colour as the background and its text in the
+  // card's near-black bg colour, so the fill is the accent there.
+  const fill = tag.match(/(?<![-\w])background(?:-color)?\s*:\s*([^;"']+)/i)?.[1]?.trim();
+  const usable = c => _luma(c) !== null && !/rgba\([^)]*,\s*0?(\.\d+)?\s*\)/i.test(c) && _luma(c) >= 0.12;
+  // A near-black accent would draw a black key; fall back to the theme's primary.
+  const accent = [colour, border, fill].find(usable) ?? LC.primary;
   const ink = (_luma(accent) ?? 1) > 0.42 ? "#140e00" : "#fff4ee";
 
   const stripped = tag
     .replace(/(?<![-\w])background(?:-color|-image)?\s*:[^;"']*;?/gi, "")
     .replace(/(?<![-\w])border(?:-[a-z]+)*\s*:[^;"']*;?/gi, "")
-    .replace(/(?<![-\w])color\s*:[^;"']*;?/gi, "");
+    .replace(/(?<![-\w])color\s*:[^;"']*;?/gi, "")
+    // The console key's own typeface; an inline LCARS font would beat it.
+    .replace(/(?<![-\w])font-family\s*:[^;"]*;?/gi, "");
   const vars = `--tck-a:${accent};--tck-ink:${ink};`;
   return /\sstyle\s*=\s*(["'])/i.test(stripped)
     ? stripped.replace(/(\sstyle\s*=\s*)(["'])/i, `$1$2${vars}`)
@@ -136,21 +139,100 @@ function _keyify(tag) {
 
 const keyifyButtons = html => String(html ?? "").replace(/<button\b[^>]*>/gi, _keyify);
 
+// ── TOS body pass ───────────────────────────────────────────────────────────
+// Card bodies — the damage cards above all — are written in LCARS shapes with
+// inline styles: bordered stat tiles, left-border banners, outlined chips,
+// tinted plates, rounded inputs. Inline beats any rule, so the TOS frame cannot
+// restyle them from CSS alone. This pass reads each tag's inline style,
+// classifies the LCARS shape it draws, removes only the declarations that make
+// it LCARS (background, border, radius, shadow, font family) and stamps a
+// `ccf-tos-*` class plus the shape's own colour (--tn-c) for chat-card.css to
+// redraw it as a console part.
+//
+// Kept as written: text colour (it carries meaning — hit, miss, injury),
+// layout (display, grid, gap, padding, width, alignment), size and weight,
+// every class and data-* attribute, and `display:none` that wiring toggles.
+// Buttons are left to _keyify. Code that writes inline styles at runtime
+// still wins, as it does for the keys.
+
+/** The tags the pass reads; buttons, images, links and icons are left alone. */
+const _TOS_TAGS = /<(div|span|label|input|select|textarea|p|section|ul|ol|li|table|thead|tbody|tr|td|th|strong|b|em|small|details|summary)\b[^>]*>/gi;
+const _TOS_CONTROL = /^(input|select|textarea)$/i;
+const _DECL = prop => new RegExp(`(?<![-\\w])${prop}\\s*:[^;"]*;?`, "gi");
+const _BOX_DECLS = ["background(?:-color|-image)?", "border(?:-[a-z]+)*", "box-shadow"];
+
+function _addClass(tag, cls) {
+  return /\sclass\s*=\s*"/i.test(tag)
+    ? tag.replace(/(\sclass\s*=\s*")/i, `$1${cls} `)
+    : tag.replace(/^<([a-z0-9-]+)/i, `<$1 class="${cls}"`);
+}
+
+function _tosifyTag(tag, name) {
+  const styleMatch = tag.match(/\sstyle\s*=\s*"([^"]*)"/i);
+  const isControl = _TOS_CONTROL.test(name);
+  if (!styleMatch) return isControl ? _addClass(tag, "ccf-tos-ctl") : tag;
+  const style = styleMatch[1];
+
+  // Classify the LCARS shape before its declarations go.
+  const leftBorder = style.match(/(?<![-\w])border-left\s*:\s*[2-9]px\s+solid\s+([^;"]+)/i);
+  const boxed = /(?<![-\w])border\s*:\s*1px\s+solid/i.test(style);
+  let kind = null;
+  let accent = null;
+  if (isControl) kind = "ctl";
+  else if (/^span$/i.test(name) && boxed && /display\s*:\s*inline-block/i.test(style)) {
+    kind = "chip";
+    accent = style.match(/(?<![-\w])color\s*:\s*([^;"]+)/i)?.[1]?.trim()
+      ?? style.match(/(?<![-\w])border\s*:[^;"]*/i)?.[0]?.match(_COLOUR_IN)?.[1];
+  }
+  else if (/^div$/i.test(name) && boxed && /(?<![-\w])padding\s*:\s*3px\b/i.test(style)) kind = "tile";
+  // A bordered box is a plate even with an accent edge (a target's block);
+  // the edge colour rides along. A left border alone is a banner.
+  else if (/^div$/i.test(name) && boxed) { kind = "plate"; accent = leftBorder?.[1]?.trim() ?? null; }
+  else if (leftBorder) { kind = "note"; accent = leftBorder[1].trim(); }
+
+  let next = style
+    .replace(_DECL("font-family"), "")
+    .replace(_DECL("accent-color"), "")
+    // A radius goes everywhere except a deliberate circle.
+    .replace(/(?<![-\w])border-radius\s*:\s*(?!50%)[^;"]*;?/gi, "")
+    // A faint wash reads as an LCARS tint on a CRT; an opaque fill (a meter,
+    // a lit strip) is kept, since it is drawing something.
+    .replace(/(?<![-\w])background(?:-color)?\s*:\s*rgba\([^)]*,\s*0?\.\d+\s*\)\s*;?/gi, "");
+  if (kind) for (const prop of _BOX_DECLS) next = next.replace(_DECL(prop), "");
+  if (accent) next = `--tn-c:${accent};${next}`;
+
+  const rewritten = tag.replace(styleMatch[0], ` style="${next.trim()}"`);
+  return kind ? _addClass(rewritten, `ccf-tos-${kind}`) : rewritten;
+}
+
+/** Decorative emoji the LCARS bodies prefix their lines with (💥 ⚠️ ⚔ …).
+ *  Arrows, geometric shapes and dingbats (▶ ✓ ✗ ★ →) are functional and stay. */
+const _EMOJI = /(?:[\u{1F000}-\u{1FAFF}]|[\u{2600}-\u{26FF}])\u{FE0F}?\s?|\u{FE0F}/gu;
+export const stripDecorativeEmoji = text => String(text ?? "").replace(_EMOJI, "");
+
+/** The TOS body pass — exported for the spend panel, injected after render. */
+export function tosifyBodyHtml(html) {
+  return keyifyButtons(String(html ?? "")
+    .replace(_TOS_TAGS, (tag, name) => _tosifyTag(tag, name))
+    .replace(/>([^<]+)</g, (m, text) => `>${stripDecorativeEmoji(text)}<`));
+}
+
 /**
  * The TOS "Console Viewer" frame: a gunmetal housing, a header with the title
  * and three indicator lamps (the first lit in the card's accent), and the body
- * set into a curved amber CRT. The body is wrapped untouched apart from its
- * buttons, and keeps `.ccf-body`, which several wirers use as their host.
+ * set into a curved amber CRT. The body goes through the TOS body pass
+ * (tosifyBodyHtml) — its LCARS shapes become console parts and its buttons
+ * keys — and keeps `.ccf-body`, which several wirers use as their host.
  */
 function tosChatCard({ title, accent, body, rootClass, attrs }) {
   return `
 <div class="sta2e-chat-card sta2e-chat-card--tos${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
   style="${getLcCssVars("cc")}--ccf-c:${accent || LC.primary};">
   <div class="ccf-tos-head">
-    <div class="ccf-tos-title">${title ?? ""}</div>
+    <div class="ccf-tos-title">${stripDecorativeEmoji(title)}</div>
     <div class="ccf-tos-lamps" aria-hidden="true"><i class="ccf-tos-lamp--accent"></i><i></i><i></i></div>
   </div>
-  <div class="ccf-tos-screen"><div class="ccf-body">${keyifyButtons(body)}</div></div>
+  <div class="ccf-tos-screen"><div class="ccf-body">${tosifyBodyHtml(body)}</div></div>
 </div>`;
 }
 

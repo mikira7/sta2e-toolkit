@@ -1619,12 +1619,30 @@ and only changes shape.
 
 **Under `tos-panel` the same call returns the TOS Console Viewer frame** (`tosChatCard`):
 a gunmetal housing, a header whose first lamp and left edge take `--ccf-c`, and the body
-in a curved amber CRT. The body is still passed through, inside a `.ccf-body` (wirers use
-it as their host), with one change: `keyifyButtons` turns its buttons into raised keys by
-stripping their inline background / border / colour and stamping `--tck-a` (lifted from
-the button's own inline `color`, else its border colour) and `--tck-ink`, from which the
-CSS builds the gradient. A near-black accent falls back to the theme's primary. Code that
-repaints a button at runtime still wins, since it writes inline afterwards.
+in a curved amber CRT. The body goes inside a `.ccf-body` (wirers use it as their host)
+through **`tosifyBodyHtml`**, the TOS body pass, because every body — the damage cards
+above all — draws LCARS shapes with inline styles that no rule can beat:
+
+- **It classifies each tag by its inline style, then strips only what made it LCARS.**
+  A bordered box with `padding:3px` is a stat *tile* (black readout), any other bordered
+  div a *plate* (inset panel, keeping a left accent edge as `--tn-c`), a left border alone
+  a *note* strip, a bordered inline-block span a *chip*, and inputs / selects *controls*.
+  Their background, border, radius and shadow go; `font-family`, `accent-color`, every
+  `border-radius` except `50%`, and faint `rgba(…, 0.x)` washes go everywhere. Text
+  colour, layout, classes, `data-*` and wiring-toggled `display:none` stay, so a red
+  banner stays red and every wirer still finds its elements. chat-card.css redraws the
+  `ccf-tos-*` classes; checkboxes and radios become lamps.
+- **Decorative emoji are stripped** (`stripDecorativeEmoji`, also on the title): the
+  astral emoji and U+2600–26FF (💥 ⚠ ⚔). Arrows, shapes and dingbats (▶ ✓ ✗ ★ →) are
+  functional and stay.
+- **The Momentum spend panel is injected after render**, past the frame, so
+  `injectSpendPanels` runs the same pass on it when its card is a TOS one.
+- Buttons still go through `keyifyButtons`, which strips their inline background /
+  border / colour / font and stamps `--tck-a` and `--tck-ink` for the gradient. The
+  accent is the button's text colour, else its border, else — for a filled LCARS key,
+  whose text is near-black — its fill; a near-black or translucent one falls back to the
+  theme's primary. Code that repaints a button or a part at runtime still wins, since it
+  writes inline afterwards. Covered by [tests/tos-cards.mjs](tests/tos-cards.mjs).
 
 **Under `tmp-console` it returns the TMP Console Monitor frame** (`tmpChatCard`): a grey
 duty panel, a header plate in `--ccf-c`, and the whole body on a black monitor whose
