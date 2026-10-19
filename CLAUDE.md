@@ -1731,7 +1731,16 @@ border takes the same accent. The body must sit on the monitor, never on the gre
 body colours its text inline with the `tmp-console` tokens, which are made for black. Its
 buttons go through the same `keyifyButtons` and become backlit lenses; the lens rules in
 chat-card.css select on `[style*="--tck-a"]`, so buttons injected after render (the spend
-panel's steppers) keep their own look. Every other era still gets `legacy()`.
+panel's steppers) keep their own look.
+
+**Under `ent-panel` it returns the ENT Bridge Touchscreen frame** (`entChatCard`): the
+task card's own frame, built from the same `entHead` / `entFoot` markup and `.tec`
+rules in [styles/task-card-ent.css](styles/task-card-ent.css). The body goes through
+**`entBodyHtml`**, which is the TOS body pass with a different class prefix
+(`_consoleBodyHtml(html, "ent")`): the same classifier strips the LCARS boxes and stamps
+`ccf-ent-tile` / `-plate` / `-note` / `-chip` / `-ctl`, which task-card-ent.css redraws
+as bracketed wells, glass plates and edge strips, and the buttons become tab keys painted
+from `--tck-a`. The spend panel gets the same pass. Every other era still gets `legacy()`.
 
 Out of scope by choice: the warp navigation cards
 ([warp-calc.js](scripts/warp-calc.js), [toolkit-api.js](scripts/toolkit-api.js)) and the
@@ -1876,6 +1885,33 @@ texts beside them) and declared in task-card-tmp.css under `STA2e …` family na
 the chat frame's TMP rules reuse. Covered by [tests/tmp-cards.mjs](tests/tmp-cards.mjs),
 which also has `--preview`.
 
+**The ENT Bridge Touchscreen skin.** Under `ent-panel` (`isEntTheme`) the card is
+rendered by [task-card-ent.js](scripts/task-card-ent.js) (shape in
+[styles/task-card-ent.css](styles/task-card-ent.css)), whatever `taskCardStyle` says and
+from the same `skinView`, with the same DOM contract. The design source is
+`docs/ent-card-mockups.html` (Concept A): the NX-01 bridge displays — navy glass with a
+faint grid, a line-art outline with two chamfered corners, the title on a rule with a cut
+tab carrying the state, dice in bracketed wells, each readout a value over a hairline bar
+(one shared scale, with the Difficulty ticked on the Successes bar), and tab keys with a
+coloured edge. The frame colour gives the state: blue working, grey assist, green passed,
+red failed. Three things it rests on:
+
+- **The outline is not a border.** A `clip-path` cuts a real border off the diagonal, so
+  the root is filled with `--tec-c`, padded 1px, and the glass is a second clipped box
+  (`.tec-in`) inside it. Both builders emit that inner wrapper.
+- **Keys are tabs, not filled keys: no `data-filled`.** Their colour is inline
+  (`keyStyle`: the edge is a stop in the background gradient, plus `border-color` and
+  `color`); the stylesheet gives the border a width and a style only. Arming therefore takes
+  `_armCardSelection`'s unfilled path — yellow outline and text on dark glass — and
+  restoring `cssText` brings the edge back.
+- **The footer's hex run is decoration**, `dataStream(title)`, stable per title so a
+  re-render does not flicker it.
+
+Rajdhani is bundled in `fonts/ent/` (SIL OFL, licence beside it) as `STA2e Rajdhani`; the
+numbers use the `STA2e Share Tech Mono` that task-card-tmp.css declares. Chat bodies are
+zoomed 1.1 for the same reason the TNG ones are. Covered by
+[tests/ent-cards.mjs](tests/ent-cards.mjs), which also has `--preview`.
+
 The card carries **no emoji**; the surviving glyphs are functional and monochrome (`★★`
 on a crit die, `▶` armed, `→` on Add to Task Roll). The roller *dialog* and the static
 `buildChatCard` summary still use theirs.
@@ -1979,7 +2015,9 @@ through `lcarsChatCard`.
 | [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
 | [styles/tmp-monitor.css](styles/tmp-monitor.css) | The TMP Monitor theme for the Stardate HUD, the task card and the chat frame — repaints the TMP markup from its modifier classes |
 | [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
-| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares. Imports only `lcars-theme.js` and `task-card-tng.js`; `legacy` thunk keeps non-TNG eras frozen |
+| [scripts/task-card-ent.js](scripts/task-card-ent.js) | ENT Bridge Touchscreen skin for the task card — used for `ent-panel` regardless of `taskCardStyle` — and the `entHead` / `entFoot` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |
+| [styles/task-card-ent.css](styles/task-card-ent.css) | The touchscreen frame (`.tec`, shared with the ENT chat frame), the task card's wells, readout bars and tab keys, the `ccf-ent-*` body parts, and the `@font-face` rules for `fonts/ent/` (Rajdhani) |
+| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP and ENT frames. Imports only `lcars-theme.js`, `task-card-tng.js` and `task-card-ent.js`; `legacy` thunk keeps the other eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
 | [scripts/task-maker.js](scripts/task-maker.js) | The GM's task-authoring dialog — Normal / Extended / Opposed tabs, the posted request card, extended-task resolution |

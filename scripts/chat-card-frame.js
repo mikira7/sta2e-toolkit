@@ -8,7 +8,8 @@
  * Under the TOS theme (tos-panel) the same call gives the TOS Console Viewer
  * frame instead (tosChatCard below), the sibling of task-card-tos.js, and under
  * TMP (tmp-console) the Console Monitor frame (tmpChatCard), the sibling of
- * task-card-tmp.js.
+ * task-card-tmp.js, and under ENT (ent-panel) the Bridge Touchscreen frame
+ * (entChatCard), the sibling of task-card-ent.js.
  *
  * Shape: the TNG "Bracket Console" (tngChatCard below) — open brackets at the
  * four corners, the title centred in the top bar's gap, segmented side arms. It
@@ -32,13 +33,14 @@
  * against a controls element in there. Anything that rebuilt the body would have
  * to re-establish all of it.
  *
- * Nearly a leaf: it imports lcars-theme.js and task-card-tng.js, which itself
- * imports only lcars-theme.js, so any builder can use it without risking an
- * import cycle.
+ * Nearly a leaf: it imports lcars-theme.js, task-card-tng.js and
+ * task-card-ent.js, each of which imports only lcars-theme.js, so any builder
+ * can use it without risking an import cycle.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom } from "./task-card-tng.js";
+import { entHead, entFoot } from "./task-card-ent.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 
@@ -172,10 +174,10 @@ function _addClass(tag, cls) {
     : tag.replace(/^<([a-z0-9-]+)/i, `<$1 class="${cls}"`);
 }
 
-function _tosifyTag(tag, name) {
+function _tosifyTag(tag, name, prefix = "tos") {
   const styleMatch = tag.match(/\sstyle\s*=\s*"([^"]*)"/i);
   const isControl = _TOS_CONTROL.test(name);
-  if (!styleMatch) return isControl ? _addClass(tag, "ccf-tos-ctl") : tag;
+  if (!styleMatch) return isControl ? _addClass(tag, `ccf-${prefix}-ctl`) : tag;
   const style = styleMatch[1];
 
   // Classify the LCARS shape before its declarations go.
@@ -207,7 +209,7 @@ function _tosifyTag(tag, name) {
   if (accent) next = `--tn-c:${accent};${next}`;
 
   const rewritten = tag.replace(styleMatch[0], ` style="${next.trim()}"`);
-  return kind ? _addClass(rewritten, `ccf-tos-${kind}`) : rewritten;
+  return kind ? _addClass(rewritten, `ccf-${prefix}-${kind}`) : rewritten;
 }
 
 /** Decorative emoji the LCARS bodies prefix their lines with (💥 ⚠️ ⚔ …).
@@ -215,12 +217,26 @@ function _tosifyTag(tag, name) {
 const _EMOJI = /(?:[\u{1F000}-\u{1FAFF}]|[\u{2600}-\u{26FF}])\u{FE0F}?\s?|\u{FE0F}/gu;
 export const stripDecorativeEmoji = text => String(text ?? "").replace(_EMOJI, "");
 
-/** The TOS body pass — exported for the spend panel, injected after render. */
-export function tosifyBodyHtml(html) {
+/**
+ * The console body pass, shared by the TOS and ENT frames: classify each
+ * LCARS shape, strip what made it LCARS, stamp `ccf-<prefix>-<kind>`, drop
+ * decorative emoji, and turn the buttons into keys.
+ */
+function _consoleBodyHtml(html, prefix) {
   return keyifyButtons(String(html ?? "")
-    .replace(_TOS_TAGS, (tag, name) => _tosifyTag(tag, name))
+    .replace(_TOS_TAGS, (tag, name) => _tosifyTag(tag, name, prefix))
     .replace(/>([^<]+)</g, (m, text) => `>${stripDecorativeEmoji(text)}<`));
 }
+
+/** The TOS body pass — exported for the spend panel, injected after render. */
+export function tosifyBodyHtml(html) { return _consoleBodyHtml(html, "tos"); }
+
+/**
+ * The ENT body pass: the TOS classifier with `ccf-ent-*` classes, which
+ * task-card-ent.css redraws as bracketed wells, glass plates and edge strips.
+ * Exported for the spend panel, injected after render.
+ */
+export function entBodyHtml(html) { return _consoleBodyHtml(html, "ent"); }
 
 /**
  * The TOS "Console Viewer" frame: a gunmetal housing, a header with the title
@@ -307,9 +323,38 @@ function tngChatCard({ title, accent, body, rootClass, attrs }) {
 </div>`;
 }
 
+/** The ENT frame's theme gate, matching `entSkin` in npc-roller.js. */
+export function isEntChatCardFrame() {
+  try { return isEntTheme(getActiveLcThemeKey()); }
+  catch { return false; }
+}
+
+/**
+ * The ENT "Bridge Touchscreen" frame — the sibling of task-card-ent.js, built
+ * from the same entHead / entFoot markup and `.tec` classes, so the frame
+ * exists once in task-card-ent.css. The accent is the outline, the tab and
+ * the ticks (--tec-c). The body goes through entBodyHtml — its LCARS shapes
+ * become wells and plates, its buttons tab keys — and keeps `.ccf-body`,
+ * which several wirers use as their host.
+ */
+function entChatCard({ title, accent, body, rootClass, attrs }) {
+  const colour = accent || LC.primary;
+  const clean = stripDecorativeEmoji(title);
+  return `
+<div class="sta2e-chat-card sta2e-chat-card--ent tec${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("cc")}--ccf-c:${colour};--tec-c:${colour};">
+  <div class="tec-in">
+  ${entHead(clean)}
+  <div class="tec-body ccf-body">${entBodyHtml(body)}</div>
+  ${entFoot("", clean)}
+  </div>
+</div>`;
+}
+
 export function lcarsChatCard({ title, accent, body, legacy, rootClass = "", attrs = "" }) {
   if (isTosChatCardFrame()) return tosChatCard({ title, accent, body, rootClass, attrs });
   if (isTmpChatCardFrame()) return tmpChatCard({ title, accent, body, rootClass, attrs });
+  if (isEntChatCardFrame()) return entChatCard({ title, accent, body, rootClass, attrs });
   if (!isChatCardFrame()) return legacy();
   return tngChatCard({ title, accent, body, rootClass, attrs });
 }

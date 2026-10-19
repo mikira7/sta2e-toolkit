@@ -50,7 +50,7 @@
 .sta2e-task-card[data-theme="blue"] { /* inherits the base shape */ }
 .sta2e-task-card[data-theme="tos-panel"] { /* own skin: styles/task-card-tos.css */ }
 .sta2e-task-card[data-theme="tmp-console"] { /* own skin: styles/task-card-tmp.css */ }
-.sta2e-task-card[data-theme="ent-panel"] { /* inherits the base shape */ }
+.sta2e-task-card[data-theme="ent-panel"] { /* own skin: styles/task-card-ent.css */ }
 .sta2e-task-card[data-theme="klingon"] { /* inherits the base shape */ }
 .sta2e-task-card[data-theme="romulan"] { /* inherits the base shape */ }
 

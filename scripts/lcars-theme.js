@@ -148,6 +148,15 @@ export const TMP_THEME_KEYS = new Set(["tmp-console", "tmp-monitor"]);
 /** Whether a theme id is one of the TMP looks. */
 export function isTmpTheme(key) { return TMP_THEME_KEYS.has(key); }
 
+/**
+ * Themes whose task card and chat cards wear the ENT Bridge Touchscreen
+ * (task-card-ent.js, entChatCard in chat-card-frame.js).
+ */
+export const ENT_THEME_KEYS = new Set(["ent-panel"]);
+
+/** Whether a theme id wears the Bridge Touchscreen cards. */
+export function isEntTheme(key) { return ENT_THEME_KEYS.has(key); }
+
 export function themeForEra(era) {
   return ERA_THEME_DEFAULTS[era] ?? "lcars-tng";
 }

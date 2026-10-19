@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ENT Chat Card Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Saira+Condensed:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ── Page chrome (not part of any design) ─────────────────────────────── */
+:root {
+  --page-bg: #121418; --page-ink: #d8dbe0; --page-dim: #858a94; --page-rule: #2a2e36;
+  /* ent-panel tokens from scripts/lcars-theme.js, plus the amber the ENT
+     Stardate HUD already uses (#cc8833) */
+  --e-grey: #c7c7c7; --e-panel: #2e2e2e; --e-blue: #7aaec4; --e-txt: #d0d0d0;
+  --e-dim: #5e5e5e; --e-bright: #f0f0f0; --e-green: #a7d46c; --e-yellow: #f0e800;
+  --e-orange: #c47b00; --e-red: #9b0000; --e-amber: #cc8833;
+  /* brighter working shades for type on black, derived from the tokens */
+  --e-red-lit: #e0533a; --e-amber-lit: #ffb347; --e-sky: #bfe3f2;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page-bg); color: var(--page-ink);
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1180px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .02em; }
+.lede { color: var(--page-dim); margin: 0 0 30px; max-width: 820px; }
+.lede code, .notes code, .concept-head code { color: #9fcde0; }
+section.concept { margin-bottom: 52px; }
+.concept-head { border-bottom: 1px solid var(--page-rule); padding-bottom: 10px; margin-bottom: 14px; max-width: 860px; }
+.concept-head .tag { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--page-dim); }
+.concept-head h2 { font-size: 18px; margin: 2px 0 4px; }
+.concept-head p { margin: 0; color: var(--page-dim); font-size: 13px; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--page-dim); }
+.swatches span { display: inline-flex; align-items: center; gap: 5px; }
+.swatches i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.chatrow { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 22px; }
+@media (max-width: 1000px) { .chatrow { grid-template-columns: minmax(0, 320px); justify-content: center; } }
+.chatlog { background: #0d0e11; border: 1px solid var(--page-rule); border-radius: 6px;
+  padding: 10px; display: flex; flex-direction: column; gap: 12px; align-self: start; min-width: 0; }
+.msg-meta { font-size: 11px; color: #777; margin: 0 0 4px 2px; }
+.notes { margin-top: 18px; color: var(--page-dim); font-size: 13px; max-width: 860px; }
+.notes h3 { color: var(--page-ink); font-size: 15px; margin: 0 0 6px; }
+.notes li { margin-bottom: 4px; }
+button { font: inherit; cursor: pointer; }
+
+/* Shared die: the same markup as the live card — Foundry's d20-grey.svg drawn
+   faint behind the value, which carries the colour. The src is filled in by
+   the script at the bottom so the icon is embedded once. */
+.d20 { position: relative; width: 30px; height: 30px; display: inline-grid; place-items: center; flex: none; }
+.d20 img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .22; pointer-events: none; }
+.d20 b { position: relative; z-index: 1; font-weight: 700; font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.9); }
+.d20 i { position: absolute; top: 1px; left: 0; right: 0; text-align: center; font-style: normal; font-size: 7px; letter-spacing: -1px; z-index: 1; }
+.d20.c b { padding-top: 6px; }
+.d20.sel img { opacity: .8; filter: sepia(1) saturate(6) hue-rotate(4deg) brightness(1.15) drop-shadow(0 0 5px #f0e800); }
+.dice { display: flex; gap: 3px; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT A — BRIDGE TOUCHSCREEN
+   The NX-01 bridge displays: deep navy glass with a faint grid, thin
+   blue-white line art, chamfered corners and tab-shaped keys. Readouts
+   are a label, a mono value and a hairline bar graph under it.
+   ══════════════════════════════════════════════════════════════════════ */
+.a { --c: var(--e-blue); --cut: 12px; font-family: "Rajdhani", "Arial Narrow", sans-serif;
+  color: var(--e-sky); background: var(--c); padding: 1px;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut)); }
+.a-in { position: relative; padding: 0 9px 7px;
+  clip-path: polygon(calc(var(--cut) - .4px) 0, 100% 0, 100% calc(100% - var(--cut) + .4px), calc(100% - var(--cut) + .4px) 100%, 0 100%, 0 calc(var(--cut) - .4px));
+  background:
+    repeating-linear-gradient(0deg, rgba(122,174,196,.06) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(90deg, rgba(122,174,196,.06) 0 1px, transparent 1px 14px),
+    radial-gradient(120% 80% at 50% 0%, #0d2233 0%, #06121c 55%, #030a10 100%); }
+.a-head { display: flex; align-items: stretch; gap: 6px; margin: 0 -9px 6px; padding-left: 16px; height: 24px;
+  border-bottom: 1px solid color-mix(in srgb, var(--c) 55%, transparent); }
+.a-title { align-self: center; font-weight: 700; font-size: 15px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--e-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+.a-tab { flex: none; align-self: flex-end; height: 15px; padding: 0 8px 0 10px; font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; color: #03121c; background: var(--c); line-height: 15px;
+  clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%); }
+.a-ticks { flex: none; align-self: center; display: flex; gap: 2px; padding-right: 8px; }
+.a-ticks i { width: 3px; height: 10px; background: var(--c); opacity: .35; }
+.a-ticks i:nth-child(2) { opacity: .7; } .a-ticks i:nth-child(3) { opacity: 1; }
+.a-id { font-size: 12px; font-weight: 600; letter-spacing: .06em; color: #7f9fb0; text-transform: uppercase; margin-bottom: 5px; }
+.a-well { border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); background: rgba(0,0,0,.35);
+  padding: 2px 5px 4px; margin-bottom: 5px; position: relative; }
+.a-well::before { content: ""; position: absolute; left: -1px; top: -1px; width: 8px; height: 8px;
+  border-left: 2px solid var(--c); border-top: 2px solid var(--c); }
+.a-well::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px;
+  border-right: 2px solid var(--c); border-bottom: 2px solid var(--c); }
+.a-lbl { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #6f93a6; }
+.a-lbl span:last-child { color: var(--c); font-family: "Share Tech Mono", monospace; letter-spacing: .04em; }
+.a .d20 { color: var(--e-sky); font-family: "Share Tech Mono", monospace; }
+.a .d20.c { color: var(--e-yellow); } .a .d20.x { color: #ff6a50; } .a .d20.f { color: #3c5866; }
+.a-note { font-size: 12px; font-weight: 600; color: var(--e-txt); padding: 2px 6px; margin-bottom: 5px;
+  border-left: 3px solid var(--nc, var(--e-green)); background: color-mix(in srgb, var(--nc, var(--e-green)) 10%, transparent); }
+.a-read { display: grid; gap: 4px; margin-bottom: 6px; }
+.a-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; font-size: 12px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: #8fb1c2; }
+.a-row b { font-family: "Share Tech Mono", monospace; font-weight: 400; font-size: 15px; color: var(--e-bright); letter-spacing: 0; }
+.a-bar { grid-column: 1 / -1; height: 3px; background: rgba(122,174,196,.15); position: relative; margin-top: 1px; }
+.a-bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--p, 50%); background: var(--bc, var(--c)); }
+.a-bar.mark::before { content: ""; position: absolute; top: -2px; bottom: -2px; left: var(--m); width: 1px; background: var(--e-bright); z-index: 1; }
+.a-result { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; margin-bottom: 6px;
+  font-weight: 700; font-size: 14px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--rc, var(--e-green)); border: 1px solid var(--rc, var(--e-green));
+  background: color-mix(in srgb, var(--rc, var(--e-green)) 14%, transparent); }
+.a-result::before { content: "»"; letter-spacing: 0; }
+.a-result small { margin-left: auto; font-size: 10px; letter-spacing: .1em; opacity: .8; }
+.a-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.a-key { --k: var(--e-blue); min-height: 26px; padding: 3px 8px 3px 10px; text-align: left; border: 0;
+  font-family: inherit; font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--e-bright); line-height: 1.1;
+  background: linear-gradient(90deg, var(--k) 0 3px, color-mix(in srgb, var(--k) 22%, #04101a) 3px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 60%, transparent);
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%); }
+.a-key small { display: block; font-size: 10px; font-weight: 600; letter-spacing: .05em; opacity: .7; }
+.a-key.wide { grid-column: 1 / -1; }
+.a-key.armed { background: linear-gradient(90deg, var(--e-yellow) 0 3px, #1a1a00 3px); color: var(--e-yellow);
+  box-shadow: inset 0 0 0 1px var(--e-yellow); }
+.a-spend { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: #8fb1c2; margin-bottom: 6px; }
+.a-spend span { flex: 1; }
+.a-step { width: 22px; height: 20px; border: 1px solid var(--c); background: transparent; color: var(--c); font-weight: 700; padding: 0; }
+.a-spend b { font-family: "Share Tech Mono", monospace; color: var(--e-bright); font-size: 14px; min-width: 14px; text-align: center; }
+.a-foot { display: flex; justify-content: space-between; align-items: center; margin: 7px -9px 0; padding: 3px 16px 0 9px;
+  border-top: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  font-family: "Share Tech Mono", monospace; font-size: 10px; color: #56788a; letter-spacing: .06em; }
+.a-foot .stream { overflow: hidden; white-space: nowrap; max-width: 46%; opacity: .55; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT B — BULKHEAD CONSOLE
+   The ENT Stardate HUD made into a card: a gunmetal housing with corner
+   screws, a UESPA ID block, amber readouts on recessed black displays,
+   an illuminated result placard and raised rounded-rect keys.
+   ══════════════════════════════════════════════════════════════════════ */
+.b { --c: var(--e-amber); position: relative; font-family: "Helvetica Neue", Arial, sans-serif;
+  color: var(--e-amber-lit); border-radius: 5px; padding: 0 0 6px;
+  background: linear-gradient(180deg, #2c2c2e 0%, #1e1e20 50%, #161618 100%);
+  border: 1px solid #0b0b0b; border-bottom: 3px solid #070707;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(0,0,0,.6), 0 4px 14px rgba(0,0,0,.8); }
+.b::before { content: ""; position: absolute; left: 6px; right: 6px; top: 0; height: 2px; background: var(--c);
+  border-radius: 0 0 2px 2px; box-shadow: 0 0 6px color-mix(in srgb, var(--c) 70%, transparent); }
+.b-screw { position: absolute; width: 7px; height: 7px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #6a6a6e, #2a2a2c 70%); box-shadow: 0 0 0 1px #0a0a0a; }
+.b-screw::after { content: ""; position: absolute; left: 1px; right: 1px; top: 3px; height: 1px; background: #111; transform: rotate(-35deg); }
+.b-screw.tl { left: 4px; top: 6px; } .b-screw.tr { right: 4px; top: 6px; }
+.b-screw.bl { left: 4px; bottom: 4px; } .b-screw.br { right: 4px; bottom: 4px; }
+.b-head { display: flex; align-items: stretch; height: 34px; margin: 0 0 6px; border-bottom: 2px solid #0a0a0a; }
+.b-idb { flex: none; display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 52px;
+  margin-left: 14px; padding: 0 6px; background: linear-gradient(180deg, #1a1a1c 0%, #111113 100%); border-right: 2px solid #0a0a0a; }
+.b-idb b { font-size: 9px; font-weight: 700; letter-spacing: .1em; color: var(--e-amber); }
+.b-idb small { font-size: 7px; color: #666; letter-spacing: .1em; }
+.b-strut { flex: none; width: 4px; background: linear-gradient(90deg, #111 0%, #2a2a2a 50%, #111 100%);
+  border-left: 1px solid #0a0a0a; border-right: 1px solid #333; }
+.b-title { flex: 1 1 auto; min-width: 0; align-self: center; padding: 0 8px; font-size: 12px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-led { flex: none; align-self: center; width: 9px; height: 9px; border-radius: 50%; margin-right: 18px;
+  background: radial-gradient(circle at 35% 35%, #fff 0 8%, var(--c) 40%, color-mix(in srgb, var(--c) 40%, #000) 100%);
+  box-shadow: 0 0 6px var(--c), 0 0 0 2px #0a0a0a; }
+.b-body { padding: 0 14px; }
+.b-sub { font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #777; margin: 0 2px 4px; }
+.b-disp { background: #070707; border: 1px solid #000; border-radius: 3px; padding: 4px 7px 5px; margin-bottom: 6px;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06);
+  background-image: linear-gradient(180deg, rgba(204,136,51,.05), transparent 40%); }
+.b-dlbl { display: flex; justify-content: space-between; font-size: 8px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: #8a5f28; margin-bottom: 1px; }
+.b .d20 { color: var(--e-amber-lit); font-family: "Share Tech Mono", monospace; }
+.b .d20 b { text-shadow: 0 0 6px rgba(255,179,71,.5); }
+.b .d20.c { color: var(--e-yellow); } .b .d20.x { color: #ff5a3a; } .b .d20.f { color: #5a4020; }
+.b-row { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0;
+  border-bottom: 1px dashed #2a1e10; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #a8762f; }
+.b-row:last-child { border-bottom: 0; }
+.b-row b { font-family: "Share Tech Mono", monospace; font-weight: 400; font-size: 15px; letter-spacing: 0;
+  color: var(--e-amber-lit); text-shadow: 0 0 6px rgba(255,179,71,.45); }
+.b-seg { display: flex; gap: 2px; margin: 3px 0 1px; }
+.b-seg i { flex: 1; height: 6px; background: var(--e-amber-lit); box-shadow: 0 0 4px rgba(255,179,71,.5); }
+.b-seg i.off { background: #2a1d0d; box-shadow: none; }
+.b-note { font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #cfcfcf; margin: 0 0 6px; padding: 3px 6px 3px 18px;
+  position: relative; background: #1a1a1c; border-radius: 3px; box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+.b-note::before { content: ""; position: absolute; left: 6px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%;
+  background: var(--nc, var(--e-green)); box-shadow: 0 0 5px var(--nc, var(--e-green)); }
+.b-placard { height: 24px; display: grid; place-items: center; margin-bottom: 7px; border-radius: 3px;
+  font-size: 12px; font-weight: 800; letter-spacing: .3em; text-transform: uppercase; color: #0c0c0c;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rc, var(--e-green)) 85%, #fff) 0%, var(--rc, var(--e-green)) 60%, color-mix(in srgb, var(--rc, var(--e-green)) 75%, #000) 100%);
+  box-shadow: 0 0 0 2px #0a0a0a, 0 0 12px color-mix(in srgb, var(--rc, var(--e-green)) 45%, transparent), inset 0 1px 0 rgba(255,255,255,.4); }
+.b-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.b-key { --k: var(--e-amber); position: relative; min-height: 28px; padding: 3px 6px 3px 16px; text-align: left;
+  font-family: inherit; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--e-amber-lit); line-height: 1.2;
+  background: linear-gradient(180deg, #3a3a3e 0%, #252528 100%); border: 1px solid #4a4a4e; border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6); }
+.b-key::before { content: ""; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 4px; border-radius: 2px;
+  background: var(--k); box-shadow: 0 0 5px var(--k); }
+.b-key small { display: block; font-size: 8px; font-weight: 600; color: #8a8a8e; letter-spacing: .06em; }
+.b-key.wide { grid-column: 1 / -1; }
+.b-key.armed { color: #1a1300; border-color: var(--e-yellow);
+  background: linear-gradient(180deg, #fff6a0 0%, var(--e-yellow) 55%, #b8b000 100%);
+  box-shadow: 0 0 10px rgba(240,232,0,.45), inset 0 1px 0 rgba(255,255,255,.6); }
+.b-key.armed::before { background: #1a1300; box-shadow: none; }
+.b-key.armed small { color: #4a4400; }
+.b-spend { display: flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: #9a9a9e; margin-bottom: 6px; }
+.b-spend span { flex: 1; }
+.b-step { width: 22px; height: 20px; padding: 0; border-radius: 3px; border: 1px solid #4a4a4e; color: var(--e-amber-lit); font-weight: 700;
+  background: linear-gradient(180deg, #3a3a3e, #252528); }
+.b-spend b { font-family: "Share Tech Mono", monospace; color: var(--e-amber-lit); background: #070707; border-radius: 2px;
+  padding: 0 5px; font-size: 13px; box-shadow: inset 0 1px 3px #000; }
+.b-foot { display: flex; align-items: center; gap: 6px; margin: 7px 14px 0; }
+.b-foot .b-disp { flex: 1; margin: 0; padding: 2px 6px; font-family: "Share Tech Mono", monospace; font-size: 10px; color: var(--e-amber); }
+.b-plate { flex: none; font-size: 8px; font-weight: 800; letter-spacing: .14em; color: #8d8d90; padding: 2px 6px; border-radius: 2px;
+  background: linear-gradient(180deg, #4a4a4e, #333336); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 0 0 1px #0a0a0a;
+  text-shadow: 0 -1px 0 #000; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT C — SYSTEMS STATUS BOARD
+   Engineering on the NX-01: a charcoal chassis with a striped hazard
+   band whose colour gives the card type, stencilled hull lettering,
+   dice in square sockets, segmented block meters and chunky light-grey
+   push keys with a coloured cap light.
+   ══════════════════════════════════════════════════════════════════════ */
+.c { --c: var(--e-blue); font-family: "Saira Condensed", "Arial Narrow", sans-serif; color: var(--e-txt);
+  background: #242628; border: 1px solid #0c0d0e; box-shadow: inset 0 0 0 1px #3a3d40, 0 3px 10px rgba(0,0,0,.7); }
+.c-band { height: 9px; background: repeating-linear-gradient(-45deg, var(--c) 0 7px, #111 7px 14px);
+  border-bottom: 1px solid #0c0d0e; }
+.c-head { display: flex; align-items: center; gap: 8px; padding: 5px 8px 4px; background: linear-gradient(180deg, #303336, #26282a);
+  border-bottom: 1px solid #0c0d0e; }
+.c-title { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 16px; line-height: 1; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--e-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-code { flex: none; font-weight: 700; font-size: 10px; letter-spacing: .12em; color: #111; background: var(--c); padding: 1px 5px; }
+.c-mid { display: grid; grid-template-columns: 22px minmax(0, 1fr); }
+.c-lamps { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 6px 6px; }
+.c-lamps i { width: 10px; height: 10px; background: #3a3d40; box-shadow: inset 0 0 0 1px #111; }
+.c-lamps i.on { background: var(--lc, var(--c)); box-shadow: inset 0 0 0 1px #111, 0 0 6px var(--lc, var(--c)); }
+.c-body { padding: 6px 8px 7px 4px; min-width: 0; }
+.c-id { font-size: 12px; font-weight: 600; letter-spacing: .06em; color: #9ca3a8; text-transform: uppercase; margin-bottom: 4px; }
+.c-lbl { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: #868d92; margin-bottom: 2px; }
+.c-lbl span:last-child { color: #111; background: #8d9499; padding: 0 4px; }
+.c .dice { gap: 3px; margin-bottom: 6px; }
+.c .d20 { width: 32px; height: 32px; background: #121314; box-shadow: inset 0 0 0 1px #000, inset 0 2px 4px rgba(0,0,0,.9), 0 1px 0 #3d4044; }
+.c .d20 img { inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); }
+.c .d20 { color: var(--e-bright); font-family: "Saira Condensed", sans-serif; }
+.c .d20 b { font-size: 15px; }
+.c .d20.c { color: var(--e-yellow); } .c .d20.x { color: #ff5a3a; } .c .d20.f { color: #4a4f53; }
+.c-note { font-size: 12px; font-weight: 600; color: #e6e6e6; margin-bottom: 6px; padding: 2px 6px;
+  background: #1a1b1d; border-left: 4px solid var(--nc, var(--e-green)); }
+.c-meter { margin-bottom: 5px; }
+.c-meter .c-mh { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: #9ca3a8; }
+.c-meter .c-mh b { font-size: 17px; line-height: 1; font-weight: 800; color: var(--e-bright); letter-spacing: 0; }
+.c-segs { display: flex; gap: 2px; margin-top: 2px; }
+.c-segs i { flex: 1; height: 8px; background: #141516; box-shadow: inset 0 0 0 1px #000; }
+.c-segs i.on { background: var(--mc, var(--e-blue)); }
+.c-segs i.hi { background: var(--e-orange); }
+.c-segs i.lost { background: repeating-linear-gradient(-45deg, #5a1010 0 2px, #2a0808 2px 4px); }
+.c-kv { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #9ca3a8; padding: 2px 0; border-bottom: 1px solid #1a1b1d; }
+.c-kv b { font-size: 15px; font-weight: 800; color: var(--e-bright); letter-spacing: .02em; }
+.c-result { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 7px; padding: 3px 8px;
+  font-weight: 800; font-size: 15px; letter-spacing: .22em; text-transform: uppercase; color: #0d0d0d; background: var(--rc, var(--e-green)); }
+.c-result small { font-size: 10px; letter-spacing: .1em; font-weight: 700; }
+.c-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.c-key { --k: var(--e-blue); min-height: 28px; padding: 6px 7px 3px; text-align: left; border: 0; border-radius: 0;
+  font-family: inherit; font-weight: 700; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #141516; line-height: 1.05;
+  background: linear-gradient(180deg, var(--k) 0 4px, #b9bec2 4px, #9ea4a9 100%);
+  box-shadow: inset 0 0 0 1px #0c0d0e, inset 0 -2px 0 rgba(0,0,0,.25), 0 1px 0 #3d4044; }
+.c-key small { display: block; font-size: 10px; font-weight: 600; color: #3c4145; letter-spacing: .04em; }
+.c-key.wide { grid-column: 1 / -1; }
+.c-key.armed { background: linear-gradient(180deg, #111 0 4px, var(--e-yellow) 4px, #c9c200 100%); box-shadow: inset 0 0 0 1px #0c0d0e, 0 0 8px rgba(240,232,0,.4); }
+.c-spend { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: #9ca3a8; margin-bottom: 6px; }
+.c-spend span { flex: 1; }
+.c-step { width: 22px; height: 20px; padding: 0; border: 0; font-weight: 800; color: #141516; background: #9ea4a9; box-shadow: inset 0 0 0 1px #0c0d0e; }
+.c-spend b { font-size: 15px; color: var(--e-bright); min-width: 12px; text-align: center; }
+.c-foot { display: flex; justify-content: space-between; align-items: center; padding: 3px 8px; background: #1c1d1f;
+  border-top: 1px solid #0c0d0e; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: #6c7378; }
+.c-foot b { font-weight: 800; color: #8d9499; letter-spacing: .24em; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>ENT chat cards</h1>
+  <p class="lede">Three concepts for the <code>ent-panel</code> era (2150s, NX-01): the Working Results task card, the damage cards (ship and ground) and the smaller cards (Confirmed, Sensor Contact, Hazard Entry). As with the TNG concepts, each is one frame shared by every card, with the card type given by the frame colour. Every colour comes from the <code>ent-panel</code> tokens in <code>lcars-theme.js</code> plus the amber the ENT Stardate HUD already uses. The era has no stardates, so footers carry the Earth date and time, as the HUD does. Cards are shown at Foundry's chat sidebar width.</p>
+
+  <!-- ═══════════════════════════ A ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept A · the bridge stations</div>
+      <h2>Bridge Touchscreen</h2>
+      <p>The NX-01's flat bridge displays: navy glass with a faint grid, thin blue-white line art and chamfered corners. The title sits on a rule with a cut tab for the station code. Dice sit in a bracketed well. Each readout has a hairline bar graph under it, with a tick at the Difficulty. Keys are tabs with a cut corner and a coloured edge. This is the most "on screen" of the three and the lightest in weight.</p>
+      <div class="swatches"><span><i style="background:#7aaec4"></i>Task</span><span><i style="background:#a7d46c"></i>Passed</span><span><i style="background:#e0533a"></i>Damage / failed</span><span><i style="background:#bfe3f2"></i>Sensors</span><span><i style="background:#f0b400"></i>Hazard</span><span><i style="background:#c7c7c7"></i>Assist</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Reed · Working</div>
+        <div class="a"><div class="a-in">
+          <div class="a-head"><span class="a-title">Fire Phase Cannons</span><span class="a-ticks"><i></i><i></i><i></i></span><span class="a-tab">TAC 03</span></div>
+          <div class="a-id">Lt. Malcolm Reed · Comp Range 20</div>
+          <div class="a-well">
+            <div class="a-lbl"><span>Control + Security</span><span>T 12</span></div>
+            <div class="dice">
+              <span class="sta2e-card-die d20 c"><img alt=""><i>★★</i><b>1</b></span>
+              <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+              <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+            </div>
+          </div>
+          <div class="a-well">
+            <div class="a-lbl"><span>Enterprise · Weapons + Security</span><span>T 10</span></div>
+            <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+          </div>
+          <div class="a-note">Call Out Targets: +1 bonus Momentum on success</div>
+          <div class="a-read">
+            <div class="a-row"><span>Successes</span><b>4</b><span class="a-bar mark" style="--p:66%;--m:33%"></span></div>
+            <div class="a-row"><span>Difficulty</span><b>2</b><span class="a-bar" style="--p:33%;--bc:#8fb1c2"></span></div>
+            <div class="a-row"><span>Momentum</span><b>2</b><span class="a-bar" style="--p:33%;--bc:#a7d46c"></span></div>
+          </div>
+          <div class="a-result">Success<small>+2 Momentum</small></div>
+          <div class="a-keys">
+            <button class="a-key armed">▶ Determination<small>Multiple dice</small></button>
+            <button class="a-key">Targeting Solution</button>
+            <button class="a-key" style="--k:#c7c7c7">Talent Reroll</button>
+            <button class="a-key" style="--k:#5e7f8f">Edit Card</button>
+            <button class="a-key wide" style="--k:#e0533a">Resolve Hit · 4 Successes</button>
+          </div>
+          <div class="a-foot"><span>2152.04.12 · 14:32</span><span class="stream">0x3F 9A 11 C4 07 E2 5B</span></div>
+        </div></div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="a" style="--c:#e0533a"><div class="a-in">
+          <div class="a-head"><span class="a-title">Plasma Cannon Hit</span><span class="a-ticks"><i></i><i></i><i></i></span><span class="a-tab">DMG 02</span></div>
+          <div class="a-id">Klingon Raptor ▸ Enterprise NX-01</div>
+          <div class="a-read">
+            <div class="a-row"><span>Damage</span><b>8</b></div>
+            <div class="a-row"><span>Resistance</span><b>−3</b></div>
+            <div class="a-row"><span>Shields</span><b>12 → 7</b><span class="a-bar" style="--p:58%;--bc:#7aaec4"></span></div>
+          </div>
+          <div class="a-result" style="--rc:#e0533a">Breach<small>Weapons</small></div>
+          <div class="a-note" style="--nc:#f0e800">Shields below 50%: one breach to Weapons</div>
+          <div class="a-spend"><span>Spend Momentum · +1 Damage</span><button class="a-step">−</button><b>1</b><button class="a-step">+</button></div>
+          <div class="a-keys">
+            <button class="a-key" style="--k:#e0533a">Apply Damage</button>
+            <button class="a-key" style="--k:#5e7f8f">Undo</button>
+          </div>
+          <div class="a-foot"><span>Tactical</span><span>2152.04.12 · 14:33</span></div>
+        </div></div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="a" style="--c:#e0533a"><div class="a-in">
+          <div class="a-head"><span class="a-title">Phase Pistol Hit</span><span class="a-ticks"><i></i><i></i><i></i></span><span class="a-tab">INJ 04</span></div>
+          <div class="a-id">Cpl. Hawkins ▸ Xindi-Reptilian</div>
+          <div class="a-read">
+            <div class="a-row"><span>Severity</span><b>4</b></div>
+            <div class="a-row"><span>Protection</span><b>−1</b></div>
+            <div class="a-row"><span>Stress</span><b>8 → 5</b><span class="a-bar" style="--p:38%;--bc:#e0533a"></span></div>
+          </div>
+          <div class="a-result" style="--rc:#ff3b2a">Deadly Injury</div>
+          <div class="a-keys">
+            <button class="a-key" style="--k:#ff3b2a">Take Injury</button>
+            <button class="a-key" style="--k:#c7c7c7">Avoid<small>2 Threat</small></button>
+          </div>
+        </div></div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Sub-Cmdr. T'Pol · Confirmed</div>
+        <div class="a" style="--c:#a7d46c"><div class="a-in">
+          <div class="a-head"><span class="a-title">Analyse Anomaly</span><span class="a-tab">SCI 20</span></div>
+          <div class="a-read"><div class="a-row"><span>Momentum gained</span><b>+2</b></div></div>
+          <div class="a-keys"><button class="a-key wide" style="--k:#a7d46c">Add Momentum to Pool (+2)</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div class="msg-meta">Sub-Cmdr. T'Pol · Sensors</div>
+        <div class="a" style="--c:#bfe3f2"><div class="a-in">
+          <div class="a-head"><span class="a-title">Sensor Contact</span><span class="a-tab">SNS</span></div>
+          <div class="a-id">Reveal · Hidden vessel</div>
+          <div class="a-read">
+            <div class="a-row"><span>Bearing</span><b>047 Mk 15</b></div>
+            <div class="a-row"><span>Range</span><b>Medium</b></div>
+            <div class="a-row"><span>Zone</span><b>Delphic Expanse</b></div>
+          </div>
+        </div></div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="a" style="--c:#f0b400"><div class="a-in">
+          <div class="a-head"><span class="a-title">Hazard Entry</span><span class="a-tab">HAZ 03</span></div>
+          <div class="a-id">Thermobaric Cloud · Lingering</div>
+          <div class="a-read">
+            <div class="a-row"><span>Enterprise</span><b>Hull plating</b></div>
+            <div class="a-row"><span>Potency</span><b>3</b></div>
+          </div>
+          <div class="a-keys">
+            <button class="a-key" style="--k:#f0b400">Build &amp; Apply</button>
+            <button class="a-key" style="--k:#c47b00">Established</button>
+            <button class="a-key wide" style="--k:#5e7f8f">Ignore</button>
+          </div>
+        </div></div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ B ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept B · the Stardate HUD, extended</div>
+      <h2>Bulkhead Console</h2>
+      <p>The ENT Stardate HUD made into a card, so the chat and the calendar bar read as one set of hardware. A gunmetal housing with corner screws, a lit strip along the top and a status LED in the card-type colour, and a UESPA ID block holding the station. Everything that is a number sits on a recessed black display in amber; the result is an illuminated placard; the keys are the HUD's raised rounded-rect buttons with a coloured indicator. The most physical of the three, and the closest to what the era already ships.</p>
+      <div class="swatches"><span><i style="background:#cc8833"></i>Task</span><span><i style="background:#a7d46c"></i>Passed</span><span><i style="background:#e0533a"></i>Damage / failed</span><span><i style="background:#7aaec4"></i>Sensors</span><span><i style="background:#f0e800"></i>Hazard</span><span><i style="background:#c7c7c7"></i>Assist</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Reed · Working</div>
+        <div class="b">
+          <span class="b-screw tl"></span><span class="b-screw tr"></span><span class="b-screw bl"></span><span class="b-screw br"></span>
+          <div class="b-head"><div class="b-idb"><b>UESPA</b><small>TAC 03</small></div><span class="b-strut"></span><span class="b-title">Fire Phase Cannons</span><span class="b-led"></span></div>
+          <div class="b-body">
+            <div class="b-sub">Lt. Malcolm Reed · Comp Range 20</div>
+            <div class="b-disp">
+              <div class="b-dlbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 c"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+              <div class="b-dlbl" style="margin-top:3px"><span>Enterprise · Weapons + Security</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+            </div>
+            <div class="b-note">Call Out Targets: +1 bonus Momentum on success</div>
+            <div class="b-disp">
+              <div class="b-row"><span>Successes</span><b>4</b></div>
+              <div class="b-seg"><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i></div>
+              <div class="b-row"><span>Difficulty</span><b>2</b></div>
+              <div class="b-row"><span>Momentum</span><b>2</b></div>
+            </div>
+            <div class="b-placard">Success</div>
+            <div class="b-keys">
+              <button class="b-key armed">▶ Determination<small>Multiple dice</small></button>
+              <button class="b-key" style="--k:#7aaec4">Targeting Solution</button>
+              <button class="b-key" style="--k:#c7c7c7">Talent Reroll</button>
+              <button class="b-key" style="--k:#5e5e5e">Edit Card</button>
+              <button class="b-key wide" style="--k:#e0533a">Resolve Hit · 4 Successes</button>
+            </div>
+          </div>
+          <div class="b-foot"><div class="b-disp">2152.04.12 // 14:32</div><span class="b-plate">NX-01</span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="b" style="--c:#e0533a">
+          <span class="b-screw tl"></span><span class="b-screw tr"></span><span class="b-screw bl"></span><span class="b-screw br"></span>
+          <div class="b-head"><div class="b-idb"><b>UESPA</b><small>DMG 02</small></div><span class="b-strut"></span><span class="b-title">Plasma Cannon Hit</span><span class="b-led"></span></div>
+          <div class="b-body">
+            <div class="b-sub">Klingon Raptor ▸ Enterprise NX-01</div>
+            <div class="b-disp">
+              <div class="b-row"><span>Damage</span><b>8</b></div>
+              <div class="b-row"><span>Resistance</span><b>−3</b></div>
+              <div class="b-row"><span>Shields</span><b>12 → 7</b></div>
+              <div class="b-seg"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></div>
+            </div>
+            <div class="b-placard" style="--rc:#e0533a">Breach · Weapons</div>
+            <div class="b-note" style="--nc:#f0e800">Shields below 50%: one breach to Weapons</div>
+            <div class="b-spend"><span>Spend Momentum · +1 Damage</span><button class="b-step">−</button><b>1</b><button class="b-step">+</button></div>
+            <div class="b-keys">
+              <button class="b-key" style="--k:#e0533a">Apply Damage</button>
+              <button class="b-key" style="--k:#5e5e5e">Undo</button>
+            </div>
+          </div>
+          <div class="b-foot"><div class="b-disp">Tactical // 14:33</div><span class="b-plate">NX-01</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="b" style="--c:#e0533a">
+          <span class="b-screw tl"></span><span class="b-screw tr"></span><span class="b-screw bl"></span><span class="b-screw br"></span>
+          <div class="b-head"><div class="b-idb"><b>MACO</b><small>INJ 04</small></div><span class="b-strut"></span><span class="b-title">Phase Pistol Hit</span><span class="b-led"></span></div>
+          <div class="b-body">
+            <div class="b-sub">Cpl. Hawkins ▸ Xindi-Reptilian</div>
+            <div class="b-disp">
+              <div class="b-row"><span>Severity</span><b>4</b></div>
+              <div class="b-row"><span>Protection</span><b>−1</b></div>
+              <div class="b-row"><span>Stress</span><b>8 → 5</b></div>
+            </div>
+            <div class="b-placard" style="--rc:#ff3b2a">Deadly Injury</div>
+            <div class="b-keys">
+              <button class="b-key" style="--k:#ff3b2a">Take Injury</button>
+              <button class="b-key" style="--k:#c7c7c7">Avoid<small>2 Threat</small></button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Sub-Cmdr. T'Pol · Confirmed</div>
+        <div class="b" style="--c:#a7d46c">
+          <span class="b-screw tl"></span><span class="b-screw tr"></span><span class="b-screw bl"></span><span class="b-screw br"></span>
+          <div class="b-head"><div class="b-idb"><b>UESPA</b><small>SCI 20</small></div><span class="b-strut"></span><span class="b-title">Analyse Anomaly</span><span class="b-led"></span></div>
+          <div class="b-body">
+            <div class="b-disp"><div class="b-row"><span>Momentum gained</span><b>+2</b></div></div>
+            <div class="b-keys"><button class="b-key wide" style="--k:#a7d46c">Add Momentum to Pool (+2)</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Sub-Cmdr. T'Pol · Sensors</div>
+        <div class="b" style="--c:#7aaec4">
+          <span class="b-screw tl"></span><span class="b-screw tr"></span><span class="b-screw bl"></span><span class="b-screw br"></span>
+          <div class="b-head"><div class="b-idb"><b>UESPA</b><small>SNS</small></div><span class="b-strut"></span><span class="b-title">Sensor Contact</span><span class="b-led"></span></div>
+          <div class="b-body">
+            <div class="b-sub">Reveal · Hidden vessel</div>
+            <div class="b-disp">
+              <div class="b-row"><span>Bearing</span><b>047 Mk 15</b></div>
+              <div class="b-row"><span>Range</span><b>Medium</b></div>
+              <div class="b-row"><span>Zone</span><b>Delphic Expanse</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="b" style="--c:#f0e800">
+          <span class="b-screw tl"></span><span class="b-screw tr"></span><span class="b-screw bl"></span><span class="b-screw br"></span>
+          <div class="b-head"><div class="b-idb"><b>UESPA</b><small>HAZ 03</small></div><span class="b-strut"></span><span class="b-title">Hazard Entry</span><span class="b-led"></span></div>
+          <div class="b-body">
+            <div class="b-sub">Thermobaric Cloud · Lingering</div>
+            <div class="b-disp">
+              <div class="b-row"><span>Enterprise</span><b>Hull plating</b></div>
+              <div class="b-row"><span>Potency</span><b>3</b></div>
+            </div>
+            <div class="b-keys">
+              <button class="b-key" style="--k:#f0e800">Build &amp; Apply</button>
+              <button class="b-key" style="--k:#c47b00">Established</button>
+              <button class="b-key wide" style="--k:#5e5e5e">Ignore</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ C ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept C · engineering</div>
+      <h2>Systems Status Board</h2>
+      <p>The NX-01 engine room: a charcoal chassis under a striped hazard band whose colour gives the card type, with heavy condensed hull lettering. A column of square status lamps runs down the left (one lit per card state). Dice sit in square sockets, each number is a segmented block meter (orange segments past the Difficulty, hatched for what was lost) and the result is a solid stencilled bar. Keys are chunky light-grey push buttons with a coloured cap light. The boldest of the three, and the one that reads at a glance in a busy chat log.</p>
+      <div class="swatches"><span><i style="background:#7aaec4"></i>Task</span><span><i style="background:#a7d46c"></i>Passed</span><span><i style="background:#e0533a"></i>Damage / failed</span><span><i style="background:#c7c7c7"></i>Sensors / assist</span><span><i style="background:#f0e800"></i>Hazard</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Reed · Working</div>
+        <div class="c">
+          <div class="c-band"></div>
+          <div class="c-head"><span class="c-title">Fire Phase Cannons</span><span class="c-code">TAC 03</span></div>
+          <div class="c-mid">
+            <div class="c-lamps"><i class="on"></i><i></i><i></i><i></i></div>
+            <div class="c-body">
+              <div class="c-id">Lt. Malcolm Reed · Comp Range 20</div>
+              <div class="c-lbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 c"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+              <div class="c-lbl"><span>Enterprise · Weapons</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+              <div class="c-note">Call Out Targets: +1 bonus Momentum on success</div>
+              <div class="c-meter"><div class="c-mh"><span>Successes</span><b>4</b></div>
+                <div class="c-segs"><i class="on"></i><i class="on"></i><i class="hi"></i><i class="hi"></i><i></i><i></i></div></div>
+              <div class="c-kv"><span>Difficulty</span><b>2</b></div>
+              <div class="c-kv"><span>Momentum</span><b>2</b></div>
+              <div class="c-result">Success<small>+2 Momentum</small></div>
+              <div class="c-keys">
+                <button class="c-key armed">▶ Determination<small>Multiple dice</small></button>
+                <button class="c-key">Targeting Solution</button>
+                <button class="c-key" style="--k:#c7c7c7">Talent Reroll</button>
+                <button class="c-key" style="--k:#5e5e5e">Edit Card</button>
+                <button class="c-key wide" style="--k:#e0533a">Resolve Hit · 4 Successes</button>
+              </div>
+            </div>
+          </div>
+          <div class="c-foot"><span>2152.04.12 · 14:32</span><b>NX-01</b></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="c" style="--c:#e0533a">
+          <div class="c-band"></div>
+          <div class="c-head"><span class="c-title">Plasma Cannon Hit</span><span class="c-code">DMG 02</span></div>
+          <div class="c-mid">
+            <div class="c-lamps" style="--lc:#e0533a"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+            <div class="c-body">
+              <div class="c-id">Klingon Raptor ▸ Enterprise NX-01</div>
+              <div class="c-kv"><span>Damage</span><b>8</b></div>
+              <div class="c-kv"><span>Resistance</span><b>−3</b></div>
+              <div class="c-meter" style="margin-top:3px"><div class="c-mh"><span>Shields</span><b>12 → 7</b></div>
+                <div class="c-segs"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i></div></div>
+              <div class="c-result" style="--rc:#e0533a">Breach<small>Weapons</small></div>
+              <div class="c-note" style="--nc:#f0e800">Shields below 50%: one breach to Weapons</div>
+              <div class="c-spend"><span>Spend Momentum · +1 Dmg</span><button class="c-step">−</button><b>1</b><button class="c-step">+</button></div>
+              <div class="c-keys">
+                <button class="c-key" style="--k:#e0533a">Apply Damage</button>
+                <button class="c-key" style="--k:#5e5e5e">Undo</button>
+              </div>
+            </div>
+          </div>
+          <div class="c-foot"><span>Tactical</span><b>NX-01</b></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="c" style="--c:#e0533a">
+          <div class="c-band"></div>
+          <div class="c-head"><span class="c-title">Phase Pistol Hit</span><span class="c-code">INJ 04</span></div>
+          <div class="c-mid">
+            <div class="c-lamps" style="--lc:#ff3b2a"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+            <div class="c-body">
+              <div class="c-id">Cpl. Hawkins ▸ Xindi-Reptilian</div>
+              <div class="c-kv"><span>Severity</span><b>4</b></div>
+              <div class="c-kv"><span>Protection</span><b>−1</b></div>
+              <div class="c-meter" style="margin-top:3px"><div class="c-mh"><span>Stress</span><b>8 → 5</b></div>
+                <div class="c-segs" style="--mc:#e0533a"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="lost"></i><i class="lost"></i><i class="lost"></i></div></div>
+              <div class="c-result" style="--rc:#ff3b2a">Deadly Injury</div>
+              <div class="c-keys">
+                <button class="c-key" style="--k:#ff3b2a">Take Injury</button>
+                <button class="c-key" style="--k:#c7c7c7">Avoid<small>2 Threat</small></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Sub-Cmdr. T'Pol · Confirmed</div>
+        <div class="c" style="--c:#a7d46c">
+          <div class="c-band"></div>
+          <div class="c-head"><span class="c-title">Analyse Anomaly</span><span class="c-code">SCI 20</span></div>
+          <div class="c-mid">
+            <div class="c-lamps" style="--lc:#a7d46c"><i class="on"></i><i></i></div>
+            <div class="c-body">
+              <div class="c-kv"><span>Momentum gained</span><b>+2</b></div>
+              <div class="c-keys" style="margin-top:6px"><button class="c-key wide" style="--k:#a7d46c">Add Momentum to Pool (+2)</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Sub-Cmdr. T'Pol · Sensors</div>
+        <div class="c" style="--c:#c7c7c7">
+          <div class="c-band"></div>
+          <div class="c-head"><span class="c-title">Sensor Contact</span><span class="c-code">SNS</span></div>
+          <div class="c-mid">
+            <div class="c-lamps" style="--lc:#7aaec4"><i class="on"></i><i></i><i></i></div>
+            <div class="c-body">
+              <div class="c-id">Reveal · Hidden vessel</div>
+              <div class="c-kv"><span>Bearing</span><b>047 Mk 15</b></div>
+              <div class="c-kv"><span>Range</span><b>Medium</b></div>
+              <div class="c-kv" style="border:0"><span>Zone</span><b>Delphic Expanse</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="c" style="--c:#f0e800">
+          <div class="c-band"></div>
+          <div class="c-head"><span class="c-title">Hazard Entry</span><span class="c-code">HAZ 03</span></div>
+          <div class="c-mid">
+            <div class="c-lamps" style="--lc:#f0e800"><i class="on"></i><i class="on"></i><i class="on"></i></div>
+            <div class="c-body">
+              <div class="c-id">Thermobaric Cloud · Lingering</div>
+              <div class="c-kv"><span>Enterprise</span><b>Hull plating</b></div>
+              <div class="c-kv" style="border:0"><span>Potency</span><b>3</b></div>
+              <div class="c-keys" style="margin-top:6px">
+                <button class="c-key" style="--k:#f0e800">Build &amp; Apply</button>
+                <button class="c-key" style="--k:#c47b00">Established</button>
+                <button class="c-key wide" style="--k:#5e5e5e">Ignore</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <div class="notes">
+    <h3>Notes for building any of these</h3>
+    <ul>
+      <li>The working card would follow the TOS / TMP / TNG route: a <code>task-card-ent.js</code> skin built from the same <code>skinView</code>, used for <code>ent-panel</code> whatever <code>taskCardStyle</code> says, and keeping the DOM contract (<code>.sta2e-working-actions</code>, <code>.sta2e-card-die</code> dice with their <code>&lt;img&gt;</code>, button classes, <code>data-*</code>). The other cards would get an <code>entChatCard</code> branch in <code>lcarsChatCard</code>, beside <code>tosChatCard</code> and <code>tmpChatCard</code>.</li>
+      <li>Card bodies are written with inline LCARS shapes, so the ENT frame would need a body pass like <code>tosifyBodyHtml</code>: classify tiles, plates, notes and chips by their inline style and strip only what made them LCARS. <b>B</b> could reuse that classifier almost unchanged (its displays play the part of TOS's CRT screens). <b>A</b> and <b>C</b> would map the same classes onto wells and meters.</li>
+      <li><b>Built:</b> Concept A ships as <code>task-card-ent.js</code> / <code>entChatCard</code>. Its keys are tabs and deliberately <i>not</i> <code>data-filled</code>, so arming takes the unfilled path (yellow outline and text), which is the armed look shown above.</li>
+      <li>Every key keeps its colour inline (<code>--k</code> here). <b>B</b> and <b>C</b> would carry <code>data-filled="1"</code>, so arming lights them yellow, as the TOS and TNG keys do. <b>A</b>'s cut corner is a <code>clip-path</code> and its outline an inset <code>box-shadow</code>; <b>B</b>'s bevel and <b>C</b>'s cap light are a <code>box-shadow</code> and a background stop. None of them touches the four properties <code>_armCardSelection</code> owns, and no radius is inline.</li>
+      <li><b>A</b> draws the frame border by nesting two clipped boxes, because a <code>clip-path</code> cuts a real border off the diagonal. The reroll tray, appended to <code>.sta2e-working-actions</code>, would sit inside the inner box. <b>B</b>'s screws and <b>C</b>'s hazard band are pseudo-elements in a build, so builders emit no extra markup.</li>
+      <li>The era has no stardates, so the footer carries the Earth date and time the Stardate HUD already shows. ENT ships have polarized hull plating rather than shields; the cards keep the word <i>Shields</i> because that is the rules term, but a per-era label is a cheap option if wanted.</li>
+      <li>Fonts: <b>A</b> uses Rajdhani with Share Tech Mono for numbers (Share Tech Mono is already bundled in <code>fonts/tmp/</code>); <b>B</b> uses the Helvetica/Arial stack the ENT HUD already uses, so it needs no new font; <b>C</b> uses Saira Condensed. All are Google fonts under the SIL OFL and would be bundled as <code>fonts/tng/</code> is.</li>
+    </ul>
+  </div>
+</div>
+<script>
+// Foundry's d20-grey.svg, embedded once and shared by every die on the page.
+const D20 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=";
+document.querySelectorAll(".d20 img").forEach(img => { img.src = D20; });
+</script>
+</body>
+</html>

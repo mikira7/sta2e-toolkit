@@ -1,0 +1,515 @@
+/*
+ * sta2e-toolkit | task-card-ent.css
+ *
+ * Shape for the ENT "Bridge Touchscreen" (docs/ent-card-mockups.html,
+ * Concept A): the NX-01 bridge displays — navy glass with a faint grid, a thin
+ * line-art outline with two chamfered corners, the title on a rule with a cut
+ * tab, dice in bracketed wells, readouts over hairline bars and tab-shaped keys
+ * with a coloured edge.
+ *
+ * Three parts:
+ *  • The FRAME hangs off `.tec`, which both the task card
+ *    (scripts/task-card-ent.js) and the chat card frame's ENT path
+ *    (entChatCard in scripts/chat-card-frame.js) put on their root. Its colour
+ *    is `--tec-c`, stamped inline by whichever builder made the root.
+ *  • The TASK CARD rules hang off .sta2e-task-card--ent.
+ *  • The CHAT CARD rules hang off .sta2e-chat-card--ent: the body parts the
+ *    ENT body pass classifies (`ccf-ent-*`) and the keys it stamps (--tck-a).
+ *
+ * ── The two hard rules from styles/task-card.css apply here too ─────────────
+ * 1. No `!important`.
+ * 2. Nothing may set background / border-color / color / opacity on a key.
+ *    _armCardSelection() owns those while a reroll is armed and restores them
+ *    through style.cssText, so a task-card key's colour is entirely inline
+ *    (the stylesheet gives its border a width and a style, never a colour).
+ *    Chat-card keys are painted by a rule from --tck-a, exactly as the TOS
+ *    and TMP frames paint theirs.
+ *
+ * Specificity: the shared rules in task-card.css go up to (0,2,1), so the task
+ * card rules here use three classes to win on specificity rather than on
+ * stylesheet order.
+ *
+ * The outline is not a border. A border is cut off on the diagonal by the
+ * clip-path that makes the chamfers, so the root is filled with the frame
+ * colour, padded 1px, and the glass (`.tec-in`) is a second clipped box
+ * inside it.
+ */
+
+/* ── Fonts ────────────────────────────────────────────────────────────────── */
+/* Rajdhani, bundled in fonts/ent (SIL Open Font License, text beside it), under
+   a name of our own so nothing else in a world can collide with it. Latin subset
+   only: ▶ → ★ fall through to the next font in the stack. The numbers use
+   "STA2e Share Tech Mono", declared in task-card-tmp.css. */
+@font-face {
+  font-family: "STA2e Rajdhani";
+  src: url("../fonts/ent/Rajdhani-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "STA2e Rajdhani";
+  src: url("../fonts/ent/Rajdhani-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "STA2e Rajdhani";
+  src: url("../fonts/ent/Rajdhani-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* (0,2,0), to outrank chat-card.css's .sta2e-chat-card font on specificity. */
+.sta2e-task-card.tec,
+.sta2e-chat-card.tec {
+  font-family: var(--tec-font);
+}
+
+.tec button,
+.tec input,
+.tec select,
+.tec textarea {
+  font-family: inherit;
+}
+
+/* ── Frame ────────────────────────────────────────────────────────────────── */
+.tec {
+  --tec-font: "STA2e Rajdhani", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --tec-mono: "STA2e Share Tech Mono", "Consolas", monospace;
+  --tec-cut: 12px;
+  --tec-ink: #bfe3f2;      /* default text */
+  --tec-dim: #8fb1c2;      /* labels */
+  --tec-faint: #6f93a6;    /* well labels, footer */
+  --tec-bright: #f0f0f0;   /* values, titles */
+  --tec-glass: #04101a;
+  --tec-pass: #a7d46c;
+  --tec-fail: #e0533a;
+  --tec-cost: #f0b400;
+  position: relative;
+  padding: 1px;
+  background: var(--tec-c, #7aaec4);
+  color: var(--tec-ink);
+  clip-path: polygon(var(--tec-cut) 0, 100% 0, 100% calc(100% - var(--tec-cut)),
+    calc(100% - var(--tec-cut)) 100%, 0 100%, 0 var(--tec-cut));
+}
+
+.tec > .tec-in {
+  position: relative;
+  padding: 0 9px 0;
+  clip-path: polygon(calc(var(--tec-cut) - 0.4px) 0, 100% 0, 100% calc(100% - var(--tec-cut) + 0.4px),
+    calc(100% - var(--tec-cut) + 0.4px) 100%, 0 100%, 0 calc(var(--tec-cut) - 0.4px));
+  background:
+    repeating-linear-gradient(0deg, rgba(122, 174, 196, 0.06) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(90deg, rgba(122, 174, 196, 0.06) 0 1px, transparent 1px 14px),
+    radial-gradient(120% 80% at 50% 0%, #0d2233 0%, #06121c 55%, #030a10 100%);
+}
+
+/* Title on a rule, three ticks, and a cut tab carrying the state or code. */
+.tec .tec-head {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 24px;
+  margin: 0 -9px 6px;
+  padding-left: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tec-c) 55%, transparent);
+}
+
+.tec .tec-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+  padding: 3px 0 2px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tec-bright);
+  overflow-wrap: anywhere;
+}
+
+.tec .tec-ticks {
+  flex: none;
+  align-self: center;
+  display: flex;
+  gap: 2px;
+}
+.tec .tec-ticks i { width: 3px; height: 10px; background: var(--tec-c); opacity: 0.35; }
+.tec .tec-ticks i:nth-child(2) { opacity: 0.7; }
+.tec .tec-ticks i:nth-child(3) { opacity: 1; }
+
+.tec .tec-tab {
+  flex: none;
+  align-self: flex-end;
+  max-width: 45%;
+  height: 15px;
+  padding: 0 8px 0 10px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  color: #03121c;
+  background: var(--tec-c);
+  clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.tec .tec-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 7px -9px 0;
+  padding: 3px 16px 3px 9px;
+  border-top: 1px solid color-mix(in srgb, var(--tec-c) 35%, transparent);
+  font-family: var(--tec-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #56788a;
+}
+.tec .tec-stream { white-space: nowrap; opacity: 0.55; }
+
+/* ── Task card ────────────────────────────────────────────────────────────── */
+.sta2e-task-card.sta2e-task-card--ent[data-theme] {
+  --tcx-radius: 0;
+  /* The reroll tray reads these with fallbacks (combat-hud-core.js). */
+  --tcx-btn-radius: 0;
+  --tcx-tray-radius: 0;
+}
+
+.sta2e-task-card--ent .tec-sub {
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7f9fb0;
+}
+
+/* Dice wells: an outline with a bright bracket at two corners. */
+.sta2e-task-card--ent .tec-well {
+  position: relative;
+  margin-bottom: 5px;
+  padding: 2px 5px 4px;
+  border: 1px solid color-mix(in srgb, var(--tec-c) 45%, transparent);
+  background: rgba(0, 0, 0, 0.35);
+}
+.sta2e-task-card--ent .tec-well::before,
+.sta2e-task-card--ent .tec-well::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 0 solid var(--tec-c);
+  pointer-events: none;
+}
+.sta2e-task-card--ent .tec-well::before { left: -1px; top: -1px; border-left-width: 2px; border-top-width: 2px; }
+.sta2e-task-card--ent .tec-well::after { right: -1px; bottom: -1px; border-right-width: 2px; border-bottom-width: 2px; }
+
+.sta2e-task-card--ent .tec-lbl {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tec-faint);
+}
+.sta2e-task-card--ent .tec-lbl > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sta2e-task-card--ent .tec-lbl > span + span {
+  flex: none;
+  font-family: var(--tec-mono);
+  letter-spacing: 0.04em;
+  color: var(--tec-c);
+}
+
+.sta2e-task-card--ent .tec-line {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tec-dim);
+}
+
+/* The die values in the mono face; their colours stay inline. */
+.sta2e-task-card--ent .sta2e-card-die { font-family: var(--tec-mono); }
+
+/* Notes: a coloured edge on a faint wash of the same colour. */
+.sta2e-task-card--ent .tec-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.sta2e-task-card--ent .tec-note {
+  --tn: #7aaec4;
+  padding: 2px 6px;
+  border-left: 3px solid var(--tn);
+  background: color-mix(in srgb, var(--tn) 10%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #d0d0d0;
+}
+.sta2e-task-card--ent .tec-note--warn  { --tn: #e0533a; }
+.sta2e-task-card--ent .tec-note--bonus { --tn: #a7d46c; }
+.sta2e-task-card--ent .tec-note--trait { --tn: #c7c7c7; }
+
+/* ── Readout ──────────────────────────────────────────────────────────────── */
+/* Label and value on a line, the bar under both; --p, --bc and --m inline. */
+.sta2e-task-card--ent .tec-read {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.sta2e-task-card--ent .tec-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tec-dim);
+}
+.sta2e-task-card--ent .tec-row--cpx > span:first-child { color: #ff6a50; }
+
+.sta2e-task-card--ent .tec-row b {
+  font-family: var(--tec-mono);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--tec-bright);
+}
+
+.sta2e-task-card--ent .tec-bar {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 3px;
+  margin-top: 1px;
+  background: rgba(122, 174, 196, 0.15);
+}
+.sta2e-task-card--ent .tec-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--p, 0%);
+  background: var(--bc, var(--tec-c));
+}
+/* The Difficulty, marked on the Successes bar. */
+.sta2e-task-card--ent .tec-bar--mark::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: -2px;
+  bottom: -2px;
+  left: var(--m, 0%);
+  width: 1px;
+  background: var(--tec-bright);
+}
+
+.sta2e-task-card--ent .tec-res {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.sta2e-task-card--ent .tec-res-lbl,
+.sta2e-task-card--ent .tec-res-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tec-dim);
+}
+.sta2e-task-card--ent .tec-res-sub { color: var(--tec-faint); }
+
+/* The result: an outlined band with a » lead. */
+.sta2e-task-card--ent .tec-result {
+  --rc: var(--tec-pass);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  margin-top: 2px;
+  padding: 0 8px;
+  border: 1px solid var(--rc);
+  background: color-mix(in srgb, var(--rc) 14%, transparent);
+  color: var(--rc);
+}
+.sta2e-task-card--ent .tec-result::before { content: "»"; font-weight: 700; }
+.sta2e-task-card--ent .tec-result strong {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.sta2e-task-card--ent .tec-result--fail { --rc: var(--tec-fail); }
+.sta2e-task-card--ent .tec-result--cost { --rc: var(--tec-cost); }
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* Each .sta2e-working-actions section stays a plain block: the reroll tray is
+   appended to it and must land below the keys. The grid is the inner list. */
+.sta2e-task-card--ent .tec-actions { margin-top: 6px; }
+
+.sta2e-task-card--ent .tec-sect-lbl {
+  margin: 0 1px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tec-faint);
+}
+
+.sta2e-task-card.sta2e-task-card--ent .tec-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+/* A tab with its top-right corner cut. Colour is inline (rule 2 above); the
+   border here has a width and a style only, so its colour comes from the key's
+   own inline border-color — and from _armCardSelection while armed. */
+.sta2e-task-card.sta2e-task-card--ent .tec-key {
+  display: block;
+  box-sizing: border-box;   /* "Completed" / "Applied to" are divs */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 26px;
+  margin: 0;
+  padding: 4px 9px 3px 10px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.07em;
+  text-align: left;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+  transition: filter 0.11s ease-out;
+}
+
+/* A wide key spans the pad, and so does a key left alone at the end of a row. */
+.sta2e-task-card.sta2e-task-card--ent .tec-pad > .tec-key.tec-key--wide,
+.sta2e-task-card.sta2e-task-card--ent .tec-pad > .tec-key:nth-child(odd):last-child,
+.sta2e-task-card.sta2e-task-card--ent .tec-pad > .tec-key:nth-child(odd):has(+ .tec-key--wide) {
+  grid-column: 1 / -1;
+}
+
+.sta2e-task-card.sta2e-task-card--ent div.tec-key { cursor: default; }
+
+.sta2e-task-card--ent button.tec-key:hover:not(:disabled) { filter: brightness(1.25); }
+.sta2e-task-card--ent button.tec-key:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-task-card--ent button.tec-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+
+/* The keys are two to a row, so a name wraps rather than ellipsing — the
+   shared rule in task-card.css clips it to one line. */
+.sta2e-task-card--ent .tec-key .sta2e-rr-name {
+  overflow: visible;
+  white-space: normal;
+}
+.sta2e-task-card--ent .sta2e-rr-cost { font-size: 9.5px; letter-spacing: 0.05em; }
+
+/* ── Chat card frame ─────────────────────────────────────────────────────── */
+/* entChatCard wraps every other card's body in the same frame. The body's own
+   padding rule in chat-card.css is (0,2,0); this outranks it. */
+.sta2e-chat-card.sta2e-chat-card--ent .tec-body.ccf-body {
+  padding: 0 0 2px;
+}
+
+/* Card bodies set their font sizes inline (mostly 8–11px), chosen for Arial
+   Narrow, and Rajdhani reads smaller at the same size. Zooming the inner
+   wrapper scales the whole body evenly; it lays out in the narrower zoomed
+   width, so it still fits the card. */
+.sta2e-chat-card.sta2e-chat-card--ent .tec-body.ccf-body > * {
+  zoom: 1.1;
+}
+
+/* The body pass (entBodyHtml) stripped the LCARS boxes from these and stamped
+   a class; --tn-c is the shape's own accent where it had one. */
+.sta2e-chat-card--ent .ccf-ent-tile {
+  position: relative;
+  padding: 3px;
+  border: 1px solid rgba(122, 174, 196, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+}
+.sta2e-chat-card--ent .ccf-ent-tile::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: 6px;
+  height: 6px;
+  border-left: 2px solid var(--tec-c);
+  border-top: 2px solid var(--tec-c);
+  pointer-events: none;
+}
+
+.sta2e-chat-card--ent .ccf-ent-plate {
+  border: 1px solid rgba(122, 174, 196, 0.28);
+  background: rgba(13, 34, 51, 0.55);
+}
+.sta2e-chat-card--ent .ccf-ent-plate[style*="--tn-c"] { border-left: 3px solid var(--tn-c); }
+
+.sta2e-chat-card--ent .ccf-ent-note {
+  border-left: 3px solid var(--tn-c, var(--tec-c));
+  background: color-mix(in srgb, var(--tn-c, var(--tec-c)) 10%, transparent);
+}
+
+.sta2e-chat-card--ent .ccf-ent-chip {
+  border: 1px solid var(--tn-c, rgba(122, 174, 196, 0.5));
+  background: color-mix(in srgb, var(--tn-c, #7aaec4) 12%, transparent);
+}
+
+.sta2e-chat-card--ent .ccf-ent-ctl {
+  border: 1px solid rgba(122, 174, 196, 0.45);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--tec-bright);
+}
+.sta2e-chat-card--ent input[type="checkbox"].ccf-ent-ctl,
+.sta2e-chat-card--ent input[type="radio"].ccf-ent-ctl {
+  accent-color: var(--tec-c);
+}
+
+/* Keys, built from the --tck-a the body pass stamps (as the TOS and TMP frames
+   do). Buttons injected without one keep their own look. Three classes deep
+   to outrank chat-card.css's `.sta2e-chat-card .ccf-body button` radius. */
+.sta2e-chat-card.sta2e-chat-card--ent .ccf-body button[style*="--tck-a"] {
+  border: 1px solid color-mix(in srgb, var(--tck-a) 60%, transparent);
+  border-radius: 0;
+  background: linear-gradient(90deg, var(--tck-a) 0 3px, color-mix(in srgb, var(--tck-a) 22%, #04101a) 3px);
+  color: #f0f0f0;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+  box-shadow: none;
+}
+.sta2e-chat-card.sta2e-chat-card--ent .ccf-body button[style*="--tck-a"]:hover:not(:disabled),
+.sta2e-chat-card.sta2e-chat-card--ent .ccf-body button[style*="--tck-a"]:active:not(:disabled) {
+  box-shadow: none;
+}
+.sta2e-chat-card--ent .ccf-body button[style*="--tck-a"]:hover:not(:disabled) { filter: brightness(1.25); }
+.sta2e-chat-card--ent .ccf-body button[style*="--tck-a"]:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-chat-card--ent .ccf-body button[style*="--tck-a"]:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }

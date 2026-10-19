@@ -14,7 +14,7 @@
  * Task result is evaluated against Difficulty and posted to chat as an LCARS card.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
@@ -50,6 +50,7 @@ import { renderSlimTaskCard } from "./task-card-slim.js";
 import { renderTosTaskCard } from "./task-card-tos.js";
 import { renderTmpTaskCard } from "./task-card-tmp.js";
 import { renderTngTaskCard } from "./task-card-tng.js";
+import { renderEntTaskCard } from "./task-card-ent.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { clearAssistPending } from "./assist-pending.js";
 import {
@@ -3898,8 +3899,8 @@ export function buildPlayerRollCardHtml(rollData) {
   // below, so building them unconditionally would run — and risk throwing in —
   // new code on the classic path, which must stay byte-identical.
   //
-  // The TOS, TMP and TNG eras have their own skins (task-card-tos.js,
-  // task-card-tmp.js, task-card-tng.js) fed the same view. They take precedence
+  // The TOS, TMP, TNG and ENT eras have their own skins (task-card-tos.js,
+  // task-card-tmp.js, task-card-tng.js, task-card-ent.js) fed the same view. They take precedence
   // over taskCardStyle, so under lcars-tng the classic card's spine frame
   // (lcarsFrame below) is no longer reached.
   let cardStyle = "classic";
@@ -3908,7 +3909,8 @@ export function buildPlayerRollCardHtml(rollData) {
   const tmpSkin = ["tmp-console", "tmp-monitor"].includes(getActiveLcThemeKey());
   // lcars-tng and lcars-fc (First Contact) — BRACKET_THEME_KEYS in lcars-theme.js.
   const tngSkin = isBracketTheme(getActiveLcThemeKey());
-  if (cardStyle === "slim" || tosSkin || tmpSkin || tngSkin) {
+  const entSkin = isEntTheme(getActiveLcThemeKey());
+  if (cardStyle === "slim" || tosSkin || tmpSkin || tngSkin || entSkin) {
     const showShipBlock = (shipDice ?? []).length > 0;
     const skinView = ({
       rollData, diceRow, renderResourceTokens, p,
@@ -4029,6 +4031,7 @@ export function buildPlayerRollCardHtml(rollData) {
     return tosSkin ? renderTosTaskCard(skinView)
       : tmpSkin ? renderTmpTaskCard(skinView)
       : tngSkin ? renderTngTaskCard(skinView)
+      : entSkin ? renderEntTaskCard(skinView)
       : renderSlimTaskCard(skinView);
   }
 
