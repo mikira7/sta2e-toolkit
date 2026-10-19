@@ -54,6 +54,7 @@
     "styles/tos-sheet.css",
     "styles/tmp-sheet.css",
     "styles/tmp-monitor-sheet.css",
+    "styles/ent-sheet.css",
     "styles/sta-palette-fix.css",
     "styles/appearance.css",
     "styles/token-maker.css"

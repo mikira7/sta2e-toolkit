@@ -123,6 +123,20 @@ a **content box** (list headers, `.buttons`, `.text-entry`, the supporting
 improvement rows), so any padding the overlay adds pushes them past their column.
 tmp-sheet.css sets `box-sizing: border-box` (or `width: auto`) on each.
 
+**The ENT overlay** is the same machinery again for `ent-panel`: the tagger stamps
+`.sta2e-ent-sheet`, `_applySheetTheme` skips it, and [styles/ent-sheet.css](styles/ent-sheet.css)
+follows tmp-sheet.css rule for rule in the look of the ENT task and chat cards (`.tec`):
+navy glass with corner brackets, the record title on a rule with three ticks and a cut
+tab, underlined text fields, tracks as segmented readout bars, square indicators (radios
+are diamonds) that fill yellow, and tab keys with a coloured edge. The design source is
+`docs/ent-sheet-mockup.html`. Two things differ from the card, both forced by "never
+wrap the system's markup": a panel has no inner box for the card's clipped-twice
+chamfer, so it keeps a plain outline and the **corner brackets are background layers**
+(`--ent-brk`), leaving both pseudo-elements free; and the header is the record column's
+`::before` (title on a rule) plus its `::after` (the ticks as background stops, the tab's
+slanted edge as a gradient angle, the tab text — Crew / NPC / Sup / Vessel / Aux — as
+content). Checked against the real `*2e.hbs` templates the same way.
+
 ### TMP Monitor Theme
 
 A second TMP theme, `tmp-monitor` ("TMP Monitor"), beside TMP Console: the later
@@ -2013,6 +2027,7 @@ through `lcarsChatCard`.
 | [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS or TMP overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
+| [styles/ent-sheet.css](styles/ent-sheet.css) | The ENT Bridge Touchscreen overlay for the same five sheets, structured like tmp-sheet.css |
 | [styles/tmp-monitor.css](styles/tmp-monitor.css) | The TMP Monitor theme for the Stardate HUD, the task card and the chat frame — repaints the TMP markup from its modifier classes |
 | [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
 | [scripts/task-card-ent.js](scripts/task-card-ent.js) | ENT Bridge Touchscreen skin for the task card — used for `ent-panel` regardless of `taskCardStyle` — and the `entHead` / `entFoot` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |

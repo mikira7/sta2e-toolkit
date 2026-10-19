@@ -1,0 +1,912 @@
+/*
+ * sta2e-toolkit | ent-sheet.css
+ *
+ * The ENT "Bridge Touchscreen" overlay for the 2e actor sheets — character,
+ * NPC, supporting character, starship and small craft. Applied by
+ * scripts/tos-sheet-theme.js, which stamps `.sta2e-ent-sheet` and
+ * `data-sta2e-sheet="<kind>"` on the template root under the ent-panel theme;
+ * every rule below is nested under both. The design source is
+ * docs/ent-sheet-mockup.html; the structure follows styles/tmp-sheet.css rule
+ * for rule, because that file (like tos-sheet.css) was checked against the
+ * real markup.
+ *
+ * The look is the ENT task and chat cards' (styles/task-card-ent.css): navy
+ * glass with a faint grid, thin blue lines with bright corner brackets, the
+ * record title on a rule with three ticks and a cut tab, Rajdhani for labels
+ * and Share Tech Mono for numbers, segmented readout bars for the tracks,
+ * square indicators that fill yellow for the selectors, and tab keys with a
+ * coloured edge and a cut corner. Text fields are underlined, not boxed.
+ * The fonts are the ones task-card-ent.css and task-card-tmp.css declare.
+ *
+ * ── Rules this file lives by (the same as tmp-sheet.css) ────────────────────
+ * 1. Style the system's markup where it stands. Nothing is wrapped or moved, so
+ *    the panels are the template's own columns, the wells its own blocks, and
+ *    the decorations are pseudo-elements or background layers.
+ * 2. No `!important`. Core's `.hidden { display: none !important }` sits in a
+ *    cascade layer and still wins, so `display` may be set freely. sta.css
+ *    carries a few `!important` border colours, so underlines and outlines on
+ *    inputs are drawn as box-shadows, which it never touches.
+ * 3. The root selector is a class plus an attribute, so every nested rule
+ *    outranks the system's `.character-sheet .x` rules on specificity. Tab items
+ *    need the full `nav.sheet-tabs.tabs a.item` chain to outrank the system's.
+ * 4. Inline styles the toolkit writes at runtime win: the NPC Ship block's
+ *    show/hide `display`, and the Crew tab's panel switching.
+ *
+ * Two things differ from the card:
+ *  • The card cuts its chamfers with a clip-path on two nested boxes. A panel
+ *    here has no inner box to clip (rule 1), so it keeps a plain outline and
+ *    the chamfer is suggested by two bright corner brackets, drawn as
+ *    background layers so both pseudo-elements stay free for the header.
+ *  • The header's ticks and cut tab are one ::after on the record column:
+ *    the tab text is its content, the ticks are background stops to its left.
+ */
+
+.sta2e-ent-sheet[data-sta2e-sheet] {
+  --ent-font: "STA2e Rajdhani", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --ent-mono: "STA2e Share Tech Mono", Consolas, monospace;
+  --ent-c: #7aaec4;        /* lines, ticks, tabs */
+  --ent-sky: #bfe3f2;      /* default text */
+  --ent-dim: #8fb1c2;      /* labels */
+  --ent-faint: #6f93a6;    /* captions */
+  --ent-bright: #f0f0f0;   /* values */
+  --ent-green: #a7d46c;
+  --ent-amber: #f0b400;
+  --ent-red: #e0533a;
+  --ent-alarm: #ff3b2a;
+  --ent-yellow: #f0e800;
+  --ent-line: rgba(122,174,196,.45);
+  --ent-hair: rgba(122,174,196,.12);
+  --ent-well: rgba(0,0,0,.4);
+  --ent-tab: #7aaec4;      /* the record tab's colour, per kind below */
+  /* Corner brackets: top-left and bottom-right, as background layers. */
+  --ent-brk:
+    linear-gradient(var(--ent-c), var(--ent-c)) left top / 12px 2px no-repeat,
+    linear-gradient(var(--ent-c), var(--ent-c)) left top / 2px 12px no-repeat,
+    linear-gradient(var(--ent-c), var(--ent-c)) right bottom / 12px 2px no-repeat,
+    linear-gradient(var(--ent-c), var(--ent-c)) right bottom / 2px 12px no-repeat;
+  --ent-brk-s:
+    linear-gradient(var(--ent-c), var(--ent-c)) left top / 7px 2px no-repeat,
+    linear-gradient(var(--ent-c), var(--ent-c)) left top / 2px 7px no-repeat;
+  /* The system's palette variables, so anything drawn through them (the Crew
+     tab, rules this file never names) follows the theme. */
+  --sta-borderblue: #7aaec4;
+  --sta-borderbluedark: #0d2233;
+  --sta-darkestblue: #06121c;
+  --sta-palestblue: #7aaec4;
+  --sta-palestbluedark: #0d2233;
+
+  padding: 8px;
+  color: var(--ent-sky);
+  font-family: var(--ent-font);
+  background:
+    repeating-linear-gradient(0deg, rgba(122,174,196,.05) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(90deg, rgba(122,174,196,.05) 0 1px, transparent 1px 14px),
+    radial-gradient(140% 70% at 50% 0%, #0b1d2b 0%, #06121c 50%, #030a10 100%);
+  scrollbar-color: #2b4a5e transparent;
+
+  /* ── Shared pieces ──────────────────────────────────────────────────────── */
+
+  /* Panels: the template's own columns, as glass panes with brackets */
+  .top-left-column, .top-right-column, .bottom-left-column, .bottom-right-column,
+  .left-column, .right-column {
+    position: relative;
+    padding: 0 0 8px;
+    background: var(--ent-brk), linear-gradient(180deg, rgba(13,34,51,.65), rgba(3,10,16,.75));
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px var(--ent-line);
+  }
+
+  /* Labels */
+  .title, .tracktitle {
+    margin: 0 0 2px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    color: var(--ent-faint);
+    font: 700 11px var(--ent-font);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  /* Text fields: underlined glass. border-box, or width:100% plus the padding
+     runs the field past its column (the service record fields, the name field
+     into the icon column). */
+  .text-entry {
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    padding: 2px 2px 3px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--ent-line);
+    color: var(--ent-sky);
+    font: 600 14px var(--ent-font);
+    letter-spacing: .03em;
+    &:focus { outline: none; box-shadow: inset 0 -1px 0 var(--ent-c); }
+    &::placeholder { color: #3c5866; }
+  }
+  input[type=number] { appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Every checkbox is a square indicator and every radio a diamond, filling
+     yellow when on. Core draws its own glyph in ::before / ::after, which has
+     to go. */
+  input[type=checkbox], input[type=radio] {
+    appearance: none;
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px rgba(122,174,196,.55);
+    &::before, &::after { content: none; display: none; }
+    &:checked {
+      background: var(--ent-yellow);
+      box-shadow: inset 0 0 0 1px var(--ent-yellow), 0 0 6px rgba(240,232,0,.7);
+    }
+    &:disabled { cursor: default; }
+    &:focus-visible { outline: 1px solid var(--ent-yellow); outline-offset: 2px; }
+  }
+  input[type=radio] { transform: rotate(45deg) scale(.9); }
+
+  /* Keys: the card's tabs — a coloured edge on a dark tint, a faint outline,
+     and a cut top-right corner. --k is the key's colour. */
+  .check-button, .btn, .btn2, .btn3 {
+    --k: var(--ent-c);
+    position: relative;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 6px 6px 5px 10px;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+    color: var(--ent-bright);
+    background: linear-gradient(90deg, var(--k) 0 3px, color-mix(in srgb, var(--k) 22%, #04101a) 3px);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 60%, transparent);
+    clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+    font: 700 13px var(--ent-font);
+    letter-spacing: .1em;
+    text-align: center;
+    text-transform: uppercase;
+    &:hover { filter: brightness(1.25); }
+    &:active { filter: brightness(.85); }
+  }
+  .btn  { --k: var(--ent-red); }
+  .btn2 { --k: var(--ent-red); }
+  .btn3 { --k: var(--ent-amber); }
+  .btn:hover, .btn2:hover, .btn3:hover { background-color: transparent; }
+
+  /* Portrait display: a well with its caption beneath, in the mono face */
+  .image-field {
+    position: relative;
+    width: auto;
+    height: auto;
+    margin: 8px 8px 22px;
+    padding: 4px;
+    overflow: visible;
+    background:
+      linear-gradient(var(--ent-c), var(--ent-c)) right bottom / 10px 2px no-repeat,
+      linear-gradient(var(--ent-c), var(--ent-c)) right bottom / 2px 10px no-repeat,
+      var(--ent-well);
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px rgba(122,174,196,.3);
+    &::after {
+      content: "Personnel File";
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: calc(100% + 6px);
+      color: #56788a;
+      font: 10px var(--ent-mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+  }
+  .profile-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    border: 0;
+    border-radius: 0;
+    object-fit: cover;
+  }
+
+  /* Name field and the three system icons */
+  .name-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 4px 8px 6px;
+    .text-entry {
+      height: auto;
+      padding: 2px 2px 3px;
+      color: var(--ent-bright);
+      font: 700 22px var(--ent-font);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+  }
+  .icon-column {
+    gap: 3px;
+    padding: 0;
+    justify-content: flex-end;
+    font-size: 11px;
+    > i {
+      width: 30px;
+      height: 18px;
+      padding: 0;
+      border-radius: 0;
+      background-color: #3c5866;
+      mask-size: 12px;
+      cursor: pointer;
+    }
+    .linked:not(.unlinked) { background-color: var(--ent-amber); }
+    .linked.unlinked { opacity: .5; }
+  }
+
+  /* Tracks: the card's readout bars, split into segments. Unlit is an outlined
+     segment; lit is filled in the track's colour (--t). The renderer gives each
+     key an inline width; flex-basis 0 overrides it. */
+  .tracktitle { margin: 7px 8px 3px; }
+  .track { margin: 0 8px; }
+  .track .bar:not(.extendedtask) { gap: 2px; padding: 0; }
+  .track .bar .box {
+    --t: var(--ent-c);
+    position: relative;
+    flex: 1 1 0;
+    height: 18px;
+    border: 0;
+    border-radius: 0;
+    color: #3c5866;
+    background: var(--ent-well);
+    font: 11px var(--ent-mono);
+    box-shadow: inset 0 0 0 1px rgba(122,174,196,.22);
+    &:hover { box-shadow: inset 0 0 0 1px var(--ent-c); }
+    &.selected {
+      color: #03121c;
+      background: color-mix(in srgb, var(--t) 85%, #000);
+      box-shadow: inset 0 0 0 1px var(--t), 0 0 6px color-mix(in srgb, var(--t) 45%, transparent);
+    }
+    &.rep, &.shields { --t: var(--ent-c); }
+    &.determination, &.crew, &.power { --t: var(--ent-amber); }
+    &.stress { --t: var(--ent-red); }
+  }
+  .track .shield-gap { width: 4px; }
+
+  /* Wells: attribute / discipline / system / department blocks */
+  .attribute-block, .discipline-block, .systems-block, .departments-block {
+    position: relative;
+    margin: 6px 8px 8px;
+    padding: 5px 8px;
+    background: var(--ent-brk-s), var(--ent-well);
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px rgba(122,174,196,.3);
+    color: var(--ent-sky);
+    font: 600 13px/1.45 var(--ent-font);
+    > .title {
+      margin: 0 0 3px;
+      padding-bottom: 3px;
+      border-bottom: 1px solid var(--ent-line);
+      color: var(--ent-bright);
+      font: 700 12px var(--ent-font);
+      letter-spacing: .14em;
+      a { color: var(--ent-c); }
+    }
+  }
+
+  /* A readout row: name, indicator, value, with a hairline under it as the
+     card's readout rows have. min-width:0 stops a long name propping the
+     column open. */
+  .row-right, .stat.row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    margin: 0;
+    padding: 2px 0 3px;
+    box-shadow: inset 0 -1px 0 var(--ent-hair);
+    .list-entry {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      text-align: left;
+      text-transform: uppercase;
+      color: var(--ent-dim);
+      font: 600 13px var(--ent-font);
+      letter-spacing: .08em;
+    }
+    &:has(.selector:checked) {
+      .list-entry { color: var(--ent-yellow); }
+      .numeric-entry:not(.breaches) { color: var(--ent-yellow); }
+    }
+  }
+  .numeric-entry {
+    width: 28px;
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--ent-bright);
+    font: 16px var(--ent-mono);
+    text-align: right;
+  }
+
+  /* Panel numerics: stress / shield / crew modifiers, and the two toggles */
+  .stressmod, .shieldmod, .crwmod, .rollrepnotdis, .amiklingon {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 7px 8px 0;
+    color: var(--ent-faint);
+    font: 700 11px var(--ent-font);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    .text-entry {
+      width: 44px;
+      margin: 0;
+      padding: 1px;
+      text-align: center;
+      background: var(--ent-well);
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.3);
+      color: var(--ent-bright);
+      font: 14px var(--ent-mono);
+    }
+  }
+  .rollrepnotdis { flex-direction: row-reverse; justify-content: flex-end; }
+  /* The roll keys. width:auto + border-box, or sta.css's width and the
+     margins push them past the column. */
+  .buttons {
+    box-sizing: border-box;
+    width: auto;
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 4px;
+    margin: 8px 8px 0;
+    padding: 0;
+    background: none;
+  }
+  .buttons:not(:has(.btn3)) { grid-template-columns: 1fr; }
+
+  /* Tabs: cut tabs along a rule, the active one filled */
+  nav.sheet-tabs.tabs {
+    display: flex;
+    gap: 3px;
+    padding: 6px 7px 0;
+    margin: 0 0 4px;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--ent-c);
+    a.item {
+      position: relative;
+      flex: 1;
+      width: auto;
+      padding: 4px 4px 3px;
+      border: 0;
+      border-radius: 0;
+      color: var(--ent-dim);
+      background: rgba(122,174,196,.08);
+      box-shadow: inset 1px 1px 0 rgba(122,174,196,.25), inset -1px 0 0 rgba(122,174,196,.25);
+      clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+      font: 700 12px var(--ent-font);
+      letter-spacing: .12em;
+      text-align: center;
+      text-transform: uppercase;
+      text-shadow: none;
+      &:first-child { border: 0; }
+      &:hover { color: var(--ent-bright); text-shadow: none; }
+      &.active { color: #03121c; background: var(--ent-c); box-shadow: none; }
+    }
+  }
+
+  /* Item sections: a title on a rule over a glass list */
+  /* width:auto undoes sta.css's `.traits { width: 100% }`, which with these
+     margins pushed the Traits section past its column. */
+  .section {
+    --ent-sec: var(--ent-c);
+    width: auto;
+    margin: 8px;
+    > .title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 3px;
+      color: var(--ent-bright);
+      font-size: 12px;
+      &::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--ent-sec), transparent); }
+    }
+    /* border-box: sta.css gives the header width:100% as a content box, so
+       the padding pushed its + key past the edge of the rows below it. */
+    .header {
+      box-sizing: border-box;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 6px;
+      background: rgba(122,174,196,.08);
+      border-radius: 0;
+      border-bottom: 0;
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.25);
+      color: var(--ent-faint);
+      font: 700 10px var(--ent-font);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      .image { flex: 0 0 20px; margin: 0; }
+    }
+    .row.entry {
+      position: relative;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      margin: 0;
+      padding: 2px 6px;
+      list-style: none;
+      background: rgba(0,0,0,.38);
+      border-bottom: 0;
+      box-shadow: inset 1px 0 0 rgba(122,174,196,.25), inset -1px 0 0 rgba(122,174,196,.25), inset 0 -1px 0 var(--ent-hair);
+      &:hover { background: rgba(122,174,196,.07); box-shadow: inset 2px 0 0 var(--ent-c), inset -1px 0 0 rgba(122,174,196,.25), inset 0 -1px 0 var(--ent-hair); }
+    }
+    .row .image {
+      flex: 0 0 20px;
+      margin: 0;
+      img { width: 20px; height: 20px; border-radius: 0; box-shadow: 0 0 0 1px rgba(122,174,196,.35); }
+    }
+    /* height:auto undoes core's fixed input height, which made rows 32px tall. */
+    .item-name {
+      flex: 1;
+      min-width: 0;
+      height: auto;
+      min-height: 0;
+      border: 0;
+      padding: 1px 0;
+      background: transparent;
+      color: var(--ent-sky);
+      font: 600 14px var(--ent-font);
+      letter-spacing: .03em;
+      &.strike-through { opacity: .45; }
+    }
+    input.item-quantity:not([type=checkbox]), .list-entry.damage, .two-column-with-roll-secondary.list-entry {
+      flex: 0 0 34px;
+      width: 34px;
+      height: auto;
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 rgba(122,174,196,.3);
+      color: var(--ent-bright);
+      font: 14px var(--ent-mono);
+      text-align: center;
+    }
+    /* Edit / delete surface on hover or keyboard focus, laid over the row end
+       so names get the full width of a narrow column. Values' used switch is
+       also an a.control, and must stay where it is. */
+    .row.entry > .control:not(.value-used) {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: auto;
+      gap: 2px;
+      padding: 2px 2px 2px 10px;
+      opacity: 0;
+      pointer-events: none;
+      background: linear-gradient(90deg, transparent, #06121c 30%);
+    }
+    /* The fade lives on the revealed state only, so hiding is instant — with
+       the transition on the base rule the keys flashed on every re-render
+       (see tmp-sheet.css). */
+    .row.entry:hover > .control:not(.value-used), .row.entry:focus-within > .control:not(.value-used) { opacity: 1; pointer-events: auto; transition: opacity .12s; }
+    .control a {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 16px;
+      border-radius: 0;
+      color: var(--ent-bright);
+      font-size: 9px;
+      background: rgba(13,34,51,.9);
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.45);
+      text-shadow: none;
+      &.delete:hover { color: var(--ent-red); box-shadow: inset 0 0 0 1px var(--ent-red); }
+      &.edit:hover { color: var(--ent-amber); box-shadow: inset 0 0 0 1px var(--ent-amber); }
+    }
+    .header .control.create {
+      width: 18px;
+      height: 16px;
+      margin-left: auto;
+      display: grid;
+      place-items: center;
+      border-radius: 0;
+      color: var(--ent-green);
+      font-size: 9px;
+      background: rgba(13,34,51,.9);
+      box-shadow: inset 0 0 0 1px var(--ent-green);
+    }
+    /* Values' "used" switch: a bar indicator instead of the slider icon. The
+       <i> keeps the data-action, so it stays the click target. */
+    .value-used { flex: 0 0 34px; width: 34px; }
+    a.value-used i {
+      display: block;
+      width: 22px;
+      height: 6px;
+      font-size: 0;
+      background: transparent;
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.4);
+      cursor: pointer;
+      &::before { content: none; }
+      &.fa-toggle-on { background: var(--ent-red); box-shadow: 0 0 6px rgba(224,83,58,.6); }
+    }
+  }
+  /* Section accents, by what each one holds */
+  .section.values { --ent-sec: var(--ent-yellow); }
+  .section.belongings { --ent-sec: var(--ent-amber); }
+  .section.injuries {
+    --ent-sec: var(--ent-red);
+    .item-name, input.item-quantity:not([type=checkbox]) { color: #ff6a50; }
+  }
+  .item-list-scrollable { scrollbar-color: #2b4a5e transparent; }
+
+  /* Two titles sit outside any .section — the ship's Notes and the supporting
+     character's Improvements — so they get the section title's rule here. */
+  .title:has(+ .note), .title:has(+ .supporting-char-grid) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 8px 3px;
+    color: var(--ent-bright);
+    font-size: 12px;
+    &::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--ent-c), transparent); }
+  }
+
+  /* Notes editor: a glass well. The sheet sizes .note, but nothing passed that
+     height on to the <prose-mirror> inside (see tmp-sheet.css), so the box
+     clips and is a flex column, and the text scrolls inside the editor. */
+  .note {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 6px 4px 6px 8px;
+    background: var(--ent-brk-s), var(--ent-well);
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px rgba(122,174,196,.3);
+    color: var(--ent-sky);
+    font: 600 14px var(--ent-font);
+    > prose-mirror, > .editor {
+      flex: 1 1 auto;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-color: #2b4a5e transparent;
+    }
+    .editor-content { scrollbar-color: #2b4a5e transparent; }
+  }
+
+  /* The record header: the title on a rule (::before), and three ticks with a
+     cut tab at its right end (::after). The ticks are background stops to the
+     left of the tab's text. */
+  .top-right-column::before, &.starship-sheet .right-column::before {
+    display: block;
+    margin: 0 0 6px;
+    padding: 5px 100px 4px 12px;
+    background: none;
+    box-shadow: inset 0 -1px 0 var(--ent-line);
+    color: var(--ent-bright);
+    font: 700 13px var(--ent-font);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .top-right-column::after, &.starship-sheet .right-column::after {
+    position: absolute;
+    top: 9px;
+    right: 1px;
+    height: 15px;
+    padding: 0 8px 0 30px;
+    color: #03121c;
+    font: 700 11px/15px var(--ent-font);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    background:
+      linear-gradient(rgba(122,174,196,.35), rgba(122,174,196,.35)) 0 2px / 3px 10px no-repeat,
+      linear-gradient(rgba(122,174,196,.7), rgba(122,174,196,.7)) 5px 2px / 3px 10px no-repeat,
+      linear-gradient(var(--ent-c), var(--ent-c)) 10px 2px / 3px 10px no-repeat,
+      /* The tab, its left edge slanted by the gradient's own angle */
+      linear-gradient(112deg, transparent 5px, var(--ent-tab) 5.5px) 17px 0 / calc(100% - 17px) 100% no-repeat;
+    pointer-events: none;
+  }
+
+  /* ══ Character, NPC and supporting sheets (.character-sheet) ═══════════ */
+
+  &.character-sheet {
+    > .split-section { gap: 8px; }
+    > .split-section + .split-section { margin-top: 8px; }
+    .top-left-column { flex: 0 0 196px; padding-right: 0; }
+    .top-right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .bottom-left-column { flex: 0 0 184px; min-width: 0; padding-right: 0; }
+    .bottom-right-column { flex: 1 1 0; min-width: 0; padding-bottom: 4px; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .tab .note { height: 520px; margin: 8px; }
+
+    .top-right-column::before { content: "UESPA Personnel Record"; }
+    .top-right-column::after { content: "Crew"; }
+
+    /* Character tab: underlined fields in their rows */
+    .tab[data-tab="biography"] {
+      padding: 6px 8px;
+      .row { gap: 10px; margin-bottom: 8px; }
+      .column { min-width: 0; }
+      .acclaimfield .text-entry, .reprimand .text-entry, .influence .text-entry,
+      .might .text-entry, .wealth .text-entry { color: var(--ent-bright); font: 18px var(--ent-mono); text-align: center; }
+    }
+
+    /* NPC / supporting type selector. The NPC template wraps each radio in a
+       .column, so the whole column becomes a cut tab that fills when its radio
+       is checked; the radio is laid invisibly over it, since a div is not a
+       label. The supporting template writes bare text + radios, so there the
+       radio itself is the indicator. */
+    .npc-block {
+      margin: 2px 8px 6px;
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+        color: var(--ent-dim);
+        font: 700 11px var(--ent-font);
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        > input[type=radio] { margin: 0 12px 0 5px; }
+      }
+      .column {
+        position: relative;
+        flex: 1;
+        flex-direction: row;
+        justify-content: center;
+        padding: 4px 4px 3px;
+        color: var(--ent-dim);
+        background: rgba(122,174,196,.08);
+        box-shadow: inset 0 0 0 1px rgba(122,174,196,.3);
+        clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+        input[type=radio] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transform: none; }
+        &:has(input:checked) { color: #1a0400; background: var(--ent-red); box-shadow: none; }
+        &:has(input:focus-visible) { outline: 1px solid var(--ent-yellow); outline-offset: -2px; }
+      }
+    }
+
+    /* Supporting character improvements: rows of milestone indicators */
+    .supporting-char-grid {
+      box-sizing: border-box;
+      width: auto;
+      margin: 0 8px;
+      background: rgba(0,0,0,.38);
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.25);
+      .row { box-sizing: border-box; width: auto; gap: 8px; margin: 0; padding: 4px 8px; box-shadow: inset 0 -1px 0 var(--ent-hair); }
+      .label { flex: 1; color: var(--ent-sky); font: 600 14px var(--ent-font); }
+      .inputs { flex: 0 0 auto; display: flex; gap: 3px; }
+      input[type=checkbox] { width: 20px; height: 12px; }
+      input[type=checkbox]:checked { background: var(--ent-green); box-shadow: inset 0 0 0 1px var(--ent-green), 0 0 6px rgba(167,212,108,.5); }
+    }
+    .milestones input.item-quantity[type=checkbox] { width: 30px; height: 12px; }
+    .milestones input.item-quantity[type=checkbox]:checked { background: var(--ent-green); box-shadow: inset 0 0 0 1px var(--ent-green), 0 0 6px rgba(167,212,108,.5); }
+  }
+
+  /* Captions, record titles and tabs per sheet */
+  &[data-sta2e-sheet="character"] { --ent-tab: var(--ent-green); }
+  &[data-sta2e-sheet="npc"] {
+    --ent-tab: var(--ent-red);
+    .image-field::after { content: "Contact File"; }
+    .top-right-column::before { content: "Non-Player Character"; }
+    .top-right-column::after { content: "NPC"; }
+    /* Personal Threat reuses the Stress keys; the kind stamp tells them apart. */
+    .track .bar .box.stress { --t: #ff8a30; }
+  }
+  &[data-sta2e-sheet="supporting"] {
+    --ent-tab: var(--ent-green);
+    .top-right-column::before { content: "Supporting Character"; }
+    .top-right-column::after { content: "Sup"; }
+  }
+
+  /* ══ Starship and small craft (.starship-sheet) ═════════════════════════ */
+
+  &.starship-sheet {
+    > .split-section { gap: 8px; align-items: flex-start; }
+    .left-column { flex: 0 0 248px; min-width: 0; padding-right: 0; }
+    .right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .right-column::before {
+      content: "Vessel Record";
+      position: static;
+      width: auto;
+      border-radius: 0;
+    }
+    .right-column::after { content: "Vessel"; }
+    .image-field::after { content: "Registry"; }
+    .profile-img { width: 100%; height: auto; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .note { height: 110px; margin: 0 8px; }
+
+    /* Systems: name · indicator · modifier · breaches */
+    .systems-block, .departments-block {
+      .stat.row { display: grid; grid-template-columns: minmax(0,1fr) 11px 26px 34px; }
+      .stat.header.row {
+        display: grid;
+        padding-bottom: 3px;
+        margin-bottom: 2px;
+        background: none;
+        box-shadow: inset 0 -1px 0 var(--ent-line);
+        color: var(--ent-faint);
+        font: 700 10px var(--ent-font);
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        .text.secondary-title { grid-column: 1 / 3; }
+        /* Monospace, so "Breaches" fits its column at a readable size */
+        .field.secondary-title { width: auto; text-align: right; font: 9px var(--ent-mono); letter-spacing: 0; white-space: nowrap; }
+      }
+      .numeric-entry { width: 100%; }
+    }
+    .departments-block .stat.row { grid-template-columns: minmax(0,1fr) 11px 26px; }
+    /* Breaches read red when non-zero. The template writes the count as the
+       input's value attribute, so this needs no script. */
+    .systems-block .field.breaches {
+      width: 100%;
+      margin: 0;
+      color: #3c5866;
+      text-shadow: none;
+      &:not([value="0"]) { color: var(--ent-alarm); text-shadow: 0 0 6px rgba(255,59,42,.7); }
+    }
+    .buttons { grid-template-columns: 1fr; }
+
+    /* The four ship stats, each a small well */
+    .big-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 5px;
+      width: auto;
+      margin: 8px;
+    }
+    .big-row-column {
+      flex-direction: column;
+      justify-content: center;
+      gap: 3px;
+      min-width: 0;
+      padding: 4px;
+      background: var(--ent-brk-s), rgba(0,0,0,.38);
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.25);
+      .tracktitle { margin: 0; text-align: center; }
+      .checkbox { width: 32px; height: 14px; transform: none; }
+      .numeric-entry { width: 46px; padding: 0; font-size: 19px; text-align: center; }
+    }
+    /* Reserve Power lights green, Shaken red. */
+    .big-row-column:first-child .checkbox:checked { background: var(--ent-green); box-shadow: inset 0 0 0 1px var(--ent-green), 0 0 6px rgba(167,212,108,.55); }
+    .big-row-column:nth-child(2) .checkbox:checked { background: var(--ent-red); box-shadow: inset 0 0 0 1px var(--ent-red), 0 0 6px rgba(224,83,58,.55); }
+
+    /* Service record fields */
+    .right-column > .row { gap: 10px; width: auto; margin: 0 8px 8px; }
+    .right-column > .row > .column { min-width: 0; }
+
+    /* Toolkit: NPC Ship block. main.js writes its layout inline (a column,
+       gap and margin) and toggles display, so only the plate is styled here.
+       Its edge turns red once the ship is an NPC. */
+    .sta2e-npc-ship-block {
+      margin-inline: 8px;
+      padding: 4px 7px;
+      background: rgba(0,0,0,.3);
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 3px 0 0 var(--ent-line), inset 0 0 0 1px rgba(122,174,196,.2);
+      color: var(--ent-dim);
+      font: 700 11px var(--ent-font);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      &:has(.sta2e-npc-cb:checked) { box-shadow: inset 3px 0 0 var(--ent-red), inset 0 0 0 1px rgba(122,174,196,.2); }
+      label { cursor: pointer; }
+      .sta2e-crew-quality { flex-basis: 100%; gap: 12px; }
+      .sta2e-cq-title { color: var(--ent-bright); font-size: 11px; }
+      .sta2e-cq-option { font-size: 11px; }
+    }
+
+    /* Toolkit: Ship / Crew strip — cut tabs along a rule, like the sheet tabs */
+    .sta2e-crew-tabs {
+      display: flex;
+      gap: 3px;
+      margin: 0 0 8px;
+      padding: 4px 7px 0;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 var(--ent-c);
+      .sta2e-crew-tab {
+        flex: 1;
+        border: 0;
+        border-radius: 0;
+        padding: 4px 4px 3px;
+        cursor: pointer;
+        color: var(--ent-dim);
+        background: rgba(122,174,196,.08);
+        box-shadow: inset 1px 1px 0 rgba(122,174,196,.25), inset -1px 0 0 rgba(122,174,196,.25);
+        clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+        font: 700 12px var(--ent-font);
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        &:hover { color: var(--ent-bright); }
+        &.is-active { color: #03121c; background: var(--ent-c); box-shadow: none; }
+      }
+    }
+
+    /* Toolkit: Crew tab panel */
+    .sta2e-crew-panel { padding: 0 8px; }
+    .sta2e-crew-section { margin: 8px 0; }
+    .sta2e-crew-heading {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 3px;
+      color: var(--ent-bright);
+      font: 700 12px var(--ent-font);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      &::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--ent-c), transparent); }
+    }
+    .sta2e-crew-station, .sta2e-crew-member { background: rgba(0,0,0,.38); border-bottom: 0; box-shadow: inset 0 -1px 0 var(--ent-hair); }
+    .sta2e-crew-station-name { color: var(--ent-dim); font: 700 11px var(--ent-font); letter-spacing: .1em; text-transform: uppercase; }
+    .sta2e-crew-select {
+      background: rgba(13,34,51,.85);
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 var(--ent-line);
+      color: var(--ent-sky);
+      font: 600 14px var(--ent-font);
+    }
+    .sta2e-crew-station.is-vacant .sta2e-crew-select { color: #3c5866; }
+    .sta2e-crew-stat { color: var(--ent-bright); font: 12px var(--ent-mono); }
+    .sta2e-crew-member-name { color: var(--ent-bright); font: 600 14px var(--ent-font); }
+    .sta2e-crew-member-post { color: var(--ent-dim); font: 600 11px var(--ent-font); letter-spacing: .08em; text-transform: uppercase; }
+    .sta2e-crew-badge { border-radius: 0; background: transparent; color: var(--ent-c); box-shadow: inset 0 0 0 1px rgba(122,174,196,.4); }
+    .sta2e-crew-dept-tab {
+      border: 0;
+      border-radius: 0;
+      color: var(--ent-dim);
+      background: rgba(122,174,196,.08);
+      box-shadow: inset 0 0 0 1px rgba(122,174,196,.3);
+      clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+      font: 700 11px var(--ent-font);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      &.is-active { color: #03121c; background: var(--ent-c); box-shadow: none; }
+      &.is-empty { opacity: .45; }
+    }
+    .sta2e-crew-drop { border: 1px dashed rgba(122,174,196,.35); border-radius: 0; color: var(--ent-faint); }
+  }
+  &[data-sta2e-sheet="smallcraft"] {
+    --ent-tab: var(--ent-green);
+    .image-field::after { content: "Auxiliary Craft"; }
+    .right-column::before { content: "Auxiliary Craft Record"; }
+    .right-column::after { content: "Aux"; }
+  }
+}
+
+/* The window around an ENT sheet. _applySheetTheme skips ENT sheets, so it no
+   longer themes this header either; the frame takes the glass. */
+.window-content:has(.sta2e-ent-sheet[data-sta2e-sheet]) {
+  background: #06121c;
+}
+.application:has(.sta2e-ent-sheet[data-sta2e-sheet]) > .window-header {
+  background: linear-gradient(180deg, #0d2233, #06121c);
+  border-bottom: 1px solid #7aaec4;
+  color: #f0f0f0;
+}
