@@ -881,7 +881,8 @@
   --sw-field-radius: 4px;
 }
 
-.sta2e-sw[data-theme="tmp-console"] {
+.sta2e-sw[data-theme="tmp-console"],
+.sta2e-sw[data-theme="tmp-monitor"] {
   --sw-panel-radius: 10px;
   --sw-field-radius: 5px;
 }

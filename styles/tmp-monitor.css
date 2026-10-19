@@ -1,0 +1,357 @@
+/*
+ * sta2e-toolkit | tmp-monitor.css
+ *
+ * The TMP Monitor theme (`tmp-monitor`): the later films' monitor graphics —
+ * the whole widget is one black screen with a faint vector grid, scanlines, a
+ * cyan border (outer corners rounded, everything inside square), Microgramma
+ * captions, outlined keys, and green / cyan / magenta linework. The design
+ * source is Concept B in docs/tmp-card-mockups.html.
+ *
+ * It reuses the TMP Console markup rather than owning any: the Stardate HUD's
+ * `tmp__*` bar (stardate-hud.js adds `.sta2e-tmp--monitor`), the TMP task card
+ * (task-card-tmp.js adds `.sta2e-task-card--tmpmon`) and the TMP chat frame
+ * (chat-card-frame.js adds `.sta2e-chat-card--tmpmon`). Every rule here hangs
+ * off one of those modifiers, so the TMP Console theme cannot be reached by it.
+ * The sheets have their own file, styles/tmp-monitor-sheet.css.
+ *
+ * Fonts are the ones task-card-tmp.css declares from fonts/tmp/.
+ *
+ * The task card's two hard rules (styles/task-card.css) apply: no `!important`,
+ * and nothing here sets background / border-color / color / opacity on a key —
+ * _armCardSelection owns those, so a key's colour is inline. Monitor keys are
+ * therefore drawn with a real 1px border (inline colour), which is what lets an
+ * armed key take the yellow border that function writes.
+ */
+
+/* ── Shared screen recipe ──────────────────────────────────────────────── */
+.sta2e-tmp--monitor .tmp__console-frame,
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon,
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon {
+  --tmm-cyan: #00aef0;
+  --tmm-green: #00d27a;
+  --tmm-magenta: #ed2f76;
+  --tmm-yellow: #e9e95a;
+  --tmm-sky: #8ad8ff;
+  --tmm-white: #e8fff5;
+  --tmm-dim: #0d9c5c;
+  --tmm-caption: "STA2e Michroma", "Eurostile", Arial, sans-serif;
+  --tmm-mono: "STA2e Share Tech Mono", "Courier New", monospace;
+  --tmm-grid:
+    linear-gradient(rgba(0,174,240,.07) 1px, transparent 1px) 0 0 / 100% 14px,
+    linear-gradient(90deg, rgba(0,174,240,.07) 1px, transparent 1px) 0 0 / 14px 100%,
+    radial-gradient(ellipse at 50% 40%, #001a10 0%, #000 75%);
+}
+
+/* ══ Stardate HUD (calendar) ═════════════════════════════════════════════ */
+
+.sta2e-tmp--monitor .tmp__console-frame {
+  position: relative;
+  overflow: hidden;
+  height: 38px;
+  background: var(--tmm-grid);
+  border: 2px solid var(--tmm-cyan);
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 0 0 1px #000, 0 0 14px rgba(0,174,240,.25), inset 0 0 20px rgba(0,0,0,.9);
+  font-family: var(--tmm-caption);
+  letter-spacing: .1em;
+}
+.sta2e-tmp--monitor .tmp__console-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.25) 0 1px, transparent 1px 3px);
+}
+.sta2e-tmp--monitor .tmp__console-frame > * { position: relative; z-index: 1; }
+
+/* The ID stripe becomes the code tab */
+.sta2e-tmp--monitor .tmp__id-stripe {
+  width: auto;
+  padding: 0 8px;
+  align-items: center;
+  background: var(--tmm-cyan);
+  border-right: 2px solid var(--tmm-cyan);
+  color: #000;
+  font: 8px var(--tmm-caption);
+  letter-spacing: .1em;
+}
+
+.sta2e-tmp--monitor .tmp__oval-block,
+.sta2e-tmp--monitor .tmp__oval-row { border-right: 1px solid rgba(0,174,240,.5); }
+.sta2e-tmp--monitor .tmp__oval-label,
+.sta2e-tmp--monitor .tmp__display-label { color: var(--tmm-cyan); font: 7px var(--tmm-caption); letter-spacing: .16em; }
+.sta2e-tmp--monitor .tmp__ship-name { color: var(--tmm-white); font: 10px var(--tmm-caption); letter-spacing: .1em; }
+
+.sta2e-tmp--monitor .tmp__select {
+  background: #000;
+  border: 1px solid var(--tmm-cyan);
+  border-radius: 0;
+  color: var(--tmm-white);
+  font: 9px var(--tmm-caption);
+  letter-spacing: .08em;
+}
+.sta2e-tmp--monitor .tmp__select option { background: #000; color: var(--tmm-white); }
+
+/* Outlined square keys; the alternate set is green, an active pin filled */
+.sta2e-tmp--monitor .tmp__btn {
+  background: transparent;
+  border: 1px solid var(--tmm-cyan);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--tmm-cyan);
+  font: 7.5px var(--tmm-caption);
+  letter-spacing: .12em;
+  padding: 4px 7px;
+}
+.sta2e-tmp--monitor .tmp__btn--alt { border-color: var(--tmm-green); color: var(--tmm-green); }
+.sta2e-tmp--monitor .tmp__btn--pin-active { background: var(--tmm-yellow); border-color: var(--tmm-yellow); color: #000; }
+.sta2e-tmp--monitor .tmp__btn:hover { filter: none; background: rgba(0,174,240,.18); }
+.sta2e-tmp--monitor .tmp__btn--alt:hover { background: rgba(0,210,122,.18); }
+
+.sta2e-tmp--monitor .tmp__display {
+  background: transparent;
+  border-left: 0;
+  border-right: 1px solid rgba(0,174,240,.5);
+}
+.sta2e-tmp--monitor .tmp__stardate { color: var(--tmm-green); font: 16px var(--tmm-mono); text-shadow: 0 0 8px rgba(0,210,122,.6); letter-spacing: .04em; }
+.sta2e-tmp--monitor .tmp__date,
+.sta2e-tmp--monitor .tmp__time { color: var(--tmm-sky); font: 12px var(--tmm-mono); }
+.sta2e-tmp--monitor .tmp__sep { color: var(--tmm-magenta); }
+.sta2e-tmp--monitor .tmp__indicator { color: var(--tmm-yellow); filter: drop-shadow(0 0 4px rgba(233,233,90,.8)); }
+.sta2e-tmp--monitor .tmp__empty { color: var(--tmm-cyan); font: 9px var(--tmm-caption); letter-spacing: .14em; }
+
+/* ══ Working task card ═══════════════════════════════════════════════════ */
+/* task-card-tmp.js renders the TMP card with .sta2e-task-card--tmpmon beside
+   --tmp. The grey panel goes: the root is the screen, the monitors inside it
+   lose their bezels, the key bed its recess, and the header plate becomes the
+   code tab and tick marks. Four classes deep, one more than the --tmp rules, so this
+   wins on specificity and not on stylesheet order. */
+
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon {
+  --tcx-radius: 12px;
+  position: relative;
+  padding: 0 0 10px;
+  color: var(--tmm-green);
+  background: var(--tmm-grid);
+  border: 2px solid var(--tmm-cyan);
+  box-shadow: 0 0 0 1px #000, 0 0 14px rgba(0,174,240,.25), inset 0 0 30px rgba(0,0,0,.9);
+  counter-reset: tmm-key;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.25) 0 1px, transparent 1px 3px);
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon > * { position: relative; z-index: 1; }
+
+/* Header: code tab · title · ticks, ruled off in cyan */
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-head {
+  gap: 0;
+  padding: 0;
+  align-items: stretch;
+  border-bottom: 2px solid var(--tmm-cyan);
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-plate { display: none; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-code {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 6px 8px;
+  background: var(--tmm-tab, var(--tmm-cyan));
+  color: #000;
+  font: 8px var(--tmm-caption);
+  letter-spacing: .1em;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-title {
+  padding: 5px 8px 4px;
+  color: var(--tmm-white);
+  font: 10px var(--tmm-caption);
+  letter-spacing: .12em;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-title small {
+  color: var(--tmm-cyan);
+  font: 9.5px var(--tmm-mono);
+  letter-spacing: .08em;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-tag { display: none; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-ticks {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 7px;
+  border-left: 1px solid rgba(0,174,240,.5);
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-ticks i { display: block; height: 2px; width: 18px; background: var(--tmm-cyan); }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-ticks i:nth-child(2) { width: 11px; background: var(--tmm-tab, var(--tmm-cyan)); }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-ticks i:nth-child(3) { width: 14px; }
+
+/* The inner monitors become plain regions of the one screen */
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-scr {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-scr::after { content: none; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-blk { border-color: rgba(0,210,122,.45); }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-scr[style*="#ed2f76"] .tmc-blk { border-color: rgba(237,47,118,.5); }
+
+/* Notes: ▸ lines in the screen's type, not strips on a panel */
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-notes { margin: 7px 8px 0; gap: 2px; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-note {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--tmm-sky);
+  font: 10px var(--tmm-mono);
+  letter-spacing: .04em;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-note::before { content: "▸ "; color: var(--tmm-magenta); }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-note--warn { color: #ff8ab4; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-note--bonus { color: var(--tmm-green); }
+
+/* Key sections sit straight on the screen; the tray lands on black too */
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-bed {
+  margin: 9px 8px 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-bed + .tmc-bed { margin-top: 7px; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-sect-lbl { color: var(--tmm-cyan); font: 7px var(--tmm-caption); letter-spacing: .16em; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-btns,
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-btns.sta2e-task-rerolls,
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-grid { gap: 4px; }
+
+/* Outlined, numbered keys. The border colour and fill are inline; this is
+   shape, the counter and the type. */
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-key {
+  padding: 5px 6px 4px 7px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 0;
+  box-shadow: none;
+  font: 7px var(--tmm-caption);
+  letter-spacing: .12em;
+  line-height: 1.35;
+  text-align: left;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-key::after { content: none; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon button.tmc-key::before {
+  counter-increment: tmm-key;
+  content: counter(tmm-key, decimal-leading-zero);
+  margin-right: 5px;
+  font: 8px var(--tmm-mono);
+  opacity: .85;
+}
+/* The number and the name share one line; a long name ellipsises inside the
+   key rather than running out past its border. */
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-key .sta2e-rr-name { display: inline; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .sta2e-task-rerolls .tmc-key {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: .06em;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .sta2e-task-rerolls .tmc-key .sta2e-rr-cost { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-key .sta2e-rr-cost {
+  font: 8.5px var(--tmm-mono);
+  letter-spacing: .04em;
+  text-transform: none;
+}
+.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-key--big { padding: 6px 7px 5px; font-size: 8px; }
+.sta2e-task-card--tmpmon button.tmc-key:hover:not(:disabled) { filter: brightness(1.25); }
+
+/* ══ Chat card frame ═════════════════════════════════════════════════════ */
+/* chat-card-frame.js renders the TMP frame with .sta2e-chat-card--tmpmon:
+   the grey panel goes, the root is the screen, and the header is the code tab
+   in the card's accent, the title and the ticks. Body buttons are keyified as
+   on TMP Console (--tck-a / --tck-ink); here they become outlined keys. */
+
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon {
+  position: relative;
+  padding: 0 0 4px;
+  border-radius: 12px;
+  color: var(--cc-text);
+  background: var(--tmm-grid);
+  border: 2px solid var(--ccf-c, var(--tmm-cyan));
+  box-shadow: 0 0 0 1px #000, 0 0 14px color-mix(in srgb, var(--ccf-c, var(--tmm-cyan)) 30%, transparent), inset 0 0 30px rgba(0,0,0,.9);
+  overflow: hidden;
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px);
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon > * { position: relative; z-index: 1; }
+
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-head {
+  gap: 0;
+  padding: 0;
+  align-items: stretch;
+  border-bottom: 2px solid var(--ccf-c, var(--tmm-cyan));
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-plate {
+  flex: 0 0 14px;
+  min-height: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-title {
+  padding: 5px 8px 4px;
+  color: var(--tmm-white);
+  font: 10px var(--tmm-caption);
+  letter-spacing: .12em;
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-ticks {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 7px;
+  border-left: 1px solid color-mix(in srgb, var(--ccf-c, var(--tmm-cyan)) 50%, transparent);
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-ticks i { display: block; height: 2px; width: 18px; background: var(--ccf-c, var(--tmm-cyan)); }
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-ticks i:nth-child(2) { width: 11px; }
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-ticks i:nth-child(3) { width: 14px; }
+
+/* The body sits on the screen itself */
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-screen {
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-tmp-screen::after { content: none; }
+
+/* Outlined keys in their own accent */
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-body button[style*="--tck-a"] {
+  padding: 4px 7px 3px;
+  border: 1px solid var(--tck-a, var(--tmm-cyan));
+  border-radius: 0;
+  background: transparent;
+  color: var(--tck-a, var(--tmm-cyan));
+  font: 7.5px var(--tmm-caption);
+  letter-spacing: .12em;
+  box-shadow: none;
+}
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-body button[style*="--tck-a"]:hover:not(:disabled),
+.sta2e-chat-card.sta2e-chat-card--tmp.sta2e-chat-card--tmpmon .ccf-body button[style*="--tck-a"]:active:not(:disabled) {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--tck-a, var(--tmm-cyan)) 18%, transparent);
+  filter: none;
+}

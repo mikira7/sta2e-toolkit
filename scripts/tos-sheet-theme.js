@@ -22,7 +22,7 @@
  * `box stress` keys.
  *
  * ── When it applies ──────────────────────────────────────────────────────────
- * Theme `tos-panel` or `tmp-console`, the world setting `themeCharacterSheet`
+ * Theme `tos-panel`, `tmp-console` or `tmp-monitor`, the world setting `themeCharacterSheet`
  * on (the same switch that gates the toolkit's other sheet theming), and the
  * actor has not picked its own palette in the system's colour picker.
  * _applySheetTheme in main.js skips a tagged sheet, since its rules are all
@@ -42,25 +42,29 @@ const SHEET_KINDS = {
   STASmallCraftSheet2e: "smallcraft",
 };
 
-/** The theme id → the overlay class it stamps. */
+/** The theme id → the overlay classes it stamps. TMP Monitor is the TMP
+ *  overlay plus a modifier that styles/tmp-monitor-sheet.css restyles from, so
+ *  it inherits every layout fix tmp-sheet.css carries. */
 const ERA_CLASSES = {
-  "tos-panel":   "sta2e-tos-sheet",
-  "tmp-console": "sta2e-tmp-sheet",
+  "tos-panel":   ["sta2e-tos-sheet"],
+  "tmp-console": ["sta2e-tmp-sheet"],
+  "tmp-monitor": ["sta2e-tmp-sheet", "sta2e-tmp-sheet--monitor"],
 };
+const ALL_ERA_CLASSES = [...new Set(Object.values(ERA_CLASSES).flat())];
 
-/** The overlay class on for this client right now, or null. */
-function _activeEraClass() {
+/** The overlay classes on for this client right now (empty when off). */
+function _activeEraClasses() {
   try {
-    if (!game.settings.get("sta2e-toolkit", "themeCharacterSheet")) return null;
-    return ERA_CLASSES[getActiveLcThemeKey()] ?? null;
+    if (!game.settings.get("sta2e-toolkit", "themeCharacterSheet")) return [];
+    return ERA_CLASSES[getActiveLcThemeKey()] ?? [];
   } catch {
-    return null;
+    return [];
   }
 }
 
 /** Whether the TOS sheet look is on for this client right now. */
 export function tosSheetThemeActive() {
-  return _activeEraClass() === "sta2e-tos-sheet";
+  return _activeEraClasses().includes("sta2e-tos-sheet");
 }
 
 function _apply(app, kind) {
@@ -68,10 +72,10 @@ function _apply(app, kind) {
   if (!root) return;
   const palette = app.document?.system?.palette;
   const ownPalette = !!palette && palette !== "default";
-  const era = ownPalette ? null : _activeEraClass();
+  const era = ownPalette ? [] : _activeEraClasses();
   // Toggle every era class, so a theme change moves an open sheet across.
-  for (const cls of Object.values(ERA_CLASSES)) root.classList.toggle(cls, cls === era);
-  if (era) root.dataset.sta2eSheet = kind;
+  for (const cls of ALL_ERA_CLASSES) root.classList.toggle(cls, era.includes(cls));
+  if (era.length) root.dataset.sta2eSheet = kind;
   else delete root.dataset.sta2eSheet;
 }
 

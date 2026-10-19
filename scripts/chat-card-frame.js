@@ -236,9 +236,9 @@ function tosChatCard({ title, accent, body, rootClass, attrs }) {
 </div>`;
 }
 
-/** The TMP console frame's theme gate, matching `tmpSkin` in npc-roller.js. */
+/** The TMP frame's theme gate (Console or Monitor), matching `tmpSkin` in npc-roller.js. */
 export function isTmpChatCardFrame() {
-  try { return getActiveLcThemeKey() === "tmp-console"; }
+  try { return ["tmp-console", "tmp-monitor"].includes(getActiveLcThemeKey()); }
   catch { return false; }
 }
 
@@ -250,14 +250,20 @@ export function isTmpChatCardFrame() {
  * with the tmp-console tokens, which are made for a black background. Body
  * buttons go through the same keyify step as TOS and become backlit lenses
  * (styles/chat-card.css builds them from --tck-a / --tck-ink).
+ *
+ * Under `tmp-monitor` the same markup gains `.sta2e-chat-card--tmpmon` and tick
+ * marks, and styles/tmp-monitor.css redraws it as one black screen with the
+ * plate as its code tab and outlined keys.
  */
 function tmpChatCard({ title, accent, body, rootClass, attrs }) {
+  const monitor = getActiveLcThemeKey() === "tmp-monitor";
   return `
-<div class="sta2e-chat-card sta2e-chat-card--tmp${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+<div class="sta2e-chat-card sta2e-chat-card--tmp${monitor ? " sta2e-chat-card--tmpmon" : ""}${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
   style="${getLcCssVars("cc")}--ccf-c:${accent || LC.primary};">
   <div class="ccf-tmp-head">
     <span class="ccf-tmp-plate" aria-hidden="true"></span>
-    <div class="ccf-tmp-title">${title ?? ""}</div>
+    <div class="ccf-tmp-title">${title ?? ""}</div>${monitor ? `
+    <span class="ccf-tmp-ticks" aria-hidden="true"><i></i><i></i><i></i></span>` : ""}
   </div>
   <div class="ccf-tmp-screen"><div class="ccf-body">${keyifyButtons(body)}</div></div>
 </div>`;

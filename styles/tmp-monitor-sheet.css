@@ -1,0 +1,323 @@
+/*
+ * sta2e-toolkit | tmp-monitor-sheet.css
+ *
+ * The TMP Monitor look for the 2e actor sheets. tos-sheet-theme.js stamps
+ * `.sta2e-tmp-sheet` AND `.sta2e-tmp-sheet--monitor` under `tmp-monitor`, so
+ * the sheet first takes the whole TMP Console overlay (styles/tmp-sheet.css,
+ * with every layout fix it carries — the content-box traps, the row controls,
+ * the column widths) and this file only repaints it: the grey duty panels
+ * become black monitors with a cyan border, the inner monitors become
+ * bracketed blocks on them, and lens keys become outlined keys. The look is
+ * Concept B in docs/tmp-card-mockups.html; see styles/tmp-monitor.css for the
+ * calendar and the cards.
+ *
+ * Specificity: the root here is three components to tmp-sheet.css's two, so
+ * each rule outranks its counterpart there; the `&.character-sheet` and
+ * `&.starship-sheet` blocks mirror that file's nesting for the same reason.
+ * Load order is not relied on. No `!important`, as in tmp-sheet.css.
+ */
+
+.sta2e-tmp-sheet.sta2e-tmp-sheet--monitor[data-sta2e-sheet] {
+  --tmp-ink: #e8fff5;
+  --tmp-engrave: #00aef0;
+  --tmm-grid:
+    linear-gradient(rgba(0,174,240,.07) 1px, transparent 1px) 0 0 / 100% 14px,
+    linear-gradient(90deg, rgba(0,174,240,.07) 1px, transparent 1px) 0 0 / 14px 100%,
+    radial-gradient(ellipse at 50% 30%, #001a10 0%, #000 75%);
+  --tmm-line: rgba(0,210,122,.45);
+  --tmm-outline: inset 0 0 0 1px rgba(0,174,240,.5);
+
+  background: #000;
+  color: var(--tmp-ink);
+  scrollbar-color: #0d4a5a transparent;
+
+  /* Panels: black monitors */
+  .top-left-column, .top-right-column, .bottom-left-column, .bottom-right-column,
+  .left-column, .right-column {
+    background: var(--tmm-grid);
+    border: 2px solid var(--tmp-cyan);
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px #000, 0 0 12px rgba(0,174,240,.22), inset 0 0 24px rgba(0,0,0,.85);
+  }
+
+  /* Labels: cyan captions */
+  .title, .tracktitle {
+    color: var(--tmp-cyan);
+    font: 7px var(--tmp-caption);
+    letter-spacing: .16em;
+  }
+
+  /* Text fields: square, outlined, white phosphor type */
+  .text-entry {
+    background: #000;
+    border-radius: 0;
+    box-shadow: var(--tmm-outline);
+    color: var(--tmp-ink);
+    text-shadow: none;
+  }
+
+  /* Checkboxes and radios: outlined squares, filled yellow when set */
+  input[type=checkbox], input[type=radio] {
+    background: transparent;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px var(--tmm-line);
+    &:checked { background: var(--tmp-yellow); box-shadow: inset 0 0 0 1px var(--tmp-yellow), 0 0 6px rgba(233,233,90,.7); }
+  }
+
+  /* Keys: outlined, the roll filled */
+  .check-button, .btn, .btn2, .btn3 {
+    border-radius: 0;
+    font: 8px var(--tmp-caption);
+    letter-spacing: .12em;
+    box-shadow: none;
+    &::after { content: none; }
+    &:hover { filter: brightness(1.2); box-shadow: none; }
+  }
+  .btn, .btn2 { background: var(--tmp-magenta); color: #000; }
+  .btn3 { background: transparent; color: var(--tmp-yellow); box-shadow: inset 0 0 0 1px var(--tmp-yellow); }
+  .btn3:hover { box-shadow: inset 0 0 0 1px var(--tmp-yellow); }
+
+  /* Portrait: a screen within the screen */
+  .image-field {
+    border-width: 1px;
+    border-radius: 0;
+    box-shadow: 0 0 8px rgba(0,174,240,.3);
+    &::before, &::after { border-color: #e8fff5; }
+    &::after { color: var(--tmp-cyan); font: 7px var(--tmp-caption); letter-spacing: .16em; }
+  }
+  .profile-img { border-radius: 0; }
+
+  .name-field .text-entry { color: var(--tmp-ink); text-shadow: 0 0 8px rgba(0,174,240,.4); }
+  .icon-column {
+    > i { background-color: var(--tmp-cyan); }
+    .linked:not(.unlinked) { background-color: var(--tmp-yellow); }
+  }
+
+  /* Tracks: Concept B's segmented meters — outlined off, solid on */
+  .track .bar .box {
+    border-radius: 0;
+    color: #1d5a40;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px rgba(0,210,122,.35);
+    &:hover { box-shadow: inset 0 0 0 1px var(--tmp-yellow); }
+    &.selected { color: #000; box-shadow: none; &::after { content: none; } }
+    &.rep.selected, &.crew.selected, &.power.selected { background: var(--tmp-yellow); }
+    &.determination.selected, &.shields.selected { background: var(--tmp-cyan); }
+    &.stress.selected { background: var(--tmp-magenta); }
+  }
+
+  /* Inner monitors become bracketed blocks on the panel's screen: a thin frame
+     with white corner marks top-left and bottom-right, as Concept B draws them. */
+  .attribute-block, .discipline-block, .systems-block, .departments-block {
+    overflow: visible;
+    border: 1px solid var(--tmm-line);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    &::before, &::after {
+      content: "";
+      position: absolute;
+      inset: auto;
+      width: 7px;
+      height: 7px;
+      background: none;
+      border: 0 solid #e8fff5;
+      pointer-events: none;
+    }
+    &::before { left: -2px; top: -2px; border-width: 2px 0 0 2px; }
+    &::after { right: -2px; bottom: -2px; border-width: 0 2px 2px 0; }
+  }
+
+  .row-right, .stat.row {
+    &:has(.selector:checked) .numeric-entry:not(.breaches) { color: var(--tmp-yellow); }
+  }
+
+  .stressmod, .shieldmod, .crwmod, .rollrepnotdis, .amiklingon {
+    color: var(--tmp-cyan);
+    font: 7px var(--tmp-caption);
+    letter-spacing: .14em;
+    .text-entry { color: var(--tmp-green); }
+    .checkbox { box-shadow: inset 0 0 0 1px var(--tmm-line); }
+  }
+  .buttons { padding: 0; background: none; box-shadow: none; gap: 4px; }
+
+  /* Tabs: outlined keys, the active one filled */
+  nav.sheet-tabs.tabs {
+    gap: 4px;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    a.item {
+      border-radius: 0;
+      color: var(--tmp-cyan);
+      background: transparent;
+      font: 7.5px var(--tmp-caption);
+      letter-spacing: .14em;
+      box-shadow: inset 0 0 0 1px var(--tmp-cyan);
+      &.active { color: #000; background: var(--tmp-cyan); box-shadow: 0 0 8px rgba(0,174,240,.45); }
+    }
+  }
+
+  /* Item sections: cyan captions over outlined lists, green phosphor type */
+  .section {
+    > .title {
+      color: var(--tmp-cyan);
+      font: 7.5px var(--tmp-caption);
+      &::before { flex-basis: 7px; height: 2px; box-shadow: none; }
+      &::after { height: 1px; background: rgba(0,174,240,.4); box-shadow: none; }
+    }
+    .header {
+      background: none;
+      border-radius: 0;
+      border-bottom: 1px solid rgba(0,174,240,.35);
+    }
+    .row.entry {
+      background: none;
+      border-bottom: 1px solid rgba(0,210,122,.15);
+      &:hover { background: rgba(0,174,240,.08); }
+    }
+    .row .image img { border-radius: 0; box-shadow: 0 0 0 1px rgba(0,174,240,.45); }
+    .item-name { color: var(--tmp-green); text-shadow: 0 0 5px rgba(0,210,122,.35); }
+    input.item-quantity:not([type=checkbox]), .list-entry.damage, .two-column-with-roll-secondary.list-entry {
+      background: transparent;
+      border-radius: 0;
+      box-shadow: inset 0 0 0 1px rgba(0,174,240,.45);
+      color: var(--tmp-ink);
+    }
+    .row.entry > .control:not(.value-used) { background: linear-gradient(90deg, transparent, #000 30%); }
+    .control a {
+      border-radius: 0;
+      color: var(--tmp-cyan);
+      background: transparent;
+      box-shadow: inset 0 0 0 1px var(--tmp-cyan);
+      &.delete:hover { color: #000; background: var(--tmp-magenta); box-shadow: none; }
+      &.edit:hover { color: #000; background: var(--tmp-yellow); box-shadow: none; }
+    }
+    .header .control.create {
+      border-radius: 0;
+      color: var(--tmp-green);
+      background: transparent;
+      box-shadow: inset 0 0 0 1px var(--tmp-green);
+    }
+    a.value-used i {
+      border-radius: 0;
+      background: transparent;
+      box-shadow: inset 0 0 0 1px var(--tmm-line);
+      &.fa-toggle-on { background: var(--tmp-magenta); box-shadow: 0 0 6px rgba(237,47,118,.65); }
+    }
+  }
+  .section.injuries .item-name { color: var(--tmp-magenta); }
+
+  .note {
+    background: #000;
+    border-radius: 0;
+    box-shadow: var(--tmm-outline);
+  }
+
+  /* Record headers: a cyan code tab and white caption, ruled off in cyan */
+  .top-right-column::before, &.starship-sheet .right-column::before {
+    margin: 0 0 6px;
+    padding: 6px 8px 5px 26px;
+    border-bottom: 2px solid var(--tmp-plate);
+    background: linear-gradient(var(--tmp-plate), var(--tmp-plate)) 0 0 / 16px 100% no-repeat;
+    color: var(--tmp-ink);
+    font: 9.5px var(--tmp-caption);
+    letter-spacing: .12em;
+  }
+
+  &.character-sheet {
+    .tab[data-tab="biography"] {
+      .acclaimfield .text-entry, .reprimand .text-entry, .influence .text-entry,
+      .might .text-entry, .wealth .text-entry { color: var(--tmp-green); text-shadow: 0 0 5px rgba(0,210,122,.45); }
+    }
+    .npc-block {
+      .row { color: var(--tmp-cyan); font: 7px var(--tmp-caption); letter-spacing: .14em; }
+      .row > input[type=radio], .row > input[type=radio]:checked { box-shadow: inset 0 0 0 1px var(--tmm-line); }
+      .row > input[type=radio]:checked { background: var(--tmp-yellow); }
+      .column {
+        border-radius: 0;
+        color: var(--tmp-cyan);
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--tmp-cyan);
+        &:has(input:checked) { color: #000; background: var(--tmp-magenta); box-shadow: 0 0 8px rgba(237,47,118,.45); }
+      }
+    }
+    .supporting-char-grid {
+      background: none;
+      border-radius: 0;
+      box-shadow: var(--tmm-outline);
+      .row { border-bottom-color: rgba(0,210,122,.15); }
+      .label { color: var(--tmp-green); text-shadow: none; }
+      input[type=checkbox]:checked { background: var(--tmp-green); box-shadow: 0 0 6px rgba(0,210,122,.6); }
+    }
+    .milestones input.item-quantity[type=checkbox]:checked { background: var(--tmp-green); }
+  }
+
+  &.starship-sheet {
+    .big-row-column {
+      background: none;
+      border-radius: 0;
+      box-shadow: inset 0 0 0 1px var(--tmm-line);
+      .checkbox { border-radius: 0; background: transparent; box-shadow: inset 0 0 0 1px var(--tmm-line); }
+      .numeric-entry { background: #000; border-radius: 0; box-shadow: var(--tmm-outline); }
+    }
+    .big-row-column:first-child .checkbox:checked { background: var(--tmp-green); box-shadow: 0 0 8px rgba(0,210,122,.6); }
+    .big-row-column:nth-child(2) .checkbox:checked { background: var(--tmp-magenta); box-shadow: 0 0 8px rgba(237,47,118,.6); }
+
+    .sta2e-npc-ship-block {
+      background: none;
+      border-radius: 0;
+      box-shadow: inset 0 0 0 1px var(--tmm-line);
+      color: var(--tmp-cyan);
+      font: 7px var(--tmp-caption);
+      letter-spacing: .14em;
+      input[type=checkbox], input[type=radio] { box-shadow: inset 0 0 0 1px var(--tmm-line); }
+      input:checked { box-shadow: 0 0 6px rgba(233,233,90,.7); }
+      .sta2e-cq-title { color: var(--tmp-ink); font-size: 7px; }
+      .sta2e-cq-option { font-size: 7px; }
+    }
+    .sta2e-crew-tabs {
+      gap: 4px;
+      padding: 0;
+      background: none;
+      box-shadow: none;
+      .sta2e-crew-tab {
+        border-radius: 0;
+        color: var(--tmp-cyan);
+        background: transparent;
+        font: 7.5px var(--tmp-caption);
+        letter-spacing: .14em;
+        box-shadow: inset 0 0 0 1px var(--tmp-cyan);
+        &.is-active { color: #000; background: var(--tmp-cyan); box-shadow: 0 0 8px rgba(0,174,240,.45); }
+      }
+    }
+    .sta2e-crew-heading {
+      color: var(--tmp-cyan);
+      font: 7.5px var(--tmp-caption);
+      &::before { flex-basis: 7px; height: 2px; }
+      &::after { height: 1px; background: rgba(0,174,240,.4); box-shadow: none; }
+    }
+    .sta2e-crew-station, .sta2e-crew-member { background: none; border-bottom-color: rgba(0,210,122,.15); }
+    .sta2e-crew-select { color: var(--tmp-green); border-radius: 0; }
+    .sta2e-crew-member-name { color: var(--tmp-green); }
+    .sta2e-crew-dept-tabs { background: none; box-shadow: none; padding: 0; }
+    .sta2e-crew-dept-tab {
+      border-radius: 0;
+      color: var(--tmp-cyan);
+      background: transparent;
+      box-shadow: inset 0 0 0 1px var(--tmp-cyan);
+      &.is-active { color: #000; background: var(--tmp-yellow); box-shadow: none; }
+    }
+    .sta2e-crew-drop { border-color: rgba(0,174,240,.5); border-radius: 0; color: var(--tmp-cyan); }
+  }
+}
+
+/* The window around a monitor sheet */
+.window-content:has(.sta2e-tmp-sheet--monitor[data-sta2e-sheet]) {
+  background: #000;
+}
+.application:has(.sta2e-tmp-sheet--monitor[data-sta2e-sheet]) > .window-header {
+  background: #000;
+  border-bottom: 2px solid #00aef0;
+  color: #e8fff5;
+}

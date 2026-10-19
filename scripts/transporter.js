@@ -68,7 +68,7 @@ function _getCurrentDateLabel() {
     const isRomulan = era === "romulan" || theme === "romulan";
     const isENT     = era === "ent"     || theme === "ent-panel";
     const isTOS     = era === "tos"     || theme === "tos-panel";
-    const isTMP     = era === "tmp"     || theme === "tmp-console";
+    const isTMP     = era === "tmp"     || theme === "tmp-console" || theme === "tmp-monitor";
 
     if (isKlingon && campaign.calendarDate) return formatKlingonDate(campaign.calendarDate);
     if (isRomulan && campaign.calendarDate) return formatRomulanDate(campaign.calendarDate);

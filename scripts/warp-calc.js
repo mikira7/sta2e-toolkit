@@ -1107,7 +1107,7 @@ export function openWarpCalc() {
 
   if (theme === "ent-panel") {
     _open("UESPA — Warp Navigation",       buildENTContent(ctx),   null, makeENTRenderFn(ctx));
-  } else if (theme === "tos-panel" || theme === "tmp-console") {
+  } else if (theme === "tos-panel" || theme === "tmp-console" || theme === "tmp-monitor") {
     _open("Warp Navigation — TOS/TMP Era", buildTOSContent(ctx),   null,
       makeRenderFn({ prefix: "tw", warpToC: warpToC_TOS, presets: TOS_PRESETS, defaultWarp: 6, ctx }));
   } else {

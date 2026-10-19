@@ -56,6 +56,7 @@ const CALENDAR_PALETTE = {
   "lcars-tng-blue": { btn: "#6699cc", text: "#000508" },
   "tos-panel":      { btn: "#c8a010", text: "#1a1200" },
   "tmp-console":    { btn: "#2a4a78", text: "#b8d8f8" },
+  "tmp-monitor":    { btn: "#00aef0", text: "#000000" },
   "ent-panel":      { btn: "#cc8833", text: "#161618" },
   klingon:          { btn: "#cc1111", text: "#ffffff" },
   romulan:          { btn: "#22aa44", text: "#000a00" },

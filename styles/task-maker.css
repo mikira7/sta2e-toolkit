@@ -846,7 +846,8 @@
   --tmk-btn-radius: 2px;
 }
 
-.sta2e-task-maker[data-theme="tmp-console"] {
+.sta2e-task-maker[data-theme="tmp-console"],
+.sta2e-task-maker[data-theme="tmp-monitor"] {
   --tmk-elbow: 14px;
   --tmk-bar-cap: 8px;
   --tmk-fillet: 6px;

@@ -63,7 +63,7 @@ function _warpToC(w) {
   // Pick formula based on active campaign theme
   const theme = game.sta2eToolkit?.getActiveCampaign?.()?.theme
     ?? game.settings.get("sta2e-toolkit", "hudTheme") ?? "lcars-tng";
-  const useTOS = theme === "tos-panel" || theme === "tmp-console" || theme === "ent-panel";
+  const useTOS = theme === "tos-panel" || theme === "tmp-console" || theme === "tmp-monitor" || theme === "ent-panel";
   if (useTOS) return w <= 9 ? Math.pow(w, 10 / 3) : Math.pow(w, 3);
   // TNG formula with high-warp interpolation
   if (w >= 10) return Infinity;

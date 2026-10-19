@@ -121,6 +121,40 @@ a **content box** (list headers, `.buttons`, `.text-entry`, the supporting
 improvement rows), so any padding the overlay adds pushes them past their column.
 tmp-sheet.css sets `box-sizing: border-box` (or `width: auto`) on each.
 
+### TMP Monitor Theme
+
+A second TMP theme, `tmp-monitor` ("TMP Monitor"), beside TMP Console: the later
+films' monitor graphics (Concept B in `docs/tmp-card-mockups.html`) — every widget
+one black screen with a vector grid, scanlines, a cyan border with rounded outer
+corners and a square interior, Microgramma captions and outlined keys. It is picked
+like any theme (campaign manager, `hudTheme`); the TMP era still defaults to TMP
+Console. Its tokens equal `tmp-console`'s, and `isTmpTheme()` / `TMP_THEME_KEYS`
+in lcars-theme.js are what "is this TMP?" checks should use.
+
+**It owns no markup.** The calendar, the task card, the chat frame and the sheets all
+render TMP Console's markup plus one modifier, and a stylesheet repaints it:
+
+| surface | modifier, added by | repainted in |
+|---|---|---|
+| Stardate HUD | `.sta2e-tmp--monitor` — stardate-hud.js `tmpRootClass` | styles/tmp-monitor.css |
+| Task card | `.sta2e-task-card--tmpmon` — task-card-tmp.js | styles/tmp-monitor.css |
+| Chat frame | `.sta2e-chat-card--tmpmon` — chat-card-frame.js `tmpChatCard` | styles/tmp-monitor.css |
+| Sheets | `.sta2e-tmp-sheet--monitor` beside `.sta2e-tmp-sheet` — tos-sheet-theme.js `ERA_CLASSES` | styles/tmp-monitor-sheet.css |
+
+So the monitor inherits every fix the TMP files carry (the sheet content-box traps,
+the row-control flash, the meter label columns) and a fix there lands in both. Each
+monitor rule is one selector component deeper than its TMP counterpart, so it wins
+on specificity, not load order. Two things differ in the renderers themselves: the
+task card and chat frame put a code tab and tick marks in the header (the card's
+code is `T-<target>` while working, `OK` / `NEG` / `AST`), and task-card keys take
+`monitorStyle` — outlined or filled with an **inline `border-color`**, because an
+armed key's yellow border is written by `_armCardSelection`. Monitor keys are
+numbered by a CSS counter, not markup. Widgets this theme does not restyle (alert
+widget, spawn window, Task Maker, opposed task, player bar) take TMP Console's rules,
+which list `tmp-monitor` beside `tmp-console`. Covered by
+[tests/tmp-monitor-cards.mjs](tests/tmp-monitor-cards.mjs) (`--preview` includes the
+calendar bar).
+
 ### Token HUD
 
 **One control, not four.** [token-toolkit-hud.js](scripts/token-toolkit-hud.js) is
@@ -1878,6 +1912,8 @@ through `lcarsChatCard`.
 | [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS or TMP overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
+| [styles/tmp-monitor.css](styles/tmp-monitor.css) | The TMP Monitor theme for the Stardate HUD, the task card and the chat frame — repaints the TMP markup from its modifier classes |
+| [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG top/bottom-bar frame every other chat card shares. Leaf module; `legacy` thunk keeps non-TNG eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shape-only CSS for that frame |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |

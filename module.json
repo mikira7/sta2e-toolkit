@@ -35,6 +35,7 @@
     "styles/task-card-slim.css",
     "styles/task-card-tos.css",
     "styles/task-card-tmp.css",
+    "styles/tmp-monitor.css",
     "styles/task-maker.css",
     "styles/spawn-window.css",
     "styles/zones.css",
@@ -50,6 +51,7 @@
     "styles/ship-crew-tab.css",
     "styles/tos-sheet.css",
     "styles/tmp-sheet.css",
+    "styles/tmp-monitor-sheet.css",
     "styles/sta-palette-fix.css",
     "styles/appearance.css",
     "styles/token-maker.css"

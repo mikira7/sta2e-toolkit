@@ -38,6 +38,14 @@ const THEMES = {
     border: "#00aef0", borderDim: "#003a2a", green: "#00d27a", yellow: "#e9e95a",
     orange: "#f69b2e", red: "#e82938", font: FONT,
   },
+  // The later films' monitor graphics: the same phosphor palette as TMP
+  // Console, drawn as one black screen rather than a grey panel.
+  "tmp-monitor": {
+    bg: "#000000", panel: "#001008", primary: "#00d27a", secondary: "#00aef0",
+    tertiary: "#ed2f76", text: "#3df09d", textDim: "#0d7c4c", textBright: "#e8fff5",
+    border: "#00aef0", borderDim: "#003a2a", green: "#00d27a", yellow: "#e9e95a",
+    orange: "#f69b2e", red: "#e82938", font: FONT,
+  },
   "ent-panel": {
     bg: "#000000", panel: "#2e2e2e", primary: "#c7c7c7", secondary: "#3d3d3d",
     tertiary: "#7aaec4", text: "#d0d0d0", textDim: "#5e5e5e", textBright: "#f0f0f0",
@@ -74,10 +82,17 @@ const THEME_TEMPLATES = {
   "lcars-tng-blue": "tech-lcars",
   "tos-panel": "tos-console",
   "tmp-console": "tmp-grid",
+  "tmp-monitor": "tmp-grid",
   "ent-panel": "ent-stream",
   klingon: "klingon-tactical",
   romulan: "romulan-grid",
 };
+
+/** Both TMP themes — Console (grey panels) and Monitor (black screens). */
+export const TMP_THEME_KEYS = new Set(["tmp-console", "tmp-monitor"]);
+
+/** Whether a theme id is one of the TMP looks. */
+export function isTmpTheme(key) { return TMP_THEME_KEYS.has(key); }
 
 export function themeForEra(era) {
   return ERA_THEME_DEFAULTS[era] ?? "lcars-tng";
@@ -159,6 +174,7 @@ export const THEME_NAMES = {
   "lcars-tng-blue": "LCARS TNG Blue-Grey",
   "tos-panel": "TOS Panel",
   "tmp-console": "TMP Console",
+  "tmp-monitor": "TMP Monitor",
   "ent-panel": "ENT Panel",
   klingon: "Klingon",
   romulan: "Romulan",

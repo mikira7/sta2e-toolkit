@@ -1366,7 +1366,8 @@
 }
 
 /* TMP Console */
-.sta2e-player-theme-tmp-console {
+.sta2e-player-theme-tmp-console,
+.sta2e-player-theme-tmp-monitor {
   --player-border:  rgba(30, 40, 56, 0.9);
   --player-bg:      rgba(8, 12, 18, 0.95);
   --player-glow:    rgba(50, 180, 100, 0.2);
@@ -2013,35 +2014,43 @@
 }
 
 /* ── THEME: tmp-console ── */
-#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-widget {
+#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-widget,
+#sta2e-alert-container[data-theme="tmp-monitor"] #sta2e-alert-widget {
   background: linear-gradient(180deg, #141820 0%, #0d1016 100%);
   border: 1px solid #1e2838;
   border-top: none;
   border-radius: 0 0 6px 6px;
   box-shadow: inset 0 1px 0 rgba(100,150,255,0.08), 0 4px 16px rgba(0,0,0,0.8);
 }
-#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-tab {
+#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-tab,
+#sta2e-alert-container[data-theme="tmp-monitor"] #sta2e-alert-tab {
   background: linear-gradient(180deg, #3a6090 0%, #1e3a60 100%);
   border-color: #1e3a60;
   color: rgba(180,210,255,0.8);
   font-family: "Helvetica Neue", Arial, sans-serif;
 }
-#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-tab:hover {
+#sta2e-alert-container[data-theme="tmp-console"] #sta2e-alert-tab:hover,
+#sta2e-alert-container[data-theme="tmp-monitor"] #sta2e-alert-tab:hover {
   background: linear-gradient(180deg, #4a70a0 0%, #2e4a70 100%);
   color: rgba(200,225,255,1.0);
 }
 #sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__heading,
-#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__subline {
+#sta2e-alert-container[data-theme="tmp-monitor"] .sta2e-alert__heading,
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__subline,
+#sta2e-alert-container[data-theme="tmp-monitor"] .sta2e-alert__subline {
   font-family: "Helvetica Neue", Arial, sans-serif;
 }
-#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__toggle {
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__toggle,
+#sta2e-alert-container[data-theme="tmp-monitor"] .sta2e-alert__toggle {
   border-radius: 8px;  /* TMP oval buttons */
 }
-#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__toggle-label {
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__toggle-label,
+#sta2e-alert-container[data-theme="tmp-monitor"] .sta2e-alert__toggle-label {
   font-family: "Helvetica Neue", Arial, sans-serif;
   font-size: 7.5px;
 }
-#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__bar-block {
+#sta2e-alert-container[data-theme="tmp-console"] .sta2e-alert__bar-block,
+#sta2e-alert-container[data-theme="tmp-monitor"] .sta2e-alert__bar-block {
   border-right: 1px solid #1e2838;
 }
 

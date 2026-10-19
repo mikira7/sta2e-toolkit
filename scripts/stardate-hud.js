@@ -7,6 +7,7 @@
  *   lcars-tng   — LCARS panel with rounded left cap, segmented bar
  *   tos-panel   — TOS era: boxy, dark grey, gold/red/green grid buttons
  *   tmp-console — TMP era: sleek, near-black, blue-white oval buttons, green display
+ *   tmp-monitor — the same TMP markup drawn as one black monitor (styles/tmp-monitor.css)
  */
 
 import { formatStardate, formatCalendarDate, formatTime, formatKlingonDate, formatRomulanDate } from "./stardate-calc.js";
@@ -17,8 +18,14 @@ const LCARS_THEMES  = new Set(["lcars-tng", "lcars-tng-blue", "klingon", "romula
 const KLINGON_THEMES = new Set(["klingon"]);
 const ROMULAN_THEMES = new Set(["romulan"]);
 const TOS_THEMES    = new Set(["tos-panel"]);
-const TMP_THEMES    = new Set(["tmp-console"]);
+const TMP_THEMES    = new Set(["tmp-console", "tmp-monitor"]);
 const ENT_THEMES    = new Set(["ent-panel"]);
+
+/** The TMP bar's theme classes. TMP Monitor reuses the TMP markup and adds a
+ *  modifier that styles/tmp-monitor.css restyles it from. */
+const tmpRootClass = ctx => ctx.theme === "tmp-monitor"
+  ? "sta2e-theme-tmp-monitor sta2e-tmp--monitor"
+  : "sta2e-theme-tmp-console";
 
 export class StardateHUD {
 
@@ -204,7 +211,7 @@ export class StardateHUD {
 
   _buildPlayerTMP(ctx) {
     const { ship, override, calDate, noSD } = this._playerDisplay(ctx);
-    return `<div class="sta2e-hud sta2e-tmp sta2e-theme-tmp-console">
+    return `<div class="sta2e-hud sta2e-tmp ${tmpRootClass(ctx)}">
       <div class="tmp__console-frame">
         <div class="tmp__id-stripe">SFHQ</div>
         <div class="tmp__oval-block">
@@ -439,7 +446,7 @@ export class StardateHUD {
 
   _buildTMP(ctx) {
     if (ctx.noCampaigns) {
-      return `<div class="sta2e-hud sta2e-tmp sta2e-theme-tmp-console">
+      return `<div class="sta2e-hud sta2e-tmp ${tmpRootClass(ctx)}">
         <div class="tmp__console-frame">
           <span class="tmp__empty">NO ACTIVE MISSION</span>
           ${ctx.isGM ? `<button type="button" class="tmp__btn" data-action="openManager">SETUP</button>` : ""}
@@ -459,7 +466,7 @@ export class StardateHUD {
       <button type="button" class="tmp__btn tmp__btn--alt" data-action="openEditor" title="Edit Date/Time">EDT</button>
       <button type="button" class="tmp__btn" data-action="openManager" title="Campaign Manager">CFG</button>` : "";
 
-    return `<div class="sta2e-hud sta2e-tmp sta2e-theme-tmp-console">
+    return `<div class="sta2e-hud sta2e-tmp ${tmpRootClass(ctx)}">
       <div class="tmp__console-frame">
 
         <!-- ID stripe -->

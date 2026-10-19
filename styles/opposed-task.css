@@ -643,7 +643,9 @@
 }
 
 .sta2e-opposed-setup[data-theme="tmp-console"],
+.sta2e-opposed-setup[data-theme="tmp-monitor"],
 .sta2e-opposed-task[data-theme="tmp-console"],
+.sta2e-opposed-task[data-theme="tmp-monitor"],
 .sta2e-opposed-setup[data-theme="ent-panel"],
 .sta2e-opposed-task[data-theme="ent-panel"] {
   text-transform: uppercase;
@@ -688,7 +690,9 @@
 }
 
 .sta2e-opposed-setup[data-theme="tmp-console"],
-.sta2e-opposed-task[data-theme="tmp-console"] {
+.sta2e-opposed-setup[data-theme="tmp-monitor"],
+.sta2e-opposed-task[data-theme="tmp-console"],
+.sta2e-opposed-task[data-theme="tmp-monitor"] {
   --op-template-line: var(--op-secondary);
   border-radius: 8px !important;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-secondary) 70%, transparent), 0 8px 20px rgba(0,0,0,0.45);
@@ -700,30 +704,42 @@
 }
 
 .sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-setup[data-theme="tmp-monitor"] .sta2e-opposed-setup-sidebar,
 .sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-titlebox,
+.sta2e-opposed-setup[data-theme="tmp-monitor"] .sta2e-opposed-setup-titlebox,
 .sta2e-opposed-setup[data-theme="tmp-console"] .op-slot,
+.sta2e-opposed-setup[data-theme="tmp-monitor"] .op-slot,
 .sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-header,
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-card-header,
 .sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-card-summary,
 .sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-side,
-.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-resolution {
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-resolution,
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-resolution {
   border-radius: 10px !important;
 }
 
-.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-header {
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-header,
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-card-header {
   border-radius: 0 !important;
   background:
     linear-gradient(90deg, var(--op-secondary) 0 32%, var(--op-primary) 32% 56%, var(--op-tertiary) 56% 70%, var(--op-green) 70%) !important;
 }
 
-.sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-sidebar {
+.sta2e-opposed-setup[data-theme="tmp-console"] .sta2e-opposed-setup-sidebar,
+.sta2e-opposed-setup[data-theme="tmp-monitor"] .sta2e-opposed-setup-sidebar {
   background:
     repeating-linear-gradient(180deg, var(--op-primary) 0 14px, var(--op-bg) 14px 18px, var(--op-secondary) 18px 30px, var(--op-bg) 30px 34px) !important;
   border-radius: 14px 0 0 14px !important;
 }
 
 .sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-summary,
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-card-summary,
 .sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-card-side,
-.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-resolution {
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-card-side,
+.sta2e-opposed-task[data-theme="tmp-console"] .sta2e-opposed-resolution,
+.sta2e-opposed-task[data-theme="tmp-monitor"] .sta2e-opposed-resolution {
   background:
     linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--op-primary) 15%, transparent) 22px 24px, transparent 24px),
     repeating-linear-gradient(180deg, rgba(0,210,122,0.055) 0 1px, transparent 1px 9px),

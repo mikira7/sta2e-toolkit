@@ -680,6 +680,7 @@ export function registerSettings() {
       "lcars-tng-blue": "STA2E.Settings.HudTheme.LcarsTngBlue",
       "tos-panel":      "STA2E.Settings.HudTheme.TosPanel",
       "tmp-console":    "STA2E.Settings.HudTheme.TmpConsole",
+      "tmp-monitor":    "STA2E.Settings.HudTheme.TmpMonitor",
       "ent-panel":      "STA2E.Settings.HudTheme.EntPanel",
       "klingon":        "STA2E.Settings.HudTheme.Klingon",
       "romulan":        "STA2E.Settings.HudTheme.Romulan",

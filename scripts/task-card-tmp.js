@@ -36,6 +36,13 @@
  * stylesheets may not use !important to fix it.
  *
  * No inline border-radius anywhere, and no `!important` in the stylesheet.
+ *
+ * ── TMP Monitor ──────────────────────────────────────────────────────────────
+ * Under `tmp-monitor` the same markup renders with `.sta2e-task-card--tmpmon`
+ * beside `--tmp`, and styles/tmp-monitor.css redraws it as one black screen
+ * (Concept B in docs/tmp-card-mockups.html). Only three things differ here: the
+ * header carries a code tab and tick marks, and keys take `monitorStyle` —
+ * outlined or filled in a real border colour, still inline for the same reason.
  */
 
 import { getLcTokens, getLcCssVars, getActiveLcThemeKey } from "./lcars-theme.js";
@@ -58,6 +65,22 @@ const LENSES = {
 const lensStyle = kind => {
   const [top, mid, low, ink] = LENSES[kind] ?? LENSES.amber;
   return `background:linear-gradient(180deg,${top} 0%,${mid} 45%,${low} 100%);color:${ink};`;
+};
+
+/** TMP Monitor keys: outlined in phosphor colours, or filled for the main action.
+ *  The border colour is inline too, because an armed key's yellow border is
+ *  written by _armCardSelection. */
+const MONITOR_KEYS = {
+  amber:   ["#00aef0", false],
+  magenta: ["#ed2f76", true],
+  green:   ["#00d27a", true],
+  off:     ["#2a6a80", false],
+};
+const monitorStyle = kind => {
+  const [c, filled] = MONITOR_KEYS[kind] ?? MONITOR_KEYS.amber;
+  return filled
+    ? `background:${c};border-color:${c};color:#000000;`
+    : `background:transparent;border-color:${c};color:${c};`;
 };
 
 /** Monitor and header-plate colours per card state. */
@@ -109,6 +132,8 @@ const actionSection = (modifier, inner, { label = "", listClass = "" } = {}) => 
  * @returns {string} HTML string.
  */
 export function renderTmpTaskCard(view) {
+  const monitor = getActiveLcThemeKey() === "tmp-monitor";
+  const keyStyle = monitor ? monitorStyle : lensStyle;
   const {
     rollData, diceRow, renderResourceTokens,
     passed, finalResultLabel,
@@ -221,14 +246,14 @@ export function renderTmpTaskCard(view) {
     actions.push(actionSection("assists", pendingAssists.map((ao, i) => `
       <button class="sta2e-player-assist-roll tmc-key tmc-key--left"
         data-payload="${p}" data-assist-index="${i}" data-filled="1"
-        style="${lensStyle("amber")}">Roll Assist Die — ${ao.name}${assistKind(ao)}</button>`).join(""),
+        style="${keyStyle("amber")}">Roll Assist Die — ${ao.name}${assistKind(ao)}</button>`).join(""),
       { label: "Pending Assists" }));
   }
   if (showMakeYourOwnLuck) {
     actions.push(actionSection("luck", `
       <button class="sta2e-make-own-luck tmc-key tmc-key--left"
         data-payload="${p}" data-filled="1"
-        style="${lensStyle("amber")}">${makeYourOwnLuckSource ?? "Make Your Own Luck"} — suffer 1 Stress, change a failed die to ${crewTarget}</button>`));
+        style="${keyStyle("amber")}">${makeYourOwnLuckSource ?? "Make Your Own Luck"} — suffer 1 Stress, change a failed die to ${crewTarget}</button>`));
   }
   if (!confirmed && !isAssistRoll && rerollButtons.length > 0) {
     actions.push(actionSection("rerolls", rerollButtons.map(rb => `
@@ -238,47 +263,60 @@ export function renderTmpTaskCard(view) {
         data-ability-label="${rb.label}"
         title="${rb.label} — ${rb.labelShort}"
         data-filled="1"
-        style="${lensStyle("amber")}">${rerollButtonBody(rb)}</button>`).join(""),
+        style="${keyStyle("amber")}">${rerollButtonBody(rb)}</button>`).join(""),
       { label: "Rerolls Available", listClass: "sta2e-task-rerolls" }));
   }
 
   if (isAssistRoll) {
     actions.push(actionSection("assist-apply", assistApplied
-      ? `<div class="sta2e-task-btn tmc-key" style="${lensStyle("off")}">Applied to: ${assistApplied}</div>`
+      ? `<div class="sta2e-task-btn tmc-key" style="${keyStyle("off")}">Applied to: ${assistApplied}</div>`
       : `<button class="sta2e-assist-to-roll tmc-key tmc-key--big" data-payload="${p}"
-           style="${lensStyle("amber")}">Add to Task Roll →</button>`));
+           style="${keyStyle("amber")}">Add to Task Roll →</button>`));
   } else if (confirmed) {
     actions.push(actionSection("confirm", poolButton.visible
       ? `<button class="sta2e-add-to-pool tmc-key tmc-key--big"
            data-pool="${poolButton.pool}"
            data-amount="${poolButton.amount}"
            data-token-id="${poolButton.tokenId}"
-           style="${lensStyle(poolButton.pool === "threat" ? "magenta" : "green")}">${poolButton.label}</button>`
-      : `<div class="sta2e-task-btn tmc-key tmc-key--big" style="${lensStyle("off")}">Completed</div>`));
+           style="${keyStyle(poolButton.pool === "threat" ? "magenta" : "green")}">${poolButton.label}</button>`
+      : `<div class="sta2e-task-btn tmc-key tmc-key--big" style="${keyStyle("off")}">Completed</div>`));
   } else {
     const minor = [
       canGmEditCard ? `
         <button class="sta2e-edit-roll-card tmc-key" data-payload="${p}"
-          style="${lensStyle("off")}">Edit Results</button>` : "",
+          style="${keyStyle("off")}">Edit Results</button>` : "",
       succeedAtCostButton?.visible ? `
         <button class="sta2e-succeed-at-cost tmc-key" data-payload="${p}"
           title="Resolve this task as a success. It gains 1 extra complication; the GM narrates the cost."
-          style="${lensStyle("amber")}">${succeedAtCostButton.label}</button>` : "",
+          style="${keyStyle("amber")}">${succeedAtCostButton.label}</button>` : "",
     ].filter(Boolean);
     actions.push(actionSection("confirm", `
       ${minor.length ? `<div class="tmc-grid${minor.length === 1 ? " tmc-grid--one" : ""}">${minor.join("")}</div>` : ""}
       <button class="sta2e-player-confirm tmc-key tmc-key--big" data-payload="${p}"
-        style="${lensStyle(passed ? "green" : "magenta")}">${confirmLabel}</button>`));
+        style="${keyStyle(passed ? "green" : "magenta")}">${confirmLabel}</button>`));
   }
 
-  return `
-<div class="sta2e-task-card sta2e-task-card--tmp" data-theme="${getActiveLcThemeKey()}"
-  style="${getLcCssVars("tc")}--tmc-plate:${PLATE[state]};font-family:${LC.font};">
+  // TMP Monitor: a code tab (the target number while working) and tick marks
+  // in place of the plate and the tag.
+  const code = isAssistRoll ? "AST"
+    : state === "pass" ? "OK"
+    : state === "fail" ? "NEG"
+    : crewTarget != null ? `T-${crewTarget}` : "TSK";
+  const head = monitor ? `
+  <div class="tmc-head">
+    <span class="tmc-code">${code}</span>
+    <div class="tmc-title">${headerTitle}${headerSub ? `<small>${headerSub}</small>` : ""}</div>
+    <span class="tmc-ticks" aria-hidden="true"><i></i><i></i><i></i></span>
+  </div>` : `
   <div class="tmc-head">
     <span class="tmc-plate" aria-hidden="true"></span>
     <div class="tmc-title">${headerTitle}${headerSub ? `<small>${headerSub}</small>` : ""}</div>
     <span class="tmc-tag">${tag}</span>
-  </div>
+  </div>`;
+
+  return `
+<div class="sta2e-task-card sta2e-task-card--tmp${monitor ? " sta2e-task-card--tmpmon" : ""}" data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("tc")}--tmc-plate:${PLATE[state]};${monitor ? `--tmm-tab:${screen};` : ""}font-family:${LC.font};">${head}
   ${diceScreen}
   ${notesHtml}
   ${readoutScreen}

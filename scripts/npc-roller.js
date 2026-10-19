@@ -3903,7 +3903,7 @@ export function buildPlayerRollCardHtml(rollData) {
   let cardStyle = "classic";
   try { cardStyle = game.settings.get(MODULE, "taskCardStyle") ?? "classic"; } catch { /* pre-init */ }
   const tosSkin = getActiveLcThemeKey() === "tos-panel";
-  const tmpSkin = getActiveLcThemeKey() === "tmp-console";
+  const tmpSkin = ["tmp-console", "tmp-monitor"].includes(getActiveLcThemeKey());
   if (cardStyle === "slim" || tosSkin || tmpSkin) {
     const showShipBlock = (shipDice ?? []).length > 0;
     const skinView = ({
