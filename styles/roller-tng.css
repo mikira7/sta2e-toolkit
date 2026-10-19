@@ -39,8 +39,8 @@
 
 /* Bodies set sizes inline for Arial Narrow; Antonio is narrower, so the
    content is zoomed as the chat frame's bodies are. */
-.sta2e-roller--tng .tbc-body > #sta2e-npc-roller,
-.sta2e-roller--tng .tbc-body > div > #sta2e-npc-roller {
+.sta2e-roller--tng .tbr-screen > #sta2e-npc-roller,
+.sta2e-roller--tng .tbr-screen > div > #sta2e-npc-roller {
   zoom: 1.12;
   background: transparent;
 }

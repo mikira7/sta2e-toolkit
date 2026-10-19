@@ -34,7 +34,7 @@
 
 /* The content scrolls inside the scope; its scrollbar is a phosphor thumb on
    the scope's own black, not the browser's white. */
-.sta2e-roller--klingon #sta2e-npc-roller {
+.sta2e-roller--klingon .tbr-screen {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--tkc-c) 55%, #000) #020803;
 }

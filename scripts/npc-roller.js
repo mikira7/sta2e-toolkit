@@ -5808,7 +5808,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
     await dialog.render(true);
     // Era skins only: Roll / Resolve / Cancel move inside the frame.
-    try { seatRollerFooter(dialog.element); }
+    try {
+      seatRollerFooter(dialog.element);
+      // The footer moved and the skin's screen now gives way under core's
+      // height cap (roller.css); measure again so core re-clamps the top.
+      if (dialog.element?.classList.contains("sta2e-roller-win")) dialog.setPosition({ height: "auto" });
+    }
     catch (err) { console.warn("STA2e Toolkit | roller footer skin failed:", err); }
 
     if (isRolled) {

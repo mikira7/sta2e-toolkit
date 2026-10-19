@@ -1,0 +1,49 @@
+/*
+ * Adv. Dice Roller — what every era skin shares: the window fits the screen.
+ *
+ * Core caps every window (`.application`: max-height 100vh less 1.5 hotbars,
+ * overflow hidden), but the dialog's form does not shrink inside it, so on a
+ * short screen a long setup — a weapon, a ship pool, a trait list — was simply
+ * clipped, and Roll with it. Here the window is a flex column all the way down
+ * to the frame, where only `.tbr-screen` (the CRT, the monitor, the scope, the
+ * glass, the bracket body) gives way and scrolls. The header and the keys stay
+ * put. Core's own cap is left alone.
+ *
+ * The content root used to scroll itself (inline max-height: 100vh - 250px),
+ * but under a skin that guessed wrong: the frames add their own chrome, and
+ * TNG and ENT zoom the content, which zooms the cap with it. rollerBodyHtml
+ * strips it.
+ *
+ * `sta2e-roller-win` is added by seatRollerFooter, so the unskinned LCARS
+ * dialog is untouched. No `!important`.
+ */
+
+.application.sta2e-roller-win .window-content,
+.application.sta2e-roller-win .dialog-form,
+.application.sta2e-roller-win .dialog-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The frame, and the inner box TNG (.tbc-body) and ENT (.tec-in) put round
+   the screen and the keys. */
+.sta2e-roller-win .sta2e-roller,
+.sta2e-roller-win .sta2e-roller > .tbc-body,
+.sta2e-roller-win .sta2e-roller > .tec-in {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sta2e-roller-win .sta2e-roller .tbr-screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sta2e-roller-win .sta2e-roller .tbr-keys { flex: none; }

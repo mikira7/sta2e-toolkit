@@ -2046,6 +2046,12 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   everywhere except Klingon's scope phosphor.
 - **The content root's own fill goes** (the pass drops `background` from
   `#sta2e-npc-roller`), so the CRT's glow and the monitor's grid show behind it.
+  So do its inline `max-height` and `overflow`: **the frame's `.tbr-screen` is
+  the only thing that scrolls**, and the keys slot always sits outside it.
+  [roller.css](styles/roller.css) makes the window a flex column down to that
+  screen, so under core's own window cap (100vh less 1.5 hotbars, overflow
+  hidden) the screen gives way instead of the keys being clipped off a short
+  display. TNG's keys therefore get their own `.tbr-keys` inside `.tbc-body`.
 - **Die pips are buttons and must not become keys** — the pass skips `.sta2e-die-pip`,
   whose glow is the reroll hint.
 - **Don't use `stripDecorativeEmoji` alone on dice text.** Its U+2600–26FF range covers

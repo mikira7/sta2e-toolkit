@@ -35,7 +35,9 @@
  * Roll / Resolve / Cancel are core's DialogV2 footer, outside the content.
  * seatRollerFooter moves it into the frame's `[data-roller-keys]` element after
  * render. It stays inside the dialog's <form>, which is all core's button
- * handling needs. Its colours are set inline per era and its shape is CSS, the
+ * handling needs. Every frame keeps the keys OUTSIDE its `.tbr-screen`, the
+ * one part that scrolls (roller.css), so a tall setup never pushes Roll off
+ * the bottom of a short screen. Its colours are set inline per era and its shape is CSS, the
  * same split as every other key.
  *
  * Imports lcars-theme.js, the task card skins (task-card-tng.js,
@@ -155,9 +157,14 @@ function skinTag(tag, name) {
   const m = tag.match(/\sstyle\s*=\s*"([^"]*)"/i);
   if (!m) return isControl ? addClass(tag, "tbr-ctl") : tag;
   // The content root paints itself LC.bg; every frame draws its own screen
-  // behind it (the CRT's glow, the monitor's grid), so the fill goes.
+  // behind it (the CRT's glow, the monitor's grid), so the fill goes. Its
+  // height cap and scrolling go too: the frame's `.tbr-screen` scrolls instead
+  // (roller.css), so the keys below it stay on screen however tall it gets.
   if (/\sid\s*=\s*"sta2e-npc-roller"/i.test(tag)) {
-    return setStyle(tag, m, common(m[1]).replace(decl("background(?:-color)?"), ""));
+    return setStyle(tag, m, common(m[1])
+      .replace(decl("background(?:-color)?"), "")
+      .replace(decl("max-height"), "")
+      .replace(decl("overflow(?:-y)?"), ""));
   }
   const style = m[1];
 
@@ -207,7 +214,10 @@ function tngFrame(body, { title, phase, passed }) {
 <div class="sta2e-roller sta2e-roller--tng tbc" data-theme="${getActiveLcThemeKey()}" data-phase="${phase}"
   style="${getLcCssVars("tc")}--tbc-c:${colour};">
   ${bracketTop(title)}
-  <div class="tbc-body" data-roller-keys>${body}</div>
+  <div class="tbc-body">
+    <div class="tbr-screen">${body}</div>
+    <div class="tbr-keys" data-roller-keys></div>
+  </div>
   ${bracketBottom(phaseLabel(phase))}
 </div>`;
 }

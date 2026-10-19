@@ -222,7 +222,7 @@ check('TNG: the bracket frame, its keys slot, colour by state', () => {
   assert.match(out, /data-phase="setup"/);
   assert.match(out, /class="tbc-top"/);
   assert.match(out, /class="tbc-bot"/);
-  assert.match(out, /<div class="tbc-body" data-roller-keys><div id="x"><\/div><\/div>/);
+  assert.match(out, /<div class="tbr-screen"><div id="x"><\/div><\/div>\s*<div class="tbr-keys" data-roller-keys><\/div>/);
   assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /--tbc-c:#48c76b/);
   assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--tbc-c:#cc6666/);
 });
@@ -253,7 +253,7 @@ check('the content root loses its own fill, so each frame\'s screen shows', () =
   const tag = body.match(/<div id="sta2e-npc-roller"[^>]*>/)?.[0];
   assert.ok(tag);
   assert.equal(/background/.test(tag), false, tag);
-  assert.match(tag, /max-height:/, 'its scrolling stays');
+  assert.equal(/max-height|overflow/.test(tag), false, 'the frame\'s screen scrolls, not the content');
 });
 
 check('TMP Console: the card\'s panel, plate and tag, one monitor, key bed', () => withTheme('tmp-console', () => {
@@ -381,7 +381,7 @@ const pi = process.argv.indexOf('--preview');
 if (pi > 0) {
   const out = path.resolve(process.argv[pi + 1]);
   const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'task-card-tmp.css',
-    'tmp-monitor.css', 'task-card-ent.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css', 'roller-ent.css',
+    'tmp-monitor.css', 'task-card-ent.css', 'roller.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css', 'roller-ent.css',
     'task-card-klingon.css', 'roller-klingon.css']
     .map(f => fs.readFileSync(`${root}/styles/${f}`, 'utf8')).join('\n')
     .replace(/url\("\.\.\/fonts\/(tng|tmp|ent|klingon)\/([^"]+)"\)/g,
@@ -411,7 +411,7 @@ if (pi > 0) {
   const page = `<!doctype html><meta charset="utf-8"><title>Roller skins</title><style>${css}
 body{background:#15151a;margin:0;padding:16px;font-family:sans-serif;color:#ccc}
 .grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
-.application{width:min-content;background:#0b0b0d;border:1px solid #333;border-radius:6px}
+.application{display:flex;flex-flow:column nowrap;overflow:hidden;max-height:calc(100vh - 32px);width:min-content;background:#0b0b0d;border:1px solid #333;border-radius:6px}
 .window-header{padding:5px 10px;background:#1c1c20;font-size:12px;color:#ddd}
 .dialog-form{display:flex;flex-direction:column}
 h4{margin:0 0 4px;font-size:11px;color:#888}</style>
