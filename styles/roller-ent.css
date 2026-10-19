@@ -1,0 +1,242 @@
+/*
+ * sta2e-toolkit | roller-ent.css
+ *
+ * The Adv. Dice Roller dialog under ent-panel: the ENT Bridge Touchscreen, the
+ * look of the ENT task and chat cards. The design source is
+ * docs/roller-mockups.html; the markup comes from scripts/roller-skin.js (its
+ * `ent` frame), which is the card's own `.tec` frame — task-card-ent.css draws
+ * the outline, the chamfers, the glass, the head and the foot. This file adds
+ * the roller's parts, from the classes the shared body pass leaves:
+ *
+ *   .tbr-head   a section header — in setup, it and the element after it form
+ *               one of the card's bracketed wells; once rolled, a well label
+ *   .tbr-ctl    a select / number / text field — an underlined mono field
+ *   .tbr-plate  a box the content drew with a 1px border — a glass plate
+ *   .tbr-note   a banner with a thick left border — an edge strip
+ *   .tbr-key    a button — a tab with a coloured edge from --tbr-a
+ *   .tbr-fkey   the DialogV2 footer keys; they also take the card's .tec-key,
+ *               so their tab shape is the card's, and their colour is inline
+ *
+ * Indicators are squares that fill yellow (radios are diamonds), as on the
+ * ENT sheets. They ignore the content's accent colours: the ent-panel tokens
+ * include near-black ones, which would draw an unlit indicator lit.
+ *
+ * Every rule hangs off `.sta2e-roller--ent`, which only this skin emits. No
+ * `!important`.
+ */
+
+/* ── Window ───────────────────────────────────────────────────────────────── */
+.application.sta2e-roller-win--ent .window-content {
+  padding: 4px;
+  background: #02070b;
+}
+.application.sta2e-roller-win--ent .dialog-form { gap: 0; }
+
+/* Rajdhani reads smaller than the Arial Narrow the content's sizes were set
+   for, so the content is zoomed as the chat frame's bodies are. */
+.sta2e-roller--ent .tec-body.tbr-screen > #sta2e-npc-roller,
+.sta2e-roller--ent .tec-body.tbr-screen > div > #sta2e-npc-roller {
+  zoom: 1.1;
+}
+
+/* ── Section wells ────────────────────────────────────────────────────────── */
+.sta2e-roller--ent .tbr-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tec-faint);
+}
+
+/* Setup: the header opens a well and the element after it closes it — one
+   outline, a bright bracket top-left on the header, bottom-right on the body. */
+.sta2e-roller--ent[data-phase="setup"] .tbr-head {
+  margin-top: 6px;
+  padding: 3px 7px 0;
+  border: 1px solid color-mix(in srgb, var(--tec-c) 45%, transparent);
+  border-bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+.sta2e-roller--ent[data-phase="setup"] .tbr-head::before,
+.sta2e-roller--ent[data-phase="setup"] .tbr-head + *::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 0 solid var(--tec-c);
+  pointer-events: none;
+}
+.sta2e-roller--ent[data-phase="setup"] .tbr-head::before {
+  left: -1px;
+  top: -1px;
+  border-left-width: 2px;
+  border-top-width: 2px;
+}
+.sta2e-roller--ent[data-phase="setup"] .tbr-head + * {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--tec-c) 45%, transparent);
+  border-top: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+.sta2e-roller--ent[data-phase="setup"] .tbr-head + *::after {
+  right: -1px;
+  bottom: -1px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
+}
+
+/* Rolled: a well label over a hairline in the frame colour. */
+.sta2e-roller--ent[data-phase="rolled"] .tbr-head {
+  margin: 8px 0 2px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tec-c) 45%, transparent);
+}
+
+.sta2e-roller--ent .tbr-head .tbr-key {
+  min-height: 0;
+  padding: 1px 9px 0 8px;
+  font-size: 10px;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+.sta2e-roller--ent .tbr-ctl {
+  box-sizing: border-box;
+  min-height: 20px;
+  height: auto;
+  padding: 1px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--tec-c);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tec-ink);
+  font-family: var(--tec-mono);
+  font-size: 12px;
+  outline: none;
+}
+.sta2e-roller--ent .tbr-ctl:focus { border-bottom-color: #f0e800; }
+.sta2e-roller--ent select.tbr-ctl option { background: var(--tec-glass); color: var(--tec-ink); }
+.sta2e-roller--ent .tbr-ctl[readonly] { border-bottom-color: var(--tec-bright); }
+
+/* ── Plates and strips ────────────────────────────────────────────────────── */
+.sta2e-roller--ent .tbr-plate {
+  border: 1px solid rgba(122, 174, 196, 0.28);
+  border-radius: 0;
+  background: rgba(13, 34, 51, 0.55);
+}
+
+.sta2e-roller--ent .tbr-note {
+  border-left: 3px solid var(--tbr-a, var(--tec-c));
+  background: color-mix(in srgb, var(--tbr-a, var(--tec-c)) 10%, transparent);
+}
+
+/* ── Indicators ───────────────────────────────────────────────────────────── */
+/* An outlined square that fills yellow; a radio is a diamond. Core draws
+   checkboxes with an icon pseudo-element, which is switched off. */
+.sta2e-roller--ent input[type="checkbox"],
+.sta2e-roller--ent input[type="radio"] {
+  appearance: none;
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tec-c);
+  cursor: pointer;
+}
+.sta2e-roller--ent input[type="radio"] { transform: rotate(45deg) scale(0.85); }
+.sta2e-roller--ent input[type="checkbox"]::before,
+.sta2e-roller--ent input[type="checkbox"]::after,
+.sta2e-roller--ent input[type="radio"]::before,
+.sta2e-roller--ent input[type="radio"]::after {
+  content: none;
+  display: none;
+}
+.sta2e-roller--ent input[type="checkbox"]:checked,
+.sta2e-roller--ent input[type="radio"]:checked {
+  background: #f0e800;
+  box-shadow: 0 0 6px rgba(240, 232, 0, 0.6);
+}
+.sta2e-roller--ent input[type="checkbox"]:disabled,
+.sta2e-roller--ent input[type="radio"]:disabled { opacity: 0.4; cursor: default; }
+
+/* A range is a readout bar — a hairline track, a short bright tab riding it. */
+.sta2e-roller--ent input[type="range"] {
+  appearance: none;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sta2e-roller--ent input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(122, 174, 196, 0.25);
+}
+.sta2e-roller--ent input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 6px;
+  height: 13px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tec-bright);
+  box-shadow: 0 0 5px var(--tec-c);
+}
+.sta2e-roller--ent input[type="range"]::-moz-range-track { height: 3px; background: rgba(122, 174, 196, 0.25); }
+.sta2e-roller--ent input[type="range"]::-moz-range-thumb {
+  width: 6px;
+  height: 13px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tec-bright);
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* The chat frame's ENT tabs: a coloured edge on a dark tint of the same
+   colour, the top-right corner cut. */
+.sta2e-roller--ent .tbr-key {
+  height: auto;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--tbr-a, var(--tec-c)) 60%, transparent);
+  border-radius: 0;
+  background: linear-gradient(90deg,
+    var(--tbr-a, var(--tec-c)) 0 3px,
+    color-mix(in srgb, var(--tbr-a, var(--tec-c)) 22%, #04101a) 3px);
+  color: var(--tec-bright);
+  box-shadow: none;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+  cursor: pointer;
+  transition: filter 0.11s ease-out;
+}
+.sta2e-roller--ent .tbr-key:hover:not(:disabled) { filter: brightness(1.25); }
+.sta2e-roller--ent .tbr-key:active:not(:disabled) { filter: brightness(0.85); }
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+/* The keys are the card's .tec-key tabs (task-card-ent.css); this is only the
+   card's two-column pad, a key left alone in the left column spanning it. */
+.sta2e-roller--ent .tec-actions.tbr-keys { margin-top: 8px; }
+
+.sta2e-roller--ent .form-footer.tbr-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sta2e-roller--ent .tbr-footer > .tbr-fkey:nth-child(odd):last-child { grid-column: 1 / -1; }
+.sta2e-roller--ent .tbr-footer > button.tbr-fkey:hover:not(:disabled) { filter: brightness(1.25); }
+.sta2e-roller--ent .tbr-footer > button.tbr-fkey:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-roller--ent .tbr-footer > button.tbr-fkey:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }

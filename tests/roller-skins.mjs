@@ -1,14 +1,14 @@
 // node tests/roller-skins.mjs [--preview out.html]
 //
 // The era skins for the Adv. Dice Roller dialog (roller-skin.js): TNG / First
-// Contact, TOS, TMP Console and TMP Monitor. The dialog content is the REAL buildDialogContent from
+// Contact, TOS, TMP Console, TMP Monitor and ENT. The dialog content is the REAL buildDialogContent from
 // npc-roller.js, lifted out of the source and run in a vm with its helpers
 // stubbed (the pattern tests/ground-melee-vfx.mjs uses), in the setup and the
 // rolled phase. Checks that the shared body pass keeps every id, class, data-*
 // and wiring-toggled display the content had, that no square corners, LCARS
 // font or accent-color survive, that die pips are left alone, that each era
-// gets its own frame and footer slot, and that eras without a skin keep the
-// plain dialog.
+// gets its own frame and footer slot, and that themes without a skin
+// (Starfleet Blue, Klingon, Romulan) keep the plain dialog.
 //
 // --preview writes a page rendering both phases in every skinned era against the real stylesheets, with the footer seated as it is after render.
 import assert from 'node:assert/strict';
@@ -200,7 +200,8 @@ check('decorative emoji are dropped, functional glyphs kept', () => {
 // ── Frames ───────────────────────────────────────────────────────────────────
 check('which skin each theme wears', () => {
   const want = { 'lcars-tng': 'tng', 'lcars-fc': 'tng', 'tos-panel': 'tos',
-    'tmp-console': 'tmp', 'tmp-monitor': 'tmpmon', 'ent-panel': null };
+    'tmp-console': 'tmp', 'tmp-monitor': 'tmpmon', 'ent-panel': 'ent',
+    blue: null, klingon: null, romulan: null };
   for (const [t, s] of Object.entries(want)) {
     withTheme(t, () => {
       assert.equal(skin.rollerSkin(), s, t);
@@ -278,6 +279,21 @@ check('TMP Monitor: the same markup with the monitor modifier, code tab and tick
   assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /<span class="tmc-code">NEG<\/span>/);
 }));
 
+check('ENT: the touchscreen frame, head tab and foot, keys slot, colour by state', () => withTheme('ent-panel', () => {
+  const out = skin.skinRollerHtml('<div id="x"></div>', { title: 'Phaser Banks', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--ent sta2e-task-card sta2e-task-card--ent tec"/);
+  assert.match(out, /data-theme="ent-panel"/);
+  assert.match(out, /--tec-c:#7aaec4;/);
+  assert.match(out, /<div class="tec-in">/);
+  assert.match(out, /<div class="tec-title">Phaser Banks<\/div>/);
+  assert.match(out, /<span class="tec-tab">Setup<\/span>/);
+  assert.match(out, /<div class="tec-body tbr-screen"><div id="x"><\/div><\/div>/);
+  assert.match(out, /class="tec-actions tbr-keys" data-roller-keys/);
+  assert.match(out, /class="tec-foot"><span>Adv\. Dice Roller<\/span>/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /--tec-c:#a7d46c;[\s\S]*tec-tab">Rolled</);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--tec-c:#e0533a;/);
+}));
+
 check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('tng', 'roll', 0), /background:#ff9966;color:#000000;/);
   assert.match(skin.footerKeyStyle('tng', 'cancel', 1), /background:#5a5650;color:#f2f2f2;/);
@@ -294,11 +310,15 @@ check('footer keys: main action, cancel and the rest per era', () => {
   assert.deepEqual(skin.footerKeyClasses('tmp'), ['tbr-fkey', 'tmc-key', 'tmc-key--big']);
   assert.deepEqual(skin.footerKeyClasses('tmpmon'), ['tbr-fkey', 'tmc-key', 'tmc-key--big']);
   assert.deepEqual(skin.footerKeyClasses('tng'), ['tbr-fkey']);
-  assert.equal(skin.footerKeyStyle('ent', 'roll', 0), '');
+  assert.match(skin.footerKeyStyle('ent', 'roll', 0), /^--k:#a7d46c;/, 'ENT main is the green tab');
+  assert.match(skin.footerKeyStyle('ent', 'reroll-all', 2), /^--k:#e0533a;/, 'ENT re-roll all is red');
+  assert.match(skin.footerKeyStyle('ent', 'cancel', 1), /^--k:#5e7f8f;/, 'ENT cancel is slate');
+  assert.deepEqual(skin.footerKeyClasses('ent'), ['tbr-fkey', 'tec-key']);
+  assert.equal(skin.footerKeyStyle('klingon', 'roll', 0), '');
 });
 
-check('eras without a skin keep the plain dialog', () => {
-  for (const t of ['ent-panel']) {
+check('themes without a skin keep the plain dialog', () => {
+  for (const t of ['blue', 'klingon', 'romulan']) {
     withTheme(t, () => {
       const raw = build(baseState());
       assert.equal(raw.includes('tbr-head'), false, t);
@@ -312,9 +332,9 @@ const pi = process.argv.indexOf('--preview');
 if (pi > 0) {
   const out = path.resolve(process.argv[pi + 1]);
   const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'task-card-tmp.css',
-    'tmp-monitor.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css']
+    'tmp-monitor.css', 'task-card-ent.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css', 'roller-ent.css']
     .map(f => fs.readFileSync(`${root}/styles/${f}`, 'utf8')).join('\n')
-    .replace(/url\("\.\.\/fonts\/(tng|tmp)\/([^"]+)"\)/g,
+    .replace(/url\("\.\.\/fonts\/(tng|tmp|ent)\/([^"]+)"\)/g,
       (_, d, f) => `url("data:font/woff2;base64,${fs.readFileSync(`${root}/fonts/${d}/${f}`).toString('base64')}")`);
   const asset = f => `data:image/svg+xml;base64,${fs.readFileSync(f).toString('base64')}`;
   const d20 = asset('C:/Program Files/Foundry Virtual Tabletop/resources/app/public/icons/svg/d20-grey.svg');
@@ -329,7 +349,7 @@ if (pi > 0) {
         <footer class="form-footer">${buttons.map(([a, l], i) => `<button type="submit" data-action="${a}" data-paint="${skin.footerKeyStyle(skinName, a, i)}" data-classes="${skin.footerKeyClasses(skinName).join(' ')}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
       </form></section></div>`;
   const panes = [];
-  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor']) {
+  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor', 'ent-panel']) {
     withTheme(t, () => {
       const s = skin.rollerSkin();
       const setupHtml = skin.skinRollerHtml(build(baseState()), { title: 'Phaser Banks', phase: 'setup' });

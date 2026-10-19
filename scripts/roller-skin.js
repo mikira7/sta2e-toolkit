@@ -10,8 +10,9 @@
  *   tmp     tmp-console        the TMP Console Monitor           styles/roller-tmp.css
  *   tmpmon  tmp-monitor        TMP Console plus the monitor      styles/roller-tmp.css
  *                              modifier, as everywhere else
+ *   ent     ent-panel          the ENT Bridge Touchscreen        styles/roller-ent.css
  *
- * Every other era gets the LCARS dialog unchanged: rollerSkin() returns null.
+ * Any other theme gets the LCARS dialog unchanged: rollerSkin() returns null.
  *
  * ── Wrap, never replace ──────────────────────────────────────────────────────
  * The dialog content is ~1100 lines of conditional markup, and its wiring
@@ -37,14 +38,15 @@
  * same split as every other key.
  *
  * Imports lcars-theme.js, the task card skins (task-card-tng.js,
- * task-card-tos.js, task-card-tmp.js) and chat-card-frame.js, none of which
+ * task-card-tos.js, task-card-tmp.js, task-card-ent.js) and chat-card-frame.js, none of which
  * import this, so npc-roller.js can take it without a cycle.
  */
 
-import { getActiveLcThemeKey, getLcCssVars, isBracketTheme } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, isBracketTheme, isEntTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom, tbcPalette } from "./task-card-tng.js";
 import { tosKeyStyle } from "./task-card-tos.js";
 import { tmpLensStyle, tmpMonitorKeyStyle } from "./task-card-tmp.js";
+import { ENT, entHead, entFoot, keyStyle as entKeyStyle } from "./task-card-ent.js";
 import { stripDecorativeEmoji } from "./chat-card-frame.js";
 
 /**
@@ -65,6 +67,7 @@ export function rollerSkin() {
     if (key === "tos-panel") return "tos";
     if (key === "tmp-console") return "tmp";
     if (key === "tmp-monitor") return "tmpmon";
+    if (isEntTheme(key)) return "ent";
   } catch { /* no theme yet */ }
   return null;
 }
@@ -266,11 +269,39 @@ function tmpFrame(body, { title, phase, passed }, monitor = false) {
 </div>`;
 }
 
+/**
+ * ENT: the Bridge Touchscreen — the frame the ENT task and chat cards wear
+ * (`.tec`: the outline with two chamfers, navy glass, the title on a rule with
+ * ticks and a cut tab, the hex footer). Its colour gives the state: blue
+ * setting up, green passed, red failed. The content sits straight on the
+ * glass, which is dark everywhere, so unlike TOS and TMP it needs no screen of
+ * its own; in setup roller-ent.css draws each section as one of the card's
+ * bracketed wells from its header and the element after it, as TNG does its
+ * strips. The root carries `.sta2e-task-card` so the footer keys can take the
+ * card's own `.tec-key` tab shape.
+ */
+const ENT_FRAME = { setup: ENT.blue, pass: ENT.green, fail: ENT.red };
+
+function entFrame(body, { title, phase, passed }) {
+  const state = phase === "rolled" ? (passed ? "pass" : "fail") : "setup";
+  return `
+<div class="sta2e-roller sta2e-roller--ent sta2e-task-card sta2e-task-card--ent tec" data-theme="${getActiveLcThemeKey()}" data-phase="${phase}"
+  style="${getLcCssVars("tc")}--tec-c:${ENT_FRAME[state]};">
+  <div class="tec-in">
+  ${entHead(title, phaseLabel(phase))}
+  <div class="tec-body tbr-screen">${body}</div>
+  <div class="tec-actions tbr-keys" data-roller-keys></div>
+  ${entFoot("Adv. Dice Roller", title)}
+  </div>
+</div>`;
+}
+
 const FRAMES = {
   tng: tngFrame,
   tos: tosFrame,
   tmp: (body, o) => tmpFrame(body, o, false),
   tmpmon: (body, o) => tmpFrame(body, o, true),
+  ent: entFrame,
 };
 
 /**
@@ -301,7 +332,7 @@ const footerRole = (action, index) => action === "cancel" ? "cancel"
 const TMP_KEY = { main: "green", post: "amber", danger: "magenta", minor: "off", cancel: "off" };
 
 /** Extra classes a footer key takes, so the era's own card key rules draw it. */
-const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big" };
+const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big", ent: "tec-key" };
 
 const FOOTER_PAINT = {
   tng: role => {
@@ -312,13 +343,14 @@ const FOOTER_PAINT = {
   tos: role => tosKeyStyle({ main: "green", post: "amber", danger: "red", minor: "grey", cancel: "grey" }[role]),
   tmp: role => tmpLensStyle(TMP_KEY[role]),
   tmpmon: role => tmpMonitorKeyStyle(TMP_KEY[role]),
+  ent: role => entKeyStyle({ main: ENT.green, post: ENT.blue, danger: ENT.red, minor: ENT.slate, cancel: ENT.slate }[role]),
 };
 
 /**
  * The inline colour of a footer key: the era's paint for the role its action
  * plays. Pure, so the test preview paints with the real colours.
  *
- * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon"
+ * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon" | "ent"
  * @param {string} action  The button's DialogV2 action.
  * @param {number} index   Its position in the footer.
  * @returns {string} CSS declarations, or "" for an era with no skin.
