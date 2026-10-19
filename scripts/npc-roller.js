@@ -52,6 +52,7 @@ import { renderTmpTaskCard } from "./task-card-tmp.js";
 import { renderTngTaskCard } from "./task-card-tng.js";
 import { renderEntTaskCard } from "./task-card-ent.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
+import { isBracketRoller, bracketRollerHtml, seatBracketFooter } from "./roller-skin-tng.js";
 import { clearAssistPending } from "./assist-pending.js";
 import {
   getExtraActionDifficulty, clearExtraActionDifficulty, markTaskRollMajor,
@@ -1585,7 +1586,7 @@ function _buildCombatTaskPanelHtml(state) {
                 color:${LC.secondary};font-size:8px;font-weight:700;
                 font-family:${LC.font};letter-spacing:0.05em;
                 text-transform:uppercase;cursor:pointer;">
-              🎯 Target System
+              Target System
             </button>
           </div>
           <div id="sta2e-ts-sys-picker" style="display:none;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-top:2px;margin-bottom:3px;">
@@ -1625,7 +1626,7 @@ function _buildCombatTaskPanelHtml(state) {
                   border:1px solid #aa44ff;border-radius:2px;
                   font-family:${LC.font};color:#cc88ff;
                   transition:border-color 0.15s,background 0.15s;">
-                <span style="font-size:10px;font-weight:700;">👻 Cloaking Device</span>
+                <span style="font-size:10px;font-weight:700;">Cloaking Device</span>
                 <span class="sta2e-cloak-status" style="font-size:8px;font-weight:700;color:#aa44ff;">
                   ACTIVE · Minor
                 </span>
@@ -1645,7 +1646,7 @@ function _buildCombatTaskPanelHtml(state) {
                   border:1px solid rgba(170,68,255,0.4);border-radius:2px;
                   font-family:${LC.font};color:#cc88ff;
                   transition:border-color 0.15s,background 0.15s;">
-                <span style="font-size:10px;font-weight:700;">👁 Cloaking Device</span>
+                <span style="font-size:10px;font-weight:700;">Cloaking Device</span>
                 <span style="font-size:8px;color:${LC.textDim};text-align:right;line-height:1.3;">
                   Control<br>Engineering<br>
                   <span style="color:#aa44ff;">Diff 2 · Major</span>
@@ -1711,7 +1712,7 @@ function _buildCombatTaskPanelHtml(state) {
       style="width:240px;background:${LC.bg};border:1px solid ${LC.border};
         border-radius:3px;font-family:${LC.font};flex-shrink:0;align-self:flex-start;">
       <div style="background:${LC.primary};color:${LC.bg};font-size:9px;font-weight:700;
-        letter-spacing:0.14em;text-transform:uppercase;padding:3px 8px;">⚔ Combat Task</div>
+        letter-spacing:0.14em;text-transform:uppercase;padding:3px 8px;">Combat Task</div>
       <div style="padding:4px 8px 5px;border-bottom:1px solid ${LC.borderDim};">
         <div style="font-size:9px;font-weight:700;color:${LC.text};font-family:${LC.font};">
           ${combatShip.label}
@@ -1829,7 +1830,10 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
   const shipSysVal = actorSystems[shipSystemKey]?.value ?? state.shipSystems;
   const shipDptVal = actorDepts[shipDeptKey]?.value ?? state.shipDept;
 
-  const sectionHeader = (label) => `
+  // Under the bracket themes the header is bare: roller-tng.css draws it and the
+  // block after it as one stadium strip (roller-skin-tng.js).
+  const bracketSkin = isBracketRoller();
+  const sectionHeader = (label) => bracketSkin ? `<div class="tbr-head">${label}</div>` : `
     <div style="
       background:${LC.primary};color:${LC.bg};
       font-size:9px;font-weight:700;letter-spacing:0.15em;
@@ -2019,7 +2023,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           display:flex;align-items:center;gap:8px;">
           <span style="font-size:11px;font-weight:700;color:${LC.primary};
             font-family:${LC.font};letter-spacing:0.06em;text-transform:uppercase;">
-            ⚔ ${state.weaponContext.name}
+            ${state.weaponContext.name}
           </span>
           <span style="font-size:9px;color:${LC.textDim};font-family:${LC.font};">
             ${state.weaponContext.severity != null
@@ -2027,7 +2031,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
     : `DMG ${state.weaponContext.damage}`}
             ${state.weaponContext.isTorpedo ? " · TORPEDO" : ""}
             ${state.hasRapidFireTorpedo && state.weaponContext.isTorpedo
-          ? ` <span style="color:${LC.green};">· 🚀 Rapid-Fire +1</span>` : ""}
+          ? ` <span style="color:${LC.green};">· Rapid-Fire +1</span>` : ""}
           </span>
         </div>` : ""}
 
@@ -2213,7 +2217,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             ${state.hasPiercingSalvo ? `
             <div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};
               padding:3px 0 1px;letter-spacing:0.05em;">
-              ⚔️ Piercing Salvo — on a hit, spend 2 Momentum for Piercing quality
+              Piercing Salvo — on a hit, spend 2 Momentum for Piercing quality
             </div>` : ""}
             ${state.hasMultiTasking ? `
             <div id="multi-tasking-section" style="display:none;margin-top:4px;">
@@ -2380,7 +2384,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             background:rgba(255,153,0,0.06);border-radius:2px;
             display:${pendingAssistName ? "block" : "none"};">
             ${pendingAssistName ? (state.playerMode
-          ? `🤝 ${pendingAssistName} will roll their own assist ${(assistOfficers?.length ?? 0) > 1 ? "dice" : "die"} via the Working Results card`
+          ? `${pendingAssistName} will roll their own assist ${(assistOfficers?.length ?? 0) > 1 ? "dice" : "die"} via the Working Results card`
           : `✋ Assist declared by ${pendingAssistName} — will clear after task is posted`) : ""}
           </div>
 
@@ -2390,9 +2394,6 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             const aoKind = ao.type === "direct" ? "Direct"
               : ao.type === "methodical-planning" ? "Methodical Planning"
                 : "Assisting";
-            const aoIcon = ao.type === "direct" ? "🎖️"
-              : ao.type === "methodical-planning" ? "📋"
-                : "🤝";
             const aoAttrKey = ao.attrKey;
             const aoDiscKey = ao.discKey;
             const aoAttrVal = ao.stats ? (ao.stats.attributes[aoAttrKey] ?? null) : null;
@@ -2405,7 +2406,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               border:1px solid ${LC.border};border-radius:2px;">
               <div style="font-size:9px;font-weight:700;color:${LC.primary};font-family:${LC.font};
                 text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">
-                ${aoIcon} ${ao.name} (${aoKind})
+                ${ao.name} (${aoKind})
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px;">
                 <div>
@@ -2481,7 +2482,10 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
              flipping groundMode, which also drives the Momentum/Threat profile. -->
         ${(!isMethodicalPlanningAssist && (!state.groundMode || state.groundIsNpc || availableShips.length > 0)) ? `
         <div id="sta2e-ship-pool-section">
-        ${state.sheetMode ? `
+        ${state.sheetMode && bracketSkin ? `
+        <div class="tbr-head"><span>Ship Pool</span>
+          <button id="sta2e-manage-ships" type="button" style="color:${LC.tertiary};">Manage</button>
+        </div>` : state.sheetMode ? `
         <div style="display:flex;align-items:center;justify-content:space-between;
           background:${LC.primary};padding:3px 6px 3px 10px;">
           <span style="font-size:9px;font-weight:700;letter-spacing:0.15em;
@@ -2490,7 +2494,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             style="font-size:9px;padding:1px 6px;background:transparent;
               border:1px solid ${LC.bg};border-radius:2px;color:${LC.bg};
               cursor:pointer;font-family:${LC.font};letter-spacing:0.05em;">
-            ⚙ Manage
+            Manage
           </button>
         </div>` : sectionHeader(availableShips.length > 0 ? "Ship Pool" : "NPC Ship Pool")}
         <div style="padding:8px 10px;display:flex;flex-direction:column;gap:6px;">
@@ -2582,7 +2586,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
              helm officer is assigned. Without a named officer the die rolls at crew
              quality target / focus range. -->
         ${state.hasAttackPattern ? `
-        ${sectionHeader("⚡ Attack Pattern — Helm Assist")}
+        ${sectionHeader("Attack Pattern — Helm Assist")}
         <div style="padding:6px 10px;display:flex;flex-direction:column;gap:5px;">
           <div style="font-size:10px;color:${LC.text};font-family:${LC.font};line-height:1.4;">
             ${state.helmOfficer
@@ -2601,7 +2605,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           <div style="font-size:10px;color:${LC.yellow};font-family:${LC.font};
             padding:3px 6px;border-left:2px solid ${LC.yellow};border-radius:2px;
             background:rgba(255,204,0,0.06);">
-            ⚠ Attack Pattern penalty: attacks against this ship have Difficulty −1
+            Attack Pattern penalty: attacks against this ship have Difficulty −1
             until your next turn.
           </div>` : `
           <div style="font-size:10px;color:${LC.green};font-family:${LC.font};
@@ -2616,7 +2620,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           <div style="font-size:10px;color:${LC.secondary};font-family:${LC.font};
             padding:3px 6px;border-left:2px solid ${LC.secondary};border-radius:2px;
             background:rgba(0,150,255,0.06);">
-            🤝 ${state.helmOfficer?.name ?? helmActorName ?? "Helm Officer"} will roll
+            ${state.helmOfficer?.name ?? helmActorName ?? "Helm Officer"} will roll
             their own Attack Pattern die via the Working Results card.
           </div>` : state.helmOfficer ? `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
@@ -2737,7 +2741,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
           border-left:3px solid ${LC.orange};">
           <div style="font-size:10px;font-weight:700;font-family:${LC.font};
             color:${LC.orange};letter-spacing:0.06em;">
-            💥 Crew Casualties — ${CombatHUD.deptLabel(state.officerDiscKey)} dept
+            Crew Casualties — ${CombatHUD.deptLabel(state.officerDiscKey)} dept
             complication range +${deptStrain}
           </div>
         </div>` : "";
@@ -2753,11 +2757,11 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               font-family:${LC.font};">
               <div style="font-size:9px;font-weight:700;color:${LC.primary};
                 letter-spacing:0.06em;text-transform:uppercase;margin-bottom:2px;">
-                ${state.opposedDefenseType === "evasive-action" ? "↗️ Opposed — Evasive Action"
-          : state.opposedDefenseType === "defensive-fire" ? "🛡️ Opposed — Defensive Fire"
-            : state.opposedDefenseType === "point-defense" ? "✦ Opposed — Point Defense"
-            : state.opposedDefenseType === "melee" ? "⚔️ Opposed — Melee"
-              : "🪨 Opposed — Cover"}
+                ${state.opposedDefenseType === "evasive-action" ? "Opposed — Evasive Action"
+          : state.opposedDefenseType === "defensive-fire" ? "Opposed — Defensive Fire"
+            : state.opposedDefenseType === "point-defense" ? "Opposed — Point Defense"
+            : state.opposedDefenseType === "melee" ? "Opposed — Melee"
+              : "Opposed — Cover"}
               </div>
               <div style="font-size:9px;color:${LC.text};">
                 Defender rolled <strong style="color:${LC.tertiary};">${state.defenderSuccesses}</strong> success${state.defenderSuccesses !== 1 ? "es" : ""} — Difficulty locked to <strong style="color:${LC.tertiary};">${state.difficulty}</strong>
@@ -2959,9 +2963,9 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
   const rfNote = state.hasRapidFireTorpedo
     ? (rfAvailable
       ? `<div style="font-size:9px;color:${LC.green};padding:2px 10px 4px;font-family:${LC.font};">
-            🚀 Rapid-Fire Torpedo Launcher — click any ship die to reroll (free, one use)</div>`
+            Rapid-Fire Torpedo Launcher — click any ship die to reroll (free, one use)</div>`
       : `<div style="font-size:9px;color:${LC.textDim};padding:2px 10px 4px;font-family:${LC.font};">
-            🚀 Rapid-Fire Torpedo reroll used</div>`)
+            Rapid-Fire Torpedo reroll used</div>`)
     : "";
 
   // Calibrate Sensors: one free reroll of any crew die (consumed when used)
@@ -2969,9 +2973,9 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
   const csNote = state.hasCalibratesensors
     ? (csAvailable
       ? `<div style="font-size:9px;color:${LC.secondary};padding:2px 10px 4px;font-family:${LC.font};">
-            🎚️ Calibrate Sensors — click any crew die to reroll (free, one use)</div>`
+            Calibrate Sensors — click any crew die to reroll (free, one use)</div>`
       : `<div style="font-size:9px;color:${LC.textDim};padding:2px 10px 4px;font-family:${LC.font};">
-            🎚️ Calibrate Sensors reroll used</div>`)
+            Calibrate Sensors reroll used</div>`)
     : "";
 
   // Aim: reroll 1 die (2 with Accurate weapon) — granted by ground Aim minor action
@@ -2979,18 +2983,18 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
   const aimNote = state.aimRerolls > 0
     ? (aimRemaining > 0
       ? `<div style="font-size:9px;color:${LC.secondary};padding:2px 10px 4px;font-family:${LC.font};">
-            🎯 Aim — click any die to re-roll (${aimRemaining} remaining)</div>`
+            Aim — click any die to re-roll (${aimRemaining} remaining)</div>`
       : `<div style="font-size:9px;color:${LC.textDim};padding:2px 10px 4px;font-family:${LC.font};">
-            🎯 Aim reroll${state.aimRerolls > 1 ? "s" : ""} used</div>`)
+            Aim reroll${state.aimRerolls > 1 ? "s" : ""} used</div>`)
     : "";
 
   // Calibrate Weapons: +1 damage on this attack — show as a status note
   const cwNote = state.hasCalibrateWeapons && state.weaponContext
     ? (!state.cwBonusApplied
       ? `<div style="font-size:9px;color:${LC.primary};padding:2px 10px 4px;font-family:${LC.font};">
-            🔩 Calibrate Weapons — +1 damage will be applied on resolve</div>`
+            Calibrate Weapons — +1 damage will be applied on resolve</div>`
       : `<div style="font-size:9px;color:${LC.textDim};padding:2px 10px 4px;font-family:${LC.font};">
-            🔩 Calibrate Weapons bonus applied</div>`)
+            Calibrate Weapons bonus applied</div>`)
     : "";
 
   // Crew die pip hint: glow only when an arm button is active OR TS/CS is available.
@@ -3005,16 +3009,16 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
         system: state.systemRerollSource,
         shipTalent: state.shipTalentRerollSource
       }[armed];
-      return `🎯 Click to reroll (${src ?? armed})`;
+      return `Click to reroll (${src ?? armed})`;
     }
     // TS / CS / Aim still work via direct pip click (no button required)
-    if (tsAvailable) return "🎯 Click to use Targeting Solution — free reroll";
-    if (csAvailable) return "🎚️ Click to use Calibrate Sensors — free reroll";
-    if (aimRemaining > 0) return `🎯 Click to use Aim — re-roll (${aimRemaining} remaining)`;
+    if (tsAvailable) return "Click to use Targeting Solution — free reroll";
+    if (csAvailable) return "Click to use Calibrate Sensors — free reroll";
+    if (aimRemaining > 0) return `Click to use Aim — re-roll (${aimRemaining} remaining)`;
     return null;
   })();
   const shipRerollHint = (state.hasRapidFireTorpedo && !state.rfRerollUsed)
-    ? "🚀 Click to use Rapid-Fire Torpedo Launcher — free reroll"
+    ? "Click to use Rapid-Fire Torpedo Launcher — free reroll"
     : null;
 
   const poolRow = (label, dice, poolKey) => `
@@ -3042,7 +3046,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
     <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
       <div style="font-size:9px;color:${LC.primary};text-transform:uppercase;
         letter-spacing:0.08em;margin-bottom:4px;font-family:${LC.font};font-weight:700;">
-        ⚡ Attack Pattern — ${state.helmOfficer?.name ?? "Helm"} assist
+        Attack Pattern — ${state.helmOfficer?.name ?? "Helm"} assist
         (${ATTR_LABELS[state.apAttrKey] ?? state.apAttrKey}+${DISC_LABELS[state.apDiscKey] ?? state.apDiscKey})
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
@@ -3216,7 +3220,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 border-radius:2px;color:${LC.secondary};font-size:9px;font-weight:700;
                 letter-spacing:0.05em;font-family:${LC.font};text-transform:uppercase;
                 opacity:0.4;cursor:default;transition:all 0.12s;">
-              🔄 Reroll Selected (0)
+              Reroll Selected (0)
             </button>
           </div>` : ""}
         </div>`;
@@ -3229,14 +3233,14 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       <div style="padding:4px 10px 6px;border-top:1px solid ${LC.borderDim};">
         <div style="font-size:9px;color:${LC.textDim};text-transform:uppercase;
           letter-spacing:0.08em;margin-bottom:4px;font-family:${LC.font};">
-          🤝 Named Assist Dice${state.hasChiefOfStaff && state.assistRerollsUsed.some(u => !u)
+          Named Assist Dice${state.hasChiefOfStaff && state.assistRerollsUsed.some(u => !u)
         ? ` · <span style="color:${LC.secondary};">${state.chiefOfStaffSource ?? "Chief of Staff"} — click to reroll</span>`
         : ""}
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
           ${state.namedAssistDice.map((d, i) => {
           const hint = (state.hasChiefOfStaff && !state.assistRerollsUsed[i])
-            ? `🧑‍⚕️ ${state.chiefOfStaffSource ?? "Chief of Staff"} — free reroll`
+            ? `${state.chiefOfStaffSource ?? "Chief of Staff"} — free reroll`
             : null;
           return diePipHtml(d, i, "named-assist", hint);
         }).join("")}
@@ -3267,7 +3271,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
                 ${cwNote}
                 ${state.reservePower
           ? `<div style="font-size:9px;color:${LC.secondary};padding:2px 10px 4px;font-family:${LC.font};">
-                      ⚡ Reserve Power — assist die set to 1 · ship complications count double
+                      Reserve Power — assist die set to 1 · ship complications count double
                     </div>`
           : ""}
                 ${state.communicationsOfficerShipAssistActive
@@ -3287,7 +3291,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       <div id="te-reroll-panel" style="padding:4px 10px 8px;border-top:1px solid ${LC.borderDim};">
         <div style="font-size:9px;color:${LC.secondary};font-family:${LC.font};
           text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;">
-          💡 ${state.techExpertiseSource ?? "Technical Expertise"} — select one die to reroll
+          ${state.techExpertiseSource ?? "Technical Expertise"} — select one die to reroll
         </div>
         <div style="font-size:8px;color:${LC.textDim};font-family:${LC.font};margin-bottom:5px;">
           Choose one die from either pool — crew or ship
@@ -3304,7 +3308,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
               <input type="radio" name="te-die-choice" class="te-die-rb"
                 value="${pool}:${i}" style="accent-color:${LC.secondary};" />
               <span style="font-size:${fsize};font-weight:700;color:${txtC};">
-                ${pool === "ship" ? "🚀" : ""}${d.value}${d.crit ? "★★" : ""}
+                ${pool === "ship" ? "Ship " : ""}${d.value}${d.crit ? "★★" : ""}
               </span>
             </label>`;
     }).join("")}
@@ -3315,7 +3319,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             border-radius:2px;color:${LC.secondary};
             font-size:9px;font-weight:700;letter-spacing:0.05em;font-family:${LC.font};
             text-transform:uppercase;opacity:0.4;cursor:default;transition:all 0.12s;">
-          🔄 Reroll Selected Die
+          Reroll Selected Die
         </button>
       </div>` : ""}
 
@@ -5345,6 +5349,17 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     const _speciesSubjectActor = () =>
       (state.officer?.id ? game.actors.get(state.officer.id) : null) ?? actor ?? null;
 
+    // Under lcars-tng / lcars-fc the content wears the Bracket Console frame
+    // (roller-skin-tng.js); every other era renders exactly as before.
+    const _rawContent = buildDialogContent(state, _shipDataRef.systems, _shipDataRef.depts, actor);
+    const _content = isBracketRoller()
+      ? bracketRollerHtml(_rawContent, {
+        title: state.weaponContext?.name ?? state.taskLabel ?? "Dice Roller",
+        phase: isRolled ? "rolled" : "setup",
+        passed: isRolled ? rollSuccessTotal(state) >= taskDifficulty(state) : true,
+      })
+      : _rawContent;
+
     dialog = new foundry.applications.api.DialogV2({
       window: {
         title: state.weaponContext
@@ -5354,12 +5369,12 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             : `Adv. Dice Roller — ${actor.name}`, resizable: false
       },
       ...(dialogPosition ? { position: dialogPosition } : {}),
-      content: buildDialogContent(state, _shipDataRef.systems, _shipDataRef.depts, actor),
+      content: _content,
       buttons: isRolled
         ? [
           ...(state.weaponContext ? [{
             action: "resolve",
-            label: `${rollSuccessTotal(state) >= taskDifficulty(state) ? "⚡ Resolve HIT" : "✗ Resolve MISS"}`,
+            label: `${rollSuccessTotal(state) >= taskDifficulty(state) ? "Resolve HIT" : "✗ Resolve MISS"}`,
             icon: "fas fa-crosshairs",
             default: true,
             callback: async () => {
@@ -5533,7 +5548,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             },
           }] : [{
             action: state.taskCallback ? "post-resolve" : "post",
-            label: state.rallyContext ? "💫 Post Rally Result" : state.taskCallback ? `✓ Post & Resolve` : "Post to Chat",
+            label: state.rallyContext ? "Post Rally Result" : state.taskCallback ? `✓ Post & Resolve` : "Post to Chat",
             icon: state.taskCallback ? "fas fa-check-circle" : "fas fa-comments",
             default: true,
             callback: async () => {
@@ -5662,7 +5677,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           }]),
           {
             action: "post",
-            label: state.taskCallback ? "📋 Post Dice Only" : "Post Results",
+            label: state.taskCallback ? "Post Dice Only" : "Post Results",
             icon: "fas fa-comments",
             default: false,
             callback: async () => {
@@ -5682,7 +5697,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
           },
           {
             action: "reroll-all",
-            label: "Re-roll All 🚨",
+            label: "Re-roll All",
             icon: "fas fa-dice",
             callback: () => {
               // Re-roll all main + ship dice (assist dice are never rerolled)
@@ -5730,7 +5745,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
         : [
           {
             action: "roll",
-            label: state.breachPenalty?.isDestroyed ? "⛔ System Destroyed" : "🎲 Roll",
+            label: state.breachPenalty?.isDestroyed ? "System Destroyed" : "Roll",
             icon: "fas fa-dice-d20",
             default: !state.breachPenalty?.isDestroyed,
             callback: (event, btn, dlg) => {
@@ -5763,6 +5778,9 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     });
 
     await dialog.render(true);
+    // Bracket skin only: Roll / Resolve / Cancel move inside the frame.
+    try { seatBracketFooter(dialog.element); }
+    catch (err) { console.warn("STA2e Toolkit | roller footer skin failed:", err); }
 
     if (isRolled) {
       // Wire die reroll clicks — TS/CS for crew dice, Rapid-Fire for ship dice, talent/det for officer
@@ -6997,6 +7015,11 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
           // Visually mark chosen button
           el.querySelectorAll(".ts-sys-btn").forEach(b => {
             const chosen = b.dataset.system === sys;
+            // Bracket keys are filled from --tbr-a; an inline wash would beat it.
+            if (b.classList.contains("tbr-key")) {
+              b.style.setProperty("--tbr-a", chosen ? LC.primary : LC.secondary);
+              return;
+            }
             b.style.background = chosen ? "rgba(255,153,0,0.15)" : "rgba(255,153,0,0.04)";
             b.style.borderColor = chosen ? "var(--sta2e-secondary, #ffaa00)" : "";
             b.style.color = chosen ? "var(--sta2e-primary, #ffcc00)" : "";
@@ -7759,7 +7782,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
               const tsRow = document.createElement("div");
               tsRow.id = "sta2e-ts-benefit-row";
               tsRow.style.cssText = `display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-top:-1px;margin-bottom:3px;`;
-              for (const [subKey, subLabel] of [["ts-reroll", "↺ Reroll d20"], ["ts-pick-system", "🎯 Target System"]]) {
+              for (const [subKey, subLabel] of [["ts-reroll", "↺ Reroll d20"], ["ts-pick-system", "Target System"]]) {
                 const subBtn = document.createElement("button");
                 subBtn.type = "button";
                 subBtn.className = "sta2e-minor-btn";
@@ -7874,12 +7897,12 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
             // Update the button in-place to show the inactive activation task button
             state.combatTaskContext.cloakingDeviceActive = false;
             const statusEl = btn.querySelector(".sta2e-cloak-status");
-            if (statusEl) { statusEl.textContent = "👁 INACTIVE"; statusEl.style.color = LC.textDim; }
+            if (statusEl) { statusEl.textContent = "INACTIVE"; statusEl.style.color = LC.textDim; }
             btn.dataset.minorKey = "";       // prevent re-firing
             btn.style.borderColor = LC.borderDim;
             btn.style.background = "transparent";
             btn.style.color = LC.text;
-            btn.querySelector("span:first-child").textContent = "👁 Cloaking Device";
+            btn.querySelector("span:first-child").textContent = "Cloaking Device";
 
           } else if ((minorKey === "cs-reroll" || minorKey === "cs-ignore-trait")
             && state.combatTaskContext.consumeCalibrateSensors) {
@@ -8198,12 +8221,6 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
               : defMode === "point-defense" ? "Point Defense"
               : defMode === "cover" ? "Cover"
               : null;
-            const defIcon = defMode === "evasive-action" ? "↗️"
-              : defMode === "defensive-fire" ? "🛡️"
-              : defMode === "point-defense" ? "✦"
-              : defMode === "cover" ? "🪨"
-              : null;
-
             // Locate the side panel and the dialog Roll button
             const panelEl = el.querySelector("#sta2e-combat-task-panel");
             const rollBtn = el.closest(".app, [data-appid]")
@@ -8234,7 +8251,7 @@ function _wireSetupInputs(dialog, actorSystems, actorDepts, state, _shipDataRef 
                 "text-transform:uppercase;cursor:pointer;",
               ].join("");
               reqBtn.innerHTML =
-                `${defIcon} Request Defense Roll — ${defLabel}`;
+                `Request Defense Roll — ${defLabel}`;
 
               // Click: sync DOM → state so ship/system/dept selections are
               // captured, then post the defense chat card + store pending task.
@@ -8486,7 +8503,7 @@ function _wireDiePips(state, dialog, openDialog) {
       if (detBtn && detCheckboxes.length) {
         const updateBtn = () => {
           const n = Array.from(detCheckboxes).filter(c => c.checked).length;
-          detBtn.textContent = `🔄 Reroll Selected (${n})`;
+          detBtn.textContent = `Reroll Selected (${n})`;
           detBtn.disabled = n === 0;
           detBtn.style.opacity = n > 0 ? "1" : "0.4";
           detBtn.style.cursor = n > 0 ? "pointer" : "default";

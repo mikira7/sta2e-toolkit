@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dice Roller Era Concepts</title>
+<!-- The era looks come from the module's own stylesheets, so this page shows
+     the frames exactly as the chat cards draw them. Open it from docs/. -->
+<link rel="stylesheet" href="../styles/chat-card.css">
+<link rel="stylesheet" href="../styles/task-card.css">
+<link rel="stylesheet" href="../styles/task-card-tng.css">
+<link rel="stylesheet" href="../styles/task-card-tos.css">
+<link rel="stylesheet" href="../styles/task-card-tmp.css">
+<link rel="stylesheet" href="../styles/tmp-monitor.css">
+<link rel="stylesheet" href="../styles/task-card-ent.css">
+<style>
+:root { --page-bg:#121418; --page-ink:#d8dbe0; --page-dim:#858a94; --page-rule:#2a2e36; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page-bg); color:var(--page-ink); font:14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width:1240px; margin:0 auto; padding:28px 16px 60px; }
+h1 { font-size:22px; margin:0 0 4px; }
+.lede { color:var(--page-dim); margin:0 0 26px; max-width:860px; }
+.lede code, .era-head code { color:#9fcde0; }
+.era { margin-bottom:48px; }
+.era-head { border-bottom:1px solid var(--page-rule); padding-bottom:8px; margin-bottom:14px; max-width:880px; }
+.era-head .tag { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--page-dim); }
+.era-head h2 { font-size:18px; margin:2px 0 4px; }
+.era-head p { margin:0; color:var(--page-dim); font-size:13px; }
+.pair { display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start; }
+.phase-lbl { font-size:11px; color:#777; margin:0 0 4px 2px; }
+/* A stand-in for Foundry's DialogV2 window: its header stays core's. */
+.fwin { width:380px; max-width:100%; background:#0b0b0d; border:1px solid #333; border-radius:6px; box-shadow:0 6px 24px rgba(0,0,0,.6); overflow:hidden; }
+.fwin-head { display:flex; justify-content:space-between; padding:5px 10px; background:#1c1c20; border-bottom:1px solid #333; font-size:12px; color:#ddd; }
+.fwin-body { padding:8px; }
+button { font:inherit; cursor:pointer; }
+
+/* ═══ Roller parts — shared layout ═══════════════════════════════════════ */
+.rl .rl-sect > :not(:first-child) + * { margin-top:5px; }
+.rl .rl-two { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:4px 8px; }
+.rl .rl-indent { margin-left:22px; }
+.rl .rl-field { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.rl .rl-field--num { flex-direction:row; align-items:center; gap:8px; }
+.rl .rl-flbl { font-size:9px; letter-spacing:.1em; text-transform:uppercase; opacity:.75; }
+.rl .rl-field--num .rl-flbl, .rl .rl-range .rl-flbl { min-width:74px; }
+.rl .rl-sel, .rl .rl-num { font:inherit; font-size:12px; font-weight:700; min-width:0; width:100%; padding:2px 6px; appearance:none; }
+.rl .rl-num { width:52px; text-align:center; }
+.rl .rl-aside { font-size:9px; opacity:.7; letter-spacing:.06em; text-transform:uppercase; }
+.rl .rl-stat { display:flex; gap:12px; font-size:10px; letter-spacing:.06em; text-transform:uppercase; }
+.rl .rl-stat b { font-size:12px; }
+.rl .rl-talent { font-size:10px; letter-spacing:.04em; padding-left:8px; border-left:2px solid currentColor; opacity:.9; }
+.rl .rl-check { display:flex; align-items:center; gap:7px; cursor:pointer; font-size:10px; letter-spacing:.07em; text-transform:uppercase; line-height:1.15; }
+.rl .rl-check input { position:absolute; opacity:0; width:0; height:0; }
+.rl .rl-check small { display:block; font-size:8.5px; letter-spacing:.05em; opacity:.6; text-transform:none; }
+.rl .rl-ind { flex:none; display:inline-block; }
+.rl .rl-range { display:flex; align-items:center; gap:8px; }
+.rl .rl-segs { position:relative; flex:1; display:flex; gap:3px; height:12px; }
+.rl .rl-segs i { flex:1; }
+.rl .rl-segs input { position:absolute; inset:-4px 0; width:100%; opacity:0; cursor:pointer; margin:0; }
+.rl .rl-rval { min-width:14px; text-align:right; font-size:13px; }
+.rl .rl-desc { font-size:9px; opacity:.65; padding-left:82px; letter-spacing:.05em; }
+.rl .rl-pay { display:flex; align-items:center; gap:10px; }
+.rl .rl-src { display:flex; gap:6px; padding-right:10px; }
+.rl .rl-src img { width:30px; height:30px; cursor:grab; }
+.rl .rl-slots { display:flex; gap:5px; flex-wrap:wrap; }
+.rl .rl-slot { width:26px; height:26px; display:inline-grid; place-items:center; }
+.rl .rl-slot img { width:100%; height:100%; }
+.rl .rl-paybar { display:flex; justify-content:space-between; font-size:9px; letter-spacing:.06em; text-transform:uppercase; opacity:.85; }
+.rl .rl-paybar b { font-size:12px; }
+.rl .rl-dice { display:flex; flex-wrap:wrap; gap:3px; justify-content:center; }
+
+/* ═══ TNG / First Contact — the bracket console ═══════════════════════════ */
+.tbc.rl .rl-sect { padding-bottom:7px; }
+.tbc.rl .rl-sect > .tbc-strip-lbl + * { margin-top:4px; }
+.tbc.rl .rl-flbl { color:var(--tbc-c3); opacity:1; }
+.tbc.rl .rl-sel, .tbc.rl .rl-num { background:#000; color:var(--tbc-ink); border:2px solid var(--tbc-c3); border-radius:999px; padding:2px 10px; }
+.tbc.rl .rl-sel:focus, .tbc.rl .rl-num:focus { outline:none; border-color:var(--tbc-c); }
+.tbc.rl .rl-stat b { color:var(--tbc-c); }
+.tbc.rl .rl-talent { color:var(--tbc-note); }
+.tbc.rl .rl-check { color:var(--tbc-ink); }
+.tbc.rl .rl-ind { width:22px; height:11px; border-radius:6px 2px 2px 6px; background:var(--tbc-seg-off); box-shadow:inset 0 0 0 1px var(--tbc-c3); }
+.tbc.rl .rl-check input:checked + .rl-ind { background:var(--tbc-c); box-shadow:none; }
+.tbc.rl .rl-check--radio .rl-ind { width:11px; border-radius:50%; }
+.tbc.rl .rl-segs i { background:var(--tbc-seg-off); }
+.tbc.rl .rl-segs i:first-child { border-radius:6px 0 0 6px; }
+.tbc.rl .rl-segs i:last-of-type { border-radius:0 6px 6px 0; }
+.tbc.rl .rl-segs i.on { background:var(--tbc-fail); }
+.tbc.rl .rl-rval { color:var(--tbc-fail); }
+.tbc.rl .rl-slot { border-radius:50%; border:2px dashed var(--tbc-c3); }
+.tbc.rl .rl-slot.is-on { border:2px solid var(--tbc-c); }
+.tbc.rl .rl-src { border-right:2px solid var(--tbc-c2); }
+.tbc.rl .rl-paybar b { color:var(--tbc-c); }
+
+/* ═══ TOS — CRT screens in a gunmetal housing ════════════════════════════ */
+.sta2e-task-card--tos.rl .tct-crt.rl-sect .tct-blk > :not(.tct-lbl) + * { margin-top:5px; }
+.sta2e-task-card--tos.rl .tct-crt.rl-sect .tct-lbl + * { margin-top:4px; }
+.sta2e-task-card--tos.rl .rl-flbl { color:#a8c890; }
+.sta2e-task-card--tos.rl .rl-sel, .sta2e-task-card--tos.rl .rl-num { background:#050500; color:#f0c860; border:1px solid #4a4420; border-radius:2px; box-shadow:inset 0 0 6px rgba(240,200,96,.15); text-shadow:0 0 4px rgba(240,200,96,.5); }
+.sta2e-task-card--tos.rl .rl-stat, .sta2e-task-card--tos.rl .rl-check, .sta2e-task-card--tos.rl .rl-paybar { color:var(--tct-ph); }
+.sta2e-task-card--tos.rl .rl-stat b { color:#f0c860; }
+.sta2e-task-card--tos.rl .rl-talent { color:#f0c860; }
+.sta2e-task-card--tos.rl .rl-ind { width:11px; height:11px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #555, #1a1a1a 70%); box-shadow:0 0 0 1px #000, inset 0 -1px 1px rgba(255,255,255,.1); }
+.sta2e-task-card--tos.rl .rl-check input:checked + .rl-ind { background:radial-gradient(circle at 35% 30%, #fff6c0, #f0c020 45%, #8a6a00 100%); box-shadow:0 0 0 1px #000, 0 0 6px #f0c020; }
+.sta2e-task-card--tos.rl .rl-segs i { background:#1a1a10; border-radius:1px; }
+.sta2e-task-card--tos.rl .rl-segs i.on { background:#ff6a3a; box-shadow:0 0 5px #ff6a3a; }
+.sta2e-task-card--tos.rl .rl-rval { color:#ff7a5a; }
+.sta2e-task-card--tos.rl .rl-slot { border-radius:50%; border:1px dashed #6a7a50; }
+.sta2e-task-card--tos.rl .rl-slot.is-on { border-color:#f0c860; box-shadow:0 0 5px rgba(240,200,96,.6); }
+.sta2e-task-card--tos.rl .rl-src { border-right:1px solid #333; }
+.sta2e-task-card--tos.rl .rl-tct-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.sta2e-task-card--tos.rl .rl-wide { grid-column:1/-1; }
+
+/* ═══ TMP Console — monitors on a duty panel ═════════════════════════════ */
+.sta2e-task-card--tmp.rl .tmc-blk > .tmc-cap ~ :not(.tmc-cap) + * { margin-top:5px; }
+.sta2e-task-card--tmp.rl .rl-flbl { color:#0d9c5c; font-family:var(--tmc-caption, inherit); font-size:8px; opacity:1; }
+.sta2e-task-card--tmp.rl .rl-sel, .sta2e-task-card--tmp.rl .rl-num { background:#140c00; color:#f6b23a; border:1px solid #5a4010; border-radius:0; font-family:var(--tmc-mono, monospace); }
+.sta2e-task-card--tmp.rl .rl-stat, .sta2e-task-card--tmp.rl .rl-check, .sta2e-task-card--tmp.rl .rl-paybar { color:#3df09d; font-family:var(--tmc-mono, monospace); }
+.sta2e-task-card--tmp.rl .rl-stat b { color:#00aef0; }
+.sta2e-task-card--tmp.rl .rl-talent { color:#e9e95a; font-family:var(--tmc-mono, monospace); }
+.sta2e-task-card--tmp.rl .rl-ind { width:11px; height:11px; background:linear-gradient(180deg,#3a3a34,#1c1c1a); box-shadow:0 0 0 1px #000, inset 0 0 0 1px #555; }
+.sta2e-task-card--tmp.rl .rl-check input:checked + .rl-ind { background:linear-gradient(180deg,#9af0c0,#2fbf70 45%,#156a3c); box-shadow:0 0 0 1px #000, 0 0 6px #2fbf70; }
+.sta2e-task-card--tmp.rl .rl-check--radio .rl-ind { border-radius:50%; }
+.sta2e-task-card--tmp.rl .rl-segs i { background:#0a1a14; }
+.sta2e-task-card--tmp.rl .rl-segs i.on { background:#ed2f76; }
+.sta2e-task-card--tmp.rl .rl-rval { color:#ed2f76; font-family:var(--tmc-mono, monospace); }
+.sta2e-task-card--tmp.rl .rl-slot { border-radius:50%; border:1px dashed #0d7c4c; }
+.sta2e-task-card--tmp.rl .rl-slot.is-on { border:1px solid #00aef0; }
+.sta2e-task-card--tmp.rl .rl-src { border-right:1px solid #0d7c4c; }
+.sta2e-task-card--tmp.rl .rl-tmc-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.sta2e-task-card--tmp.rl .rl-wide { grid-column:1/-1; }
+
+/* ═══ TMP Monitor — the same markup, outlined cyan ═══════════════════════ */
+.sta2e-task-card--tmp.sta2e-task-card--tmpmon.rl .rl-sel, .sta2e-task-card--tmp.sta2e-task-card--tmpmon.rl .rl-num { background:#000; color:#00aef0; border-color:#00aef0; }
+.sta2e-task-card--tmp.sta2e-task-card--tmpmon.rl .rl-ind { background:transparent; box-shadow:inset 0 0 0 1px #00aef0; }
+.sta2e-task-card--tmp.sta2e-task-card--tmpmon.rl .rl-check input:checked + .rl-ind { background:#00d27a; box-shadow:0 0 6px #00d27a; }
+.sta2e-task-card--tmp.sta2e-task-card--tmpmon.rl .rl-segs i { background:transparent; box-shadow:inset 0 0 0 1px #3a1428; }
+.sta2e-task-card--tmp.sta2e-task-card--tmpmon.rl .rl-segs i.on { background:#ed2f76; box-shadow:none; }
+
+/* ═══ ENT — navy glass, bracketed wells ══════════════════════════════════ */
+.tec.rl .rl-sect > .tec-lbl + * { margin-top:4px; }
+.tec.rl .rl-sect > :not(.tec-lbl) + * { margin-top:5px; }
+.tec.rl .rl-flbl { color:#5e7f8f; opacity:1; }
+.tec.rl .rl-sel, .tec.rl .rl-num { background:transparent; color:#bfe3f2; border:0; border-bottom:1px solid #7aaec4; border-radius:0; padding:2px 2px; font-family:var(--tec-mono, monospace); }
+.tec.rl .rl-sel option { background:#04101a; }
+.tec.rl .rl-stat, .tec.rl .rl-check, .tec.rl .rl-paybar { color:#d0e4ee; }
+.tec.rl .rl-stat b { color:#f0e800; font-family:var(--tec-mono, monospace); }
+.tec.rl .rl-talent { color:#f0b400; }
+.tec.rl .rl-ind { width:10px; height:10px; box-shadow:inset 0 0 0 1px #7aaec4; }
+.tec.rl .rl-check input:checked + .rl-ind { background:#f0e800; box-shadow:0 0 6px rgba(240,232,0,.6); }
+.tec.rl .rl-check--radio .rl-ind { transform:rotate(45deg) scale(.85); }
+.tec.rl .rl-segs { height:6px; }
+.tec.rl .rl-segs i { background:#0e2230; }
+.tec.rl .rl-segs i.on { background:#ff3b2a; }
+.tec.rl .rl-rval { color:#ff3b2a; font-family:var(--tec-mono, monospace); }
+.tec.rl .rl-slot { border:1px dashed #5e7f8f; border-radius:50%; }
+.tec.rl .rl-slot.is-on { border:1px solid #f0e800; }
+.tec.rl .rl-src { border-right:1px solid #1e3a4a; }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Adv. Dice Roller — one look per era</h1>
+<p class="lede">The roller dialog (<code>buildDialogContent</code> in npc-roller.js) wearing each era's chat card. The frames, dice strips, gauges, notes and keys are the cards' own classes, drawn by the real stylesheets linked above; only the roller's form parts — fields, indicators, the Complication range, the payment slots — are new, as <code>.rl-*</code> rules in this page. One scenario throughout: Lt. Worf fires the phaser banks with Data assisting and the Enterprise in the pool. Left is the setup phase, right the rolled phase. The window header is core's DialogV2 chrome and stays as it is; Roll and Cancel move from the dialog footer into the frame.</p>
+
+<section class="era">
+  <div class="era-head"><div class="tag">lcars-tng</div><h2>TNG Bracket Console</h2><p>Sections are the card's stadium dice strips. Checkboxes are short LCARS pills lit in the frame colour; selects and the Difficulty field are outlined stadiums; the Complication range is a red segment gauge the slider sits on.</p></div>
+  <div class="pair">
+    <div><div class="phase-lbl">Setup</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tng tbc rl" data-theme="lcars-tng" style="--tc-bg:#000000;--tc-primary:#ff9900;--tc-secondary:#cc99cc;--tc-tertiary:#ffcc99;--tc-text:#ffcc99;--tc-text-dim:#996633;--tc-green:#48c76b;--tc-red:#cc4444;--tc-yellow:#ffef3a;--tbc-c:#f6a726;">
+  <div class="tbc-top"><span class="tbc-brk"></span><span class="tbc-rule"></span><div class="tbc-title">Phaser Banks</div><span class="tbc-rule"></span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+  <div class="tbc-body">
+    <div class="tbc-sub">Lt. Worf · Tactical · Phaser Banks</div>
+    <div class="tbc-notes"><div class="tbc-note tbc-note--bonus">Phaser Banks — DMG 4 · Medium range</div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Lt. Worf</span><span>T 16</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Control (11)</option><option>Daring (10)</option><option>Fitness (11)</option><option>Insight (8)</option><option>Presence (9)</option><option>Reason (8)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Security (5)</option><option>Command (3)</option><option>Conn (2)</option><option>Engineering (2)</option><option>Science (2)</option><option>Medicine (1)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>16</b></span><span>Focus <b>1–5</b></span></div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Officer Advantages</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>crit on 1–5</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Dedicated Focus<small>crit on 1–10</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Spend Determination<small>force one die to roll 1</small></span></label>
+      <div class="rl-talent">Bold (Security) — reroll available post-roll</div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Dice Pool</span></div>
+  <div class="rl-pay">
+    <div class="rl-src"><img src="../assets/momentum.svg" alt="Momentum" draggable="true"><img src="../assets/threat.svg" alt="Threat" draggable="true"></div>
+    <div class="rl-slots"><span class="rl-slot is-on"><img src="../assets/momentum.svg" alt=""></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span></div>
+  </div>
+  <div class="rl-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div>
+  <div class="rl-two"><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Free Die</span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Auto-Success (−1 Die)</span></label></div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Lt. Cmdr. Data · Assisting</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Reason (12)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Science (5)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>17</b></span><span>Focus <b>1–5</b></span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>assist die crits on 1–5</small></span></label></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Ship Pool</span><span>U.S.S. Enterprise</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ship assists this roll</span></label><div class="rl-two"><label class="rl-field"><span class="rl-flbl">System</span><select class="rl-sel"><option>Weapons (10)</option><option>Sensors (9)</option><option>Engines (9)</option></select></label><label class="rl-field"><span class="rl-flbl">Department</span><select class="rl-sel"><option>Security (3)</option><option>Conn (2)</option><option>Science (2)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Reserve Power rerouted<small>assist die counts as 1 · complications count 2</small></span></label></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Task Options</span></div><label class="rl-field rl-field--num"><span class="rl-flbl">Difficulty</span><input class="rl-num" type="number" min="0" value="2"><span class="rl-aside">+1 Small Craft</span></label>
+      
+  <div class="rl-range" data-max="5"><span class="rl-flbl">Complication</span>
+    <span class="rl-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span>
+    <b class="rl-rval">1</b></div>
+  <div class="rl-desc">Complications on: 20</div>
+      <label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Targeting Solution</span></label><div class="rl-indent rl-two"><label class="rl-check rl-check--radio"><input type="radio" name="lcars-tng-ts" checked><span class="rl-ind"></span><span class="rl-clbl">Reroll d20</span></label><label class="rl-check rl-check--radio"><input type="radio" name="lcars-tng-ts"><span class="rl-ind"></span><span class="rl-clbl">Target System</span></label></div>
+      <label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Calibrate Sensors<small>ignore 1 trait or reroll 1d20</small></span></label></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Scene Traits</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ion Storm<small>+1 Difficulty</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Klingon Ambush<small>+1 Complication range</small></span></label></div>
+    
+    <div class="tbc-actions"><div class="tbc-pad"><button type="button" class="tbc-key tbc-key--wide" style="background:#ff9966;color:#000000;">Roll Dice</button><button type="button" class="tbc-key tbc-key--wide" style="background:#5a5650;color:#000000;">Cancel</button></div></div></div>
+  <div class="tbc-bot"><span class="tbc-brk"></span><span class="tbc-rule"></span><span class="tbc-code">Setup</span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+</div></div></div></div>
+    <div><div class="phase-lbl">Rolled</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tng tbc rl" data-theme="lcars-tng" style="--tc-bg:#000000;--tc-primary:#ff9900;--tc-secondary:#cc99cc;--tc-tertiary:#ffcc99;--tc-text:#ffcc99;--tc-text-dim:#996633;--tc-green:#48c76b;--tc-red:#cc4444;--tc-yellow:#ffef3a;--tbc-c:#48c76b;">
+  <div class="tbc-top"><span class="tbc-brk"></span><span class="tbc-rule"></span><div class="tbc-title">Phaser Banks</div><span class="tbc-rule"></span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+  <div class="tbc-body">
+    <div class="tbc-sub">Lt. Worf · Tactical · Phaser Banks</div>
+    <div class="tbc-strip"><div class="tbc-strip-lbl"><span>Lt. Worf · Control + Security</span><span>T 16</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#f6a726;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="display:flex;flex-direction:column;align-items:center;line-height:1;"><span style="font-size:8px;letter-spacing:-1px;">★★</span><span style="font-size:12px;">3</span></span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#48c76b;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">9</span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#aaaaaa;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">17</span></span></span></div></div><div class="tbc-strip"><div class="tbc-strip-lbl"><span>Assist — Lt. Cmdr. Data</span><span>T 17</span></div><div class="tbc-strip-line">Reason + Science</div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#48c76b;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">6</span></span></span></div></div><div class="tbc-strip"><div class="tbc-strip-lbl"><span>Enterprise · Weapons + Security</span><span>T 13</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#48c76b;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">11</span></span></span></div></div>
+    <div class="tbc-notes"><div class="tbc-note tbc-note--bonus">Targeting Solution — click any crew die to reroll (free, one use)</div><div class="tbc-note tbc-note--trait">Ion Storm: +1 Difficulty</div></div>
+    <div class="tbc-readout"><div class="tbc-gauge" style="--tbc-g:#f6a726;"><span>Successes</span><span class="tbc-segs"><i></i><i></i><i></i><i></i><i></i><i class="tbc-seg--off"></i></span><b>5</b></div><div class="tbc-gauge" style="--tbc-g:#cc99cc;"><span>Difficulty</span><span class="tbc-segs"><i></i><i></i><i></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i></span><b>3</b></div><div class="tbc-gauge" style="--tbc-g:#9999ff;"><span>Momentum</span><span class="tbc-segs"><i></i><i></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i></span><b>2</b></div><div class="tbc-gauge tbc-gauge--cpx" style="--tbc-g:#d92222;"><span>Complic.</span><span class="tbc-segs"><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i></span><b>0</b></div><div class="tbc-result tbc-result--pass"><strong>Hit</strong></div></div>
+    
+    <div class="tbc-actions"><div class="tbc-sect-lbl">Rerolls Available</div><div class="tbc-pad"><button type="button" class="tbc-key" style="background:#9999ff;color:#000000;">Bold (Security)</button><button type="button" class="tbc-key" style="background:#cc99cc;color:#000000;">Spend Determination</button><button type="button" class="tbc-key tbc-key--wide" style="background:#ffcc99;color:#000000;">Talent / Trait Reroll</button></div></div>
+    <div class="tbc-actions"><div class="tbc-pad"><button type="button" class="tbc-key tbc-key--wide" style="background:#48c76b;color:#000000;">Resolve HIT (5 succ.)</button><button type="button" class="tbc-key tbc-key--wide" style="background:#5a5650;color:#000000;">Cancel</button></div></div></div>
+  <div class="tbc-bot"><span class="tbc-brk"></span><span class="tbc-rule"></span><span class="tbc-code">Rolled</span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+</div></div></div></div>
+  </div>
+</section>
+<section class="era">
+  <div class="era-head"><div class="tag">lcars-fc</div><h2>LCARS First Contact</h2><p>Same bracket markup with the First Contact palette — the only change is <code>data-theme</code>, exactly as the card does it.</p></div>
+  <div class="pair">
+    <div><div class="phase-lbl">Setup</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tng tbc rl" data-theme="lcars-fc" style="--tc-bg:#000000;--tc-primary:#6a86cc;--tc-secondary:#c9a27a;--tc-tertiary:#c6d3f0;--tc-text:#c6d3f0;--tc-text-dim:#6a7590;--tc-green:#5fbf8f;--tc-red:#cf5a4e;--tc-yellow:#ffd76a;--tbc-c:#6a86cc;">
+  <div class="tbc-top"><span class="tbc-brk"></span><span class="tbc-rule"></span><div class="tbc-title">Phaser Banks</div><span class="tbc-rule"></span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+  <div class="tbc-body">
+    <div class="tbc-sub">Lt. Worf · Tactical · Phaser Banks</div>
+    <div class="tbc-notes"><div class="tbc-note tbc-note--bonus">Phaser Banks — DMG 4 · Medium range</div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Lt. Worf</span><span>T 16</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Control (11)</option><option>Daring (10)</option><option>Fitness (11)</option><option>Insight (8)</option><option>Presence (9)</option><option>Reason (8)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Security (5)</option><option>Command (3)</option><option>Conn (2)</option><option>Engineering (2)</option><option>Science (2)</option><option>Medicine (1)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>16</b></span><span>Focus <b>1–5</b></span></div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Officer Advantages</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>crit on 1–5</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Dedicated Focus<small>crit on 1–10</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Spend Determination<small>force one die to roll 1</small></span></label>
+      <div class="rl-talent">Bold (Security) — reroll available post-roll</div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Dice Pool</span></div>
+  <div class="rl-pay">
+    <div class="rl-src"><img src="../assets/momentum.svg" alt="Momentum" draggable="true"><img src="../assets/threat.svg" alt="Threat" draggable="true"></div>
+    <div class="rl-slots"><span class="rl-slot is-on"><img src="../assets/momentum.svg" alt=""></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span></div>
+  </div>
+  <div class="rl-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div>
+  <div class="rl-two"><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Free Die</span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Auto-Success (−1 Die)</span></label></div></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Lt. Cmdr. Data · Assisting</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Reason (12)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Science (5)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>17</b></span><span>Focus <b>1–5</b></span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>assist die crits on 1–5</small></span></label></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Ship Pool</span><span>U.S.S. Enterprise</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ship assists this roll</span></label><div class="rl-two"><label class="rl-field"><span class="rl-flbl">System</span><select class="rl-sel"><option>Weapons (10)</option><option>Sensors (9)</option><option>Engines (9)</option></select></label><label class="rl-field"><span class="rl-flbl">Department</span><select class="rl-sel"><option>Security (3)</option><option>Conn (2)</option><option>Science (2)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Reserve Power rerouted<small>assist die counts as 1 · complications count 2</small></span></label></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Task Options</span></div><label class="rl-field rl-field--num"><span class="rl-flbl">Difficulty</span><input class="rl-num" type="number" min="0" value="2"><span class="rl-aside">+1 Small Craft</span></label>
+      
+  <div class="rl-range" data-max="5"><span class="rl-flbl">Complication</span>
+    <span class="rl-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span>
+    <b class="rl-rval">1</b></div>
+  <div class="rl-desc">Complications on: 20</div>
+      <label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Targeting Solution</span></label><div class="rl-indent rl-two"><label class="rl-check rl-check--radio"><input type="radio" name="lcars-fc-ts" checked><span class="rl-ind"></span><span class="rl-clbl">Reroll d20</span></label><label class="rl-check rl-check--radio"><input type="radio" name="lcars-fc-ts"><span class="rl-ind"></span><span class="rl-clbl">Target System</span></label></div>
+      <label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Calibrate Sensors<small>ignore 1 trait or reroll 1d20</small></span></label></div>
+    <div class="tbc-strip rl-sect"><div class="tbc-strip-lbl"><span>Scene Traits</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ion Storm<small>+1 Difficulty</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Klingon Ambush<small>+1 Complication range</small></span></label></div>
+    
+    <div class="tbc-actions"><div class="tbc-pad"><button type="button" class="tbc-key tbc-key--wide" style="background:#ff9c33;color:#000000;">Roll Dice</button><button type="button" class="tbc-key tbc-key--wide" style="background:#4a5060;color:#000000;">Cancel</button></div></div></div>
+  <div class="tbc-bot"><span class="tbc-brk"></span><span class="tbc-rule"></span><span class="tbc-code">Setup</span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+</div></div></div></div>
+    <div><div class="phase-lbl">Rolled</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tng tbc rl" data-theme="lcars-fc" style="--tc-bg:#000000;--tc-primary:#6a86cc;--tc-secondary:#c9a27a;--tc-tertiary:#c6d3f0;--tc-text:#c6d3f0;--tc-text-dim:#6a7590;--tc-green:#5fbf8f;--tc-red:#cf5a4e;--tc-yellow:#ffd76a;--tbc-c:#5fbf8f;">
+  <div class="tbc-top"><span class="tbc-brk"></span><span class="tbc-rule"></span><div class="tbc-title">Phaser Banks</div><span class="tbc-rule"></span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+  <div class="tbc-body">
+    <div class="tbc-sub">Lt. Worf · Tactical · Phaser Banks</div>
+    <div class="tbc-strip"><div class="tbc-strip-lbl"><span>Lt. Worf · Control + Security</span><span>T 16</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#ff9c33;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="display:flex;flex-direction:column;align-items:center;line-height:1;"><span style="font-size:8px;letter-spacing:-1px;">★★</span><span style="font-size:12px;">3</span></span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#5fbf8f;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">9</span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#aaaaaa;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">17</span></span></span></div></div><div class="tbc-strip"><div class="tbc-strip-lbl"><span>Assist — Lt. Cmdr. Data</span><span>T 17</span></div><div class="tbc-strip-line">Reason + Science</div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#5fbf8f;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">6</span></span></span></div></div><div class="tbc-strip"><div class="tbc-strip-lbl"><span>Enterprise · Weapons + Security</span><span>T 13</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#5fbf8f;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">11</span></span></span></div></div>
+    <div class="tbc-notes"><div class="tbc-note tbc-note--bonus">Targeting Solution — click any crew die to reroll (free, one use)</div><div class="tbc-note tbc-note--trait">Ion Storm: +1 Difficulty</div></div>
+    <div class="tbc-readout"><div class="tbc-gauge" style="--tbc-g:#ff9c33;"><span>Successes</span><span class="tbc-segs"><i></i><i></i><i></i><i></i><i></i><i class="tbc-seg--off"></i></span><b>5</b></div><div class="tbc-gauge" style="--tbc-g:#c9a27a;"><span>Difficulty</span><span class="tbc-segs"><i></i><i></i><i></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i></span><b>3</b></div><div class="tbc-gauge" style="--tbc-g:#9fb2e0;"><span>Momentum</span><span class="tbc-segs"><i></i><i></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i></span><b>2</b></div><div class="tbc-gauge tbc-gauge--cpx" style="--tbc-g:#d9443a;"><span>Complic.</span><span class="tbc-segs"><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i><i class="tbc-seg--off"></i></span><b>0</b></div><div class="tbc-result tbc-result--pass"><strong>Hit</strong></div></div>
+    
+    <div class="tbc-actions"><div class="tbc-sect-lbl">Rerolls Available</div><div class="tbc-pad"><button type="button" class="tbc-key" style="background:#9fb2e0;color:#000000;">Bold (Security)</button><button type="button" class="tbc-key" style="background:#c9a27a;color:#000000;">Spend Determination</button><button type="button" class="tbc-key tbc-key--wide" style="background:#b5c3e8;color:#000000;">Talent / Trait Reroll</button></div></div>
+    <div class="tbc-actions"><div class="tbc-pad"><button type="button" class="tbc-key tbc-key--wide" style="background:#5fbf8f;color:#000000;">Resolve HIT (5 succ.)</button><button type="button" class="tbc-key tbc-key--wide" style="background:#4a5060;color:#000000;">Cancel</button></div></div></div>
+  <div class="tbc-bot"><span class="tbc-brk"></span><span class="tbc-rule"></span><span class="tbc-code">Rolled</span><span class="tbc-rule tbc-rule--s"></span><span class="tbc-brk tbc-brk--r"></span></div>
+</div></div></div></div>
+  </div>
+</section>
+<section class="era">
+  <div class="era-head"><div class="tag">tos-panel</div><h2>TOS Console Viewer</h2><p>Each section is its own curved CRT screen in the gunmetal housing. Checkboxes are lamps, selects amber readouts on black, Roll and Resolve green backlit keys.</p></div>
+  <div class="pair">
+    <div><div class="phase-lbl">Setup</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tos rl" data-theme="tos-panel" style="--tc-bg:#0a0800;--tc-primary:#ddaa00;--tc-secondary:#cc4400;--tc-tertiary:#88cc44;--tc-text:#eecc77;--tc-text-dim:#886600;--tc-green:#88cc44;--tc-red:#ff2200;--tc-yellow:#ffdd00;--tc-font:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;font-family:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;">
+  <div class="tct-head"><div class="tct-title">Phaser Banks — Setup<small>Lt. Worf · Tactical</small></div><div class="tct-lamps"><i class="tct-lamp tct-lamp--a"></i><i class="tct-lamp tct-lamp--off"></i><i class="tct-lamp tct-lamp--off"></i></div></div>
+  
+    
+    <div class="tct-notes"><div class="tct-note tct-note--bonus">Phaser Banks — DMG 4 · Medium range</div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Lt. Worf</span><span>T 16</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Control (11)</option><option>Daring (10)</option><option>Fitness (11)</option><option>Insight (8)</option><option>Presence (9)</option><option>Reason (8)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Security (5)</option><option>Command (3)</option><option>Conn (2)</option><option>Engineering (2)</option><option>Science (2)</option><option>Medicine (1)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>16</b></span><span>Focus <b>1–5</b></span></div></div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Officer Advantages</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>crit on 1–5</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Dedicated Focus<small>crit on 1–10</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Spend Determination<small>force one die to roll 1</small></span></label>
+      <div class="rl-talent">Bold (Security) — reroll available post-roll</div></div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Dice Pool</span></div>
+  <div class="rl-pay">
+    <div class="rl-src"><img src="../assets/momentum.svg" alt="Momentum" draggable="true"><img src="../assets/threat.svg" alt="Threat" draggable="true"></div>
+    <div class="rl-slots"><span class="rl-slot is-on"><img src="../assets/momentum.svg" alt=""></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span></div>
+  </div>
+  <div class="rl-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div>
+  <div class="rl-two"><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Free Die</span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Auto-Success (−1 Die)</span></label></div></div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Lt. Cmdr. Data · Assisting</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Reason (12)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Science (5)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>17</b></span><span>Focus <b>1–5</b></span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>assist die crits on 1–5</small></span></label></div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Ship Pool</span><span>U.S.S. Enterprise</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ship assists this roll</span></label><div class="rl-two"><label class="rl-field"><span class="rl-flbl">System</span><select class="rl-sel"><option>Weapons (10)</option><option>Sensors (9)</option><option>Engines (9)</option></select></label><label class="rl-field"><span class="rl-flbl">Department</span><select class="rl-sel"><option>Security (3)</option><option>Conn (2)</option><option>Science (2)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Reserve Power rerouted<small>assist die counts as 1 · complications count 2</small></span></label></div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Task Options</span></div><label class="rl-field rl-field--num"><span class="rl-flbl">Difficulty</span><input class="rl-num" type="number" min="0" value="2"><span class="rl-aside">+1 Small Craft</span></label>
+      
+  <div class="rl-range" data-max="5"><span class="rl-flbl">Complication</span>
+    <span class="rl-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span>
+    <b class="rl-rval">1</b></div>
+  <div class="rl-desc">Complications on: 20</div>
+      <label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Targeting Solution</span></label><div class="rl-indent rl-two"><label class="rl-check rl-check--radio"><input type="radio" name="tos-panel-ts" checked><span class="rl-ind"></span><span class="rl-clbl">Reroll d20</span></label><label class="rl-check rl-check--radio"><input type="radio" name="tos-panel-ts"><span class="rl-ind"></span><span class="rl-clbl">Target System</span></label></div>
+      <label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Calibrate Sensors<small>ignore 1 trait or reroll 1d20</small></span></label></div></div>
+    <div class="tct-crt rl-sect" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Scene Traits</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ion Storm<small>+1 Difficulty</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Klingon Ambush<small>+1 Complication range</small></span></label></div></div>
+    <div class="tct-strut"></div>
+    <div class="tct-sect"><div class="tct-btns rl-tct-grid"><button type="button" class="tct-key tct-key--big rl-wide" style="background:linear-gradient(180deg,#40cc30 0%,#28aa18 60%,#188808 100%);color:#001a00;">Roll Dice</button><button type="button" class="tct-key tct-key--big rl-wide" style="background:linear-gradient(180deg,#666666 0%,#4a4a4a 60%,#3a3a3a 100%);color:#eeeeee;">Cancel</button></div></div>
+</div></div></div></div>
+    <div><div class="phase-lbl">Rolled</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tos rl" data-theme="tos-panel" style="--tc-bg:#0a0800;--tc-primary:#ddaa00;--tc-secondary:#cc4400;--tc-tertiary:#88cc44;--tc-text:#eecc77;--tc-text-dim:#886600;--tc-green:#88cc44;--tc-red:#ff2200;--tc-yellow:#ffdd00;--tc-font:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;font-family:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;">
+  <div class="tct-head"><div class="tct-title">Phaser Banks — Rolled<small>Lt. Worf · Tactical</small></div><div class="tct-lamps"><i class="tct-lamp tct-lamp--g"></i><i class="tct-lamp tct-lamp--off"></i><i class="tct-lamp tct-lamp--a"></i></div></div>
+  
+    
+    <div class="tct-crt" style="--tct-ph:#9ee26a;"><div class="tct-blk"><div class="tct-lbl"><span>Lt. Worf · Control + Security</span><span>T 16</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#ddaa00;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="display:flex;flex-direction:column;align-items:center;line-height:1;"><span style="font-size:8px;letter-spacing:-1px;">★★</span><span style="font-size:12px;">3</span></span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#88cc44;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">9</span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#aaaaaa;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">17</span></span></span></div></div><div class="tct-blk tct-blk--more"><div class="tct-lbl"><span>Assist — Lt. Cmdr. Data</span><span>T 17</span></div><div class="tct-sub">Reason + Science</div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#88cc44;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">6</span></span></span></div></div><div class="tct-blk tct-blk--more"><div class="tct-lbl"><span>Enterprise · Weapons + Security</span><span>T 13</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#88cc44;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">11</span></span></span></div></div></div>
+    <div class="tct-notes"><div class="tct-note tct-note--bonus">Targeting Solution — click any crew die to reroll (free, one use)</div><div class="tct-note tct-note--trait">Ion Storm: +1 Difficulty</div></div>
+    <div class="tct-crt" style="--tct-ph:#9ee26a;"><div class="tct-lead"><span>Successes</span><span class="tct-dots"></span><span>05</span></div><div class="tct-lead"><span>Difficulty</span><span class="tct-dots"></span><span>03</span></div><div class="tct-lead"><span>Momentum</span><span class="tct-dots"></span><span>02</span></div><div class="tct-lead tct-lead--cpx"><span>Complic.</span><span class="tct-dots"></span><span>00</span></div><div class="tct-result"><span>Result</span><strong class="tct-result--pass">Hit</strong></div></div>
+    <div class="tct-strut"></div>
+    <div class="tct-sect"><div class="tct-sect-lbl">Rerolls Available</div><div class="tct-btns rl-tct-grid"><button type="button" class="tct-key" style="background:linear-gradient(180deg,#e8c030 0%,#c8a010 60%,#aa8808 100%);color:#1a1200;">Bold (Security)</button><button type="button" class="tct-key" style="background:linear-gradient(180deg,#e8c030 0%,#c8a010 60%,#aa8808 100%);color:#1a1200;">Spend Determination</button><button type="button" class="tct-key tct-key--big rl-wide" style="background:linear-gradient(180deg,#e8c030 0%,#c8a010 60%,#aa8808 100%);color:#1a1200;">Talent / Trait Reroll</button></div></div>
+    <div class="tct-sect"><div class="tct-btns rl-tct-grid"><button type="button" class="tct-key tct-key--big rl-wide" style="background:linear-gradient(180deg,#40cc30 0%,#28aa18 60%,#188808 100%);color:#001a00;">Resolve HIT (5 succ.)</button><button type="button" class="tct-key tct-key--big rl-wide" style="background:linear-gradient(180deg,#666666 0%,#4a4a4a 60%,#3a3a3a 100%);color:#eeeeee;">Cancel</button></div></div>
+</div></div></div></div>
+  </div>
+</section>
+<section class="era">
+  <div class="era-head"><div class="tag">tmp-console</div><h2>TMP Console</h2><p>Sections are black monitors on the grey duty panel with captions cut into the bracket. Checkboxes are square lens indicators; the footer keys sit in the dark key bed.</p></div>
+  <div class="pair">
+    <div><div class="phase-lbl">Setup</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tmp rl" data-theme="tmp-console" style="--tc-bg:#000000;--tc-panel:#001008;--tc-primary:#00d27a;--tc-secondary:#00aef0;--tc-tertiary:#ed2f76;--tc-text:#3df09d;--tc-text-dim:#0d7c4c;--tc-green:#00d27a;--tc-red:#e82938;--tc-yellow:#e9e95a;--tc-font:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;--tmc-plate:#e9c83a;font-family:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;">
+  <div class="tmc-head"><span class="tmc-plate"></span><div class="tmc-title">Phaser Banks — Setup<small>Lt. Worf · Tactical</small></div><span class="tmc-tag">Setup</span></div>
+  
+    
+    <div class="tmc-notes"><div class="tmc-note tmc-note--bonus">Phaser Banks — DMG 4 · Medium range</div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Lt. Worf</span><span class="tmc-cap tmc-cap--r">T 16</span><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Control (11)</option><option>Daring (10)</option><option>Fitness (11)</option><option>Insight (8)</option><option>Presence (9)</option><option>Reason (8)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Security (5)</option><option>Command (3)</option><option>Conn (2)</option><option>Engineering (2)</option><option>Science (2)</option><option>Medicine (1)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>16</b></span><span>Focus <b>1–5</b></span></div></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Officer Advantages</span><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>crit on 1–5</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Dedicated Focus<small>crit on 1–10</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Spend Determination<small>force one die to roll 1</small></span></label>
+      <div class="rl-talent">Bold (Security) — reroll available post-roll</div></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Dice Pool</span>
+  <div class="rl-pay">
+    <div class="rl-src"><img src="../assets/momentum.svg" alt="Momentum" draggable="true"><img src="../assets/threat.svg" alt="Threat" draggable="true"></div>
+    <div class="rl-slots"><span class="rl-slot is-on"><img src="../assets/momentum.svg" alt=""></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span></div>
+  </div>
+  <div class="rl-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div>
+  <div class="rl-two"><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Free Die</span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Auto-Success (−1 Die)</span></label></div></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Lt. Cmdr. Data · Assisting</span><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Reason (12)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Science (5)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>17</b></span><span>Focus <b>1–5</b></span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>assist die crits on 1–5</small></span></label></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Ship Pool</span><span class="tmc-cap tmc-cap--r">U.S.S. Enterprise</span><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ship assists this roll</span></label><div class="rl-two"><label class="rl-field"><span class="rl-flbl">System</span><select class="rl-sel"><option>Weapons (10)</option><option>Sensors (9)</option><option>Engines (9)</option></select></label><label class="rl-field"><span class="rl-flbl">Department</span><select class="rl-sel"><option>Security (3)</option><option>Conn (2)</option><option>Science (2)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Reserve Power rerouted<small>assist die counts as 1 · complications count 2</small></span></label></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Task Options</span><label class="rl-field rl-field--num"><span class="rl-flbl">Difficulty</span><input class="rl-num" type="number" min="0" value="2"><span class="rl-aside">+1 Small Craft</span></label>
+      
+  <div class="rl-range" data-max="5"><span class="rl-flbl">Complication</span>
+    <span class="rl-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span>
+    <b class="rl-rval">1</b></div>
+  <div class="rl-desc">Complications on: 20</div>
+      <label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Targeting Solution</span></label><div class="rl-indent rl-two"><label class="rl-check rl-check--radio"><input type="radio" name="tmp-console-ts" checked><span class="rl-ind"></span><span class="rl-clbl">Reroll d20</span></label><label class="rl-check rl-check--radio"><input type="radio" name="tmp-console-ts"><span class="rl-ind"></span><span class="rl-clbl">Target System</span></label></div>
+      <label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Calibrate Sensors<small>ignore 1 trait or reroll 1d20</small></span></label></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Scene Traits</span><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ion Storm<small>+1 Difficulty</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Klingon Ambush<small>+1 Complication range</small></span></label></div></div>
+    
+    <div class="tmc-bed"><div class="tmc-btns rl-tmc-grid"><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:linear-gradient(180deg,#9af0c0 0%,#2fbf70 45%,#156a3c 100%);color:#00160a;">Roll Dice</button><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:linear-gradient(180deg,#5a5850 0%,#45443e 45%,#33322e 100%);color:#c8c4bb;">Cancel</button></div></div>
+</div></div></div></div>
+    <div><div class="phase-lbl">Rolled</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tmp rl" data-theme="tmp-console" style="--tc-bg:#000000;--tc-panel:#001008;--tc-primary:#00d27a;--tc-secondary:#00aef0;--tc-tertiary:#ed2f76;--tc-text:#3df09d;--tc-text-dim:#0d7c4c;--tc-green:#00d27a;--tc-red:#e82938;--tc-yellow:#e9e95a;--tc-font:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;--tmc-plate:#3aa060;font-family:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;">
+  <div class="tmc-head"><span class="tmc-plate"></span><div class="tmc-title">Phaser Banks — Rolled<small>Lt. Worf · Tactical</small></div><span class="tmc-tag">Rolled</span></div>
+  
+    
+    <div class="tmc-scr" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Lt. Worf · Control + Security</span><span class="tmc-cap tmc-cap--r">T 16</span><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="display:flex;flex-direction:column;align-items:center;line-height:1;"><span style="font-size:8px;letter-spacing:-1px;">★★</span><span style="font-size:12px;">3</span></span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">9</span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#aaaaaa;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">17</span></span></span></div></div><div class="tmc-blk"><span class="tmc-cap">Assist — Lt. Cmdr. Data</span><span class="tmc-cap tmc-cap--r">T 17</span><div class="tmc-line">Reason + Science</div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">6</span></span></span></div></div><div class="tmc-blk"><span class="tmc-cap">Enterprise · Weapons + Security</span><span class="tmc-cap tmc-cap--r">T 13</span><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">11</span></span></span></div></div></div>
+    <div class="tmc-notes"><div class="tmc-note tmc-note--bonus">Targeting Solution — click any crew die to reroll (free, one use)</div><div class="tmc-note tmc-note--trait">Ion Storm: +1 Difficulty</div></div>
+    <div class="tmc-scr" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Task Analysis</span><div class="tmc-meter"><span>Successes</span><span class="tmc-segs"><i></i><i></i><i></i><i></i><i></i><i class="tmc-seg--off"></i></span><b>05</b></div><div class="tmc-meter"><span>Difficulty</span><span class="tmc-segs"><i class="tmc-seg--cyan"></i><i class="tmc-seg--cyan"></i><i class="tmc-seg--cyan"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i></span><b>03</b></div><div class="tmc-meter"><span>Momentum</span><span class="tmc-segs"><i class="tmc-seg--yellow"></i><i class="tmc-seg--yellow"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i></span><b>02</b></div><div class="tmc-meter tmc-meter--cpx"><span>Complic.</span><span class="tmc-segs"><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i></span><b>00</b></div></div><div class="tmc-result tmc-result--pass"><strong>Hit</strong><span class="tmc-rule"></span></div></div>
+    
+    <div class="tmc-bed"><div class="tmc-sect-lbl">Rerolls Available</div><div class="tmc-btns rl-tmc-grid"><button type="button" class="tmc-key" style="background:linear-gradient(180deg,#ffe27a 0%,#f0c020 45%,#9a7a10 100%);color:#1a1200;">Bold (Security)</button><button type="button" class="tmc-key" style="background:linear-gradient(180deg,#ffe27a 0%,#f0c020 45%,#9a7a10 100%);color:#1a1200;">Spend Determination</button><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:linear-gradient(180deg,#ffe27a 0%,#f0c020 45%,#9a7a10 100%);color:#1a1200;">Talent / Trait Reroll</button></div></div>
+    <div class="tmc-bed"><div class="tmc-btns rl-tmc-grid"><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:linear-gradient(180deg,#9af0c0 0%,#2fbf70 45%,#156a3c 100%);color:#00160a;">Resolve HIT (5 succ.)</button><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:linear-gradient(180deg,#5a5850 0%,#45443e 45%,#33322e 100%);color:#c8c4bb;">Cancel</button></div></div>
+</div></div></div></div>
+  </div>
+</section>
+<section class="era">
+  <div class="era-head"><div class="tag">tmp-monitor</div><h2>TMP Monitor</h2><p>TMP Console's markup plus <code>.sta2e-task-card--tmpmon</code>: outlined cyan keys, rounded outer corners, the header code tab reading <code>T-3</code> while setting up and <code>OK</code> once rolled.</p></div>
+  <div class="pair">
+    <div><div class="phase-lbl">Setup</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tmp sta2e-task-card--tmpmon rl" data-theme="tmp-monitor" style="--tc-bg:#000000;--tc-panel:#001008;--tc-primary:#00d27a;--tc-secondary:#00aef0;--tc-tertiary:#ed2f76;--tc-text:#3df09d;--tc-text-dim:#0d7c4c;--tc-green:#00d27a;--tc-red:#e82938;--tc-yellow:#e9e95a;--tc-font:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;--tmc-plate:#e9c83a;--tmm-tab:#00aef0;font-family:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;">
+  <div class="tmc-head"><span class="tmc-code">T-3</span><div class="tmc-title">Phaser Banks — Setup<small>Lt. Worf · Tactical</small></div><span class="tmc-ticks"><i></i><i></i><i></i></span></div>
+  
+    
+    <div class="tmc-notes"><div class="tmc-note tmc-note--bonus">Phaser Banks — DMG 4 · Medium range</div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Lt. Worf</span><span class="tmc-cap tmc-cap--r">T 16</span><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Control (11)</option><option>Daring (10)</option><option>Fitness (11)</option><option>Insight (8)</option><option>Presence (9)</option><option>Reason (8)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Security (5)</option><option>Command (3)</option><option>Conn (2)</option><option>Engineering (2)</option><option>Science (2)</option><option>Medicine (1)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>16</b></span><span>Focus <b>1–5</b></span></div></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Officer Advantages</span><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>crit on 1–5</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Dedicated Focus<small>crit on 1–10</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Spend Determination<small>force one die to roll 1</small></span></label>
+      <div class="rl-talent">Bold (Security) — reroll available post-roll</div></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Dice Pool</span>
+  <div class="rl-pay">
+    <div class="rl-src"><img src="../assets/momentum.svg" alt="Momentum" draggable="true"><img src="../assets/threat.svg" alt="Threat" draggable="true"></div>
+    <div class="rl-slots"><span class="rl-slot is-on"><img src="../assets/momentum.svg" alt=""></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span></div>
+  </div>
+  <div class="rl-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div>
+  <div class="rl-two"><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Free Die</span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Auto-Success (−1 Die)</span></label></div></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Lt. Cmdr. Data · Assisting</span><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Reason (12)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Science (5)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>17</b></span><span>Focus <b>1–5</b></span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>assist die crits on 1–5</small></span></label></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Ship Pool</span><span class="tmc-cap tmc-cap--r">U.S.S. Enterprise</span><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ship assists this roll</span></label><div class="rl-two"><label class="rl-field"><span class="rl-flbl">System</span><select class="rl-sel"><option>Weapons (10)</option><option>Sensors (9)</option><option>Engines (9)</option></select></label><label class="rl-field"><span class="rl-flbl">Department</span><select class="rl-sel"><option>Security (3)</option><option>Conn (2)</option><option>Science (2)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Reserve Power rerouted<small>assist die counts as 1 · complications count 2</small></span></label></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Task Options</span><label class="rl-field rl-field--num"><span class="rl-flbl">Difficulty</span><input class="rl-num" type="number" min="0" value="2"><span class="rl-aside">+1 Small Craft</span></label>
+      
+  <div class="rl-range" data-max="5"><span class="rl-flbl">Complication</span>
+    <span class="rl-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span>
+    <b class="rl-rval">1</b></div>
+  <div class="rl-desc">Complications on: 20</div>
+      <label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Targeting Solution</span></label><div class="rl-indent rl-two"><label class="rl-check rl-check--radio"><input type="radio" name="tmp-monitor-ts" checked><span class="rl-ind"></span><span class="rl-clbl">Reroll d20</span></label><label class="rl-check rl-check--radio"><input type="radio" name="tmp-monitor-ts"><span class="rl-ind"></span><span class="rl-clbl">Target System</span></label></div>
+      <label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Calibrate Sensors<small>ignore 1 trait or reroll 1d20</small></span></label></div></div>
+    <div class="tmc-scr rl-sect" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Scene Traits</span><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ion Storm<small>+1 Difficulty</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Klingon Ambush<small>+1 Complication range</small></span></label></div></div>
+    
+    <div class="tmc-bed"><div class="tmc-btns rl-tmc-grid"><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:#00d27a;border-color:#00d27a;color:#000000;">Roll Dice</button><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:transparent;border-color:#2a6a80;color:#2a6a80;">Cancel</button></div></div>
+</div></div></div></div>
+    <div><div class="phase-lbl">Rolled</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--tmp sta2e-task-card--tmpmon rl" data-theme="tmp-monitor" style="--tc-bg:#000000;--tc-panel:#001008;--tc-primary:#00d27a;--tc-secondary:#00aef0;--tc-tertiary:#ed2f76;--tc-text:#3df09d;--tc-text-dim:#0d7c4c;--tc-green:#00d27a;--tc-red:#e82938;--tc-yellow:#e9e95a;--tc-font:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;--tmc-plate:#3aa060;--tmm-tab:#00aef0;font-family:'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif;">
+  <div class="tmc-head"><span class="tmc-code">OK</span><div class="tmc-title">Phaser Banks — Rolled<small>Lt. Worf · Tactical</small></div><span class="tmc-ticks"><i></i><i></i><i></i></span></div>
+  
+    
+    <div class="tmc-scr" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Lt. Worf · Control + Security</span><span class="tmc-cap tmc-cap--r">T 16</span><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="display:flex;flex-direction:column;align-items:center;line-height:1;"><span style="font-size:8px;letter-spacing:-1px;">★★</span><span style="font-size:12px;">3</span></span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">9</span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#aaaaaa;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">17</span></span></span></div></div><div class="tmc-blk"><span class="tmc-cap">Assist — Lt. Cmdr. Data</span><span class="tmc-cap tmc-cap--r">T 17</span><div class="tmc-line">Reason + Science</div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">6</span></span></span></div></div><div class="tmc-blk"><span class="tmc-cap">Enterprise · Weapons + Security</span><span class="tmc-cap tmc-cap--r">T 13</span><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#00d27a;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">11</span></span></span></div></div></div>
+    <div class="tmc-notes"><div class="tmc-note tmc-note--bonus">Targeting Solution — click any crew die to reroll (free, one use)</div><div class="tmc-note tmc-note--trait">Ion Storm: +1 Difficulty</div></div>
+    <div class="tmc-scr" style="--tmc-s:#00aef0;"><div class="tmc-blk"><span class="tmc-cap">Task Analysis</span><div class="tmc-meter"><span>Successes</span><span class="tmc-segs"><i></i><i></i><i></i><i></i><i></i><i class="tmc-seg--off"></i></span><b>05</b></div><div class="tmc-meter"><span>Difficulty</span><span class="tmc-segs"><i class="tmc-seg--cyan"></i><i class="tmc-seg--cyan"></i><i class="tmc-seg--cyan"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i></span><b>03</b></div><div class="tmc-meter"><span>Momentum</span><span class="tmc-segs"><i class="tmc-seg--yellow"></i><i class="tmc-seg--yellow"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i></span><b>02</b></div><div class="tmc-meter tmc-meter--cpx"><span>Complic.</span><span class="tmc-segs"><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i><i class="tmc-seg--off"></i></span><b>00</b></div></div><div class="tmc-result tmc-result--pass"><strong>Hit</strong><span class="tmc-rule"></span></div></div>
+    
+    <div class="tmc-bed"><div class="tmc-sect-lbl">Rerolls Available</div><div class="tmc-btns rl-tmc-grid"><button type="button" class="tmc-key" style="background:transparent;border-color:#00aef0;color:#00aef0;">Bold (Security)</button><button type="button" class="tmc-key" style="background:transparent;border-color:#00aef0;color:#00aef0;">Spend Determination</button><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:transparent;border-color:#00aef0;color:#00aef0;">Talent / Trait Reroll</button></div></div>
+    <div class="tmc-bed"><div class="tmc-btns rl-tmc-grid"><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:#00d27a;border-color:#00d27a;color:#000000;">Resolve HIT (5 succ.)</button><button type="button" class="tmc-key tmc-key--big rl-wide" style="background:transparent;border-color:#2a6a80;color:#2a6a80;">Cancel</button></div></div>
+</div></div></div></div>
+  </div>
+</section>
+<section class="era">
+  <div class="era-head"><div class="tag">ent-panel</div><h2>ENT Bridge Touchscreen</h2><p>Sections are bracketed wells on navy glass. Indicators are squares that fill yellow (radios are diamonds), fields are underlined, keys are tabs with a coloured edge.</p></div>
+  <div class="pair">
+    <div><div class="phase-lbl">Setup</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--ent tec rl" data-theme="ent-panel" style="--tc-bg:#000000;--tc-primary:#c7c7c7;--tc-tertiary:#7aaec4;--tc-text:#d0d0d0;--tc-text-dim:#5e5e5e;--tc-green:#a7d46c;--tc-red:#9b0000;--tc-yellow:#f0e800;--tec-c:#7aaec4;">
+  <div class="tec-in">
+  <div class="tec-head"><div class="tec-title">Phaser Banks</div><span class="tec-ticks"><i></i><i></i><i></i></span><span class="tec-tab">Setup</span></div>
+  <div class="tec-body">
+    <div class="tec-sub">Lt. Worf · Tactical · Phaser Banks</div>
+    <div class="tec-notes"><div class="tec-note tec-note--bonus">Phaser Banks — DMG 4 · Medium range</div></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Lt. Worf</span><span>T 16</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Control (11)</option><option>Daring (10)</option><option>Fitness (11)</option><option>Insight (8)</option><option>Presence (9)</option><option>Reason (8)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Security (5)</option><option>Command (3)</option><option>Conn (2)</option><option>Engineering (2)</option><option>Science (2)</option><option>Medicine (1)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>16</b></span><span>Focus <b>1–5</b></span></div></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Officer Advantages</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>crit on 1–5</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Dedicated Focus<small>crit on 1–10</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Spend Determination<small>force one die to roll 1</small></span></label>
+      <div class="rl-talent">Bold (Security) — reroll available post-roll</div></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Dice Pool</span></div>
+  <div class="rl-pay">
+    <div class="rl-src"><img src="../assets/momentum.svg" alt="Momentum" draggable="true"><img src="../assets/threat.svg" alt="Threat" draggable="true"></div>
+    <div class="rl-slots"><span class="rl-slot is-on"><img src="../assets/momentum.svg" alt=""></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span><span class="rl-slot"></span></div>
+  </div>
+  <div class="rl-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div>
+  <div class="rl-two"><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Free Die</span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Auto-Success (−1 Die)</span></label></div></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Lt. Cmdr. Data · Assisting</span></div><div class="rl-two"><label class="rl-field"><span class="rl-flbl">Attribute</span><select class="rl-sel"><option>Reason (12)</option></select></label><label class="rl-field"><span class="rl-flbl">Discipline</span><select class="rl-sel"><option>Science (5)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>17</b></span><span>Focus <b>1–5</b></span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Has Focus<small>assist die crits on 1–5</small></span></label></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Ship Pool</span><span>U.S.S. Enterprise</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ship assists this roll</span></label><div class="rl-two"><label class="rl-field"><span class="rl-flbl">System</span><select class="rl-sel"><option>Weapons (10)</option><option>Sensors (9)</option><option>Engines (9)</option></select></label><label class="rl-field"><span class="rl-flbl">Department</span><select class="rl-sel"><option>Security (3)</option><option>Conn (2)</option><option>Science (2)</option></select></label></div>
+      <div class="rl-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Reserve Power rerouted<small>assist die counts as 1 · complications count 2</small></span></label></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Task Options</span></div><label class="rl-field rl-field--num"><span class="rl-flbl">Difficulty</span><input class="rl-num" type="number" min="0" value="2"><span class="rl-aside">+1 Small Craft</span></label>
+      
+  <div class="rl-range" data-max="5"><span class="rl-flbl">Complication</span>
+    <span class="rl-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span>
+    <b class="rl-rval">1</b></div>
+  <div class="rl-desc">Complications on: 20</div>
+      <label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Targeting Solution</span></label><div class="rl-indent rl-two"><label class="rl-check rl-check--radio"><input type="radio" name="ent-panel-ts" checked><span class="rl-ind"></span><span class="rl-clbl">Reroll d20</span></label><label class="rl-check rl-check--radio"><input type="radio" name="ent-panel-ts"><span class="rl-ind"></span><span class="rl-clbl">Target System</span></label></div>
+      <label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Calibrate Sensors<small>ignore 1 trait or reroll 1d20</small></span></label></div>
+    <div class="tec-well rl-sect"><div class="tec-lbl"><span>Scene Traits</span></div><label class="rl-check"><input type="checkbox" checked><span class="rl-ind"></span><span class="rl-clbl">Ion Storm<small>+1 Difficulty</small></span></label><label class="rl-check"><input type="checkbox"><span class="rl-ind"></span><span class="rl-clbl">Klingon Ambush<small>+1 Complication range</small></span></label></div>
+    
+    <div class="tec-actions"><div class="tec-pad"><button type="button" class="tec-key tec-key--wide" style="--k:#a7d46c;background:linear-gradient(90deg,#a7d46c 0 3px,#283b2c 3px);border-color:#66864b;color:#f0f0f0;">Roll Dice</button><button type="button" class="tec-key tec-key--wide" style="--k:#5e7f8f;background:linear-gradient(90deg,#5e7f8f 0 3px,#182834 3px);border-color:#3a5360;color:#f0f0f0;">Cancel</button></div></div></div>
+  <div class="tec-foot"><span>Adv. Dice Roller</span><span class="tec-stream">4F A2 19 C7 0E 5B</span></div>
+  </div>
+</div></div></div></div>
+    <div><div class="phase-lbl">Rolled</div><div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Lt. Worf — Phaser Banks</span><span>✕</span></div><div class="fwin-body">
+<div class="sta2e-task-card sta2e-task-card--ent tec rl" data-theme="ent-panel" style="--tc-bg:#000000;--tc-primary:#c7c7c7;--tc-tertiary:#7aaec4;--tc-text:#d0d0d0;--tc-text-dim:#5e5e5e;--tc-green:#a7d46c;--tc-red:#9b0000;--tc-yellow:#f0e800;--tec-c:#a7d46c;">
+  <div class="tec-in">
+  <div class="tec-head"><div class="tec-title">Phaser Banks</div><span class="tec-ticks"><i></i><i></i><i></i></span><span class="tec-tab">Rolled</span></div>
+  <div class="tec-body">
+    <div class="tec-sub">Lt. Worf · Tactical · Phaser Banks</div>
+    <div class="tec-well"><div class="tec-lbl"><span>Lt. Worf · Control + Security</span><span>T 16</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#f0e800;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="display:flex;flex-direction:column;align-items:center;line-height:1;"><span style="font-size:8px;letter-spacing:-1px;">★★</span><span style="font-size:12px;">3</span></span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#bfe3f2;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">9</span></span></span><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#7d8a92;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">17</span></span></span></div></div><div class="tec-well"><div class="tec-lbl"><span>Assist — Lt. Cmdr. Data</span><span>T 17</span></div><div class="tec-line">Reason + Science</div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#bfe3f2;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">6</span></span></span></div></div><div class="tec-well"><div class="tec-lbl"><span>Enterprise · Weapons + Security</span><span>T 13</span></div><div class="rl-dice"><span class="sta2e-card-die" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;"><img class="rl-d20" alt="" style="position:absolute;top:0;left:0;width:30px;height:30px;opacity:0.2;pointer-events:none;"/><span style="position:relative;z-index:1;color:#bfe3f2;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.9);"><span style="font-size:12px;">11</span></span></span></div></div>
+    <div class="tec-notes"><div class="tec-note tec-note--bonus">Targeting Solution — click any crew die to reroll (free, one use)</div><div class="tec-note tec-note--trait">Ion Storm: +1 Difficulty</div></div>
+    <div class="tec-read"><div class="tec-row"><span>Successes</span><b>5</b><span class="tec-bar tec-bar--mark" style="--p:83%;--bc:#7aaec4;--m:50%;"></span></div><div class="tec-row"><span>Difficulty</span><b>3</b><span class="tec-bar" style="--p:50%;--bc:#8fb1c2;"></span></div><div class="tec-row"><span>Momentum</span><b>2</b><span class="tec-bar" style="--p:33%;--bc:#a7d46c;"></span></div><div class="tec-row tec-row--cpx"><span>Complic.</span><b>0</b><span class="tec-bar" style="--p:0%;--bc:#ff3b2a;"></span></div><div class="tec-result"><strong>&#9656; Hit</strong></div></div>
+    
+    <div class="tec-actions"><div class="tec-sect-lbl">Rerolls Available</div><div class="tec-pad"><button type="button" class="tec-key" style="--k:#7aaec4;background:linear-gradient(90deg,#7aaec4 0 3px,#1e333f 3px);border-color:#4b6f80;color:#f0f0f0;">Bold (Security)</button><button type="button" class="tec-key" style="--k:#c7c7c7;background:linear-gradient(90deg,#c7c7c7 0 3px,#2f3840 3px);border-color:#797e82;color:#f0f0f0;">Spend Determination</button><button type="button" class="tec-key tec-key--wide" style="--k:#bfe3f2;background:linear-gradient(90deg,#bfe3f2 0 3px,#2d3e4a 3px);border-color:#748f9c;color:#f0f0f0;">Talent / Trait Reroll</button></div></div>
+    <div class="tec-actions"><div class="tec-pad"><button type="button" class="tec-key tec-key--wide" style="--k:#a7d46c;background:linear-gradient(90deg,#a7d46c 0 3px,#283b2c 3px);border-color:#66864b;color:#f0f0f0;">Resolve HIT (5 succ.)</button><button type="button" class="tec-key tec-key--wide" style="--k:#5e7f8f;background:linear-gradient(90deg,#5e7f8f 0 3px,#182834 3px);border-color:#3a5360;color:#f0f0f0;">Cancel</button></div></div></div>
+  <div class="tec-foot"><span>Adv. Dice Roller</span><span class="tec-stream">4F A2 19 C7 0E 5B</span></div>
+  </div>
+</div></div></div></div>
+  </div>
+</section>
+</div>
+<script>
+// Foundry's d20 icon, embedded once.
+const D20 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=";
+document.querySelectorAll("img.rl-d20").forEach(i => { i.src = D20; });
+// The Complication range: a real range input lying over the segments.
+document.querySelectorAll(".rl-range").forEach(r => {
+  const input = r.querySelector("input"), segs = r.querySelectorAll(".rl-segs i"), out = r.querySelector(".rl-rval");
+  const desc = r.nextElementSibling;
+  input.addEventListener("input", () => {
+    const v = +input.value; segs.forEach((s, i) => s.classList.toggle("on", i < v)); out.textContent = v;
+    desc.textContent = v === 1 ? "Complications on: 20" : "Complications on: " + (21 - v) + "–20";
+  });
+});
+</script>
+</body>
+</html>

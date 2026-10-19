@@ -1,0 +1,256 @@
+/*
+ * sta2e-toolkit | roller-tng.css
+ *
+ * The Adv. Dice Roller dialog under the bracket themes (lcars-tng, lcars-fc).
+ * The design source is docs/roller-mockups.html; the markup comes from
+ * scripts/roller-skin-tng.js, which wraps buildDialogContent's own content in
+ * the `.tbc` bracket frame (task-card-tng.css draws the frame) and passes it
+ * through a body pass that leaves classes behind:
+ *
+ *   .tbr-head   a section header — in setup, it and the block after it form one
+ *               stadium strip; in the rolled phase it is a label with a lead
+ *   .tbr-ctl    a select / number / text field — an outlined stadium
+ *   .tbr-plate  a box the content drew with a 1px border
+ *   .tbr-note   a banner the content drew with a thick left border
+ *   .tbr-key    a button — a filled key in --tbr-a, ink --tbr-ink (both inline)
+ *   .tbr-fkey   the DialogV2 footer keys, moved inside the frame; colour inline
+ *
+ * Checkbox, radio and range inputs are styled directly; the pass hands each its
+ * old accent-color as --tbr-a, so the Complication range stays red.
+ *
+ * Every rule hangs off `.sta2e-roller--tng`, which only the bracket skin emits,
+ * so no other era is touched. No `!important`: core's form styles sit in a
+ * cascade layer and these unlayered rules win whatever their specificity, and
+ * anything the content still writes inline (layout, text colour, display,
+ * opacity) is meant to win.
+ */
+
+/* ── Window ───────────────────────────────────────────────────────────────── */
+.application.sta2e-roller-tbc .window-content {
+  padding: 4px;
+  background: #000;
+}
+
+.application.sta2e-roller-tbc .dialog-form { gap: 0; }
+
+.sta2e-roller.sta2e-roller--tng {
+  font-family: var(--tbc-font);
+}
+
+/* Bodies set sizes inline for Arial Narrow; Antonio is narrower, so the
+   content is zoomed as the chat frame's bodies are. */
+.sta2e-roller--tng .tbc-body > #sta2e-npc-roller,
+.sta2e-roller--tng .tbc-body > div > #sta2e-npc-roller {
+  zoom: 1.12;
+  background: transparent;
+}
+
+.sta2e-roller--tng .tbc-body {
+  padding: 3px calc(var(--tbc-arm) + 6px) 5px;
+}
+
+/* ── Section strips ───────────────────────────────────────────────────────── */
+.sta2e-roller--tng .tbr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tbc-c3);
+}
+
+/* Setup: the header and the block after it are one stadium outline. */
+.sta2e-roller--tng[data-phase="setup"] .tbr-head {
+  margin-top: 6px;
+  padding: 3px 12px 0;
+  border: 2px solid var(--tbc-c3);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+}
+.sta2e-roller--tng[data-phase="setup"] .tbr-head + * {
+  border: 2px solid var(--tbc-c3);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+}
+
+/* Rolled: a label with a half-pill lead, over the dice it names. */
+.sta2e-roller--tng[data-phase="rolled"] .tbr-head {
+  margin: 8px 0 2px;
+  padding-left: 6px;
+  border-left: 10px solid var(--tbc-c3);
+  border-radius: 6px 0 0 6px;
+}
+
+/* The Manage key in the Ship Pool header. */
+.sta2e-roller--tng .tbr-head .tbr-key {
+  padding: 1px 10px;
+  font-size: 10px;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+.sta2e-roller--tng .tbr-ctl {
+  box-sizing: border-box;
+  min-height: 22px;
+  height: auto;
+  padding: 1px 10px;
+  border: 2px solid var(--tbc-c3);
+  border-radius: 999px;
+  background: #000;
+  color: var(--tbc-ink);
+  font-family: inherit;
+  font-weight: 700;
+  outline: none;
+}
+.sta2e-roller--tng .tbr-ctl:focus { border-color: var(--tbc-c); }
+.sta2e-roller--tng select.tbr-ctl option { background: #000; color: var(--tbc-ink); }
+.sta2e-roller--tng .tbr-ctl[readonly] { border-color: var(--tbc-c); }
+
+/* ── Boxes and banners ────────────────────────────────────────────────────── */
+.sta2e-roller--tng .tbr-plate {
+  border: 1px solid var(--tbr-a, var(--tbc-c3));
+  border-radius: 10px;
+}
+
+.sta2e-roller--tng .tbr-note {
+  border-left: 8px solid var(--tbr-a, var(--tbc-note));
+  border-radius: 5px 0 0 5px;
+}
+
+/* ── Indicators ───────────────────────────────────────────────────────────── */
+/* A checkbox is a short LCARS pill, lit in its own accent (the frame colour
+   when it has none). Core draws checkboxes with an icon pseudo-element. */
+.sta2e-roller--tng input[type="checkbox"],
+.sta2e-roller--tng input[type="radio"] {
+  appearance: none;
+  flex: none;
+  box-sizing: border-box;
+  width: 22px;
+  height: 11px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px 2px 2px 6px;
+  background: var(--tbc-seg-off);
+  box-shadow: inset 0 0 0 1px var(--tbr-a, var(--tbc-c3));
+  cursor: pointer;
+}
+.sta2e-roller--tng input[type="radio"] { width: 11px; border-radius: 50%; }
+.sta2e-roller--tng input[type="checkbox"]::before,
+.sta2e-roller--tng input[type="checkbox"]::after,
+.sta2e-roller--tng input[type="radio"]::before,
+.sta2e-roller--tng input[type="radio"]::after {
+  content: none;
+  display: none;
+}
+.sta2e-roller--tng input[type="checkbox"]:checked,
+.sta2e-roller--tng input[type="radio"]:checked {
+  background: var(--tbr-a, var(--tbc-c));
+  box-shadow: none;
+}
+.sta2e-roller--tng input[type="checkbox"]:disabled,
+.sta2e-roller--tng input[type="radio"]:disabled { opacity: 0.45; cursor: default; }
+
+/* A range is a gauge track with a pill thumb, both in its accent. */
+.sta2e-roller--tng input[type="range"] {
+  appearance: none;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sta2e-roller--tng input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--tbc-seg-off);
+  box-shadow: inset 0 0 0 1px var(--tbr-a, var(--tbc-c3));
+}
+.sta2e-roller--tng input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 14px;
+  margin-top: -3px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--tbr-a, var(--tbc-c));
+}
+.sta2e-roller--tng input[type="range"]::-moz-range-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--tbc-seg-off);
+}
+.sta2e-roller--tng input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 14px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--tbr-a, var(--tbc-c));
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+.sta2e-roller--tng .tbr-key {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--tbr-a, var(--tbc-c3));
+  color: var(--tbr-ink, #000);
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.11s ease-out;
+}
+.sta2e-roller--tng .tbr-key:hover:not(:disabled) { filter: brightness(1.15); }
+.sta2e-roller--tng .tbr-key:active:not(:disabled) { filter: brightness(0.85); }
+
+/* ── Footer keypad ────────────────────────────────────────────────────────── */
+/* The task card's keypad: two columns, each key rounded on its outer end, a key
+   left alone in the left column spanning the pad. */
+.sta2e-roller--tng .form-footer.tbr-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.sta2e-roller--tng .tbr-footer > .tbr-fkey {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 30px;
+  margin: 0;
+  padding: 11px 13px 3px 8px;
+  border: 0;
+  border-radius: 0 14px 14px 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-align: right;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.11s ease-out;
+}
+.sta2e-roller--tng .tbr-footer > .tbr-fkey:nth-child(odd) {
+  padding: 11px 8px 3px 13px;
+  border-radius: 14px 0 0 14px;
+  text-align: left;
+}
+.sta2e-roller--tng .tbr-footer > .tbr-fkey:nth-child(odd):last-child {
+  grid-column: 1 / -1;
+  padding: 10px 14px 4px;
+  border-radius: 14px;
+  text-align: center;
+}
+.sta2e-roller--tng .tbr-footer > .tbr-fkey:hover:not(:disabled) { filter: brightness(1.15); }
+.sta2e-roller--tng .tbr-footer > .tbr-fkey:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-roller--tng .tbr-footer > .tbr-fkey:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
