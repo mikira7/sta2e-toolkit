@@ -1,0 +1,234 @@
+/*
+ * sta2e-toolkit | roller-klingon.css
+ *
+ * The Adv. Dice Roller dialog under klingon: the Klingon Targeting Scope, the
+ * look of the Klingon task and chat cards. The markup comes from
+ * scripts/roller-skin.js (its `klingon` frame), which is the card's own `.tkc`
+ * frame — task-card-klingon.css draws the housing, the head with its lamp and
+ * the scope. This file adds the roller's parts, from the classes the shared
+ * body pass leaves:
+ *
+ *   .tbr-head   a section header — a caption on the scope, led by the
+ *               inverted triangle, over a hairline in the phosphor colour
+ *   .tbr-ctl    a select / number / text field — a dark well, underlined
+ *   .tbr-plate  a box the content drew with a 1px border — a darker panel
+ *   .tbr-note   a banner with a thick left border — an edge strip
+ *   .tbr-key    a button — a backlit plate from --tbr-a / --tbr-ink
+ *   .tbr-fkey   the DialogV2 footer keys; they also take the card's .tkc-key,
+ *               so their plate shape is the card's, and their colour is inline
+ *
+ * Indicators are hexagonal cells, the shape the card's dice sit in, that light
+ * gold. They ignore the content's accent colours, which are the klingon tokens
+ * and include dark ones (#662200, #884400) that would draw a lit cell unlit.
+ *
+ * Every rule hangs off `.sta2e-roller--klingon`, which only this skin emits.
+ * No `!important`.
+ */
+
+/* ── Window ───────────────────────────────────────────────────────────────── */
+.application.sta2e-roller-win--klingon .window-content {
+  padding: 4px;
+  background: #120201;
+}
+.application.sta2e-roller-win--klingon .dialog-form { gap: 0; }
+
+/* The content scrolls inside the scope; its scrollbar is a phosphor thumb on
+   the scope's own black, not the browser's white. */
+.sta2e-roller--klingon #sta2e-npc-roller {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--tkc-c) 55%, #000) #020803;
+}
+
+/* ── Section captions ─────────────────────────────────────────────────────── */
+.sta2e-roller--klingon .tbr-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 0 0 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tkc-c) 40%, transparent);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tkc-label);
+}
+.sta2e-roller--klingon .tbr-head:first-child { margin-top: 0; }
+
+/* The triangle lead, the scope's own note mark. Inline, so it rides the
+   header's first line whatever the header holds. */
+.sta2e-roller--klingon .tbr-head::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 7px;
+  background: var(--tkc-c);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+/* A header holding a key (the Ship Pool's Manage) pushes it to the end. */
+.sta2e-roller--klingon .tbr-head > .tbr-key { margin-left: auto; }
+
+.sta2e-roller--klingon .tbr-head .tbr-key {
+  min-height: 0;
+  padding: 1px 10px 0;
+  font-size: 10px;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+.sta2e-roller--klingon .tbr-ctl {
+  box-sizing: border-box;
+  min-height: 20px;
+  height: auto;
+  padding: 1px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--tkc-c);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.5);
+  color: #d8ffc4;
+  font-family: var(--tkc-mono);
+  font-size: 12px;
+  outline: none;
+}
+.sta2e-roller--klingon .tbr-ctl:focus {
+  border-bottom-color: #ffd84a;
+  box-shadow: 0 1px 0 #ffd84a;
+}
+.sta2e-roller--klingon select.tbr-ctl option { background: #020803; color: #d8ffc4; }
+.sta2e-roller--klingon .tbr-ctl[readonly] { border-bottom-color: color-mix(in srgb, var(--tkc-c) 45%, #000); }
+
+/* ── Plates and strips ────────────────────────────────────────────────────── */
+.sta2e-roller--klingon .tbr-plate {
+  border: 1px solid color-mix(in srgb, var(--tkc-c) 25%, transparent);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+.sta2e-roller--klingon .tbr-plate[style*="--tbr-a"] { border-left: 3px solid var(--tbr-a); }
+
+.sta2e-roller--klingon .tbr-note {
+  border-left: 3px solid var(--tbr-a, var(--tkc-c));
+  background: color-mix(in srgb, var(--tbr-a, var(--tkc-c)) 10%, transparent);
+}
+
+/* ── Indicators ───────────────────────────────────────────────────────────── */
+/* A hexagonal cell: the input is the rim, its ::before the glass inside it,
+   which lights gold when checked. A clip-path would cut off a border or a
+   box-shadow, which is why the rim is a fill under an inset second hex. Core
+   draws checkboxes with an icon pseudo-element; ours replaces it. */
+.sta2e-roller--klingon input[type="checkbox"],
+.sta2e-roller--klingon input[type="radio"] {
+  appearance: none;
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 13px;
+  height: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--tkc-c) 75%, #000);
+  box-shadow: none;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  cursor: pointer;
+}
+.sta2e-roller--klingon input[type="checkbox"]::before,
+.sta2e-roller--klingon input[type="radio"]::before {
+  content: "";
+  position: absolute;
+  inset: 1.5px;
+  display: block;
+  background: #020803;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+}
+.sta2e-roller--klingon input[type="checkbox"]::after,
+.sta2e-roller--klingon input[type="radio"]::after {
+  content: none;
+  display: none;
+}
+.sta2e-roller--klingon input[type="checkbox"]:checked,
+.sta2e-roller--klingon input[type="radio"]:checked { background: #ffd84a; }
+.sta2e-roller--klingon input[type="checkbox"]:checked::before,
+.sta2e-roller--klingon input[type="radio"]:checked::before { background: #ffd84a; }
+.sta2e-roller--klingon input[type="checkbox"]:disabled,
+.sta2e-roller--klingon input[type="radio"]:disabled { opacity: 0.4; cursor: default; }
+
+/* A range is a hairline track with an inverted-triangle pointer riding it, in
+   the input's own accent (the Complication range stays red). */
+.sta2e-roller--klingon input[type="range"] {
+  appearance: none;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sta2e-roller--klingon input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: color-mix(in srgb, var(--tkc-c) 25%, transparent);
+}
+.sta2e-roller--klingon input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 11px;
+  margin-top: -8px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tbr-a, #ffd84a);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.sta2e-roller--klingon input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: color-mix(in srgb, var(--tkc-c) 25%, transparent);
+}
+.sta2e-roller--klingon input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 11px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tbr-a, #ffd84a);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* The chat frame's Klingon plates: lit from the top in the key's own accent,
+   cut wider at the top. */
+.sta2e-roller--klingon .tbr-key {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tbr-a, var(--tkc-c)) 70%, #fff),
+    var(--tbr-a, var(--tkc-c)) 55%,
+    color-mix(in srgb, var(--tbr-a, var(--tkc-c)) 70%, #000));
+  color: var(--tbr-ink, #1a0200);
+  box-shadow: none;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 6px 100%);
+  cursor: pointer;
+  transition: filter 0.11s ease-out;
+}
+.sta2e-roller--klingon .tbr-key:hover:not(:disabled) { filter: brightness(1.18); }
+.sta2e-roller--klingon .tbr-key:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-roller--klingon .tbr-key:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+/* The keys are the card's .tkc-key plates (task-card-klingon.css); this is
+   only the card's two-column pad, a key left alone in the left column
+   spanning it. */
+.sta2e-roller--klingon .tkc-actions.tbr-keys { margin-top: 6px; }
+
+.sta2e-roller--klingon .form-footer.tbr-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sta2e-roller--klingon .tbr-footer > .tbr-fkey:nth-child(odd):last-child { grid-column: 1 / -1; }
+.sta2e-roller--klingon .tbr-footer > button.tbr-fkey:hover:not(:disabled) { filter: brightness(1.18); }
+.sta2e-roller--klingon .tbr-footer > button.tbr-fkey:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-roller--klingon .tbr-footer > button.tbr-fkey:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }

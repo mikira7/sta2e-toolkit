@@ -1961,13 +1961,15 @@ passed, red failed. A confirmed result carries a flavour word after the rules te
 - **The hex cell is a `::before` behind the die, not a `clip-path` on it**, which would
   clip the outline and glow `setCardDieState` writes on a selected die.
 - **Two die colours are Klingon-specific** in npc-roller.js. A crit is gold
-  (`critDieColour`, everywhere — the primary is the same red as a complication), and on
-  the Working Results card a success is the scope's phosphor (`cardSuccessColour`, the
-  card's `diceRow` only — the token green is an olive that read dimmer than a miss).
+  (`critDieColour`) — the primary is the same red as a complication — and a success is
+  the scope's phosphor (`successDieColour`) — the token green is an olive that reads
+  dimmer than a miss on the scope. Every die renderer in that file uses both, the
+  dialog's pips and pickers as well as the card's `diceRow`; other green text keeps
+  the token.
 
 Chakra Petch is bundled in `fonts/klingon/` (SIL OFL, licence beside it) as `STA2e Chakra
-Petch`; the numbers use `STA2e Share Tech Mono`. The roller dialog has no Klingon skin yet
-(`rollerSkin()` returns `null`). Covered by [tests/klingon-cards.mjs](tests/klingon-cards.mjs),
+Petch`; the numbers use `STA2e Share Tech Mono`. The dice roller wears the same frame
+(see Dice Roller Skins). Covered by [tests/klingon-cards.mjs](tests/klingon-cards.mjs),
 which also has `--preview`.
 
 The card carries **no emoji**; the surviving glyphs are functional and monochrome (`★★`
@@ -1979,7 +1981,8 @@ re-roll chat message still use theirs.
 ### Dice Roller Skins
 
 The Adv. Dice Roller dialog (`buildDialogContent` in npc-roller.js) wears each era's
-chat card look; the design source for all six is `docs/roller-mockups.html`.
+chat card look; the design source for the first six is `docs/roller-mockups.html`, and the
+Klingon one follows its chat card (`docs/klingon-card-mockups.html`, Concept C).
 One module, [roller-skin.js](scripts/roller-skin.js), holds the shared pass and one frame
 per era, and `rollerSkin()` names the one the active theme wears:
 
@@ -1990,8 +1993,9 @@ per era, and `rollerSkin()` names the one the active theme wears:
 | `tmp` | `tmp-console` | the TMP card's own markup — duty panel, plate and tag, **one** monitor (border cyan / green / magenta by state), key bed | [roller-tmp.css](styles/roller-tmp.css) |
 | `tmpmon` | `tmp-monitor` | the same plus `.sta2e-task-card--tmpmon`, code tab (`SET` / `OK` / `NEG`) and ticks; tmp-monitor.css repaints it | [roller-tmp.css](styles/roller-tmp.css) |
 | `ent` | `ent-panel` | the card's `.tec` touchscreen — chamfered outline, title with ticks and a `Setup` / `Rolled` tab, hex footer; colour blue / green / red by state. Content straight on the glass; in setup each section is a bracketed well | [roller-ent.css](styles/roller-ent.css) |
+| `klingon` | `klingon` | the card's `.tkc` Targeting Scope — red housing, title with its `Setup` / `Rolled` code and the triangle lamp, **one** scope for the whole content (phosphor green / gold / red by state), plate keys below on the housing | [roller-klingon.css](styles/roller-klingon.css) |
 
-The themes outside the six (Starfleet Blue, Klingon, Romulan) get `null` and the LCARS
+The themes outside these (Starfleet Blue, Romulan) get `null` and the LCARS
 dialog unchanged. Adding an era is a frame
 function, a `FRAMES` and a `FOOTER_PAINT` entry, a `rollerSkin()` case and a stylesheet.
 
@@ -2028,13 +2032,18 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   footer keys likewise take the card's `.tec-key` tab.
 - **ENT's indicators ignore the content's accent** and always fill yellow: the ent-panel
   tokens include near-black colours (secondary `#3d3d3d`, red `#9b0000`), which as an
-  accent would draw a lit indicator looking unlit.
+  accent would draw a lit indicator looking unlit. **Klingon's do the same** for the same
+  reason (#662200, #884400): hexagonal cells — a rim fill under an inset `::before`,
+  since a `clip-path` would cut off any border — that light gold. Its range pointer is
+  the exception and keeps `--tbr-a`, so the Complication range stays red.
 - **A crit die is coloured by `critDieColour()`, never `LC.primary` directly.** Every die
   renderer in npc-roller.js (the dialog's pips and pickers, the chat summary, and the
   Working Results card's shared `diceRow`) used the theme's primary for a crit, and
   ent-panel's primary is the panel grey `#c7c7c7` — beside a miss's `#aaa` a crit read
-  as a miss. Under ENT it is gold (`#f0b400`, ENT.amber); every other theme keeps its
-  primary.
+  as a miss. Under ENT it is gold (`#f0b400`, ENT.amber), under Klingon gold too
+  (`#ffd84a`, its primary being the complication red); every other theme keeps its
+  primary. **A success likewise goes through `successDieColour()`**, the token green
+  everywhere except Klingon's scope phosphor.
 - **The content root's own fill goes** (the pass drops `background` from
   `#sta2e-npc-roller`), so the CRT's glow and the monitor's grid show behind it.
 - **Die pips are buttons and must not become keys** — the pass skips `.sta2e-die-pip`,
@@ -2047,10 +2056,11 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   `[data-roller-keys]` element after render (still inside the `<form>`, which is all
   core's button handling needs), drops icons and emoji, tags the window
   `sta2e-roller-win--<skin>`, and paints each key inline through `footerKeyStyle` — the
-  first button is the main action (TNG peach, TOS, TMP and ENT green), Cancel is always
-  the dim key. TOS takes its colours from task-card-tos.js's `tosKeyStyle`, TMP from
-  task-card-tmp.js's `tmpLensStyle` / `tmpMonitorKeyStyle`, ENT from task-card-ent.js's
-  `keyStyle`.
+  first button is the main action (TNG peach, TOS, TMP and ENT green, Klingon gold),
+  Cancel is always the dim key. TOS takes its colours from task-card-tos.js's
+  `tosKeyStyle`, TMP from task-card-tmp.js's `tmpLensStyle` / `tmpMonitorKeyStyle`, ENT
+  from task-card-ent.js's `keyStyle`, Klingon from task-card-klingon.js's `keyStyle`
+  (its footer keys also take the card's `.tkc-key` plate shape).
 
 Covered by [tests/roller-skins.mjs](tests/roller-skins.mjs), which lifts the **real**
 `buildDialogContent` out of npc-roller.js into a vm (missing module-level helpers are
@@ -2166,11 +2176,12 @@ through `lcarsChatCard`.
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP, ENT and Klingon frames. Imports only `lcars-theme.js`, `task-card-tng.js`, `task-card-ent.js` and `task-card-klingon.js`; `legacy` thunk keeps the other eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
-| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS, TMP Console, TMP Monitor, ENT), footer seating. Imports only `lcars-theme.js`, the task card skins and `chat-card-frame.js` |
+| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS, TMP Console, TMP Monitor, ENT, Klingon), footer seating. Imports only `lcars-theme.js`, the task card skins and `chat-card-frame.js` |
 | [styles/roller-tng.css](styles/roller-tng.css) | Shape for the TNG roller skin — section strips, stadium fields, pill indicators, range, keys, the footer keypad |
 | [styles/roller-tos.css](styles/roller-tos.css) | Shape for the TOS roller skin — housing, section captions on the CRT, amber readout fields, indicator lamps, backlit keys |
 | [styles/roller-tmp.css](styles/roller-tmp.css) | The roller's form parts for both TMP skins — captions, amber typed windows, lens indicators, lens keys; the monitor's outlined versions one class deeper |
 | [styles/roller-ent.css](styles/roller-ent.css) | The roller's parts for the ENT skin — bracketed section wells, underlined mono fields, yellow indicators, edge tabs |
+| [styles/roller-klingon.css](styles/roller-klingon.css) | The roller's parts for the Klingon skin — captions led by the inverted triangle, underlined mono fields, hexagonal gold indicators, a triangle range pointer, backlit plates, the scope's scrollbar |
 | [scripts/task-maker.js](scripts/task-maker.js) | The GM's task-authoring dialog — Normal / Extended / Opposed tabs, the posted request card, extended-task resolution |
 | [scripts/opposed-panel.js](scripts/opposed-panel.js) | The Opposed Task tab's markup and wiring. A leaf by necessity — it may import only `lcars-theme.js` and `ship-pool.js` |
 | [styles/task-maker.css](styles/task-maker.css) | Shape-only CSS for the Task Maker dialog and its pickers — spine, elbow bars, `[data-mode]` tab visibility, fluid grids, container queries |

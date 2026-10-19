@@ -25,7 +25,7 @@ const { lcarsChatCard, klingonBodyHtml } = await import('../scripts/chat-card-fr
 
 // ── A view shaped like buildPlayerRollCardHtml's ──────────────────────────────
 // Die colours as diceRow writes them under klingon: crit gold, success the
-// scope's phosphor (cardSuccessColour), complication the token red.
+// scope's phosphor (successDieColour), complication the token red.
 const diceRow = (dice, pool = 'crew', opts = {}) => {
   const size = opts.size ?? 32;
   return `<div style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;">${

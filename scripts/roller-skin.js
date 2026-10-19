@@ -11,6 +11,7 @@
  *   tmpmon  tmp-monitor        TMP Console plus the monitor      styles/roller-tmp.css
  *                              modifier, as everywhere else
  *   ent     ent-panel          the ENT Bridge Touchscreen        styles/roller-ent.css
+ *   klingon klingon            the Klingon Targeting Scope       styles/roller-klingon.css
  *
  * Any other theme gets the LCARS dialog unchanged: rollerSkin() returns null.
  *
@@ -38,15 +39,16 @@
  * same split as every other key.
  *
  * Imports lcars-theme.js, the task card skins (task-card-tng.js,
- * task-card-tos.js, task-card-tmp.js, task-card-ent.js) and chat-card-frame.js, none of which
+ * task-card-tos.js, task-card-tmp.js, task-card-ent.js, task-card-klingon.js) and chat-card-frame.js, none of which
  * import this, so npc-roller.js can take it without a cycle.
  */
 
-import { getActiveLcThemeKey, getLcCssVars, isBracketTheme, isEntTheme } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, isBracketTheme, isEntTheme, isKlingonTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom, tbcPalette } from "./task-card-tng.js";
 import { tosKeyStyle } from "./task-card-tos.js";
 import { tmpLensStyle, tmpMonitorKeyStyle } from "./task-card-tmp.js";
 import { ENT, entHead, entFoot, keyStyle as entKeyStyle } from "./task-card-ent.js";
+import { KLI, klingonHead, keyStyle as klingonKeyStyle } from "./task-card-klingon.js";
 import { stripDecorativeEmoji } from "./chat-card-frame.js";
 
 /**
@@ -57,8 +59,9 @@ const stripEmoji = text => String(text ?? "").split(/([★☆])/)
   .map(part => /^[★☆]$/.test(part) ? part : stripDecorativeEmoji(part)).join("");
 
 /**
- * Which skin the roller wears for the active theme: "tng", "tos", or null for
- * the plain LCARS dialog. Read at render time, never cached.
+ * Which skin the roller wears for the active theme ("tng", "tos", "tmp",
+ * "tmpmon", "ent", "klingon"), or null for the plain LCARS dialog. Read at
+ * render time, never cached.
  */
 export function rollerSkin() {
   try {
@@ -68,6 +71,7 @@ export function rollerSkin() {
     if (key === "tmp-console") return "tmp";
     if (key === "tmp-monitor") return "tmpmon";
     if (isEntTheme(key)) return "ent";
+    if (isKlingonTheme(key)) return "klingon";
   } catch { /* no theme yet */ }
   return null;
 }
@@ -296,12 +300,35 @@ function entFrame(body, { title, phase, passed }) {
 </div>`;
 }
 
+/**
+ * Klingon: the Targeting Scope — the frame the Klingon task and chat cards
+ * wear (`.tkc`: the red housing, the title with its code and the inverted
+ * triangle lamp, the green-black scope). As on the chat card, the whole
+ * content goes on the one scope, and its phosphor gives the state: green
+ * setting up, gold passed, red failed. The keys sit below it on the housing.
+ * The root carries `.sta2e-task-card` so the footer keys can take the card's
+ * own `.tkc-key` plate shape, as ENT's take `.tec-key`.
+ */
+const KLINGON_SCOPE = { setup: KLI.phosphor, pass: KLI.gold, fail: KLI.alarm };
+
+function klingonFrame(body, { title, phase, passed }) {
+  const state = phase === "rolled" ? (passed ? "pass" : "fail") : "setup";
+  return `
+<div class="sta2e-roller sta2e-roller--klingon sta2e-task-card sta2e-task-card--klingon tkc" data-theme="${getActiveLcThemeKey()}" data-phase="${phase}"
+  style="${getLcCssVars("tc")}--tkc-c:${KLINGON_SCOPE[state]};">
+  ${klingonHead(title, phaseLabel(phase))}
+  <div class="tkc-scope tbr-screen">${body}</div>
+  <div class="tkc-actions tbr-keys" data-roller-keys></div>
+</div>`;
+}
+
 const FRAMES = {
   tng: tngFrame,
   tos: tosFrame,
   tmp: (body, o) => tmpFrame(body, o, false),
   tmpmon: (body, o) => tmpFrame(body, o, true),
   ent: entFrame,
+  klingon: klingonFrame,
 };
 
 /**
@@ -332,7 +359,7 @@ const footerRole = (action, index) => action === "cancel" ? "cancel"
 const TMP_KEY = { main: "green", post: "amber", danger: "magenta", minor: "off", cancel: "off" };
 
 /** Extra classes a footer key takes, so the era's own card key rules draw it. */
-const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big", ent: "tec-key" };
+const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big", ent: "tec-key", klingon: "tkc-key" };
 
 const FOOTER_PAINT = {
   tng: role => {
@@ -344,13 +371,14 @@ const FOOTER_PAINT = {
   tmp: role => tmpLensStyle(TMP_KEY[role]),
   tmpmon: role => tmpMonitorKeyStyle(TMP_KEY[role]),
   ent: role => entKeyStyle({ main: ENT.green, post: ENT.blue, danger: ENT.red, minor: ENT.slate, cancel: ENT.slate }[role]),
+  klingon: role => klingonKeyStyle({ main: KLI.gold, post: KLI.amber, danger: KLI.alarm, minor: KLI.rust, cancel: KLI.rust }[role]),
 };
 
 /**
  * The inline colour of a footer key: the era's paint for the role its action
  * plays. Pure, so the test preview paints with the real colours.
  *
- * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon" | "ent"
+ * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon" | "ent" | "klingon"
  * @param {string} action  The button's DialogV2 action.
  * @param {number} index   Its position in the footer.
  * @returns {string} CSS declarations, or "" for an era with no skin.

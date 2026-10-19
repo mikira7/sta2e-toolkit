@@ -1,14 +1,14 @@
 // node tests/roller-skins.mjs [--preview out.html]
 //
 // The era skins for the Adv. Dice Roller dialog (roller-skin.js): TNG / First
-// Contact, TOS, TMP Console, TMP Monitor and ENT. The dialog content is the REAL buildDialogContent from
+// Contact, TOS, TMP Console, TMP Monitor, ENT and Klingon. The dialog content is the REAL buildDialogContent from
 // npc-roller.js, lifted out of the source and run in a vm with its helpers
 // stubbed (the pattern tests/ground-melee-vfx.mjs uses), in the setup and the
 // rolled phase. Checks that the shared body pass keeps every id, class, data-*
 // and wiring-toggled display the content had, that no square corners, LCARS
 // font or accent-color survive, that die pips are left alone, that each era
 // gets its own frame and footer slot, and that themes without a skin
-// (Starfleet Blue, Klingon, Romulan) keep the plain dialog.
+// (Starfleet Blue, Romulan) keep the plain dialog.
 //
 // --preview writes a page rendering both phases in every skinned era against the real stylesheets, with the footer seated as it is after render.
 import assert from 'node:assert/strict';
@@ -207,7 +207,7 @@ check('decorative emoji are dropped, functional glyphs kept', () => {
 check('which skin each theme wears', () => {
   const want = { 'lcars-tng': 'tng', 'lcars-fc': 'tng', 'tos-panel': 'tos',
     'tmp-console': 'tmp', 'tmp-monitor': 'tmpmon', 'ent-panel': 'ent',
-    blue: null, klingon: null, romulan: null };
+    klingon: 'klingon', blue: null, romulan: null };
   for (const [t, s] of Object.entries(want)) {
     withTheme(t, () => {
       assert.equal(skin.rollerSkin(), s, t);
@@ -300,6 +300,21 @@ check('ENT: the touchscreen frame, head tab and foot, keys slot, colour by state
   assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--tec-c:#e0533a;/);
 }));
 
+check('Klingon: the scope frame, head code and lamp, keys slot, phosphor by state', () => withTheme('klingon', () => {
+  const out = skin.skinRollerHtml('<div id="x"></div>', { title: '⚔ Disruptor Cannons', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--klingon sta2e-task-card sta2e-task-card--klingon tkc"/);
+  assert.match(out, /data-theme="klingon"/);
+  assert.match(out, /--tkc-c:#6fd24a;/);
+  assert.match(out, /<div class="tkc-title">Disruptor Cannons<\/div>/);
+  assert.match(out, /<span class="tkc-code">Setup<\/span>/);
+  assert.match(out, /class="tkc-tri"/);
+  assert.equal((out.match(/class="tkc-scope/g) ?? []).length, 1, 'one scope for the whole content');
+  assert.match(out, /<div class="tkc-scope tbr-screen"><div id="x"><\/div><\/div>/);
+  assert.match(out, /class="tkc-actions tbr-keys" data-roller-keys/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /--tkc-c:#ffd84a;[\s\S]*tkc-code">Rolled</);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--tkc-c:#ff5a40;/);
+}));
+
 check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('tng', 'roll', 0), /background:#ff9966;color:#000000;/);
   assert.match(skin.footerKeyStyle('tng', 'cancel', 1), /background:#5a5650;color:#f2f2f2;/);
@@ -320,7 +335,11 @@ check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('ent', 'reroll-all', 2), /^--k:#e0533a;/, 'ENT re-roll all is red');
   assert.match(skin.footerKeyStyle('ent', 'cancel', 1), /^--k:#5e7f8f;/, 'ENT cancel is slate');
   assert.deepEqual(skin.footerKeyClasses('ent'), ['tbr-fkey', 'tec-key']);
-  assert.equal(skin.footerKeyStyle('klingon', 'roll', 0), '');
+  assert.match(skin.footerKeyStyle('klingon', 'roll', 0), /^--k:#ffd84a;.*color:#1a0200;$/, 'Klingon main is the gold plate');
+  assert.match(skin.footerKeyStyle('klingon', 'reroll-all', 2), /^--k:#ff5a40;/, 'Klingon re-roll all is red');
+  assert.match(skin.footerKeyStyle('klingon', 'cancel', 0), /^--k:#7a5040;.*color:#ffe6dc;$/, 'Klingon cancel is the dim plate, light ink');
+  assert.deepEqual(skin.footerKeyClasses('klingon'), ['tbr-fkey', 'tkc-key']);
+  assert.equal(skin.footerKeyStyle('romulan', 'roll', 0), '');
 });
 
 check('a crit die is gold under ENT, whose primary is the grey of a miss', () => {
@@ -334,17 +353,21 @@ check('a crit die is gold under ENT, whose primary is the grey of a miss', () =>
   assert.deepEqual([...new Set(tngStars)], [getLcTokens().primary], 'other eras keep their primary');
 });
 
-check('a crit die is gold under Klingon, whose primary is the red of a complication', () => {
+check('under Klingon a crit die is gold (the primary is the complication red) and a success the scope green', () => {
   const critStars = h => [...h.matchAll(/color:\s*([^;"]+);"?>★★/g)].map(m => m[1].trim());
   withTheme('klingon', () => {
     const stars = critStars(build(rolledState()));
     assert.ok(stars.length > 0, 'the rolled dialog draws a crit');
     assert.deepEqual([...new Set(stars)], ['#ffd84a']);
+    // A success is the scope's phosphor, not the token olive (#886600).
+    const html = build(rolledState());
+    assert.equal(/color:#886600;[^"]*"[^>]*>s*d/.test(html), false, 'no success die left in the olive');
+    assert.match(html, /#6fd24a/);
   });
 });
 
 check('themes without a skin keep the plain dialog', () => {
-  for (const t of ['blue', 'klingon', 'romulan']) {
+  for (const t of ['blue', 'romulan']) {
     withTheme(t, () => {
       const raw = build(baseState());
       assert.equal(raw.includes('tbr-head'), false, t);
@@ -358,9 +381,10 @@ const pi = process.argv.indexOf('--preview');
 if (pi > 0) {
   const out = path.resolve(process.argv[pi + 1]);
   const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'task-card-tmp.css',
-    'tmp-monitor.css', 'task-card-ent.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css', 'roller-ent.css']
+    'tmp-monitor.css', 'task-card-ent.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css', 'roller-ent.css',
+    'task-card-klingon.css', 'roller-klingon.css']
     .map(f => fs.readFileSync(`${root}/styles/${f}`, 'utf8')).join('\n')
-    .replace(/url\("\.\.\/fonts\/(tng|tmp|ent)\/([^"]+)"\)/g,
+    .replace(/url\("\.\.\/fonts\/(tng|tmp|ent|klingon)\/([^"]+)"\)/g,
       (_, d, f) => `url("data:font/woff2;base64,${fs.readFileSync(`${root}/fonts/${d}/${f}`).toString('base64')}")`);
   const asset = f => `data:image/svg+xml;base64,${fs.readFileSync(f).toString('base64')}`;
   const d20 = asset('C:/Program Files/Foundry Virtual Tabletop/resources/app/public/icons/svg/d20-grey.svg');
@@ -375,7 +399,7 @@ if (pi > 0) {
         <footer class="form-footer">${buttons.map(([a, l], i) => `<button type="submit" data-action="${a}" data-paint="${skin.footerKeyStyle(skinName, a, i)}" data-classes="${skin.footerKeyClasses(skinName).join(' ')}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
       </form></section></div>`;
   const panes = [];
-  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor', 'ent-panel']) {
+  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor', 'ent-panel', 'klingon']) {
     withTheme(t, () => {
       const s = skin.rollerSkin();
       const setupHtml = skin.skinRollerHtml(build(baseState()), { title: 'Phaser Banks', phase: 'setup' });

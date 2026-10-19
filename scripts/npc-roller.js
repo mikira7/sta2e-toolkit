@@ -876,24 +876,24 @@ const critDieColour = () => {
 };
 
 /**
- * The colour a successful die's number is drawn in on the Working Results card:
- * the theme's green, except under Klingon, whose green is an olive (#886600)
- * that reads dimmer than a miss's #aaa on the Targeting Scope — so it takes the
- * scope's phosphor (KLI.phosphor in task-card-klingon.js). Only the card's
- * diceRow uses it; the dialog keeps the token colour.
+ * The colour a successful die's number is drawn in: the theme's green, except
+ * under Klingon, whose green is an olive (#886600) that reads dimmer than a
+ * miss's #aaa on the Targeting Scope — so it takes the scope's phosphor
+ * (KLI.phosphor in task-card-klingon.js). Every die renderer in this file uses
+ * it, as with critDieColour; other green text keeps the token.
  */
 const KLINGON_SUCCESS_GREEN = "#6fd24a";
-const cardSuccessColour = () => isKlingonTheme(getActiveLcThemeKey()) ? KLINGON_SUCCESS_GREEN : LC.green;
+const successDieColour = () => isKlingonTheme(getActiveLcThemeKey()) ? KLINGON_SUCCESS_GREEN : LC.green;
 
 
 export function diePipHtml(die, index, poolKey, rerollHint = null) {
   // Procedural Compliance auto-success die — special label and tooltip
   if (die.proceduralForced) {
-    const txtColor = LC.green;
+    const txtColor = successDieColour();
     const wrapStyle = `position:relative;display:inline-flex;align-items:center;justify-content:center;
       width:38px;height:38px;`;
     const imgStyle = `position:absolute;top:0;left:0;width:38px;height:38px;
-      opacity:0.2;pointer-events:none;filter:drop-shadow(0 0 3px ${LC.green});`;
+      opacity:0.2;pointer-events:none;filter:drop-shadow(0 0 3px ${successDieColour()});`;
     const textStyle = `position:relative;z-index:1;color:${txtColor};font-size:13px;font-weight:700;
       font-family:${LC.font};text-shadow:0 1px 2px rgba(0,0,0,0.9);pointer-events:none;`;
     return `<div title="Auto-success (Procedural Compliance)" style="${wrapStyle}">
@@ -904,11 +904,11 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
 
   // Auto-Success Trade die — 1 guaranteed success, traded for 1 die
   if (die.autoSuccessTradeForced) {
-    const txtColor = LC.green;
+    const txtColor = successDieColour();
     const wrapStyle = `position:relative;display:inline-flex;align-items:center;justify-content:center;
       width:38px;height:38px;`;
     const imgStyle = `position:absolute;top:0;left:0;width:38px;height:38px;
-      opacity:0.2;pointer-events:none;filter:drop-shadow(0 0 3px ${LC.green});`;
+      opacity:0.2;pointer-events:none;filter:drop-shadow(0 0 3px ${successDieColour()});`;
     const textStyle = `position:relative;z-index:1;color:${txtColor};font-size:13px;font-weight:700;
       font-family:${LC.font};text-shadow:0 1px 2px rgba(0,0,0,0.9);pointer-events:none;`;
     return `<div title="Auto-success (traded 1 die for 1 guaranteed success)" style="${wrapStyle}">
@@ -938,7 +938,7 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
 
   const SIZE = 38;
   const txtColor = die.crit ? critDieColour()
-    : die.success ? LC.green
+    : die.success ? successDieColour()
       : die.complication ? LC.red
         : "#aaaaaa";
   const fontSize = die.value >= 10 ? "9px" : "11px";
@@ -3078,7 +3078,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
         ${apAssistDice.map(d => {
-    const txtColor = d.crit ? critDieColour() : d.success ? LC.green : d.complication ? LC.red : "#aaaaaa";
+    const txtColor = d.crit ? critDieColour() : d.success ? successDieColour() : d.complication ? LC.red : "#aaaaaa";
     const fsize = d.value >= 10 ? "9px" : "11px";
     const tip = `AP Assist die ${d.value}${d.crit ? " (CRITICAL — 2 successes)" : d.success ? " (success)" : ""}${d.complication ? " (COMPLICATION)" : ""}`;
     const lbl = d.crit
@@ -3115,7 +3115,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
         ${crewAssistDice.map(d => {
     const txtColor = d.crit ? critDieColour()
-      : d.success ? LC.green
+      : d.success ? successDieColour()
         : d.complication ? LC.red
           : "#aaaaaa";
     const fsize = d.value >= 10 ? "9px" : "11px";
@@ -3231,7 +3231,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
               ${crewDice.map((d, i) => {
         const fsize = d.value >= 10 ? "9px" : "11px";
-        const txtColor = d.crit ? critDieColour() : d.success ? LC.green : d.complication ? LC.red : "#aaa";
+        const txtColor = d.crit ? critDieColour() : d.success ? successDieColour() : d.complication ? LC.red : "#aaa";
         return `<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;
                   padding:2px 5px;border:1px solid ${LC.borderDim};border-radius:2px;">
                   <input type="checkbox" class="det-die-cb" value="${i}"
@@ -3328,7 +3328,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
     ...shipDice.map((d, i) => ({ d, i, pool: "ship" }))
       .filter(({ d }) => !d.communicationsOfficerForced)].map(({ d, i, pool }) => {
       const fsize = d.value >= 10 ? "9px" : "11px";
-      const txtC = d.crit ? critDieColour() : d.success ? LC.green : d.complication ? LC.red : "#aaa";
+      const txtC = d.crit ? critDieColour() : d.success ? successDieColour() : d.complication ? LC.red : "#aaa";
       return `
             <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;
               padding:2px 5px;border:1px solid ${LC.borderDim};border-radius:2px;">
@@ -3408,7 +3408,7 @@ function buildChatCard(actorName, state) {
     const isSuccessComplication = !!d.success && !!d.complication && !d.crit;
     const txtColor = d.crit ? critDieColour()
       : isSuccessComplication ? LC.red
-        : d.success ? LC.green
+        : d.success ? successDieColour()
           : d.complication ? LC.red
             : "#aaaaaa";
     const tip = `${d.value}${d.crit ? " (CRIT)" : d.success ? " (success)" : ""}${d.complication ? " (COMPLICATION)" : ""}`;
@@ -3419,7 +3419,7 @@ function buildChatCard(actorName, state) {
              </span>`
       : isSuccessComplication
         ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
-                 <span style="font-size:8px;letter-spacing:-1px;color:${LC.green};">*</span>
+                 <span style="font-size:8px;letter-spacing:-1px;color:${successDieColour()};">*</span>
                  <span style="font-size:11px;">${d.value}</span>
                </span>`
         : `<span style="font-size:11px;">${d.value}</span>`;
@@ -3767,7 +3767,7 @@ export function buildPlayerRollCardHtml(rollData) {
     return `<div style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;">
       ${dice.map((d, i) => {
       const isSuccessComplication = !!d.success && !!d.complication && !d.crit;
-      const txtColor = d.crit ? critDieColour() : isSuccessComplication ? LC.red : d.success ? cardSuccessColour() : d.complication ? LC.red : "#aaaaaa";
+      const txtColor = d.crit ? critDieColour() : isSuccessComplication ? LC.red : d.success ? successDieColour() : d.complication ? LC.red : "#aaaaaa";
       const lbl = d.crit
         ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
                <span style="font-size:${critFont}px;letter-spacing:-1px;color:${txtColor};">★★</span>
@@ -3775,7 +3775,7 @@ export function buildPlayerRollCardHtml(rollData) {
              </span>`
         : isSuccessComplication
           ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
-                 <span style="font-size:${scFont}px;letter-spacing:-1px;color:${cardSuccessColour()};">*</span>
+                 <span style="font-size:${scFont}px;letter-spacing:-1px;color:${successDieColour()};">*</span>
                  <span style="font-size:${dieFont}px;">${d.value}</span>
                </span>`
           : `<span style="font-size:${dieFont}px;">${d.value}</span>`;
