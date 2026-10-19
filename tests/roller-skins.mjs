@@ -1,7 +1,7 @@
 // node tests/roller-skins.mjs [--preview out.html]
 //
 // The era skins for the Adv. Dice Roller dialog (roller-skin.js): TNG / First
-// Contact and TOS. The dialog content is the REAL buildDialogContent from
+// Contact, TOS, TMP Console and TMP Monitor. The dialog content is the REAL buildDialogContent from
 // npc-roller.js, lifted out of the source and run in a vm with its helpers
 // stubbed (the pattern tests/ground-melee-vfx.mjs uses), in the setup and the
 // rolled phase. Checks that the shared body pass keeps every id, class, data-*
@@ -10,8 +10,7 @@
 // gets its own frame and footer slot, and that eras without a skin keep the
 // plain dialog.
 //
-// --preview writes a page rendering both phases in TNG, First Contact and TOS
-// against the real stylesheets, with the footer seated as it is after render.
+// --preview writes a page rendering both phases in every skinned era against the real stylesheets, with the footer seated as it is after render.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -201,7 +200,7 @@ check('decorative emoji are dropped, functional glyphs kept', () => {
 // ── Frames ───────────────────────────────────────────────────────────────────
 check('which skin each theme wears', () => {
   const want = { 'lcars-tng': 'tng', 'lcars-fc': 'tng', 'tos-panel': 'tos',
-    'tmp-console': null, 'tmp-monitor': null, 'ent-panel': null };
+    'tmp-console': 'tmp', 'tmp-monitor': 'tmpmon', 'ent-panel': null };
   for (const [t, s] of Object.entries(want)) {
     withTheme(t, () => {
       assert.equal(skin.rollerSkin(), s, t);
@@ -242,6 +241,43 @@ check('TOS: housing, header lamps, one CRT, strut, keys slot', () => withTheme('
   assert.equal(lamps(skin.skinRollerHtml('', { phase: 'rolled', passed: false })), 'r,off,a');
 }));
 
+check('the content root loses its own fill, so each frame\'s screen shows', () => {
+  const body = skin.rollerBodyHtml(build(baseState()));
+  const tag = body.match(/<div id="sta2e-npc-roller"[^>]*>/)?.[0];
+  assert.ok(tag);
+  assert.equal(/background/.test(tag), false, tag);
+  assert.match(tag, /max-height:/, 'its scrolling stays');
+});
+
+check('TMP Console: the card\'s panel, plate and tag, one monitor, key bed', () => withTheme('tmp-console', () => {
+  const out = skin.skinRollerHtml('<div id="x"></div>', { title: 'Phaser Banks', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--tmp sta2e-task-card sta2e-task-card--tmp"/);
+  assert.match(out, /data-theme="tmp-console"/);
+  assert.match(out, /class="tmc-plate"/);
+  assert.match(out, /<span class="tmc-tag">Setup<\/span>/);
+  assert.equal(/tmc-code|tmc-ticks/.test(out), false);
+  assert.match(out, /--tmc-plate:#e9c83a;/);
+  assert.equal((out.match(/class="tmc-scr/g) ?? []).length, 1);
+  assert.match(out, /<div class="tmc-scr tbr-screen" style="--tmc-s:#00aef0;"><div id="x"><\/div><\/div>/);
+  assert.match(out, /class="tmc-bed tbr-keys" data-roller-keys/);
+  const fail = skin.skinRollerHtml('', { phase: 'rolled', passed: false });
+  assert.match(fail, /--tmc-plate:#c8312a;/);
+  assert.match(fail, /--tmc-s:#ed2f76;/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /--tmc-s:#00d27a;/);
+}));
+
+check('TMP Monitor: the same markup with the monitor modifier, code tab and ticks', () => withTheme('tmp-monitor', () => {
+  const out = skin.skinRollerHtml('', { title: 'Phaser Banks', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--tmpmon sta2e-task-card sta2e-task-card--tmp sta2e-task-card--tmpmon"/);
+  assert.match(out, /data-theme="tmp-monitor"/);
+  assert.match(out, /<span class="tmc-code">SET<\/span>/);
+  assert.match(out, /class="tmc-ticks"/);
+  assert.equal(/tmc-plate"|tmc-tag/.test(out), false);
+  assert.match(out, /--tmm-tab:#00aef0;/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /<span class="tmc-code">OK<\/span>/);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /<span class="tmc-code">NEG<\/span>/);
+}));
+
 check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('tng', 'roll', 0), /background:#ff9966;color:#000000;/);
   assert.match(skin.footerKeyStyle('tng', 'cancel', 1), /background:#5a5650;color:#f2f2f2;/);
@@ -250,11 +286,19 @@ check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('tos', 'reroll-all', 2), /#e83020/, 're-roll all is red');
   assert.match(skin.footerKeyStyle('tos', 'post', 1), /#e8c030/, 'a second post is amber');
   assert.match(skin.footerKeyStyle('tos', 'cancel', 3), /#666666/, 'cancel is grey');
+  assert.match(skin.footerKeyStyle('tmp', 'roll', 0), /#2fbf70/, 'TMP main is the green lens');
+  assert.match(skin.footerKeyStyle('tmp', 'reroll-all', 2), /#ed2f76/, 'TMP re-roll all is magenta');
+  assert.match(skin.footerKeyStyle('tmp', 'cancel', 1), /#45443e/, 'TMP cancel is the unlit lens');
+  assert.equal(skin.footerKeyStyle('tmpmon', 'roll', 0), 'background:#00d27a;border-color:#00d27a;color:#000000;');
+  assert.equal(skin.footerKeyStyle('tmpmon', 'cancel', 1), 'background:transparent;border-color:#2a6a80;color:#2a6a80;');
+  assert.deepEqual(skin.footerKeyClasses('tmp'), ['tbr-fkey', 'tmc-key', 'tmc-key--big']);
+  assert.deepEqual(skin.footerKeyClasses('tmpmon'), ['tbr-fkey', 'tmc-key', 'tmc-key--big']);
+  assert.deepEqual(skin.footerKeyClasses('tng'), ['tbr-fkey']);
   assert.equal(skin.footerKeyStyle('ent', 'roll', 0), '');
 });
 
 check('eras without a skin keep the plain dialog', () => {
-  for (const t of ['tmp-console', 'tmp-monitor', 'ent-panel']) {
+  for (const t of ['ent-panel']) {
     withTheme(t, () => {
       const raw = build(baseState());
       assert.equal(raw.includes('tbr-head'), false, t);
@@ -267,10 +311,11 @@ check('eras without a skin keep the plain dialog', () => {
 const pi = process.argv.indexOf('--preview');
 if (pi > 0) {
   const out = path.resolve(process.argv[pi + 1]);
-  const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'roller-tng.css', 'roller-tos.css']
+  const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'task-card-tmp.css',
+    'tmp-monitor.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css']
     .map(f => fs.readFileSync(`${root}/styles/${f}`, 'utf8')).join('\n')
-    .replace(/url\("\.\.\/fonts\/tng\/([^"]+)"\)/g,
-      (_, f) => `url("data:font/woff2;base64,${fs.readFileSync(`${root}/fonts/tng/${f}`).toString('base64')}")`);
+    .replace(/url\("\.\.\/fonts\/(tng|tmp)\/([^"]+)"\)/g,
+      (_, d, f) => `url("data:font/woff2;base64,${fs.readFileSync(`${root}/fonts/${d}/${f}`).toString('base64')}")`);
   const asset = f => `data:image/svg+xml;base64,${fs.readFileSync(f).toString('base64')}`;
   const d20 = asset('C:/Program Files/Foundry Virtual Tabletop/resources/app/public/icons/svg/d20-grey.svg');
   const coin = { momentum: asset(`${root}/assets/momentum.svg`), threat: asset(`${root}/assets/threat.svg`) };
@@ -281,10 +326,10 @@ if (pi > 0) {
     <div class="application dialog" data-skin="${skinName}"><header class="window-header">${title}</header>
       <section class="window-content"><form class="dialog-form standard-form">
         <div class="dialog-content standard-form">${inner}</div>
-        <footer class="form-footer">${buttons.map(([a, l], i) => `<button type="submit" data-action="${a}" data-paint="${skin.footerKeyStyle(skinName, a, i)}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
+        <footer class="form-footer">${buttons.map(([a, l], i) => `<button type="submit" data-action="${a}" data-paint="${skin.footerKeyStyle(skinName, a, i)}" data-classes="${skin.footerKeyClasses(skinName).join(' ')}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
       </form></section></div>`;
   const panes = [];
-  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel']) {
+  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor']) {
     withTheme(t, () => {
       const s = skin.rollerSkin();
       const setupHtml = skin.skinRollerHtml(build(baseState()), { title: 'Phaser Banks', phase: 'setup' });
@@ -314,7 +359,7 @@ document.querySelectorAll('.application').forEach(app => {
   footer.querySelectorAll('button').forEach(b => {
     b.querySelectorAll('i').forEach(x => x.remove());
     b.setAttribute('style', b.dataset.paint);
-    b.classList.add('tbr-fkey');
+    b.classList.add(...b.dataset.classes.split(' '));
   });
   footer.classList.add('tbr-footer');
   slot.append(footer);

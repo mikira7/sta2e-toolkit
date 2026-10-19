@@ -83,6 +83,9 @@ const monitorStyle = kind => {
     : `background:transparent;border-color:${c};color:${c};`;
 };
 
+/** The same key colours for the TMP dice roller's footer (roller-skin.js). */
+export { lensStyle as tmpLensStyle, monitorStyle as tmpMonitorKeyStyle };
+
 /** Monitor and header-plate colours per card state. */
 const CYAN = "#00aef0";
 const GREEN = "#00d27a";

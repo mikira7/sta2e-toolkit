@@ -1,0 +1,297 @@
+/*
+ * sta2e-toolkit | roller-tmp.css
+ *
+ * The Adv. Dice Roller dialog under both TMP themes. The design source is
+ * docs/roller-mockups.html; the markup comes from scripts/roller-skin.js (its
+ * `tmp` and `tmpmon` frames), which is the TMP task card's own markup — so the
+ * card's rules draw the frame:
+ *
+ *   TMP Console  task-card-tmp.css  grey duty panel, header plate and tag, one
+ *                                   black monitor, the key bed, lens keys
+ *   TMP Monitor  tmp-monitor.css    the same markup plus .sta2e-task-card--tmpmon:
+ *                                   one black screen, code tab and ticks,
+ *                                   outlined numbered keys
+ *
+ * This file adds only the roller's form parts, from the classes the shared body
+ * pass leaves (.tbr-head, .tbr-ctl, .tbr-plate, .tbr-note, .tbr-key), plus
+ * indicators, the range, and the footer's grid. The footer keys take the card's
+ * own `.tmc-key .tmc-key--big` classes, so their shape is the card's.
+ *
+ * Both roots carry `.sta2e-roller.sta2e-task-card--tmp`, so the TMP Console
+ * rules below cover both themes; TMP Monitor's own rules add
+ * `.sta2e-task-card--tmpmon` and outrank them on specificity, the same layering
+ * as task-card-tmp.css and tmp-monitor.css. No `!important`.
+ */
+
+/* ── Window ───────────────────────────────────────────────────────────────── */
+.application.sta2e-roller-win--tmp .window-content {
+  padding: 4px;
+  background: #2a2926;
+}
+.application.sta2e-roller-win--tmpmon .window-content {
+  padding: 4px;
+  background: #000;
+}
+.application.sta2e-roller-win--tmp .dialog-form,
+.application.sta2e-roller-win--tmpmon .dialog-form { gap: 0; }
+
+/* ── The monitor ──────────────────────────────────────────────────────────── */
+/* The card's monitors carry Michroma, a wide caption face; the roller's labels
+   are sentences, so the body reads in the panel's Jost and the readouts in the
+   mono. */
+.sta2e-roller.sta2e-task-card--tmp .tmc-scr.tbr-screen {
+  margin-bottom: 7px;
+  padding: 0 0 4px;
+  font-family: var(--tmc-chrome);
+}
+
+/* ── Section captions ─────────────────────────────────────────────────────── */
+/* A caption in the screen's colour over a hairline, with the white corner mark
+   the card's bracketed blocks carry. */
+.sta2e-roller.sta2e-task-card--tmp .tbr-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 9px 8px 1px;
+  padding: 0 0 3px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tmc-s, #00aef0) 45%, transparent);
+  font-family: var(--tmc-caption);
+  font-size: 7.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tmc-s, #00aef0);
+}
+.sta2e-roller.sta2e-task-card--tmp .tbr-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 5px;
+  height: 5px;
+  border: 0 solid #e8fff5;
+  border-width: 2px 0 0 2px;
+}
+.sta2e-roller.sta2e-task-card--tmp .tbr-head .tbr-key {
+  padding: 2px 7px 1px;
+  font-size: 7.5px;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+/* The sheet overlay's typed window: dark amber glass, amber mono type. */
+.sta2e-roller.sta2e-task-card--tmp .tbr-ctl {
+  box-sizing: border-box;
+  min-height: 20px;
+  height: auto;
+  padding: 1px 5px;
+  border: 1px solid #5a4010;
+  border-radius: 0;
+  background: #140c00;
+  color: #f6b23a;
+  font-family: var(--tmc-mono);
+  font-size: 11px;
+  outline: none;
+}
+.sta2e-roller.sta2e-task-card--tmp .tbr-ctl:focus { border-color: #f6b23a; }
+.sta2e-roller.sta2e-task-card--tmp select.tbr-ctl option { background: #140c00; color: #f6b23a; }
+.sta2e-roller.sta2e-task-card--tmp .tbr-ctl[readonly] { border-color: #f69b2e; }
+
+/* ── Boxes and banners ────────────────────────────────────────────────────── */
+.sta2e-roller.sta2e-task-card--tmp .tbr-plate {
+  border: 1px solid color-mix(in srgb, var(--tbr-a, var(--tmc-s, #00aef0)) 45%, transparent);
+  border-radius: 0;
+}
+
+.sta2e-roller.sta2e-task-card--tmp .tbr-note {
+  border-left: 3px solid var(--tbr-a, #e9e95a);
+  background: none;
+}
+
+/* ── Indicators ───────────────────────────────────────────────────────────── */
+/* A checkbox is a small lens: dark glass in a bezel, lit in its accent. Core
+   draws checkboxes with an icon pseudo-element, which is switched off. */
+.sta2e-roller.sta2e-task-card--tmp input[type="checkbox"],
+.sta2e-roller.sta2e-task-card--tmp input[type="radio"] {
+  appearance: none;
+  flex: none;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #3a3a34, #1c1c1a);
+  box-shadow: 0 0 0 1px #2c2b28, 0 0 0 2px #75726a;
+  cursor: pointer;
+}
+.sta2e-roller.sta2e-task-card--tmp input[type="radio"] { border-radius: 50%; }
+.sta2e-roller.sta2e-task-card--tmp input[type="checkbox"]::before,
+.sta2e-roller.sta2e-task-card--tmp input[type="checkbox"]::after,
+.sta2e-roller.sta2e-task-card--tmp input[type="radio"]::before,
+.sta2e-roller.sta2e-task-card--tmp input[type="radio"]::after {
+  content: none;
+  display: none;
+}
+.sta2e-roller.sta2e-task-card--tmp input[type="checkbox"]:checked,
+.sta2e-roller.sta2e-task-card--tmp input[type="radio"]:checked {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tbr-a, #00d27a) 60%, #fff) 0%,
+    var(--tbr-a, #00d27a) 45%,
+    color-mix(in srgb, var(--tbr-a, #00d27a) 55%, #000) 100%);
+  box-shadow: 0 0 0 1px #2c2b28, 0 0 0 2px #75726a, 0 0 7px var(--tbr-a, #00d27a);
+}
+.sta2e-roller.sta2e-task-card--tmp input[type="checkbox"]:disabled,
+.sta2e-roller.sta2e-task-card--tmp input[type="radio"]:disabled { opacity: 0.45; cursor: default; }
+
+/* A range: a black slot on the monitor, an amber lens riding it. */
+.sta2e-roller.sta2e-task-card--tmp input[type="range"] {
+  appearance: none;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sta2e-roller.sta2e-task-card--tmp input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: #000;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tbr-a, #00aef0) 60%, transparent);
+}
+.sta2e-roller.sta2e-task-card--tmp input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 14px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tbr-a, #f0c020) 60%, #fff) 0%,
+    var(--tbr-a, #f0c020) 45%,
+    color-mix(in srgb, var(--tbr-a, #f0c020) 55%, #000) 100%);
+  box-shadow: 0 0 0 1px #2c2b28, 0 0 6px var(--tbr-a, #f0c020);
+}
+.sta2e-roller.sta2e-task-card--tmp input[type="range"]::-moz-range-track { height: 6px; background: #000; }
+.sta2e-roller.sta2e-task-card--tmp input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 14px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--tbr-a, #f0c020);
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* The chat frame's TMP lenses: lit glass from the key's own colour, a bezel
+   ring, the panel's Jost. */
+.sta2e-roller.sta2e-task-card--tmp .tbr-key {
+  position: relative;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tbr-a, #f0c020) 70%, #fff) 0%,
+    var(--tbr-a, #f0c020) 45%,
+    color-mix(in srgb, var(--tbr-a, #f0c020) 60%, #000) 100%);
+  color: var(--tbr-ink, #140e00);
+  box-shadow:
+    0 0 0 2px #2c2b28,
+    0 0 0 3px #75726a,
+    inset 0 0 6px rgba(255, 255, 255, 0.3),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25);
+  font-family: var(--tmc-chrome);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: none;
+  cursor: pointer;
+  transition: filter 0.1s;
+}
+.sta2e-roller.sta2e-task-card--tmp .tbr-key:hover:not(:disabled) { filter: brightness(1.15); }
+.sta2e-roller.sta2e-task-card--tmp .tbr-key:active:not(:disabled) { filter: brightness(0.8); }
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+/* The keys are the card's .tmc-key lenses (task-card-tmp.css); this is only
+   their grid in the key bed. */
+.sta2e-roller.sta2e-task-card--tmp .form-footer.tbr-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+}
+.sta2e-roller.sta2e-task-card--tmp .tbr-footer > .tbr-fkey:nth-child(odd):last-child { grid-column: 1 / -1; }
+
+/* ══ TMP Monitor ══════════════════════════════════════════════════════════ */
+/* One component deeper, so these win on specificity. */
+
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-scr.tbr-screen {
+  margin: 0;
+  padding: 0 0 4px;
+}
+
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-head {
+  border-bottom-color: rgba(0, 174, 240, 0.5);
+}
+
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-ctl {
+  border-color: var(--tmm-cyan);
+  background: #000;
+  color: var(--tmm-white);
+}
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-ctl:focus { border-color: var(--tmm-yellow); }
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon select.tbr-ctl option { background: #000; color: var(--tmm-white); }
+
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-plate {
+  border-color: rgba(0, 210, 122, 0.45);
+}
+
+/* Indicators: an outlined square that fills in its accent. */
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="checkbox"],
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="radio"] {
+  width: 10px;
+  height: 10px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tmm-cyan);
+}
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="radio"] { border-radius: 50%; }
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="checkbox"]:checked,
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="radio"]:checked {
+  background: var(--tbr-a, var(--tmm-green));
+  box-shadow: 0 0 6px var(--tbr-a, var(--tmm-green));
+}
+
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--tbr-a, var(--tmm-cyan));
+  box-shadow: none;
+}
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon input[type="range"]::-webkit-slider-thumb {
+  width: 10px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 0;
+  background: var(--tbr-a, var(--tmm-cyan));
+  box-shadow: none;
+}
+
+/* Keys: outlined in their own colour, filling faintly on hover. */
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-key {
+  border: 1px solid var(--tbr-a, var(--tmm-cyan));
+  border-radius: 0;
+  background: transparent;
+  color: var(--tbr-a, var(--tmm-cyan));
+  box-shadow: none;
+  font-family: var(--tmm-caption);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+}
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-key:hover:not(:disabled) {
+  filter: none;
+  background: color-mix(in srgb, var(--tbr-a, var(--tmm-cyan)) 18%, transparent);
+}
+
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-bed.tbr-keys { margin-top: 8px; }
+.sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .form-footer.tbr-footer { gap: 4px; padding: 0; }

@@ -7,6 +7,9 @@
  *
  *   tng  lcars-tng, lcars-fc   the task card's Bracket Console   styles/roller-tng.css
  *   tos  tos-panel             the TOS Console Viewer            styles/roller-tos.css
+ *   tmp     tmp-console        the TMP Console Monitor           styles/roller-tmp.css
+ *   tmpmon  tmp-monitor        TMP Console plus the monitor      styles/roller-tmp.css
+ *                              modifier, as everywhere else
  *
  * Every other era gets the LCARS dialog unchanged: rollerSkin() returns null.
  *
@@ -33,14 +36,15 @@
  * handling needs. Its colours are set inline per era and its shape is CSS, the
  * same split as every other key.
  *
- * Imports lcars-theme.js, task-card-tng.js, task-card-tos.js and
- * chat-card-frame.js, none of which import this, so npc-roller.js can take it
- * without a cycle.
+ * Imports lcars-theme.js, the task card skins (task-card-tng.js,
+ * task-card-tos.js, task-card-tmp.js) and chat-card-frame.js, none of which
+ * import this, so npc-roller.js can take it without a cycle.
  */
 
 import { getActiveLcThemeKey, getLcCssVars, isBracketTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom, tbcPalette } from "./task-card-tng.js";
 import { tosKeyStyle } from "./task-card-tos.js";
+import { tmpLensStyle, tmpMonitorKeyStyle } from "./task-card-tmp.js";
 import { stripDecorativeEmoji } from "./chat-card-frame.js";
 
 /**
@@ -59,6 +63,8 @@ export function rollerSkin() {
     const key = getActiveLcThemeKey();
     if (isBracketTheme(key)) return "tng";
     if (key === "tos-panel") return "tos";
+    if (key === "tmp-console") return "tmp";
+    if (key === "tmp-monitor") return "tmpmon";
   } catch { /* no theme yet */ }
   return null;
 }
@@ -141,6 +147,11 @@ function skinTag(tag, name) {
     || (name === "input" && ["text", "number", "search"].includes(type));
   const m = tag.match(/\sstyle\s*=\s*"([^"]*)"/i);
   if (!m) return isControl ? addClass(tag, "tbr-ctl") : tag;
+  // The content root paints itself LC.bg; every frame draws its own screen
+  // behind it (the CRT's glow, the monitor's grid), so the fill goes.
+  if (/\sid\s*=\s*"sta2e-npc-roller"/i.test(tag)) {
+    return setStyle(tag, m, common(m[1]).replace(decl("background(?:-color)?"), ""));
+  }
   const style = m[1];
 
   // Classify the LCARS shape before its declarations go.
@@ -217,7 +228,50 @@ function tosFrame(body, { title, phase, passed }) {
 </div>`;
 }
 
-const FRAMES = { tng: tngFrame, tos: tosFrame };
+/**
+ * TMP Console and TMP Monitor: the task card's own markup, so its rules draw
+ * them — the grey duty panel with a header plate and a state tag, the content
+ * on one black monitor whose border gives the state (cyan setting up, green
+ * passed, magenta failed), and the keys in a dark key bed. The monitor theme
+ * adds `.sta2e-task-card--tmpmon` and swaps the plate and tag for a code tab
+ * and tick marks, exactly as the card does; tmp-monitor.css repaints the rest.
+ *
+ * The root carries `.sta2e-task-card` (TOS deliberately does not): every TMP
+ * Monitor card rule hangs off `.sta2e-task-card.sta2e-task-card--tmp…`, and
+ * the shared rules that come with it only round buttons, which roller-tmp.css
+ * outranks.
+ */
+const TMP_SCREEN = { setup: "#00aef0", pass: "#00d27a", fail: "#ed2f76" };
+const TMP_PLATE = { setup: "#e9c83a", pass: "#3aa060", fail: "#c8312a" };
+const TMP_CODE = { setup: "SET", pass: "OK", fail: "NEG" };
+
+function tmpFrame(body, { title, phase, passed }, monitor = false) {
+  const state = phase === "rolled" ? (passed ? "pass" : "fail") : "setup";
+  const screen = TMP_SCREEN[state];
+  const head = monitor ? `
+    <span class="tmc-code">${TMP_CODE[state]}</span>
+    <div class="tmc-title">${title}<small>Adv. Dice Roller</small></div>
+    <span class="tmc-ticks" aria-hidden="true"><i></i><i></i><i></i></span>` : `
+    <span class="tmc-plate" aria-hidden="true"></span>
+    <div class="tmc-title">${title}<small>Adv. Dice Roller</small></div>
+    <span class="tmc-tag">${phaseLabel(phase)}</span>`;
+  return `
+<div class="sta2e-roller sta2e-roller--${monitor ? "tmpmon" : "tmp"} sta2e-task-card sta2e-task-card--tmp${monitor ? " sta2e-task-card--tmpmon" : ""}"
+  data-theme="${monitor ? "tmp-monitor" : "tmp-console"}" data-phase="${phase}"
+  style="${getLcCssVars("tc")}--tmc-plate:${TMP_PLATE[state]};${monitor ? `--tmm-tab:${screen};` : ""}">
+  <div class="tmc-head">${head}
+  </div>
+  <div class="tmc-scr tbr-screen" style="--tmc-s:${screen};">${body}</div>
+  <div class="tmc-bed tbr-keys" data-roller-keys></div>
+</div>`;
+}
+
+const FRAMES = {
+  tng: tngFrame,
+  tos: tosFrame,
+  tmp: (body, o) => tmpFrame(body, o, false),
+  tmpmon: (body, o) => tmpFrame(body, o, true),
+};
 
 /**
  * Wrap the roller content in the active era's frame. Returns the content
@@ -244,6 +298,11 @@ const FOOTER_ROLE = { post: "post", "reroll-all": "danger", back: "minor", cance
 const footerRole = (action, index) => action === "cancel" ? "cancel"
   : index === 0 ? "main" : (FOOTER_ROLE[action] ?? "minor");
 
+const TMP_KEY = { main: "green", post: "amber", danger: "magenta", minor: "off", cancel: "off" };
+
+/** Extra classes a footer key takes, so the era's own card key rules draw it. */
+const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big" };
+
 const FOOTER_PAINT = {
   tng: role => {
     const P = tbcPalette();
@@ -251,19 +310,26 @@ const FOOTER_PAINT = {
     return `background:${colour};color:${(luma(colour) ?? 1) > 0.42 ? "#000000" : "#f2f2f2"};`;
   },
   tos: role => tosKeyStyle({ main: "green", post: "amber", danger: "red", minor: "grey", cancel: "grey" }[role]),
+  tmp: role => tmpLensStyle(TMP_KEY[role]),
+  tmpmon: role => tmpMonitorKeyStyle(TMP_KEY[role]),
 };
 
 /**
  * The inline colour of a footer key: the era's paint for the role its action
  * plays. Pure, so the test preview paints with the real colours.
  *
- * @param {string} skin    "tng" | "tos"
+ * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon"
  * @param {string} action  The button's DialogV2 action.
  * @param {number} index   Its position in the footer.
  * @returns {string} CSS declarations, or "" for an era with no skin.
  */
 export function footerKeyStyle(skin, action, index) {
   return FOOTER_PAINT[skin]?.(footerRole(action, index)) ?? "";
+}
+
+/** The classes a footer key takes in an era: always `tbr-fkey`, plus any of the era's own. */
+export function footerKeyClasses(skin) {
+  return ["tbr-fkey", ...(FOOTER_CLASS[skin]?.split(" ") ?? [])];
 }
 
 /**
@@ -286,7 +352,7 @@ export function seatRollerFooter(root) {
       if (node.nodeType === 3) node.textContent = stripEmoji(node.textContent);
     }
     btn.setAttribute("style", `${btn.getAttribute("style") ?? ""}${footerKeyStyle(skin, btn.dataset.action, i)}`);
-    btn.classList.add("tbr-fkey");
+    btn.classList.add(...footerKeyClasses(skin));
   });
   footer.classList.add("tbr-footer");
   slot.append(footer);

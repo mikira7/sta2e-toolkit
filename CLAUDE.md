@@ -155,6 +155,7 @@ render TMP Console's markup plus one modifier, and a stylesheet repaints it:
 | Stardate HUD | `.sta2e-tmp--monitor` — stardate-hud.js `tmpRootClass` | styles/tmp-monitor.css |
 | Task card | `.sta2e-task-card--tmpmon` — task-card-tmp.js | styles/tmp-monitor.css |
 | Chat frame | `.sta2e-chat-card--tmpmon` — chat-card-frame.js `tmpChatCard` | styles/tmp-monitor.css |
+| Dice roller | `.sta2e-task-card--tmpmon` — roller-skin.js `tmpFrame` | styles/tmp-monitor.css + styles/roller-tmp.css |
 | Sheets | `.sta2e-tmp-sheet--monitor` beside `.sta2e-tmp-sheet` — tos-sheet-theme.js `ERA_CLASSES` | styles/tmp-monitor-sheet.css |
 
 So the monitor inherits every fix the TMP files carry (the sheet content-box traps,
@@ -1943,8 +1944,10 @@ per era, and `rollerSkin()` names the one the active theme wears:
 |---|---|---|---|
 | `tng` | `lcars-tng`, `lcars-fc` | the task card's bracket frame (`bracketTop` / `bracketBottom`, `.tbc`) | [roller-tng.css](styles/roller-tng.css) |
 | `tos` | `tos-panel` | the Console Viewer housing — header and lamps, **one** CRT, strut, keys | [roller-tos.css](styles/roller-tos.css) |
+| `tmp` | `tmp-console` | the TMP card's own markup — duty panel, plate and tag, **one** monitor (border cyan / green / magenta by state), key bed | [roller-tmp.css](styles/roller-tmp.css) |
+| `tmpmon` | `tmp-monitor` | the same plus `.sta2e-task-card--tmpmon`, code tab (`SET` / `OK` / `NEG`) and ticks; tmp-monitor.css repaints it | [roller-tmp.css](styles/roller-tmp.css) |
 
-Every other era gets `null` and the LCARS dialog unchanged. Adding an era is a frame
+ENT gets `null` and the LCARS dialog unchanged. Adding an era is a frame
 function, a `FRAMES` and a `FOOTER_PAINT` entry, a `rollerSkin()` case and a stylesheet.
 
 **Wrap, never replace — the chat card frame's rule, for the same reason.** The content
@@ -1970,6 +1973,15 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   grey housing. Its root carries `.sta2e-task-card--tos` so the card's own header, lamp,
   CRT and strut rules apply, but **not `.sta2e-task-card`**: task-card.css's shared
   button rules hang off that, so roller-tos.css restates the housing instead.
+- **The TMP roots DO carry `.sta2e-task-card`**, unlike TOS: every TMP Monitor card rule
+  hangs off `.sta2e-task-card.sta2e-task-card--tmp.sta2e-task-card--tmpmon`, so without it
+  the monitor theme would get none of its repaint. What comes with it from task-card.css
+  only rounds buttons, which roller-tmp.css outranks. Their footer keys also take the
+  card's own `.tmc-key .tmc-key--big` (`footerKeyClasses`), so the lens and the monitor's
+  numbered outline come straight from the card stylesheets. One roller-tmp.css covers both
+  themes, monitor rules one class deeper, the task-card-tmp / tmp-monitor layering.
+- **The content root's own fill goes** (the pass drops `background` from
+  `#sta2e-npc-roller`), so the CRT's glow and the monitor's grid show behind it.
 - **Die pips are buttons and must not become keys** — the pass skips `.sta2e-die-pip`,
   whose glow is the reroll hint.
 - **Don't use `stripDecorativeEmoji` alone on dice text.** Its U+2600–26FF range covers
@@ -1980,15 +1992,16 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   `[data-roller-keys]` element after render (still inside the `<form>`, which is all
   core's button handling needs), drops icons and emoji, tags the window
   `sta2e-roller-win--<skin>`, and paints each key inline through `footerKeyStyle` — the
-  first button is the main action (TNG peach, TOS green), Cancel is always the dim key.
-  TOS takes its colours from task-card-tos.js's `tosKeyStyle`.
+  first button is the main action (TNG peach, TOS and TMP green), Cancel is always the dim
+  key. TOS takes its colours from task-card-tos.js's `tosKeyStyle`, TMP from
+  task-card-tmp.js's `tmpLensStyle` / `tmpMonitorKeyStyle`.
 
 Covered by [tests/roller-skins.mjs](tests/roller-skins.mjs), which lifts the **real**
 `buildDialogContent` out of npc-roller.js into a vm (missing module-level helpers are
 loaded from the source on first `ReferenceError`), renders both phases, checks that
 every id, data-* value, content class and `display:none` survives the pass, and checks
-each frame. `--preview` renders both phases in TNG, First Contact and TOS against the
-real stylesheets.
+each frame. `--preview` renders both phases in every skinned era against the real
+stylesheets.
 
 ### Task Maker
 
@@ -2095,9 +2108,10 @@ through `lcarsChatCard`.
 | [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP and ENT frames. Imports only `lcars-theme.js`, `task-card-tng.js` and `task-card-ent.js`; `legacy` thunk keeps the other eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
-| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS), footer seating. Imports only `lcars-theme.js`, `task-card-tng.js`, `task-card-tos.js` and `chat-card-frame.js` |
+| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS, TMP Console, TMP Monitor), footer seating. Imports only `lcars-theme.js`, the task card skins and `chat-card-frame.js` |
 | [styles/roller-tng.css](styles/roller-tng.css) | Shape for the TNG roller skin — section strips, stadium fields, pill indicators, range, keys, the footer keypad |
 | [styles/roller-tos.css](styles/roller-tos.css) | Shape for the TOS roller skin — housing, section captions on the CRT, amber readout fields, indicator lamps, backlit keys |
+| [styles/roller-tmp.css](styles/roller-tmp.css) | The roller's form parts for both TMP skins — captions, amber typed windows, lens indicators, lens keys; the monitor's outlined versions one class deeper |
 | [scripts/task-maker.js](scripts/task-maker.js) | The GM's task-authoring dialog — Normal / Extended / Opposed tabs, the posted request card, extended-task resolution |
 | [scripts/opposed-panel.js](scripts/opposed-panel.js) | The Opposed Task tab's markup and wiring. A leaf by necessity — it may import only `lcars-theme.js` and `ship-pool.js` |
 | [styles/task-maker.css](styles/task-maker.css) | Shape-only CSS for the Task Maker dialog and its pickers — spine, elbow bars, `[data-mode]` tab visibility, fluid grids, container queries |
