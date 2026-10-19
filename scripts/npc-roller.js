@@ -858,6 +858,16 @@ export async function dsnShowPool(dice, speaker = null) {
 // The label (die value + optional ★★ for crits) is overlaid as absolute text
 // inside a position:relative wrapper so it sits centred on the die image.
 
+/**
+ * The colour a crit die's number is drawn in: the theme's primary, except under
+ * ENT, whose primary is the panel grey (#c7c7c7) — beside a miss's #aaa it read
+ * as a miss, so a crit there is the ENT gold (ENT.amber in task-card-ent.js).
+ * Every die renderer in this file uses it: the dialog's pips and pickers, the
+ * chat summary, and the shared diceRow of the Working Results card.
+ */
+const ENT_CRIT_GOLD = "#f0b400";
+const critDieColour = () => isEntTheme(getActiveLcThemeKey()) ? ENT_CRIT_GOLD : LC.primary;
+
 
 export function diePipHtml(die, index, poolKey, rerollHint = null) {
   // Procedural Compliance auto-success die — special label and tooltip
@@ -910,7 +920,7 @@ export function diePipHtml(die, index, poolKey, rerollHint = null) {
   if (rerollHint !== null) tooltip += `\n${rerollHint}`;
 
   const SIZE = 38;
-  const txtColor = die.crit ? LC.primary
+  const txtColor = die.crit ? critDieColour()
     : die.success ? LC.green
       : die.complication ? LC.red
         : "#aaaaaa";
@@ -3051,7 +3061,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
         ${apAssistDice.map(d => {
-    const txtColor = d.crit ? LC.primary : d.success ? LC.green : d.complication ? LC.red : "#aaaaaa";
+    const txtColor = d.crit ? critDieColour() : d.success ? LC.green : d.complication ? LC.red : "#aaaaaa";
     const fsize = d.value >= 10 ? "9px" : "11px";
     const tip = `AP Assist die ${d.value}${d.crit ? " (CRITICAL — 2 successes)" : d.success ? " (success)" : ""}${d.complication ? " (COMPLICATION)" : ""}`;
     const lbl = d.crit
@@ -3087,7 +3097,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
         ${crewAssistDice.map(d => {
-    const txtColor = d.crit ? LC.primary
+    const txtColor = d.crit ? critDieColour()
       : d.success ? LC.green
         : d.complication ? LC.red
           : "#aaaaaa";
@@ -3204,7 +3214,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
               ${crewDice.map((d, i) => {
         const fsize = d.value >= 10 ? "9px" : "11px";
-        const txtColor = d.crit ? LC.primary : d.success ? LC.green : d.complication ? LC.red : "#aaa";
+        const txtColor = d.crit ? critDieColour() : d.success ? LC.green : d.complication ? LC.red : "#aaa";
         return `<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;
                   padding:2px 5px;border:1px solid ${LC.borderDim};border-radius:2px;">
                   <input type="checkbox" class="det-die-cb" value="${i}"
@@ -3301,7 +3311,7 @@ function buildDialogContent(state, actorSystems = {}, actorDepts = {}, actor = n
     ...shipDice.map((d, i) => ({ d, i, pool: "ship" }))
       .filter(({ d }) => !d.communicationsOfficerForced)].map(({ d, i, pool }) => {
       const fsize = d.value >= 10 ? "9px" : "11px";
-      const txtC = d.crit ? LC.primary : d.success ? LC.green : d.complication ? LC.red : "#aaa";
+      const txtC = d.crit ? critDieColour() : d.success ? LC.green : d.complication ? LC.red : "#aaa";
       return `
             <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;
               padding:2px 5px;border:1px solid ${LC.borderDim};border-radius:2px;">
@@ -3379,7 +3389,7 @@ function buildChatCard(actorName, state) {
     <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:2px;">
       ${dice.map(d => {
     const isSuccessComplication = !!d.success && !!d.complication && !d.crit;
-    const txtColor = d.crit ? LC.primary
+    const txtColor = d.crit ? critDieColour()
       : isSuccessComplication ? LC.red
         : d.success ? LC.green
           : d.complication ? LC.red
@@ -3740,7 +3750,7 @@ export function buildPlayerRollCardHtml(rollData) {
     return `<div style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;">
       ${dice.map((d, i) => {
       const isSuccessComplication = !!d.success && !!d.complication && !d.crit;
-      const txtColor = d.crit ? LC.primary : isSuccessComplication ? LC.red : d.success ? LC.green : d.complication ? LC.red : "#aaaaaa";
+      const txtColor = d.crit ? critDieColour() : isSuccessComplication ? LC.red : d.success ? LC.green : d.complication ? LC.red : "#aaaaaa";
       const lbl = d.crit
         ? `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;gap:0;">
                <span style="font-size:${critFont}px;letter-spacing:-1px;color:${txtColor};">★★</span>

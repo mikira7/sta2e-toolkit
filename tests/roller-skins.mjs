@@ -26,7 +26,7 @@ globalThis.game = {
 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { getLcTokens } = await import('../scripts/lcars-theme.js');
+const { getLcTokens, getActiveLcThemeKey, isEntTheme } = await import('../scripts/lcars-theme.js');
 const skin = await import('../scripts/roller-skin.js');
 
 // ── Lift the real builder out of npc-roller.js ───────────────────────────────
@@ -47,12 +47,16 @@ const fnSrc = name => {
 const constSrc = name => {
   const i = src.search(new RegExp(`^const ${name} = `, 'm'));
   assert.ok(i >= 0, `missing const ${name}`);
+  // A one-line const ends on its own line; a block one at the first `};`.
+  const line = src.slice(i, src.indexOf('\n', i));
+  if (line.trimEnd().endsWith(';')) return line;
   return src.slice(i, src.indexOf('\n};\n', i) + 4);
 };
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const context = vm.createContext({
   LC, game: globalThis.game, console, Math, Number, String, Object, Array, JSON,
+  getActiveLcThemeKey, isEntTheme,
   isSkinnedRoller: skin.isSkinnedRoller,
   _rollResourceProfile: () => ({ usesPlayerPayment: true }),
   isFlightControllerPilotTask: () => false,
@@ -112,7 +116,9 @@ const rolledState = () => ({
 
 // Any other module-level helper the builder reaches is a pure function or
 // constant of npc-roller.js itself: load it from the source the first time a
-// render trips over it, and render again.
+// render trips over it, and render again. A const is loaded as a property of the
+// context's global: a `const` declared by one vm script is not reliably visible
+// to a function compiled in another (critDieColour could not see ENT_CRIT_GOLD).
 const build = state => {
   for (let tries = 0; tries < 40; tries++) {
     try { return context.build(state, systems, depts, null); }
@@ -121,7 +127,7 @@ const build = state => {
         ? String(err.message).match(/^(\w+) is not defined/)?.[1] : null;
       if (!name) throw err;
       const isFn = new RegExp(`^(export )?function ${name}\\(`, 'm').test(src);
-      vm.runInContext(isFn ? fnSrc(name) : constSrc(name), context);
+      vm.runInContext(isFn ? fnSrc(name) : constSrc(name).replace(/^const /, 'globalThis.'), context);
     }
   }
   throw new Error('builder needs too many helpers');
@@ -315,6 +321,17 @@ check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('ent', 'cancel', 1), /^--k:#5e7f8f;/, 'ENT cancel is slate');
   assert.deepEqual(skin.footerKeyClasses('ent'), ['tbr-fkey', 'tec-key']);
   assert.equal(skin.footerKeyStyle('klingon', 'roll', 0), '');
+});
+
+check('a crit die is gold under ENT, whose primary is the grey of a miss', () => {
+  const critStars = h => [...h.matchAll(/color:\s*([^;"]+);"?>★★/g)].map(m => m[1].trim());
+  withTheme('ent-panel', () => {
+    const stars = critStars(build(rolledState()));
+    assert.ok(stars.length > 0, 'the rolled dialog draws a crit');
+    assert.deepEqual([...new Set(stars)], ['#f0b400']);
+  });
+  const tngStars = critStars(build(rolledState()));
+  assert.deepEqual([...new Set(tngStars)], [getLcTokens().primary], 'other eras keep their primary');
 });
 
 check('themes without a skin keep the plain dialog', () => {

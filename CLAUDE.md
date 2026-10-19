@@ -1986,6 +1986,12 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
 - **ENT's indicators ignore the content's accent** and always fill yellow: the ent-panel
   tokens include near-black colours (secondary `#3d3d3d`, red `#9b0000`), which as an
   accent would draw a lit indicator looking unlit.
+- **A crit die is coloured by `critDieColour()`, never `LC.primary` directly.** Every die
+  renderer in npc-roller.js (the dialog's pips and pickers, the chat summary, and the
+  Working Results card's shared `diceRow`) used the theme's primary for a crit, and
+  ent-panel's primary is the panel grey `#c7c7c7` — beside a miss's `#aaa` a crit read
+  as a miss. Under ENT it is gold (`#f0b400`, ENT.amber); every other theme keeps its
+  primary.
 - **The content root's own fill goes** (the pass drops `background` from
   `#sta2e-npc-roller`), so the CRT's glow and the monitor's grid show behind it.
 - **Die pips are buttons and must not become keys** — the pass skips `.sta2e-die-pip`,
