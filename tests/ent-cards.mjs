@@ -265,7 +265,7 @@ check('other eras keep their own frames or legacy markup', () => {
   const tng = lcarsChatCard({ title: 'T', body: damageBody, legacy });
   assert.match(tng, /sta2e-chat-card--tng tbc/);
   assert.doesNotMatch(tng, /ccf-ent-|--tck-a/);
-  theme = 'klingon';
+  theme = 'romulan';
   assert.equal(lcarsChatCard({ title: 'T', body: damageBody, legacy }), legacy());
   theme = 'ent-panel';
 });

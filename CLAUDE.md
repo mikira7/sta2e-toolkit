@@ -1755,7 +1755,18 @@ rules in [styles/task-card-ent.css](styles/task-card-ent.css). The body goes thr
 (`_consoleBodyHtml(html, "ent")`): the same classifier strips the LCARS boxes and stamps
 `ccf-ent-tile` / `-plate` / `-note` / `-chip` / `-ctl`, which task-card-ent.css redraws
 as bracketed wells, glass plates and edge strips, and the buttons become tab keys painted
-from `--tck-a`. The spend panel gets the same pass. Every other era still gets `legacy()`.
+from `--tck-a`. The spend panel gets the same pass.
+
+**Under `klingon` it returns the Klingon Targeting Scope frame** (`klingonChatCard`): the
+task card's red housing and `klingonHead`, with the **whole body on the scope** (the
+scope element is `.ccf-body`), through **`klingonBodyHtml`** — the same pass again with
+the `kli` prefix, its parts redrawn in [styles/task-card-klingon.css](styles/task-card-klingon.css)
+and its buttons backlit plates from `--tck-a`. The accent is the scope's phosphor
+(`--tkc-c`: border, corner marks, lamp); the housing never changes. Body text keeps its
+inline `klingon` token colours, made for near-black. A banner's triangle lead is an
+**inline** `::before`, because the banner keeps its own inline padding and a positioned
+lead sat on its text. The spend panel gets the same pass. Every other era still gets
+`legacy()`.
 
 Out of scope by choice: the warp navigation cards
 ([warp-calc.js](scripts/warp-calc.js), [toolkit-api.js](scripts/toolkit-api.js)) and the
@@ -1926,6 +1937,38 @@ Rajdhani is bundled in `fonts/ent/` (SIL OFL, licence beside it) as `STA2e Rajdh
 numbers use the `STA2e Share Tech Mono` that task-card-tmp.css declares. Chat bodies are
 zoomed 1.1 for the same reason the TNG ones are. Covered by
 [tests/ent-cards.mjs](tests/ent-cards.mjs), which also has `--preview`.
+
+**The Klingon Targeting Scope skin.** Under `klingon` (`isKlingonTheme`) the card is
+rendered by [task-card-klingon.js](scripts/task-card-klingon.js) (shape in
+[styles/task-card-klingon.css](styles/task-card-klingon.css)), whatever `taskCardStyle`
+says and from the same `skinView`, with the same DOM contract. The design source is
+`docs/klingon-card-mockups.html` (Concept C): the film-era Klingon bridge — a dim red
+housing round a green-black phosphor scope (scanlines, a faint reticle, corner marks),
+the viewer's inverted triangle as the header lamp carrying the Difficulty (`D3`), dice in
+hexagonal cells, a meter of interlocking triangles on the Successes row (the Difficulty
+red at its head, 6–20 long), and backlit plates cut wider at the top. **The card's state
+is the scope's phosphor (`--tkc-c`), not the housing**: green working, amber assist, gold
+passed, red failed. A confirmed result carries a flavour word after the rules term —
+*Qapla'* passed, *bIlujpu'* failed. Four things it rests on:
+
+- **Keys are filled plates: every one carries `data-filled="1"`**, so arming lights it
+  yellow. Their colour is inline (`keyStyle`: a top-lit gradient as the `background`,
+  ink chosen by luminance).
+- **The readout and dice sit on the scope; the keys sit below it on the housing**, so the
+  reroll tray lands on the housing too. Its Cancel is written in the theme's `textDim`
+  (#662200), invisible there, and its colour is out of reach without `!important`, so
+  the stylesheet brightens it with a `filter`.
+- **The hex cell is a `::before` behind the die, not a `clip-path` on it**, which would
+  clip the outline and glow `setCardDieState` writes on a selected die.
+- **Two die colours are Klingon-specific** in npc-roller.js. A crit is gold
+  (`critDieColour`, everywhere — the primary is the same red as a complication), and on
+  the Working Results card a success is the scope's phosphor (`cardSuccessColour`, the
+  card's `diceRow` only — the token green is an olive that read dimmer than a miss).
+
+Chakra Petch is bundled in `fonts/klingon/` (SIL OFL, licence beside it) as `STA2e Chakra
+Petch`; the numbers use `STA2e Share Tech Mono`. The roller dialog has no Klingon skin yet
+(`rollerSkin()` returns `null`). Covered by [tests/klingon-cards.mjs](tests/klingon-cards.mjs),
+which also has `--preview`.
 
 The card carries **no emoji**; the surviving glyphs are functional and monochrome (`★★`
 on a crit die, `▶` armed, `→` on Add to Task Roll). The roller *dialog* carries none
@@ -2118,7 +2161,9 @@ through `lcarsChatCard`.
 | [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
 | [scripts/task-card-ent.js](scripts/task-card-ent.js) | ENT Bridge Touchscreen skin for the task card — used for `ent-panel` regardless of `taskCardStyle` — and the `entHead` / `entFoot` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |
 | [styles/task-card-ent.css](styles/task-card-ent.css) | The touchscreen frame (`.tec`, shared with the ENT chat frame), the task card's wells, readout bars and tab keys, the `ccf-ent-*` body parts, and the `@font-face` rules for `fonts/ent/` (Rajdhani) |
-| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP and ENT frames. Imports only `lcars-theme.js`, `task-card-tng.js` and `task-card-ent.js`; `legacy` thunk keeps the other eras frozen |
+| [scripts/task-card-klingon.js](scripts/task-card-klingon.js) | Klingon Targeting Scope skin for the task card — used for `klingon` regardless of `taskCardStyle` — and the `klingonHead` markup the chat card frame reuses. Imports only `lcars-theme.js` |
+| [styles/task-card-klingon.css](styles/task-card-klingon.css) | The housing and scope (`.tkc`, shared with the Klingon chat frame), the task card's hex dice cells, triangle meter and plates, the `ccf-kli-*` body parts, and the `@font-face` rules for `fonts/klingon/` (Chakra Petch) |
+| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP, ENT and Klingon frames. Imports only `lcars-theme.js`, `task-card-tng.js`, `task-card-ent.js` and `task-card-klingon.js`; `legacy` thunk keeps the other eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
 | [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS, TMP Console, TMP Monitor, ENT), footer seating. Imports only `lcars-theme.js`, the task card skins and `chat-card-frame.js` |

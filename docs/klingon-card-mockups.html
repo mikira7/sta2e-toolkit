@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klingon Chat Card Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Grenze+Gotisch:wght@600;800&family=Chakra+Petch:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+/* ── Page chrome (not part of any design) ─────────────────────────────── */
+:root {
+  --page-bg: #141012; --page-ink: #e0d8d4; --page-dim: #8e8582; --page-rule: #2e2628;
+  /* klingon tokens from scripts/lcars-theme.js */
+  --k-bg: #0a0000; --k-panel: #120000; --k-red: #cc1111; --k-red2: #ff4422; --k-brown: #884400;
+  --k-txt: #ddaa88; --k-dim: #662200; --k-border: #881100; --k-borderdim: #2a0000;
+  --k-olive: #886600; --k-gold: #cc8800; --k-orange: #ff4400; --k-blood: #ff1100;
+  /* working shades lifted from the tokens for type on black */
+  --k-gold-lit: #f0b030; --k-sand: #f3d6b4; --k-ember: #8a3a22;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page-bg); color: var(--page-ink);
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1180px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .02em; }
+.lede { color: var(--page-dim); margin: 0 0 30px; max-width: 820px; }
+.lede code, .notes code, .concept-head code { color: #e8a080; }
+section.concept { margin-bottom: 52px; }
+.concept-head { border-bottom: 1px solid var(--page-rule); padding-bottom: 10px; margin-bottom: 14px; max-width: 860px; }
+.concept-head .tag { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--page-dim); }
+.concept-head h2 { font-size: 18px; margin: 2px 0 4px; }
+.concept-head p { margin: 0; color: var(--page-dim); font-size: 13px; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--page-dim); }
+.swatches span { display: inline-flex; align-items: center; gap: 5px; }
+.swatches i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.chatrow { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 22px; }
+@media (max-width: 1000px) { .chatrow { grid-template-columns: minmax(0, 320px); justify-content: center; } }
+.chatlog { background: #0e0b0c; border: 1px solid var(--page-rule); border-radius: 6px;
+  padding: 10px; display: flex; flex-direction: column; gap: 12px; align-self: start; min-width: 0; }
+.msg-meta { font-size: 11px; color: #7a7070; margin: 0 0 4px 2px; }
+.notes { margin-top: 18px; color: var(--page-dim); font-size: 13px; max-width: 860px; }
+.notes h3 { color: var(--page-ink); font-size: 15px; margin: 0 0 6px; }
+.notes li { margin-bottom: 4px; }
+button { font: inherit; cursor: pointer; }
+
+/* Shared die: the live card's markup — Foundry's d20-grey.svg drawn faint
+   behind the value, which carries the colour. The src is filled in by the
+   script at the bottom so the icon is embedded once. */
+.d20 { position: relative; width: 30px; height: 30px; display: inline-grid; place-items: center; flex: none; }
+.d20 img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .22; pointer-events: none; }
+.d20 b { position: relative; z-index: 1; font-weight: 700; font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.9); }
+.d20 i { position: absolute; top: 1px; left: 0; right: 0; text-align: center; font-style: normal; font-size: 7px; letter-spacing: -1px; z-index: 1; }
+.d20.c b { padding-top: 6px; }
+.d20.sel img { opacity: .8; filter: sepia(1) saturate(6) hue-rotate(4deg) brightness(1.15) drop-shadow(0 0 5px #ffcc33); }
+.dice { display: flex; gap: 3px; flex-wrap: wrap; }
+
+/* Decorative script run. Not pIqaD — invented angular strokes, so no font
+   licence is involved. Worn as a mask so it takes the frame colour. */
+:root { --glyphs: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='10' viewBox='0 0 96 10' fill='none' stroke='%23000' stroke-width='1.4' stroke-linejoin='miter'%3E%3Cpath d='M1 9 L4 1 L7 9 M3 6 H6'/%3E%3Cpath d='M11 1 V9 L15 5 L11 3'/%3E%3Cpath d='M19 9 L22 1 M22 1 L25 6 L20 6'/%3E%3Cpath d='M30 1 L34 9 L30 7'/%3E%3Cpath d='M38 5 L41 1 L44 5 L41 9 Z'/%3E%3Cpath d='M48 1 V9 M48 5 L52 1 M48 5 L52 9'/%3E%3Cpath d='M57 9 L60 2 L63 9 L60 6'/%3E%3Cpath d='M67 1 H72 L68 9'/%3E%3Cpath d='M76 9 V3 L80 1 V7'/%3E%3Cpath d='M85 1 L88 9 L91 1 M86 4 H90'/%3E%3C/svg%3E"); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT A — TACTICAL STRUT
+   The Klingon Stardate HUD, opened out into a card: crimson struts with
+   angled cuts, black displays, no curves anywhere. Everything is a
+   parallelogram or a blade.
+   ══════════════════════════════════════════════════════════════════════ */
+.a { --c: var(--k-red); font-family: "Barlow Condensed", "Arial Narrow", sans-serif; color: var(--k-txt);
+  background: linear-gradient(180deg, #120000, #0a0000 40%); border-bottom: 2px solid var(--c);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--c) 35%, transparent); position: relative; }
+.a-head { display: flex; align-items: stretch; height: 26px; }
+.a-strut { flex: none; display: flex; align-items: center; padding: 0 16px 0 7px; background: var(--c);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 100%, 0 100%);
+  font: 600 13px/1 "Teko", sans-serif; letter-spacing: .12em; color: #fff; text-transform: uppercase; padding-top: 2px; }
+.a-title { flex: 1 1 auto; min-width: 0; align-self: center; padding: 3px 6px 0 8px;
+  font: 600 20px/1 "Teko", sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--k-sand);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.a-end { flex: none; width: 22px; background: var(--c); clip-path: polygon(9px 0, 100% 0, 100% 100%, 0 100%); }
+.a-glyph { height: 8px; margin: 3px 0 0 10px; background: color-mix(in srgb, var(--c) 70%, transparent);
+  -webkit-mask: var(--glyphs) repeat-x left / 96px 8px; mask: var(--glyphs) repeat-x left / 96px 8px; }
+.a-body { padding: 5px 8px 7px 9px; border-left: 2px solid var(--c); margin-left: 0; }
+.a-id { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--k-brown); margin-bottom: 5px; }
+.a-well { background: var(--k-panel); border-left: 3px solid var(--c); padding: 2px 16px 4px 6px; margin-bottom: 5px;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%); }
+.a-lbl { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--k-dim); }
+.a-lbl span:last-child { color: var(--k-red2); }
+.a .d20 { color: var(--k-sand); font-family: "Teko", sans-serif; }
+.a .d20 b { font-size: 16px; font-weight: 600; padding-top: 2px; }
+.a .d20.c { color: var(--k-gold-lit); } .a .d20.x { color: var(--k-red2); } .a .d20.f { color: #4a2418; }
+.a-note { font-size: 12px; font-weight: 600; color: var(--k-txt); padding: 2px 8px; margin-bottom: 5px;
+  background: color-mix(in srgb, var(--nc, var(--k-gold)) 12%, transparent); border-left: 3px solid var(--nc, var(--k-gold)); }
+.a-read { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-bottom: 4px; }
+.a-read.two { grid-template-columns: repeat(2, 1fr); }
+.a-cell { background: var(--k-panel); padding: 2px 10px 1px 10px; text-align: center;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); border-top: 1px solid var(--k-border); }
+.a-cell span { display: block; font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--k-dim); }
+.a-cell b { display: block; font: 600 22px/1 "Teko", sans-serif; color: var(--vc, var(--k-sand)); padding-top: 2px; }
+.a-cell.wide { grid-column: 1 / -1; }
+.a-chev { display: flex; gap: 2px; margin: 0 0 6px; height: 9px; }
+.a-chev i { flex: 1; background: #2a0a04; clip-path: polygon(0 0, 70% 0, 100% 50%, 70% 100%, 0 100%, 30% 50%); }
+.a-chev i.on { background: var(--c); }
+.a-chev i.d { background: var(--k-dim); }
+.a-chev i.d.on { background: var(--k-red2); }
+.a-result { display: flex; align-items: center; gap: 8px; height: 24px; padding: 2px 22px 0 8px; margin: 0 -8px 6px -9px;
+  background: var(--rc, var(--k-gold)); color: #0a0000; clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  font: 700 19px/1 "Teko", sans-serif; letter-spacing: .16em; text-transform: uppercase; }
+.a-result small { margin-left: auto; font: 700 12px/1 "Barlow Condensed", sans-serif; letter-spacing: .08em; }
+.a-result em { font-style: normal; font-size: 13px; letter-spacing: .1em; opacity: .65; }
+.a-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.a-key { --k: var(--k-red2); min-height: 26px; padding: 3px 12px 2px 8px; text-align: left; border: 0;
+  font-family: inherit; font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--k); background: linear-gradient(90deg, var(--k) 0 3px, #220000 3px);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+.a-key small { display: block; font-size: 9px; letter-spacing: .1em; opacity: .7; font-weight: 600; }
+.a-key.wide { grid-column: 1 / -1; }
+.a-key.armed { color: #ffcc33; background: linear-gradient(90deg, #ffcc33 0 3px, #3a2400 3px); }
+.a-spend { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--k-txt); }
+.a-spend span { flex: 1; }
+.a-step { width: 22px; height: 20px; border: 0; background: #220000; color: var(--k-red2); font-weight: 700;
+  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.a-spend b { font: 600 18px/1 "Teko", sans-serif; color: var(--k-sand); min-width: 14px; text-align: center; padding-top: 2px; }
+.a-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 6px; padding-top: 4px;
+  border-top: 1px solid var(--k-borderdim); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--k-dim); }
+.a-foot b { color: var(--k-brown); font-weight: 700; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT B — FORGED PLATE
+   The Great Hall rather than the bridge: a hammered iron plate with
+   rivets, blood-red enamel inlays, a header cut like a blade, and the
+   result struck as a seal. Ceremonial and heavy.
+   ══════════════════════════════════════════════════════════════════════ */
+.b { --c: #b31a10; position: relative; font-family: "Barlow Condensed", "Arial Narrow", sans-serif; color: #e3c9a6;
+  padding: 0 10px 8px; border: 1px solid #000;
+  background:
+    radial-gradient(circle at 7px 7px, #8b6a4a 0 2px, #2a1c12 2.6px, transparent 3.2px),
+    radial-gradient(circle at calc(100% - 7px) 7px, #8b6a4a 0 2px, #2a1c12 2.6px, transparent 3.2px),
+    radial-gradient(circle at 7px calc(100% - 7px), #8b6a4a 0 2px, #2a1c12 2.6px, transparent 3.2px),
+    radial-gradient(circle at calc(100% - 7px) calc(100% - 7px), #8b6a4a 0 2px, #2a1c12 2.6px, transparent 3.2px),
+    radial-gradient(circle at 30% 20%, rgba(255,210,160,.05) 0 5px, transparent 6px) 0 0 / 23px 19px,
+    radial-gradient(circle at 70% 60%, rgba(0,0,0,.18) 0 6px, transparent 7px) 0 0 / 29px 25px,
+    linear-gradient(165deg, #2c2420 0%, #17110f 55%, #201814 100%);
+  box-shadow: inset 0 1px 0 rgba(255,220,180,.14), inset 0 -2px 0 rgba(0,0,0,.6),
+    inset 0 0 0 3px #1b1310, inset 0 0 0 4px #4a3322, 0 3px 8px rgba(0,0,0,.6); }
+.b-head { position: relative; display: flex; align-items: center; gap: 7px; margin: 0 -10px 7px; padding: 7px 18px 7px 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 100%, #fff 12%), var(--c) 45%, color-mix(in srgb, var(--c) 70%, #000));
+  clip-path: polygon(0 0, 100% 0, 100% 62%, calc(100% - 12px) 100%, 12px 100%, 0 62%);
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,.5); }
+.b-head::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 40%; height: 5px; transform: translateX(-50%);
+  background: radial-gradient(60% 100% at 50% 100%, rgba(0,0,0,.45), transparent 70%); }
+.b-emb { flex: none; width: 18px; height: 18px; color: #f5d9a8; filter: drop-shadow(0 1px 0 rgba(0,0,0,.6)); }
+.b-title { flex: 1 1 auto; min-width: 0; font: 800 19px/1 "Grenze Gotisch", serif; letter-spacing: .02em; color: #fbe8cc;
+  text-shadow: 0 1px 0 rgba(0,0,0,.65), 0 0 8px rgba(0,0,0,.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-code { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: #ffe6c4;
+  padding: 1px 5px; border: 1px solid rgba(255,230,196,.45); background: rgba(0,0,0,.25); }
+.b-id { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #9c7c5c; margin-bottom: 6px; text-align: center; }
+.b-id::before, .b-id::after { content: "◆"; color: var(--c); font-size: 8px; margin: 0 6px; vertical-align: 2px; }
+.b-well { background: #0d0907; padding: 3px 6px 5px; margin-bottom: 6px;
+  box-shadow: inset 0 2px 5px #000, inset 0 0 0 1px #2c1e15, 0 1px 0 rgba(255,220,180,.08); }
+.b-lbl { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #7d634a; }
+.b-lbl span:last-child { color: #c9965a; }
+.b .d20 { color: #f0d2a8; }
+.b .d20.c { color: var(--k-gold-lit); } .b .d20.x { color: #ff5a3a; } .b .d20.f { color: #4a3a30; }
+.b-note { font-size: 12px; font-weight: 600; color: #e3c9a6; padding: 3px 8px; margin-bottom: 6px; font-style: italic;
+  border-top: 1px solid #3b2a1e; border-bottom: 1px solid #3b2a1e; background: rgba(0,0,0,.2); }
+.b-note::before { content: "▸ "; font-style: normal; color: var(--nc, var(--k-gold)); }
+.b-read { margin-bottom: 6px; }
+.b-row { display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #a98a68; }
+.b-row::after { content: ""; order: 1; flex: 1; border-bottom: 1px dotted #5a4230; transform: translateY(-3px); }
+.b-row b { order: 2; font-size: 17px; font-weight: 700; color: #f0c27a; letter-spacing: .02em; text-shadow: 0 1px 0 #000; }
+.b-teeth { display: flex; gap: 1px; height: 9px; margin: 2px 0 6px; }
+.b-teeth i { flex: 1; background: #3a2b20; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+.b-teeth i.on { background: linear-gradient(#ff5a3a, var(--c)); }
+.b-teeth i.d { background: #6b4d33; }
+.b-teeth i.d.on { background: linear-gradient(#ffd27a, #c08a30); }
+.b-seal { display: flex; align-items: center; gap: 10px; margin: 0 0 7px; padding: 4px 10px;
+  background: radial-gradient(120% 140% at 30% 20%, color-mix(in srgb, var(--rc, #b31a10) 100%, #fff 18%), var(--rc, #b31a10) 50%, color-mix(in srgb, var(--rc, #b31a10) 60%, #000));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -2px 3px rgba(0,0,0,.45), 0 2px 0 #000;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%); }
+.b-seal strong { font: 800 22px/1 "Grenze Gotisch", serif; color: #fff1dc; text-shadow: 0 1px 0 rgba(0,0,0,.5); }
+.b-seal span { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #ffe6c4; }
+.b-seal small { margin-left: auto; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #ffe6c4; opacity: .9; }
+.b-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.b-key { --k: #b31a10; min-height: 27px; padding: 3px 8px 3px 11px; text-align: left; border: 1px solid #000;
+  font-family: inherit; font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #ecd2b0;
+  background: linear-gradient(180deg, #3d322b, #1e1714);
+  box-shadow: inset 3px 0 0 var(--k), inset 0 1px 0 rgba(255,220,180,.16), 0 2px 0 #000; }
+.b-key small { display: block; font-size: 9px; letter-spacing: .1em; opacity: .7; font-weight: 600; }
+.b-key.wide { grid-column: 1 / -1; }
+.b-key.armed { color: #2a1800; background: linear-gradient(180deg, #ffd65a, #d79a1c); box-shadow: inset 3px 0 0 #fff2b0, inset 0 1px 0 rgba(255,255,255,.4), 0 2px 0 #000; }
+.b-spend { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: #a98a68; }
+.b-spend span { flex: 1; }
+.b-step { width: 22px; height: 22px; border: 1px solid #000; background: linear-gradient(#3d322b, #1e1714); color: #f0c27a;
+  font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,220,180,.16); }
+.b-spend b { font-size: 17px; color: #f0c27a; min-width: 14px; text-align: center; }
+.b-foot { display: flex; justify-content: center; gap: 8px; margin-top: 7px; padding-top: 5px; border-top: 1px solid #3b2a1e;
+  font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: #7d634a; }
+.b-foot i { font-style: normal; color: var(--c); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT C — TARGETING SCOPE
+   The film-era Klingon bridge: dim red housing, green-on-black scopes,
+   and the triangle everywhere — the viewer's inverted triangle in the
+   header, triangle meters, keys cut wider at the top.
+   ══════════════════════════════════════════════════════════════════════ */
+.c { --c: #6fd24a; --h: #3a0807; position: relative; font-family: "Chakra Petch", "Arial Narrow", sans-serif;
+  background: linear-gradient(180deg, #4a0c0a, var(--h) 30%, #220403); padding: 0 6px 6px;
+  border: 1px solid #000; box-shadow: inset 0 1px 0 rgba(255,120,100,.18), 0 3px 8px rgba(0,0,0,.6); }
+.c-head { position: relative; display: flex; align-items: center; height: 28px; gap: 6px; padding: 0 4px; }
+.c-title { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: 14px; letter-spacing: .12em; text-transform: uppercase;
+  color: #ffb6a4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-tri { flex: none; width: 30px; height: 24px; display: grid; place-items: start center; padding-top: 2px;
+  background: var(--c); clip-path: polygon(0 0, 100% 0, 50% 100%);
+  font: 700 9px/1 "Share Tech Mono", monospace; color: #041004; filter: drop-shadow(0 0 4px var(--c)); }
+.c-code { flex: none; font: 11px/1 "Share Tech Mono", monospace; color: #ff8a70; letter-spacing: .06em; }
+.c-scope { position: relative; padding: 6px 8px 7px; color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, #000);
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, transparent calc(50% - .5px), color-mix(in srgb, var(--c) 10%, transparent) calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)),
+    radial-gradient(circle at 50% 50%, transparent 0 38%, color-mix(in srgb, var(--c) 8%, transparent) 38.5% 39%, transparent 39.5%),
+    radial-gradient(120% 90% at 50% 40%, #071a08, #020803 70%);
+  box-shadow: inset 0 0 18px rgba(0,0,0,.9), inset 0 0 0 1px #000; }
+.c-scope::before, .c-scope::after { content: ""; position: absolute; width: 10px; height: 10px; background: var(--c); opacity: .8; }
+.c-scope::before { left: -1px; top: -1px; clip-path: polygon(0 0, 100% 0, 0 100%); }
+.c-scope::after { right: -1px; top: -1px; clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.c-id { font: 12px/1.2 "Share Tech Mono", monospace; letter-spacing: .04em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--c) 60%, #000); margin-bottom: 6px; }
+.c-lbl { display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: color-mix(in srgb, var(--c) 55%, #000); }
+.c-lbl span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.c-lbl span:last-child { flex: none; font-family: "Share Tech Mono", monospace; color: var(--c); }
+.c-well { margin-bottom: 6px; }
+.c .dice { gap: 2px; }
+.c .d20 { color: #c8ffb0; font-family: "Share Tech Mono", monospace; width: 32px; height: 32px;
+  background: color-mix(in srgb, var(--c) 9%, transparent);
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+.c .d20 img { opacity: .14; }
+.c .d20.c { color: #ffd84a; } .c .d20.x { color: #ff5a40; } .c .d20.f { color: #2a5a20; }
+.c .d20.sel { background: color-mix(in srgb, #ffcc33 25%, transparent); }
+.c-note { font-size: 12px; font-weight: 600; color: color-mix(in srgb, var(--c) 55%, #fff); padding: 2px 0 2px 14px; margin-bottom: 6px; position: relative; }
+.c-note::before { content: ""; position: absolute; left: 1px; top: 6px; width: 8px; height: 7px; background: var(--nc, #ffd84a);
+  clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.c-read { display: grid; gap: 3px; margin-bottom: 6px; }
+.c-row { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 8px; font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 70%, #000); }
+.c-row b { font: 400 16px/1 "Share Tech Mono", monospace; color: #d8ffc4; letter-spacing: 0; text-shadow: 0 0 6px color-mix(in srgb, var(--c) 70%, transparent); }
+.c-tris { grid-column: 1 / -1; display: flex; height: 9px; margin-top: 1px; }
+.c-tris i { flex: none; width: 12px; background: color-mix(in srgb, var(--c) 16%, transparent); clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+.c-tris i + i { margin-left: -5px; }
+.c-tris i:nth-child(even) { clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.c-tris i.on { background: var(--c); }
+.c-tris i.d { background: #5a1a10; } .c-tris i.d.on { background: #ff5a40; }
+.c-result { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; padding: 3px 0;
+  border-top: 1px solid var(--rc, var(--c)); border-bottom: 1px solid var(--rc, var(--c));
+  font-weight: 700; font-size: 15px; letter-spacing: .24em; text-transform: uppercase; color: var(--rc, var(--c));
+  text-shadow: 0 0 8px color-mix(in srgb, var(--rc, var(--c)) 60%, transparent); }
+.c-result::before { content: ""; width: 12px; height: 10px; background: currentColor; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.c-result small { margin-left: auto; white-space: nowrap; font: 11px "Share Tech Mono", monospace; letter-spacing: .04em; }
+.c-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 3px; margin-top: 6px; }
+.c-key { --k: #d23a1c; min-height: 27px; padding: 3px 10px 2px; text-align: center; border: 0;
+  font-family: inherit; font-weight: 700; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #1a0200;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--k) 100%, #fff 30%), var(--k) 55%, color-mix(in srgb, var(--k) 70%, #000));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 100%, 7px 100%); }
+.c-key small { display: block; font-size: 9px; letter-spacing: .08em; opacity: .75; }
+.c-key.wide { grid-column: 1 / -1; }
+.c-key.armed { --k: #ffcc33; }
+.c-spend { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 10px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 70%, #000); }
+.c-spend span { flex: 1; }
+.c-step { width: 22px; height: 20px; border: 1px solid var(--c); background: transparent; color: var(--c); font-weight: 700; }
+.c-spend b { font: 16px "Share Tech Mono", monospace; color: #d8ffc4; min-width: 14px; text-align: center; }
+.c-foot { display: flex; justify-content: space-between; gap: 6px; padding: 5px 2px 0; font: 10px "Share Tech Mono", monospace;
+  letter-spacing: .06em; text-transform: uppercase; color: #a8584a; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Klingon chat cards</h1>
+  <p class="lede">Three concepts for the <code>klingon</code> theme, worn by the Klingon campaign era: the Working Results task card, the damage cards (ship and ground) and the smaller cards (Confirmed, Sensor Contact, Hazard Entry). As with the TNG, TOS, TMP and ENT concepts, each is one frame shared by every card, with the card type given by the frame colour. Colours start from the <code>klingon</code> tokens in <code>lcars-theme.js</code>. Footers carry the Year of Kahless date the Klingon Stardate HUD already shows (<code>formatKlingonDate</code>). Rules terms stay in English; tlhIngan Hol appears only as flavour in codes and seals, the way the HUD's buttons already use it. Cards are shown at Foundry's chat sidebar width.</p>
+
+  <!-- ═══════════════════════════ A ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept A · the Stardate HUD, opened out</div>
+      <h2>Tactical Strut</h2>
+      <p>The Klingon HUD's own language made into a card: a crimson strut with an angled cut carries the code, the title runs across black, and a line of angular script sits under it. No curves anywhere. Dice sit in a blade-ended well, readouts are parallelogram cells, Successes against Difficulty is a run of chevrons, and the result is a full-width strut. Keys are dark parallelograms with a coloured edge, like the HUD's buttons. Closest to what the era already shows, and the cheapest to build.</p>
+      <div class="swatches"><span><i style="background:#cc1111"></i>Task</span><span><i style="background:#f0b030"></i>Passed</span><span><i style="background:#ff4422"></i>Damage / failed</span><span><i style="background:#ddaa88"></i>Sensors</span><span><i style="background:#ff8800"></i>Hazard</span><span><i style="background:#884400"></i>Assist</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Kargan · Working</div>
+        <div class="a">
+          <div class="a-head"><span class="a-strut">Qu' 03</span><span class="a-title">Fire Disruptors</span><span class="a-end"></span></div>
+          <div class="a-glyph"></div>
+          <div class="a-body">
+            <div class="a-id">Lt. Kargan · Comp Range 20</div>
+            <div class="a-well">
+              <div class="a-lbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 c"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+            </div>
+            <div class="a-well">
+              <div class="a-lbl"><span>IKS Rotarran · Weapons + Security</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+            </div>
+            <div class="a-note">Fire at Will: +1 bonus Momentum on success</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Successes</span><b>4</b></div>
+              <div class="a-cell"><span>Difficulty</span><b>2</b></div>
+              <div class="a-cell" style="--vc:#f0b030"><span>Momentum</span><b>2</b></div>
+            </div>
+            <div class="a-chev"><i class="d on"></i><i class="d on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
+            <div class="a-result">Success <em>Qapla'</em><small>+2 Momentum</small></div>
+            <div class="a-keys">
+              <button class="a-key armed">▶ Determination<small>Multiple dice</small></button>
+              <button class="a-key">Targeting Solution</button>
+              <button class="a-key" style="--k:#cc8800">Talent Reroll</button>
+              <button class="a-key" style="--k:#884400">Edit Card</button>
+              <button class="a-key wide" style="--k:#ff4422">Resolve Hit · 4 Successes</button>
+            </div>
+            <div class="a-foot"><span>YK 998 · jaj 14 Maktag</span><b>14:32</b></div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="a" style="--c:#ff4422">
+          <div class="a-head"><span class="a-strut">QIH 02</span><span class="a-title">Plasma Torpedo Hit</span><span class="a-end"></span></div>
+          <div class="a-glyph"></div>
+          <div class="a-body">
+            <div class="a-id">Romulan Warbird ▸ IKS Rotarran</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Damage</span><b>8</b></div>
+              <div class="a-cell"><span>Resist</span><b>−3</b></div>
+              <div class="a-cell"><span>Shields</span><b>12→7</b></div>
+            </div>
+            <div class="a-result" style="--rc:#ff4422">Breach<small>Weapons</small></div>
+            <div class="a-note" style="--nc:#ff8800">Shields below 50%: one breach to Weapons</div>
+            <div class="a-spend"><span>Spend Momentum · +1 Damage</span><button class="a-step">−</button><b>1</b><button class="a-step">+</button></div>
+            <div class="a-keys">
+              <button class="a-key" style="--k:#ff4422">Apply Damage</button>
+              <button class="a-key" style="--k:#884400">Undo</button>
+            </div>
+            <div class="a-foot"><span>Tactical</span><b>14:33</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="a" style="--c:#ff4422">
+          <div class="a-head"><span class="a-strut">QIH 04</span><span class="a-title">Bat'leth Strike</span><span class="a-end"></span></div>
+          <div class="a-glyph"></div>
+          <div class="a-body">
+            <div class="a-id">Warrior Kor ▸ Jem'Hadar Soldier</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Severity</span><b>4</b></div>
+              <div class="a-cell"><span>Protect</span><b>−1</b></div>
+              <div class="a-cell"><span>Stress</span><b>8→5</b></div>
+            </div>
+            <div class="a-result" style="--rc:#ff1100;color:#fff">Deadly Injury</div>
+            <div class="a-keys">
+              <button class="a-key" style="--k:#ff4422">Take Injury</button>
+              <button class="a-key" style="--k:#cc8800">Avoid<small>2 Threat</small></button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Cmdr. Kurn · Confirmed</div>
+        <div class="a" style="--c:#f0b030">
+          <div class="a-head"><span class="a-strut" style="color:#0a0000">Qapla'</span><span class="a-title">Analyse Anomaly</span><span class="a-end"></span></div>
+          <div class="a-body">
+            <div class="a-read two"><div class="a-cell wide" style="--vc:#f0b030"><span>Momentum gained</span><b>+2</b></div></div>
+            <div class="a-keys"><button class="a-key wide" style="--k:#f0b030">Add Momentum to Pool (+2)</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Cmdr. Kurn · Sensors</div>
+        <div class="a" style="--c:#ddaa88">
+          <div class="a-head"><span class="a-strut" style="color:#0a0000">noch</span><span class="a-title">Sensor Contact</span><span class="a-end"></span></div>
+          <div class="a-body">
+            <div class="a-id">Reveal · Hidden vessel</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Bearing</span><b>047</b></div>
+              <div class="a-cell"><span>Mark</span><b>15</b></div>
+              <div class="a-cell"><span>Range</span><b>Med</b></div>
+            </div>
+            <div class="a-foot"><span>Zone</span><b>Mempa Sector</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="a" style="--c:#ff8800">
+          <div class="a-head"><span class="a-strut" style="color:#0a0000">Qob 03</span><span class="a-title">Hazard Entry</span><span class="a-end"></span></div>
+          <div class="a-body">
+            <div class="a-id">Ion Storm · Lingering</div>
+            <div class="a-read two">
+              <div class="a-cell"><span>Rotarran</span><b>Hull</b></div>
+              <div class="a-cell"><span>Potency</span><b>3</b></div>
+            </div>
+            <div class="a-keys">
+              <button class="a-key" style="--k:#ff8800">Build &amp; Apply</button>
+              <button class="a-key" style="--k:#cc8800">Established</button>
+              <button class="a-key wide" style="--k:#884400">Ignore</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ B ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept B · the Great Hall</div>
+      <h2>Forged Plate</h2>
+      <p>Ceremony rather than instruments: a hammered iron plate with a rivet in each corner, a blood-red enamel header cut like a blade, and a three-blade mark beside a title set in a heavy blackletter. Dice sit in recessed wells, readouts are engraved ledger lines with a row of blade teeth for Successes against Difficulty, and the result is struck as an enamel seal: <i>Qapla'</i> on a pass, <i>bIlujpu'</i> on a failure. Keys are raised iron studs with an enamel edge. The most distinctive of the three and the heaviest on the page.</p>
+      <div class="swatches"><span><i style="background:#b31a10"></i>Task</span><span><i style="background:#c08a30"></i>Passed</span><span><i style="background:#e0401c"></i>Damage</span><span><i style="background:#5a3a2a"></i>Failed</span><span><i style="background:#8a6a3a"></i>Sensors</span><span><i style="background:#d06a10"></i>Hazard</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Kargan · Working</div>
+        <div class="b">
+          <div class="b-head"><svg class="b-emb" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><path d="M10 1 L12 8 L10 10 L8 8 Z"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(120 10 10)"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(240 10 10)"/><circle cx="10" cy="10" r="1.6"/></g></svg><span class="b-title">Fire Disruptors</span><span class="b-code">Qu' 03</span></div>
+          <div class="b-id">Lt. Kargan · Comp Range 20</div>
+          <div class="b-well">
+            <div class="b-lbl"><span>Control + Security</span><span>T 12</span></div>
+            <div class="dice">
+              <span class="sta2e-card-die d20 c"><img alt=""><i>★★</i><b>1</b></span>
+              <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+              <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+            </div>
+          </div>
+          <div class="b-well">
+            <div class="b-lbl"><span>IKS Rotarran · Weapons + Security</span><span>T 10</span></div>
+            <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+          </div>
+          <div class="b-note">Fire at Will: +1 bonus Momentum on success</div>
+          <div class="b-read">
+            <div class="b-row"><span>Successes</span><b>4</b></div>
+            <div class="b-teeth"><i class="d on"></i><i class="d on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="b-row"><span>Difficulty</span><b>2</b></div>
+            <div class="b-row"><span>Momentum</span><b>2</b></div>
+          </div>
+          <div class="b-seal" style="--rc:#c08a30"><strong>Qapla'</strong><span>Success</span><small>+2 Momentum</small></div>
+          <div class="b-keys">
+            <button class="b-key armed">▶ Determination<small>Multiple dice</small></button>
+            <button class="b-key">Targeting Solution</button>
+            <button class="b-key" style="--k:#c08a30">Talent Reroll</button>
+            <button class="b-key" style="--k:#5a3a2a">Edit Card</button>
+            <button class="b-key wide" style="--k:#e0401c">Resolve Hit · 4 Successes</button>
+          </div>
+          <div class="b-foot"><span>YK 998</span><i>◆</i><span>jaj 14 Maktag</span><i>◆</i><span>14:32</span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="b" style="--c:#c8301a">
+          <div class="b-head"><svg class="b-emb" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><path d="M10 1 L12 8 L10 10 L8 8 Z"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(120 10 10)"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(240 10 10)"/><circle cx="10" cy="10" r="1.6"/></g></svg><span class="b-title">Plasma Torpedo Hit</span><span class="b-code">QIH</span></div>
+          <div class="b-id">Romulan Warbird ▸ IKS Rotarran</div>
+          <div class="b-read">
+            <div class="b-row"><span>Damage</span><b>8</b></div>
+            <div class="b-row"><span>Resistance</span><b>−3</b></div>
+            <div class="b-row"><span>Shields</span><b>12 → 7</b></div>
+          </div>
+          <div class="b-seal" style="--rc:#e0401c"><strong>Breach</strong><small>Weapons</small></div>
+          <div class="b-note" style="--nc:#d06a10">Shields below 50%: one breach to Weapons</div>
+          <div class="b-spend"><span>Spend Momentum · +1 Damage</span><button class="b-step">−</button><b>1</b><button class="b-step">+</button></div>
+          <div class="b-keys">
+            <button class="b-key" style="--k:#e0401c">Apply Damage</button>
+            <button class="b-key" style="--k:#5a3a2a">Undo</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage · failed defence</div>
+        <div class="b" style="--c:#c8301a">
+          <div class="b-head"><svg class="b-emb" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><path d="M10 1 L12 8 L10 10 L8 8 Z"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(120 10 10)"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(240 10 10)"/><circle cx="10" cy="10" r="1.6"/></g></svg><span class="b-title">Bat'leth Strike</span><span class="b-code">QIH</span></div>
+          <div class="b-id">Warrior Kor ▸ Jem'Hadar Soldier</div>
+          <div class="b-read">
+            <div class="b-row"><span>Severity</span><b>4</b></div>
+            <div class="b-row"><span>Protection</span><b>−1</b></div>
+            <div class="b-row"><span>Stress</span><b>8 → 5</b></div>
+          </div>
+          <div class="b-seal" style="--rc:#5a3a2a"><strong>bIlujpu'</strong><span>Deadly Injury</span></div>
+          <div class="b-keys">
+            <button class="b-key" style="--k:#e0401c">Take Injury</button>
+            <button class="b-key" style="--k:#c08a30">Avoid<small>2 Threat</small></button>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Cmdr. Kurn · Confirmed</div>
+        <div class="b" style="--c:#9a6a20">
+          <div class="b-head"><svg class="b-emb" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><path d="M10 1 L12 8 L10 10 L8 8 Z"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(120 10 10)"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(240 10 10)"/><circle cx="10" cy="10" r="1.6"/></g></svg><span class="b-title">Analyse Anomaly</span><span class="b-code">Qapla'</span></div>
+          <div class="b-read"><div class="b-row"><span>Momentum gained</span><b>+2</b></div></div>
+          <div class="b-keys"><button class="b-key wide" style="--k:#c08a30">Add Momentum to Pool (+2)</button></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Cmdr. Kurn · Sensors</div>
+        <div class="b" style="--c:#7a5a32">
+          <div class="b-head"><svg class="b-emb" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><path d="M10 1 L12 8 L10 10 L8 8 Z"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(120 10 10)"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(240 10 10)"/><circle cx="10" cy="10" r="1.6"/></g></svg><span class="b-title">Sensor Contact</span><span class="b-code">noch</span></div>
+          <div class="b-id">Reveal · Hidden vessel</div>
+          <div class="b-read">
+            <div class="b-row"><span>Bearing</span><b>047 Mk 15</b></div>
+            <div class="b-row"><span>Range</span><b>Medium</b></div>
+            <div class="b-row"><span>Zone</span><b>Mempa Sector</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="b" style="--c:#c0600e">
+          <div class="b-head"><svg class="b-emb" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><path d="M10 1 L12 8 L10 10 L8 8 Z"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(120 10 10)"/><path d="M10 1 L12 8 L10 10 L8 8 Z" transform="rotate(240 10 10)"/><circle cx="10" cy="10" r="1.6"/></g></svg><span class="b-title">Hazard Entry</span><span class="b-code">Qob</span></div>
+          <div class="b-id">Ion Storm · Lingering</div>
+          <div class="b-read">
+            <div class="b-row"><span>Rotarran</span><b>Hull</b></div>
+            <div class="b-row"><span>Potency</span><b>3</b></div>
+          </div>
+          <div class="b-keys">
+            <button class="b-key" style="--k:#d06a10">Build &amp; Apply</button>
+            <button class="b-key" style="--k:#c08a30">Established</button>
+            <button class="b-key wide" style="--k:#5a3a2a">Ignore</button>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ C ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept C · the film-era bridge</div>
+      <h2>Targeting Scope</h2>
+      <p>The Klingon bridge of the films: a dim red housing round a green phosphor scope with a faint reticle and scanlines, and the triangle everywhere. The header carries the viewer's inverted triangle as a lamp, dice sit in hexagonal cells, Successes and Difficulty are rows of interlocking triangles, and the keys are backlit plates cut wider at the top. The card type changes the scope's phosphor, not the housing: green for a task, gold passed, red damage, amber for sensors and hazards. Most "instrument" of the three, and the most readable at a glance.</p>
+      <div class="swatches"><span><i style="background:#6fd24a"></i>Task</span><span><i style="background:#ffd84a"></i>Passed</span><span><i style="background:#ff5a40"></i>Damage / failed</span><span><i style="background:#ffaa3a"></i>Sensors / hazard</span><span><i style="background:#d23a1c"></i>Keys</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Lt. Kargan · Working</div>
+        <div class="c">
+          <div class="c-head"><span class="c-title">Fire Disruptors</span><span class="c-code">Qu' 03</span><span class="c-tri">03</span></div>
+          <div class="c-scope">
+            <div class="c-id">Lt. Kargan · Comp Range 20</div>
+            <div class="c-well">
+              <div class="c-lbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 c"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+            </div>
+            <div class="c-well">
+              <div class="c-lbl"><span>IKS Rotarran · Weapons + Security</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+            </div>
+            <div class="c-note">Fire at Will: +1 bonus Momentum on success</div>
+            <div class="c-read">
+              <div class="c-row"><span>Successes</span><b>4</b><span class="c-tris"><i class="d on"></i><i class="d on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+              <div class="c-row"><span>Difficulty</span><b>2</b></div>
+              <div class="c-row"><span>Momentum</span><b>2</b></div>
+            </div>
+            <div class="c-result" style="--rc:#ffd84a">Success<small>+2 · Qapla'</small></div>
+          </div>
+          <div class="c-keys">
+            <button class="c-key armed">▶ Determination<small>Multiple dice</small></button>
+            <button class="c-key">Targeting Solution</button>
+            <button class="c-key" style="--k:#c08a30">Talent Reroll</button>
+            <button class="c-key" style="--k:#7a5040">Edit Card</button>
+            <button class="c-key wide" style="--k:#ff5a40">Resolve Hit · 4 Successes</button>
+          </div>
+          <div class="c-foot"><span>YK 998 · jaj 14 Maktag</span><span>14:32</span></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="c" style="--c:#ff5a40">
+          <div class="c-head"><span class="c-title">Plasma Torpedo Hit</span><span class="c-code">QIH</span><span class="c-tri">02</span></div>
+          <div class="c-scope">
+            <div class="c-id">Romulan Warbird ▸ IKS Rotarran</div>
+            <div class="c-read">
+              <div class="c-row"><span>Damage</span><b>8</b></div>
+              <div class="c-row"><span>Resistance</span><b>−3</b></div>
+              <div class="c-row"><span>Shields</span><b>12 → 7</b><span class="c-tris"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i></span></div>
+            </div>
+            <div class="c-result">Breach<small>Weapons</small></div>
+            <div class="c-note" style="--nc:#ffaa3a">Shields below 50%: one breach to Weapons</div>
+            <div class="c-spend"><span>Spend Momentum · +1 Damage</span><button class="c-step">−</button><b>1</b><button class="c-step">+</button></div>
+          </div>
+          <div class="c-keys">
+            <button class="c-key" style="--k:#ff5a40">Apply Damage</button>
+            <button class="c-key" style="--k:#7a5040">Undo</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="c" style="--c:#ff5a40">
+          <div class="c-head"><span class="c-title">Bat'leth Strike</span><span class="c-code">QIH</span><span class="c-tri">04</span></div>
+          <div class="c-scope">
+            <div class="c-id">Warrior Kor ▸ Jem'Hadar Soldier</div>
+            <div class="c-read">
+              <div class="c-row"><span>Severity</span><b>4</b></div>
+              <div class="c-row"><span>Protection</span><b>−1</b></div>
+              <div class="c-row"><span>Stress</span><b>8 → 5</b></div>
+            </div>
+            <div class="c-result">Deadly Injury</div>
+          </div>
+          <div class="c-keys">
+            <button class="c-key" style="--k:#ff5a40">Take Injury</button>
+            <button class="c-key" style="--k:#c08a30">Avoid<small>2 Threat</small></button>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Cmdr. Kurn · Confirmed</div>
+        <div class="c" style="--c:#ffd84a">
+          <div class="c-head"><span class="c-title">Analyse Anomaly</span><span class="c-code">Qapla'</span><span class="c-tri">OK</span></div>
+          <div class="c-scope">
+            <div class="c-read"><div class="c-row"><span>Momentum gained</span><b>+2</b></div></div>
+          </div>
+          <div class="c-keys"><button class="c-key wide" style="--k:#ffd84a">Add Momentum to Pool (+2)</button></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Cmdr. Kurn · Sensors</div>
+        <div class="c" style="--c:#ffaa3a">
+          <div class="c-head"><span class="c-title">Sensor Contact</span><span class="c-code">noch</span><span class="c-tri">SN</span></div>
+          <div class="c-scope">
+            <div class="c-id">Reveal · Hidden vessel</div>
+            <div class="c-read">
+              <div class="c-row"><span>Bearing</span><b>047 Mk 15</b></div>
+              <div class="c-row"><span>Range</span><b>Medium</b></div>
+              <div class="c-row"><span>Zone</span><b>Mempa Sector</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="c" style="--c:#ffaa3a">
+          <div class="c-head"><span class="c-title">Hazard Entry</span><span class="c-code">Qob</span><span class="c-tri">03</span></div>
+          <div class="c-scope">
+            <div class="c-id">Ion Storm · Lingering</div>
+            <div class="c-read">
+              <div class="c-row"><span>Rotarran</span><b>Hull</b></div>
+              <div class="c-row"><span>Potency</span><b>3</b></div>
+            </div>
+          </div>
+          <div class="c-keys">
+            <button class="c-key" style="--k:#ffaa3a">Build &amp; Apply</button>
+            <button class="c-key" style="--k:#c08a30">Established</button>
+            <button class="c-key wide" style="--k:#7a5040">Ignore</button>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+  </section>
+
+  <div class="notes">
+    <h3>Notes for building any of these</h3>
+    <ul>
+      <li>The working card would follow the TOS / TMP / TNG / ENT route: a <code>task-card-klingon.js</code> skin built from the same <code>skinView</code>, used for <code>klingon</code> whatever <code>taskCardStyle</code> says, keeping the DOM contract (<code>.sta2e-working-actions</code>, <code>.sta2e-card-die</code> dice with their <code>&lt;img&gt;</code>, button classes, <code>data-*</code>). The other cards would get a <code>klingonChatCard</code> branch in <code>lcarsChatCard</code>, with the body going through <code>_consoleBodyHtml(html, "kli")</code> so tiles, plates, notes and chips map onto <b>A</b>'s cells and wells, <b>B</b>'s recessed wells and ledger rows, or <b>C</b>'s scope.</li>
+      <li><b>Built:</b> Concept C ships as <code>task-card-klingon.js</code> / <code>klingonChatCard</code>, with the body pass's prefix <code>kli</code>. In the build the lamp carries the Difficulty, and a success die on the card is drawn in the scope's green rather than the token olive.</li>
+      <li>Every key keeps its colour inline (<code>--k</code> here). <b>A</b>'s keys are edged, not filled, like ENT's tabs, so arming takes <code>_armCardSelection</code>'s unfilled path (yellow text and edge). <b>B</b> and <b>C</b> would carry <code>data-filled="1"</code>, so arming lights them yellow, as shown. <b>B</b>'s bevel and enamel edge are inset <code>box-shadow</code>s, which arming never touches; <b>A</b>'s and <b>C</b>'s angled ends are a <code>clip-path</code>.</li>
+      <li><b>A</b>'s strut, end cap and script line, <b>B</b>'s rivets and <b>C</b>'s scope corners are pseudo-elements or background layers in a build, so builders emit no extra markup. The script line is invented strokes worn as a <code>mask-image</code>, not pIqaD, so no font licence is involved and it takes each card's colour.</li>
+      <li><b>B</b>'s seal and <b>C</b>'s result line use tlhIngan Hol only beside the English rules term (<i>Qapla'</i>, <i>bIlujpu'</i>), and the header codes reuse words the HUD already uses (Qu' task, QIH damage, noch sensor, Qob danger). A world setting could turn them off.</li>
+      <li>The three-blade mark in <b>B</b> is a plain vector drawn for this mockup. The module already ships the Klingon Empire emblem in <code>assets/emblems/</code> if the real mark is wanted.</li>
+      <li>Fonts: <b>A</b> uses Teko and Barlow Condensed; <b>B</b> uses Grenze Gotisch for titles and seals with Barlow Condensed; <b>C</b> uses Chakra Petch with Share Tech Mono for numbers (already bundled in <code>fonts/tmp/</code>). All are Google fonts under the SIL OFL and would be bundled as <code>fonts/tng/</code> is.</li>
+      <li>The Romulan theme has the same gap and could follow whichever concept is picked here, with its own palette.</li>
+    </ul>
+  </div>
+</div>
+<script>
+const D20 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=";
+document.querySelectorAll(".d20 img").forEach(img => { img.src = D20; });
+</script>
+</body>
+</html>

@@ -8,8 +8,10 @@
  * Under the TOS theme (tos-panel) the same call gives the TOS Console Viewer
  * frame instead (tosChatCard below), the sibling of task-card-tos.js, and under
  * TMP (tmp-console) the Console Monitor frame (tmpChatCard), the sibling of
- * task-card-tmp.js, and under ENT (ent-panel) the Bridge Touchscreen frame
- * (entChatCard), the sibling of task-card-ent.js.
+ * task-card-tmp.js, under ENT (ent-panel) the Bridge Touchscreen frame
+ * (entChatCard), the sibling of task-card-ent.js, and under Klingon (klingon)
+ * the Targeting Scope frame (klingonChatCard), the sibling of
+ * task-card-klingon.js.
  *
  * Shape: the TNG "Bracket Console" (tngChatCard below) — open brackets at the
  * four corners, the title centred in the top bar's gap, segmented side arms. It
@@ -33,14 +35,15 @@
  * against a controls element in there. Anything that rebuilt the body would have
  * to re-establish all of it.
  *
- * Nearly a leaf: it imports lcars-theme.js, task-card-tng.js and
- * task-card-ent.js, each of which imports only lcars-theme.js, so any builder
+ * Nearly a leaf: it imports lcars-theme.js, task-card-tng.js, task-card-ent.js
+ * and task-card-klingon.js, each of which imports only lcars-theme.js, so any builder
  * can use it without risking an import cycle.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom } from "./task-card-tng.js";
 import { entHead, entFoot } from "./task-card-ent.js";
+import { klingonHead } from "./task-card-klingon.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 
@@ -239,6 +242,13 @@ export function tosifyBodyHtml(html) { return _consoleBodyHtml(html, "tos"); }
 export function entBodyHtml(html) { return _consoleBodyHtml(html, "ent"); }
 
 /**
+ * The Klingon body pass: the same classifier with `ccf-kli-*` classes, which
+ * task-card-klingon.css redraws as parts of the scope. Exported for the spend
+ * panel, injected after render.
+ */
+export function klingonBodyHtml(html) { return _consoleBodyHtml(html, "kli"); }
+
+/**
  * The TOS "Console Viewer" frame: a gunmetal housing, a header with the title
  * and three indicator lamps (the first lit in the card's accent), and the body
  * set into a curved amber CRT. The body goes through the TOS body pass
@@ -351,10 +361,38 @@ function entChatCard({ title, accent, body, rootClass, attrs }) {
 </div>`;
 }
 
+/** The Klingon frame's theme gate, matching `klingonSkin` in npc-roller.js. */
+export function isKlingonChatCardFrame() {
+  try { return isKlingonTheme(getActiveLcThemeKey()); }
+  catch { return false; }
+}
+
+/**
+ * The Klingon "Targeting Scope" frame — the sibling of task-card-klingon.js,
+ * built from the same klingonHead markup and `.tkc` classes, so the frame
+ * exists once in task-card-klingon.css. The accent is the scope's phosphor:
+ * its border, corner marks and the header's triangle lamp (--tkc-c); the red
+ * housing stays put. The whole body goes on the scope, through klingonBodyHtml
+ * — its LCARS shapes become scope parts, its buttons backlit plates — and the
+ * scope keeps `.ccf-body`, which several wirers use as their host. Body text
+ * keeps the `klingon` token colours it is written in, which are made for
+ * near-black and read the same on the scope.
+ */
+function klingonChatCard({ title, accent, body, rootClass, attrs }) {
+  const colour = accent || LC.primary;
+  return `
+<div class="sta2e-chat-card sta2e-chat-card--klingon tkc${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("cc")}--ccf-c:${colour};--tkc-c:${colour};">
+  ${klingonHead(stripDecorativeEmoji(title))}
+  <div class="tkc-scope ccf-body">${klingonBodyHtml(body)}</div>
+</div>`;
+}
+
 export function lcarsChatCard({ title, accent, body, legacy, rootClass = "", attrs = "" }) {
   if (isTosChatCardFrame()) return tosChatCard({ title, accent, body, rootClass, attrs });
   if (isTmpChatCardFrame()) return tmpChatCard({ title, accent, body, rootClass, attrs });
   if (isEntChatCardFrame()) return entChatCard({ title, accent, body, rootClass, attrs });
+  if (isKlingonChatCardFrame()) return klingonChatCard({ title, accent, body, rootClass, attrs });
   if (!isChatCardFrame()) return legacy();
   return tngChatCard({ title, accent, body, rootClass, attrs });
 }

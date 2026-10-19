@@ -213,7 +213,7 @@ check('TNG still gets its own frame, other eras their legacy markup', () => {
   const tng = lcarsChatCard({ title: 'T', body, legacy });
   assert.match(tng, /sta2e-chat-card--tng tbc/);
   assert.doesNotMatch(tng, /sta2e-chat-card--tos|--tck-a/);
-  theme = 'klingon';
+  theme = 'romulan';
   assert.equal(lcarsChatCard({ title: 'T', body, legacy }), legacy());
   theme = 'tos-panel';
 });
@@ -316,7 +316,7 @@ check('TOS body pass: other eras get the body untouched', () => {
   theme = 'lcars-tng';
   // TNG runs its own body pass (font only), never the TOS one.
   assert.doesNotMatch(lcarsChatCard({ title: 'T', body: damageBody, legacy }), /ccf-tos-|--tck-a/);
-  theme = 'klingon';
+  theme = 'romulan';
   assert.equal(lcarsChatCard({ title: 'T', body: damageBody, legacy }), legacy());
   theme = 'tos-panel';
 });

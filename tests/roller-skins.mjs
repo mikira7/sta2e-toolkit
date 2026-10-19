@@ -26,7 +26,7 @@ globalThis.game = {
 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { getLcTokens, getActiveLcThemeKey, isEntTheme } = await import('../scripts/lcars-theme.js');
+const { getLcTokens, getActiveLcThemeKey, isEntTheme, isKlingonTheme } = await import('../scripts/lcars-theme.js');
 const skin = await import('../scripts/roller-skin.js');
 
 // ── Lift the real builder out of npc-roller.js ───────────────────────────────
@@ -56,7 +56,7 @@ const constSrc = name => {
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const context = vm.createContext({
   LC, game: globalThis.game, console, Math, Number, String, Object, Array, JSON,
-  getActiveLcThemeKey, isEntTheme,
+  getActiveLcThemeKey, isEntTheme, isKlingonTheme,
   isSkinnedRoller: skin.isSkinnedRoller,
   _rollResourceProfile: () => ({ usesPlayerPayment: true }),
   isFlightControllerPilotTask: () => false,
@@ -332,6 +332,15 @@ check('a crit die is gold under ENT, whose primary is the grey of a miss', () =>
   });
   const tngStars = critStars(build(rolledState()));
   assert.deepEqual([...new Set(tngStars)], [getLcTokens().primary], 'other eras keep their primary');
+});
+
+check('a crit die is gold under Klingon, whose primary is the red of a complication', () => {
+  const critStars = h => [...h.matchAll(/color:\s*([^;"]+);"?>★★/g)].map(m => m[1].trim());
+  withTheme('klingon', () => {
+    const stars = critStars(build(rolledState()));
+    assert.ok(stars.length > 0, 'the rolled dialog draws a crit');
+    assert.deepEqual([...new Set(stars)], ['#ffd84a']);
+  });
 });
 
 check('themes without a skin keep the plain dialog', () => {

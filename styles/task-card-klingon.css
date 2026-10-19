@@ -1,0 +1,519 @@
+/*
+ * sta2e-toolkit | task-card-klingon.css
+ *
+ * Shape for the Klingon "Targeting Scope" (docs/klingon-card-mockups.html,
+ * Concept C): the film-era Klingon bridge — a dim red housing round a
+ * green-black phosphor scope with a faint reticle and scanlines, the viewer's
+ * inverted triangle as the header lamp, dice in hexagonal cells, triangle
+ * meters, and backlit keys cut wider at the top.
+ *
+ * Three parts:
+ *  • The FRAME hangs off `.tkc`, which both the task card
+ *    (scripts/task-card-klingon.js) and the chat card frame's Klingon path
+ *    (klingonChatCard in scripts/chat-card-frame.js) put on their root. Its
+ *    colour is `--tkc-c` — the scope's phosphor, stamped inline by whichever
+ *    builder made the root. The housing does not change with it.
+ *  • The TASK CARD rules hang off .sta2e-task-card--klingon.
+ *  • The CHAT CARD rules hang off .sta2e-chat-card--klingon: the body parts the
+ *    Klingon body pass classifies (`ccf-kli-*`) and the keys it stamps (--tck-a).
+ *
+ * ── The two hard rules from styles/task-card.css apply here too ─────────────
+ * 1. No `!important`.
+ * 2. Nothing may set background / border-color / color / opacity on a key.
+ *    _armCardSelection() owns those while a reroll is armed and restores them
+ *    through style.cssText, so a task-card key's colour is entirely inline.
+ *    The keys are `data-filled`, so arming lights them yellow. Chat-card keys
+ *    are painted by a rule from --tck-a, exactly as the TOS, TMP and ENT
+ *    frames paint theirs.
+ *
+ * Specificity: the shared rules in task-card.css go up to (0,2,1), so the task
+ * card rules here use three classes to win on specificity rather than on
+ * stylesheet order.
+ */
+
+/* ── Fonts ────────────────────────────────────────────────────────────────── */
+/* Chakra Petch, bundled in fonts/klingon (SIL Open Font License, text beside
+   it), under a name of our own so nothing else in a world can collide with it.
+   Latin subset only: ▶ → ★ fall through to the next font in the stack. The
+   numbers use "STA2e Share Tech Mono", declared in task-card-tmp.css. */
+@font-face {
+  font-family: "STA2e Chakra Petch";
+  src: url("../fonts/klingon/ChakraPetch-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "STA2e Chakra Petch";
+  src: url("../fonts/klingon/ChakraPetch-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "STA2e Chakra Petch";
+  src: url("../fonts/klingon/ChakraPetch-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* (0,2,0), to outrank chat-card.css's .sta2e-chat-card font on specificity. */
+.sta2e-task-card.tkc,
+.sta2e-chat-card.tkc {
+  font-family: var(--tkc-font);
+}
+
+.tkc button,
+.tkc input,
+.tkc select,
+.tkc textarea {
+  font-family: inherit;
+}
+
+/* ── Frame ────────────────────────────────────────────────────────────────── */
+.tkc {
+  --tkc-font: "STA2e Chakra Petch", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --tkc-mono: "STA2e Share Tech Mono", "Consolas", monospace;
+  --tkc-c: #6fd24a;
+  --tkc-ink: #c8ffb0;      /* values on the scope */
+  --tkc-label: color-mix(in srgb, var(--tkc-c) 62%, #000);
+  --tkc-faint: color-mix(in srgb, var(--tkc-c) 48%, #000);
+  --tkc-pass: #ffd84a;
+  --tkc-fail: #ff5a40;
+  --tkc-cost: #ffaa3a;
+  position: relative;
+  padding: 0 6px 6px;
+  border: 1px solid #000;
+  background: linear-gradient(180deg, #4a0c0a, #3a0807 30%, #220403);
+  box-shadow: inset 0 1px 0 rgba(255, 120, 100, 0.18), 0 3px 8px rgba(0, 0, 0, 0.6);
+  color: var(--tkc-ink);
+}
+
+/* Title, an optional code, and the inverted-triangle lamp. */
+.tkc .tkc-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 2px 0 4px;
+}
+
+.tkc .tkc-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0 3px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffb6a4;
+  overflow-wrap: anywhere;
+}
+
+.tkc .tkc-code {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  font-family: var(--tkc-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  color: #ff8a70;
+}
+
+.tkc .tkc-tri {
+  flex: none;
+  width: 30px;
+  height: 24px;
+  padding-top: 3px;
+  background: var(--tkc-c);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  filter: drop-shadow(0 0 4px var(--tkc-c));
+  font-family: var(--tkc-mono);
+  font-size: 9px;
+  line-height: 1;
+  text-align: center;
+  color: #041004;
+}
+
+/* The scope: green-black glass, scanlines, a faint reticle, and two corner
+   triangles in the phosphor colour. */
+.tkc .tkc-scope {
+  position: relative;
+  padding: 6px 8px 7px;
+  border: 1px solid color-mix(in srgb, var(--tkc-c) 45%, #000);
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.28) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb, var(--tkc-c) 10%, transparent) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    radial-gradient(circle at 50% 50%, transparent 0 38%, color-mix(in srgb, var(--tkc-c) 8%, transparent) 38.5% 39%, transparent 39.5%),
+    radial-gradient(120% 90% at 50% 40%, #071a08, #020803 70%);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.9), inset 0 0 0 1px #000;
+}
+.tkc .tkc-scope::before,
+.tkc .tkc-scope::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  width: 10px;
+  height: 10px;
+  background: var(--tkc-c);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.tkc .tkc-scope::before { left: -1px; clip-path: polygon(0 0, 100% 0, 0 100%); }
+.tkc .tkc-scope::after { right: -1px; clip-path: polygon(0 0, 100% 0, 100% 100%); }
+
+/* ── Task card ────────────────────────────────────────────────────────────── */
+.sta2e-task-card.sta2e-task-card--klingon[data-theme] {
+  --tcx-radius: 0;
+  /* The reroll tray reads these with fallbacks (combat-hud-core.js). */
+  --tcx-btn-radius: 0;
+  --tcx-tray-radius: 0;
+}
+
+.sta2e-task-card--klingon .tkc-sub {
+  margin-bottom: 6px;
+  font-family: var(--tkc-mono);
+  font-size: 12px;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tkc-label);
+}
+
+.sta2e-task-card--klingon .tkc-well { margin-bottom: 6px; }
+
+.sta2e-task-card--klingon .tkc-lbl {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  text-transform: uppercase;
+  color: var(--tkc-label);
+}
+.sta2e-task-card--klingon .tkc-lbl > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sta2e-task-card--klingon .tkc-lbl > span + span {
+  flex: none;
+  font-family: var(--tkc-mono);
+  letter-spacing: 0.04em;
+  color: var(--tkc-c);
+}
+
+.sta2e-task-card--klingon .tkc-line {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tkc-faint);
+}
+
+/* Each die sits in a hexagonal cell. The hex is a pseudo-element behind the
+   d20 image rather than a clip-path on the die, which would clip the outline
+   and glow setCardDieState writes on a selected die. The colours stay inline. */
+.sta2e-task-card--klingon .sta2e-card-die { font-family: var(--tkc-mono); }
+.sta2e-task-card--klingon .sta2e-card-die::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--tkc-c) 10%, transparent);
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  pointer-events: none;
+}
+
+/* Notes: a small inverted triangle leads each line. */
+.sta2e-task-card--klingon .tkc-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.sta2e-task-card--klingon .tkc-note {
+  --tn: #ffd84a;
+  position: relative;
+  padding: 1px 0 1px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: color-mix(in srgb, var(--tkc-c) 45%, #fff);
+}
+.sta2e-task-card--klingon .tkc-note::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 5px;
+  width: 8px;
+  height: 7px;
+  background: var(--tn);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.sta2e-task-card--klingon .tkc-note--warn  { --tn: #ff5a40; }
+.sta2e-task-card--klingon .tkc-note--bonus { --tn: #6fd24a; }
+.sta2e-task-card--klingon .tkc-note--trait { --tn: #ffaa3a; }
+
+/* ── Readout ──────────────────────────────────────────────────────────────── */
+.sta2e-task-card--klingon .tkc-read {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.sta2e-task-card--klingon .tkc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tkc-label);
+}
+.sta2e-task-card--klingon .tkc-row--cpx > span:first-child,
+.sta2e-task-card--klingon .tkc-row--threat > span:first-child { color: #ff6a50; }
+
+.sta2e-task-card--klingon .tkc-row b {
+  font-family: var(--tkc-mono);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+  color: #d8ffc4;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--tkc-c) 70%, transparent);
+}
+
+/* The triangle meter: alternate triangles point up and down and overlap, so
+   the run reads as one serrated strip. The Difficulty is red at its head. */
+.tkc .tkc-tris {
+  grid-column: 1 / -1;
+  display: flex;
+  height: 10px;
+  margin-top: 1px;
+}
+.tkc .tkc-tris i {
+  flex: none;
+  width: 14px;
+  background: color-mix(in srgb, var(--tkc-c) 26%, transparent);
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
+.tkc .tkc-tris i + i { margin-left: -6px; }
+.tkc .tkc-tris i:nth-child(even) { clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.tkc .tkc-tris i.on { background: var(--tkc-c); }
+.tkc .tkc-tris i.d { background: #7a2414; }
+.tkc .tkc-tris i.d.on { background: #ff5a40; }
+
+.sta2e-task-card--klingon .tkc-res {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.sta2e-task-card--klingon .tkc-res-lbl,
+.sta2e-task-card--klingon .tkc-res-sub {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tkc-label);
+}
+.sta2e-task-card--klingon .tkc-res-sub { color: var(--tkc-faint); }
+
+/* The result: a ruled line led by a triangle, the flavour word at its end. */
+.sta2e-task-card--klingon .tkc-result {
+  --rc: var(--tkc-pass);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--rc);
+  border-bottom: 1px solid var(--rc);
+  color: var(--rc);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--rc) 60%, transparent);
+}
+.sta2e-task-card--klingon .tkc-result::before {
+  content: "";
+  flex: none;
+  width: 12px;
+  height: 10px;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.sta2e-task-card--klingon .tkc-result strong {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.sta2e-task-card--klingon .tkc-result small {
+  margin-left: auto;
+  font-family: var(--tkc-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.sta2e-task-card--klingon .tkc-result--fail { --rc: var(--tkc-fail); }
+.sta2e-task-card--klingon .tkc-result--cost { --rc: var(--tkc-cost); }
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* Each .sta2e-working-actions section stays a plain block: the reroll tray is
+   appended to it and must land below the keys. The grid is the inner list. */
+.sta2e-task-card--klingon .tkc-actions { margin-top: 6px; }
+
+.sta2e-task-card--klingon .tkc-sect-lbl {
+  margin: 0 2px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #c87a68;
+}
+
+.sta2e-task-card.sta2e-task-card--klingon .tkc-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 3px;
+}
+
+/* A backlit plate, cut wider at the top. Colour is inline (rule 2 above). */
+.sta2e-task-card.sta2e-task-card--klingon .tkc-key {
+  display: block;
+  box-sizing: border-box;   /* "Completed" / "Applied to" are divs */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 27px;
+  margin: 0;
+  padding: 4px 11px 3px;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 100%, 7px 100%);
+  transition: filter 0.11s ease-out;
+}
+
+/* A wide key spans the pad, and so does a key left alone at the end of a row. */
+.sta2e-task-card.sta2e-task-card--klingon .tkc-pad > .tkc-key.tkc-key--wide,
+.sta2e-task-card.sta2e-task-card--klingon .tkc-pad > .tkc-key:nth-child(odd):last-child,
+.sta2e-task-card.sta2e-task-card--klingon .tkc-pad > .tkc-key:nth-child(odd):has(+ .tkc-key--wide) {
+  grid-column: 1 / -1;
+}
+
+.sta2e-task-card.sta2e-task-card--klingon div.tkc-key { cursor: default; }
+
+.sta2e-task-card--klingon button.tkc-key:hover:not(:disabled) { filter: brightness(1.18); }
+.sta2e-task-card--klingon button.tkc-key:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-task-card--klingon button.tkc-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+
+/* The keys are two to a row, so a name wraps rather than ellipsing — the
+   shared rule in task-card.css clips it to one line. */
+.sta2e-task-card--klingon .tkc-key .sta2e-rr-name {
+  overflow: visible;
+  white-space: normal;
+}
+.sta2e-task-card--klingon .sta2e-rr-cost { font-size: 9.5px; letter-spacing: 0.05em; }
+
+/* The reroll tray's Cancel is written inline in the theme's textDim (#662200),
+   which vanishes on this dark housing. Its colour is out of reach without
+   !important, so it is brightened instead; the tray is not a key, so rule 2
+   above does not apply to it. */
+.sta2e-task-card--klingon .sta2e-tray-cancel { filter: brightness(2.6); }
+
+/* ── Chat card frame ─────────────────────────────────────────────────────── */
+/* klingonChatCard wraps every other card's body in the same frame, the body on
+   the scope. The body's own padding rule in chat-card.css is (0,2,0); this
+   outranks it. */
+.sta2e-chat-card.sta2e-chat-card--klingon .tkc-scope.ccf-body {
+  padding: 6px 7px 7px;
+}
+
+/* Card bodies set their font sizes inline (mostly 8–11px), chosen for Arial
+   Narrow; Chakra Petch is wider, so the body is left at its own size. */
+
+/* The body pass (klingonBodyHtml) stripped the LCARS boxes from these and
+   stamped a class; --tn-c is the shape's own accent where it had one. */
+.sta2e-chat-card--klingon .ccf-kli-tile {
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--tkc-c) 30%, transparent);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sta2e-chat-card--klingon .ccf-kli-plate {
+  border: 1px solid color-mix(in srgb, var(--tkc-c) 25%, transparent);
+  background: rgba(0, 0, 0, 0.3);
+}
+.sta2e-chat-card--klingon .ccf-kli-plate[style*="--tn-c"] { border-left: 3px solid var(--tn-c); }
+
+/* A banner keeps its colour as a triangle lead, the scope's own note mark. The
+   lead is inline, not positioned: the banner keeps its own inline padding,
+   which a rule cannot widen to make room for it. */
+.sta2e-chat-card--klingon .ccf-kli-note {
+  border-top: 1px solid color-mix(in srgb, var(--tn-c, var(--tkc-c)) 35%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tn-c, var(--tkc-c)) 35%, transparent);
+}
+.sta2e-chat-card--klingon .ccf-kli-note::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 7px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  background: var(--tn-c, var(--tkc-c));
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+.sta2e-chat-card--klingon .ccf-kli-chip {
+  border: 1px solid var(--tn-c, color-mix(in srgb, var(--tkc-c) 50%, transparent));
+  background: color-mix(in srgb, var(--tn-c, var(--tkc-c)) 12%, transparent);
+}
+
+.sta2e-chat-card--klingon .ccf-kli-ctl {
+  border: 1px solid color-mix(in srgb, var(--tkc-c) 45%, transparent);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.5);
+  color: #d8ffc4;
+}
+.sta2e-chat-card--klingon input[type="checkbox"].ccf-kli-ctl,
+.sta2e-chat-card--klingon input[type="radio"].ccf-kli-ctl {
+  accent-color: var(--tkc-c);
+}
+
+/* Keys, built from the --tck-a the body pass stamps (as the TOS, TMP and ENT
+   frames do). Buttons injected without one keep their own look. Three classes
+   deep to outrank chat-card.css's `.sta2e-chat-card .ccf-body button` radius. */
+.sta2e-chat-card.sta2e-chat-card--klingon .ccf-body button[style*="--tck-a"] {
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--tck-a) 70%, #fff), var(--tck-a) 55%, color-mix(in srgb, var(--tck-a) 70%, #000));
+  color: var(--tck-ink);
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 6px 100%);
+  box-shadow: none;
+}
+.sta2e-chat-card.sta2e-chat-card--klingon .ccf-body button[style*="--tck-a"]:hover:not(:disabled),
+.sta2e-chat-card.sta2e-chat-card--klingon .ccf-body button[style*="--tck-a"]:active:not(:disabled) {
+  box-shadow: none;
+}
+.sta2e-chat-card--klingon .ccf-body button[style*="--tck-a"]:hover:not(:disabled) { filter: brightness(1.18); }
+.sta2e-chat-card--klingon .ccf-body button[style*="--tck-a"]:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-chat-card--klingon .ccf-body button[style*="--tck-a"]:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }

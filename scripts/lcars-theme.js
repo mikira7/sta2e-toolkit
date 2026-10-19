@@ -157,6 +157,15 @@ export const ENT_THEME_KEYS = new Set(["ent-panel"]);
 /** Whether a theme id wears the Bridge Touchscreen cards. */
 export function isEntTheme(key) { return ENT_THEME_KEYS.has(key); }
 
+/**
+ * Themes whose task card and chat cards wear the Klingon Targeting Scope
+ * (task-card-klingon.js, klingonChatCard in chat-card-frame.js).
+ */
+export const KLINGON_THEME_KEYS = new Set(["klingon"]);
+
+/** Whether a theme id wears the Targeting Scope cards. */
+export function isKlingonTheme(key) { return KLINGON_THEME_KEYS.has(key); }
+
 export function themeForEra(era) {
   return ERA_THEME_DEFAULTS[era] ?? "lcars-tng";
 }
