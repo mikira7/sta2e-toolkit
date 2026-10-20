@@ -67,7 +67,7 @@ import {
   OFFICER_ATTRIBUTES,
   OFFICER_DISCIPLINES,
 } from "../crew-manifest.js";
-import { getLcTokens }  from "../lcars-theme.js";
+import { getLcTokens, withLcTheme, withBaseLcTheme }  from "../lcars-theme.js";
 import { lcarsChatCard } from "../chat-card-frame.js";
 import { clampHudPos, clampHudElement, onViewportResize } from "../hud-position.js";
 import { adjustPool } from "../pool-service.js";
@@ -19882,7 +19882,13 @@ function _pendingAssistCount(message, btn) {
 // Ground injury buttons are visible to ALL users (players choose to avoid/take).
 // Ship damage buttons are GM-only.
 
-Hooks.on("renderChatMessageHTML", (message, html) => {
+// Runs under the theme the card was rolled in (rollData.skinTheme — the rolling
+// actor's Sheet Skin), so what it injects matches the card. Handlers it attaches
+// run later and outside that scope; the card rebuilds scope themselves.
+Hooks.on("renderChatMessageHTML", (message, html) =>
+  withLcTheme(message.flags?.["sta2e-toolkit"]?.rollData?.skinTheme, () => _onRenderChatMessageHTML(message, html)));
+
+function _onRenderChatMessageHTML(message, html) {
   // A re-render replaces the card DOM — drop any selection armed on the old nodes.
   if (_cardArmedSelection && !_cardArmedSelection.armBtn.isConnected) _cardArmedSelection = null;
 
@@ -24251,7 +24257,7 @@ Hooks.on("renderChatMessageHTML", (message, html) => {
 
     });
   }
-});
+}
 
 
 // ── Warp breach pulse animation ───────────────────────────────────────────────

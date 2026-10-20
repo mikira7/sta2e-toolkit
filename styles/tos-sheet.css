@@ -799,3 +799,20 @@
   border-bottom: 2px solid #111;
   color: #f2f2f2;
 }
+
+/* ── Sheet Skin select, injected into the system's Colour Palette dialog ──── */
+/* (tos-sheet-theme.js). Not part of the overlay: it styles the dialog. */
+.sta2e-sheet-skin {
+  margin: 0 0 8px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--color-border-light-2, rgba(128, 128, 128, 0.4));
+}
+.sta2e-sheet-skin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sta2e-sheet-skin-label { flex: 0 0 auto; font-weight: 700; }
+.sta2e-sheet-skin-row select { flex: 1 1 auto; min-width: 0; }
+.sta2e-sheet-skin-hint { margin: 4px 0 0; font-size: 0.85em; opacity: 0.75; }
+.palette-list.sta2e-sheet-skin-muted { opacity: 0.5; }

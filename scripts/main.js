@@ -68,8 +68,8 @@ import { LcarsActionRing } from "./lcars-action-ring.js";
 import { registerTraitItemSheetFields } from "./trait-item-sheet.js";
 import { getCrewManifest, STATION_SLOTS, getAssignedShips, setAssignedShips, normalizeAssignedShips, readOfficerStats, openCrewManifest, findOfficerStation, stationLabel, SHIP_CREW_ACTION, applyShipCrewRequest } from "./crew-manifest.js";
 import { registerShipCrewTab } from "./ship-crew-tab.js";
-import { registerTosSheetTheme, refreshTosSheets } from "./tos-sheet-theme.js";
-import { getLcTokens, getActiveLcThemeKey, migrateRetiredThemes } from "./lcars-theme.js";
+import { registerTosSheetTheme, refreshTosSheets, sheetSkinOf } from "./tos-sheet-theme.js";
+import { getLcTokens, getActiveLcThemeKey, migrateRetiredThemes, withBaseLcTheme } from "./lcars-theme.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { registerElevationRuler } from "./elevation-ruler.js";
 import { applyWildcardName } from "./wildcard-namer.js";
@@ -3504,6 +3504,10 @@ function _sheetThemePalette(LC) {
  *  colors to match the currently active toolkit HUD theme.  Idempotent — safe
  *  to call any number of times. */
 function _applySheetTheme() {
+  return withBaseLcTheme(_applySheetThemeNow);
+}
+
+function _applySheetThemeNow() {
   // The era overlays (tos-sheet-theme.js) are tagged per sheet; re-tag open ones
   // first, since a theme or setting change is exactly what moves them in or out.
   refreshTosSheets();
@@ -3655,12 +3659,14 @@ function _applySheetTheme() {
   document.head.appendChild(el);
 }
 
-/** Tags a sheet whose actor picked its own palette, so _applySheetTheme leaves
- *  it alone. Runs on every render, and the system re-renders the sheet itself
- *  when the palette changes. */
+/** Tags a sheet whose actor picked its own palette, or the System sheet skin in
+ *  the palette dialog (tos-sheet-theme.js), so _applySheetTheme leaves it alone.
+ *  Runs on every render, and the system re-renders the sheet itself when the
+ *  palette or the skin flag changes. */
 Hooks.on("renderActorSheetV2", (app) => {
   const palette = app.document?.system?.palette;
-  app.element?.classList.toggle("sta2e-own-palette", !!palette && palette !== "default");
+  const own = (!!palette && palette !== "default") || sheetSkinOf(app.document) === "system";
+  app.element?.classList.toggle("sta2e-own-palette", own);
 });
 
 // ---------------------------------------------------------------------------
@@ -4948,6 +4954,13 @@ registerShipCrewTab();
 Hooks.on("renderSTASmallCraftSheet2e", _addShipToolkitSettingsButton);
 // TOS sheet overlay — tags the 2e sheets' template roots (styles/tos-sheet.css).
 registerTosSheetTheme();
+// A skinned dice roller holds its actor's theme while open (npc-roller.js); the
+// persistent HUDs render under the campaign theme so it does not repaint them.
+for (const [cls, method] of [[CombatHUD, "_build"], [LcarsActionRing, "_render"], [ToolkitWidget, "_build"]]) {
+  const original = cls?.prototype?.[method];
+  if (typeof original !== "function") continue;
+  cls.prototype[method] = function (...args) { return withBaseLcTheme(() => original.apply(this, args)); };
+}
 
 // Existing character/NPC sheets keep their normal sheet; VFX holds object configuration.
 for (const hook of ["renderSTACharacterSheet2e", "renderSTANPCSheet2e", "renderSTASupportingSheet2e"]) {

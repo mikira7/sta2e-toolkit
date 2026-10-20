@@ -110,6 +110,39 @@ source is `docs/tos-sheet-mockup.html`. Four things it rests on:
   with `!important`. Breach counts turn red through `.breaches:not([value="0"])`,
   which works because the template writes the count as the value attribute.
 
+**Per-actor Sheet Skin.** The system's Colour Palette dialog gets a **Sheet Skin**
+select (`_injectSkinSelect`, on `renderDialogV2`), saved with the dialog's own Save
+as the actor flag `sheetSkin`: blank = Auto (the theme + `themeCharacterSheet` +
+palette rule above), `system` = the system sheet and its palette under any theme
+(main.js's `sta2e-own-palette` tag reads it via `sheetSkinOf`, so the LCARS recolour
+stays off), or an era theme id, which puts that overlay on the sheet regardless of
+theme, switch or palette. The dialog carries no actor reference, so a capture-phase
+click listener on the sheet's `.colourpalette` key records the actor (valid for 5 s)
+just before the system opens it. **Auto also means faction:** with the world setting
+`factionSheetSkins` (on by default) a Klingon or Romulan actor — name, `species`,
+traits text or trait items, so "Klingon" and "Klingon Starship" both count — wears that
+skin, unless it picked its own palette (sheet only) or chose `system`.
+
+**The skin follows the actor into its dice roller and cards.** `actorSkinTheme(actor)`
+(tos-sheet-theme.js) is the one answer to "which era does this actor wear". Every skin
+reads the theme through `getActiveLcThemeKey`, so lcars-theme.js carries a **scoped
+override stack**: `pushLcThemeOverride` / `withLcTheme` / `withBaseLcTheme`, and
+`getCampaignLcThemeKey` for the theme beneath it. Four rules:
+
+- `openNpcRoller` pushes the actor's (else the officer's) skin and **holds it until the
+  roller closes**, because its handlers write themed markup long after the build. Cards
+  posted while it is open (the task card, a weapon's damage cards) take the skin.
+- `rollData.skinTheme` carries it into the card: `buildPlayerRollCardHtml` wraps itself
+  in `withLcTheme(rollData.skinTheme)`, and every rebuild spreads the old rollData, so
+  rerolls, assists and the confirm keep the skin on every client. A new rebuild must
+  spread rollData too, or pass `skinTheme` on.
+- The task card's `renderChatMessageHTML` hook in combat-hud-core.js runs under the
+  card's `skinTheme`. Click handlers it attaches run later, outside the scope.
+- **Persistent surfaces must render under `withBaseLcTheme`**, or a roller held open
+  repaints them: main.js wraps `CombatHUD#_build`, `LcarsActionRing#_render`,
+  `ToolkitWidget#_build` and `_applySheetTheme`, and the sheet tagger reads
+  `getCampaignLcThemeKey`. Partial refreshes inside those widgets are not wrapped.
+
 **The TMP overlay** is the same machinery for `tmp-console`: the tagger stamps
 `.sta2e-tmp-sheet` instead (`ERA_CLASSES` in tos-sheet-theme.js; it toggles every era
 class, so a theme change moves an open sheet across), `_applySheetTheme` skips it too,

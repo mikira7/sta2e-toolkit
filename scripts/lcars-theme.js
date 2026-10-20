@@ -179,7 +179,54 @@ export function themeForEra(era) {
   return ERA_THEME_DEFAULTS[era] ?? "lcars-tng";
 }
 
+// ── Scoped theme override ────────────────────────────────────────────────────
+// An actor's Sheet Skin (tos-sheet-theme.js) dresses its dice roller and the
+// cards that roll posts in that skin's era. Everything that skins reads the
+// theme through getActiveLcThemeKey, so the override lives here: a stack of
+// pushed keys (the top wins), plus `null` entries pushed by withBaseLcTheme,
+// which the persistent HUDs use so a roller held open does not repaint them.
+const _themeOverrides = [];
+
+function _overrideKey() {
+  const top = _themeOverrides[_themeOverrides.length - 1];
+  return top && THEMES[top] ? top : null;
+}
+
+/** Push a theme override; returns its release (safe to call more than once). */
+export function pushLcThemeOverride(key) {
+  const entry = { key: key && THEMES[canonicalThemeKey(key)] ? canonicalThemeKey(key) : null };
+  _themeOverrides.push(entry.key);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const i = _themeOverrides.lastIndexOf(entry.key);
+    if (i >= 0) _themeOverrides.splice(i, 1);
+  };
+}
+
+/** Run fn synchronously under theme `key` (a falsy key leaves the theme alone). */
+export function withLcTheme(key, fn) {
+  if (!key) return fn();
+  const release = pushLcThemeOverride(key);
+  try { return fn(); } finally { release(); }
+}
+
+/** Run fn synchronously under the campaign theme, ignoring any override. */
+export function withBaseLcTheme(fn) {
+  if (!_themeOverrides.length) return fn();
+  const release = pushLcThemeOverride(null);
+  try { return fn(); } finally { release(); }
+}
+
 export function getActiveLcThemeKey() {
+  const override = _overrideKey();
+  if (override) return override;
+  return getCampaignLcThemeKey();
+}
+
+/** The campaign / world theme, never an actor's skin override. */
+export function getCampaignLcThemeKey() {
   let themeKey = "lcars-tng";
   try {
     const store = game?.sta2eToolkit?.campaignStore;

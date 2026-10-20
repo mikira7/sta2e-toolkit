@@ -1397,6 +1397,17 @@ export function registerSettings() {
   });
 
   // ── Character sheet theme ─────────────────────────────────────────────────
+  // Klingon / Romulan actors wear their faction's sheet, roller and card skin
+  // when their Sheet Skin is Auto (tos-sheet-theme.js actorSkinTheme).
+  game.settings.register("sta2e-toolkit", "factionSheetSkins", {
+    name:    "STA2E.Settings.FactionSheetSkins.Name",
+    hint:    "STA2E.Settings.FactionSheetSkins.Hint",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: true,
+    onChange: () => game.sta2eToolkit?.refreshSheetTheme?.(),
+  });
   game.settings.register("sta2e-toolkit", "themeCharacterSheet", {
     name:    "STA2E.Settings.ThemeCharacterSheet.Name",
     hint:    "STA2E.Settings.ThemeCharacterSheet.Hint",

@@ -276,6 +276,8 @@
   "STA2E.Settings.InteractiveDicePayment.Hint": "If enabled, replaces the standard extra dice slider in the roller with interactive drag-and-drop slots for Momentum and Threat.",
   "STA2E.Settings.OverrideSheetRoller.Name": "Use Toolkit Dice Roller on Character Sheet",
   "STA2E.Settings.OverrideSheetRoller.Hint": "Intercepts attribute-test clicks on actor sheets and opens the STA2e Toolkit roller instead of the system dialog. GMs can right-click a character token to assign preferred ships for that character.",
+  "STA2E.Settings.FactionSheetSkins.Name": "Klingon & Romulan Skins by Faction",
+  "STA2E.Settings.FactionSheetSkins.Hint": "Actors whose name, species or traits say Klingon or Romulan (a Klingon character, a Klingon Starship) wear that era's sheet, dice roller and chat cards when their Sheet Skin is Auto. Set Sheet Skin to System sheet in the Colour Palette dialog to opt one out.",
   "STA2E.Settings.ThemeCharacterSheet.Name": "Apply Toolkit Theme to Character Sheets",
   "STA2E.Settings.ThemeCharacterSheet.Hint": "Reskins STA2e actor sheets to match the active HUD theme (LCARS TNG, TOS Panel, etc.). Toggle off to restore system default styling.",
   "STA2E.Settings.AlertVolume.Name": "Alert Sound Volume",

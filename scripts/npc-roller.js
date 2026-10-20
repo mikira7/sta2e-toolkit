@@ -14,7 +14,8 @@
  * Task result is evaluated against Difficulty and posted to chat as an LCARS card.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme, isRomulanTheme } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme, isRomulanTheme, pushLcThemeOverride, withLcTheme } from "./lcars-theme.js";
+import { actorSkinTheme } from "./tos-sheet-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
@@ -3664,6 +3665,12 @@ function buildChatCard(actorName, state) {
  * @returns {string} HTML string.
  */
 export function buildPlayerRollCardHtml(rollData) {
+  // The rolling actor's Sheet Skin (stamped by openNpcRoller) dresses the card,
+  // on every client and through every rebuild, since rebuilds spread rollData.
+  return withLcTheme(rollData?.skinTheme, () => _buildPlayerRollCardHtml(rollData));
+}
+
+function _buildPlayerRollCardHtml(rollData) {
   const {
     taskLabel, taskContext: rawTaskContext, officerName: rawOfficerName, difficulty: baseDifficulty,
     crewDice, shipDice, crewAssistDice, apAssistDice, namedAssistDice,
@@ -5082,6 +5089,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     }
 
     const rollData = {
+      skinTheme,
       callbackId,
       // Whether a taskCallback was registered for this roll. PlayerRollCallbacks is
       // per-client, so the resolving client cannot infer this from the map alone.
@@ -5355,6 +5363,15 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       top,
     };
   };
+
+  // The rolling actor's Sheet Skin (an explicit era, or Klingon / Romulan by
+  // faction) dresses this roller and every card it posts. It is held for as long
+  // as the roller is open — handlers write themed markup long after the build —
+  // and travels on rollData as skinTheme for the card's rebuilds. The persistent
+  // HUDs render under withBaseLcTheme, so holding it does not repaint them.
+  const skinTheme = actorSkinTheme(actor)
+    ?? (state.officer?.id ? actorSkinTheme(game.actors.get(state.officer.id)) : null);
+  const releaseSkin = skinTheme ? pushLcThemeOverride(skinTheme) : () => {};
 
   const openDialog = async () => {
     // Player mode, NPC ship mode, ground character, OR ship-sheet assist:
@@ -5857,10 +5874,11 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       // Only resolve when the current roller dialog closes, not some other dialog
       if (closedApp === dialog) {
         Hooks.off("closeDialogV2", hookId);
+        releaseSkin();
         resolve();
       }
     });
-    openDialog();
+    openDialog().catch(err => { releaseSkin(); throw err; });
   });
 }
 
