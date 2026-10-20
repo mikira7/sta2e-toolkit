@@ -1,0 +1,983 @@
+/*
+ * sta2e-toolkit | klingon-sheet.css
+ *
+ * The Klingon "Targeting Scope" overlay for the 2e actor sheets — character,
+ * NPC, supporting character, starship and small craft. Applied by
+ * scripts/tos-sheet-theme.js, which stamps `.sta2e-kli-sheet` and
+ * `data-sta2e-sheet="<kind>"` on the template root under the klingon theme;
+ * every rule below is nested under both. The design source is
+ * docs/klingon-sheet-mockup.html; the structure follows styles/ent-sheet.css
+ * rule for rule, because that file (like tmp-sheet.css and tos-sheet.css) was
+ * checked against the real markup.
+ *
+ * The look is the Klingon task and chat cards' (styles/task-card-klingon.css):
+ * the template's columns are sections of dim red housing; everything that reads
+ * out — the attribute, discipline, system and department blocks, every item
+ * list, the portrait, the notes and the four ship stats — is a green-black
+ * phosphor scope with scanlines and two corner triangles; the viewer's inverted
+ * triangle is each record's lamp; tracks are rows of hexagonal cells (the cell
+ * the card's dice sit in); checkboxes and radios are hexagonal cells that light
+ * gold; and keys and tabs are backlit plates whose slant alternates
+ * /===\ \===/ /===\, interlocking along a thin diagonal seam. Typed fields are
+ * thin scope strips with a phosphor underline, so typed text is always
+ * phosphor on black and labels always salmon on red. Chakra Petch for labels
+ * (task-card-klingon.css declares it) and Share Tech Mono for numbers
+ * (task-card-tmp.css declares it).
+ *
+ * ── Rules this file lives by (the same as ent-sheet.css) ────────────────────
+ * 1. Style the system's markup where it stands. Nothing is wrapped or moved, so
+ *    the panels are the template's own columns, the scopes its own blocks, and
+ *    the decorations are pseudo-elements or background layers.
+ * 2. No `!important`. Core's `.hidden { display: none !important }` sits in a
+ *    cascade layer and still wins, so `display` may be set freely. sta.css
+ *    carries a few `!important` border colours, so underlines and outlines on
+ *    inputs are drawn as box-shadows, which it never touches.
+ * 3. The root selector is a class plus an attribute, so every nested rule
+ *    outranks the system's `.character-sheet .x` rules on specificity. Tab items
+ *    need the full `nav.sheet-tabs.tabs a.item` chain to outrank the system's.
+ * 4. Inline styles the toolkit writes at runtime win: the NPC Ship block's
+ *    show/hide `display`, and the Crew tab's panel switching.
+ *
+ * Two things a clip-path forces:
+ *  • A hexagon or triangle cut by clip-path loses any border or box-shadow, so
+ *    an outlined cell is a rim FILL under an inset second hexagon (::before),
+ *    and an unlit track cell is simply a dark fill.
+ *  • The scopes' corner triangles are background layers (--kli-marks), not
+ *    pseudo-elements, so both pseudo-elements stay free — the portrait's
+ *    caption and the record header need them.
+ */
+
+.sta2e-kli-sheet[data-sta2e-sheet] {
+  --kli-font: "STA2e Chakra Petch", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --kli-mono: "STA2e Share Tech Mono", Consolas, monospace;
+  --kli-c: #6fd24a;        /* scope phosphor: borders, marks, lit cells */
+  --kli-ink: #c8ffb0;      /* text on a scope */
+  --kli-val: #d8ffc4;      /* values on a scope */
+  --kli-label: #4f9c38;    /* labels on a scope */
+  --kli-faint: #3a7a2a;    /* captions on a scope */
+  --kli-unlit: #2c5a22;    /* an unlit number */
+  --kli-hink: #ffb6a4;     /* titles on the housing */
+  --kli-hdim: #c87a68;     /* labels on the housing */
+  --kli-code: #ff8a70;     /* codes and mono text on the housing */
+  --kli-gold: #ffd84a;
+  --kli-amber: #ffaa3a;
+  --kli-red: #d23a1c;
+  --kli-alarm: #ff5a40;
+  --kli-bronze: #c08a30;
+  --kli-rust: #7a5040;
+  --kli-glass: #020803;
+  --kli-line: rgba(111,210,74,.45);
+  --kli-hair: rgba(111,210,74,.12);
+  --kli-lamp: var(--kli-c);    /* the record lamp's colour, per kind below */
+  --kli-hex: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  --kli-tri: polygon(0 0, 100% 0, 50% 100%);
+  --kli-plate-up: polygon(7px 0, calc(100% - 7px) 0, 100% 100%, 0 100%);   /* /===\ */
+  --kli-plate-dn: polygon(0 0, 100% 0, calc(100% - 7px) 100%, 7px 100%);   /* \===/ */
+  --kli-seam: -4px;            /* how far a plate is pulled over its neighbour */
+  /* A scope: scanlines over green-black glass, with phosphor corner triangles
+     at the top as background layers. */
+  --kli-marks:
+    linear-gradient(to bottom right, var(--kli-c) 50%, transparent 50%) left top / 8px 8px no-repeat,
+    linear-gradient(to bottom left, var(--kli-c) 50%, transparent 50%) right top / 8px 8px no-repeat;
+  --kli-scope:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 1px, transparent 1px 3px),
+    radial-gradient(120% 90% at 50% 40%, #071a08, var(--kli-glass) 70%);
+  --kli-scope-edge: inset 0 0 0 1px color-mix(in srgb, var(--kli-c) 45%, #000), inset 0 0 14px rgba(0,0,0,.9);
+  /* An unlit plate (tabs, the NPC category). A lit key's gradient is written
+     in its own rule, not here: a custom property holding var(--k) resolves
+     where it is DEFINED, and --k is not set on the root. */
+  --kli-plate-idle: linear-gradient(180deg, #5a1210, #2e0605);
+  /* The system's palette variables, so anything drawn through them (the Crew
+     tab, rules this file never names) follows the theme. */
+  --sta-borderblue: #d23a1c;
+  --sta-borderbluedark: #2c0605;
+  --sta-darkestblue: #1c0302;
+  --sta-palestblue: #ffd84a;
+  --sta-palestbluedark: #3a0807;
+
+  padding: 8px;
+  color: var(--kli-ink);
+  font-family: var(--kli-font);
+  background: linear-gradient(180deg, #2c0605, #1c0302 60%, #140201);
+  scrollbar-color: #7a2414 transparent;
+
+  /* ── Shared pieces ──────────────────────────────────────────────────────── */
+
+  /* Panels: the template's own columns, as raised sections of the housing */
+  .top-left-column, .top-right-column, .bottom-left-column, .bottom-right-column,
+  .left-column, .right-column {
+    position: relative;
+    padding: 0 0 8px;
+    background: linear-gradient(180deg, #4a0c0a, #3a0807 30%, #240403);
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px #000, inset 0 2px 0 rgba(255,120,100,.16), 0 2px 6px rgba(0,0,0,.5);
+  }
+
+  /* Labels, on the housing */
+  .title, .tracktitle {
+    margin: 0 0 2px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    color: var(--kli-hdim);
+    font: 700 11px var(--kli-font);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  /* Text fields: thin scope strips with a phosphor underline. border-box, or
+     width:100% plus the padding runs the field past its column (the service
+     record fields, the name field into the icon column). */
+  .text-entry {
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    padding: 3px 6px 2px;
+    background: var(--kli-glass);
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--kli-line), inset 0 0 8px rgba(0,0,0,.9);
+    color: var(--kli-ink);
+    font: 600 14px var(--kli-font);
+    letter-spacing: .03em;
+    &:focus { outline: none; box-shadow: inset 0 -1px 0 var(--kli-gold), inset 0 0 8px rgba(0,0,0,.9); }
+    &::placeholder { color: var(--kli-unlit); }
+  }
+  input[type=number] { appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Every checkbox and radio is a hexagonal cell: the input is the rim, its
+     ::before the glass inside it, both lit gold when on. Core draws its own
+     glyph in ::before / ::after, which this replaces. */
+  input[type=checkbox], input[type=radio] {
+    appearance: none;
+    position: relative;
+    flex: 0 0 auto;
+    width: 13px;
+    height: 12px;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--kli-c) 70%, #000);
+    box-shadow: none;
+    clip-path: var(--kli-hex);
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 1.5px;
+      display: block;
+      width: auto;
+      height: auto;
+      margin: 0;
+      border: 0;
+      background: var(--kli-glass);
+      clip-path: var(--kli-hex);
+      font-size: 0;
+    }
+    &::after { content: none; display: none; }
+    &:checked, &:checked::before { background: var(--kli-gold); }
+    &:disabled { cursor: default; }
+    &:focus-visible { outline: 1px solid var(--kli-gold); outline-offset: 2px; }
+  }
+
+  /* Keys: the card's backlit plates. --k is the key's colour. The slant
+     alternates /===\ \===/ from the first child, so a run of keys shares its
+     diagonal edges. */
+  .check-button, .btn, .btn2, .btn3 {
+    --k: var(--kli-red);
+    position: relative;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 7px 10px 6px;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+    color: #1a0200;
+    line-height: 1.15;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--k) 70%, #fff), var(--k) 55%, color-mix(in srgb, var(--k) 70%, #000));
+    box-shadow: none;
+    clip-path: var(--kli-plate-up);
+    font: 700 12px var(--kli-font);
+    letter-spacing: .1em;
+    text-align: center;
+    text-transform: uppercase;
+    &:nth-child(even) { clip-path: var(--kli-plate-dn); }
+    &:hover { filter: brightness(1.18); }
+    &:active { filter: brightness(.85); }
+  }
+  .btn  { --k: var(--kli-red); }
+  .btn2 { --k: var(--kli-red); }
+  .btn3 { --k: var(--kli-amber); }
+  /* sta.css repaints these on hover; keep the plate. */
+  .btn:hover, .btn2:hover, .btn3:hover {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--k) 70%, #fff), var(--k) 55%, color-mix(in srgb, var(--k) 70%, #000));
+  }
+
+  /* Portrait: a scope, its caption beneath in the mono face */
+  .image-field {
+    position: relative;
+    width: auto;
+    height: auto;
+    margin: 8px 8px 22px;
+    padding: 4px;
+    overflow: visible;
+    background: var(--kli-marks), var(--kli-scope);
+    border: 0;
+    border-radius: 0;
+    box-shadow: var(--kli-scope-edge);
+    &::after {
+      content: "Personnel File";
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: calc(100% + 6px);
+      color: var(--kli-code);
+      opacity: .8;
+      font: 10px var(--kli-mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+  }
+  .profile-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    border: 0;
+    border-radius: 0;
+    object-fit: cover;
+  }
+
+  /* Name field and the three system icons */
+  .name-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 4px 8px 6px;
+    .text-entry {
+      height: auto;
+      padding: 3px 6px 2px;
+      color: var(--kli-val);
+      font: 700 21px var(--kli-font);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      text-shadow: 0 0 6px rgba(111,210,74,.45);
+    }
+  }
+  .icon-column {
+    gap: 3px;
+    padding: 0;
+    justify-content: flex-end;
+    font-size: 11px;
+    > i {
+      width: 30px;
+      height: 18px;
+      padding: 0;
+      border-radius: 0;
+      background-color: var(--kli-hdim);
+      mask-size: 12px;
+      cursor: pointer;
+    }
+    .linked:not(.unlinked) { background-color: var(--kli-amber); }
+    .linked.unlinked { opacity: .5; }
+  }
+
+  /* Tracks: rows of the card's hexagonal cells. Unlit is a dark cell with a dim
+     number; lit is filled in the track's colour (--t). The renderer gives each
+     key an inline width; flex-basis 0 overrides it, and the 28px cap keeps a
+     short track (Determination's 3) a row of hexagons, not lozenges. */
+  .tracktitle { margin: 7px 8px 3px; }
+  .track { margin: 0 8px; }
+  .track .bar:not(.extendedtask) { gap: 1px; padding: 0; }
+  .track .bar .box {
+    --t: var(--kli-c);
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 28px;
+    height: 22px;
+    border: 0;
+    border-radius: 0;
+    color: var(--kli-unlit);
+    background: #061006;
+    box-shadow: none;
+    clip-path: var(--kli-hex);
+    font: 11px var(--kli-mono);
+    &:hover { background: #0d260b; }
+    &.selected {
+      color: #0a0200;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--t) 75%, #fff), var(--t) 55%, color-mix(in srgb, var(--t) 70%, #000));
+    }
+    &.rep, &.shields { --t: var(--kli-c); }
+    &.determination { --t: var(--kli-gold); }
+    &.crew, &.power { --t: var(--kli-amber); }
+    &.stress { --t: var(--kli-alarm); }
+  }
+  .track .shield-gap { width: 4px; }
+
+  /* Scopes: attribute / discipline / system / department blocks */
+  .attribute-block, .discipline-block, .systems-block, .departments-block {
+    position: relative;
+    margin: 6px 8px 8px;
+    padding: 6px 8px 5px;
+    background: var(--kli-marks), var(--kli-scope);
+    border: 0;
+    border-radius: 0;
+    box-shadow: var(--kli-scope-edge);
+    color: var(--kli-ink);
+    font: 600 13px/1.45 var(--kli-font);
+    > .title {
+      margin: 0 0 3px;
+      padding-bottom: 3px;
+      border-bottom: 1px solid var(--kli-line);
+      color: var(--kli-c);
+      font: 700 12px var(--kli-font);
+      letter-spacing: .14em;
+      a { color: var(--kli-gold); }
+    }
+  }
+
+  /* A readout row: name, cell, value, with a hairline under it as the card's
+     readout rows have. min-width:0 stops a long name propping the column open. */
+  .row-right, .stat.row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    margin: 0;
+    padding: 2px 0 3px;
+    box-shadow: inset 0 -1px 0 var(--kli-hair);
+    .list-entry {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      text-align: left;
+      text-transform: uppercase;
+      color: var(--kli-label);
+      font: 700 12px var(--kli-font);
+      letter-spacing: .1em;
+    }
+    &:has(.selector:checked) {
+      .list-entry, .numeric-entry:not(.breaches) { color: var(--kli-gold); text-shadow: 0 0 6px rgba(255,216,74,.55); }
+    }
+  }
+  .numeric-entry {
+    width: 28px;
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--kli-val);
+    font: 16px var(--kli-mono);
+    text-align: right;
+    text-shadow: 0 0 6px rgba(111,210,74,.5);
+  }
+
+  /* Panel numerics: stress / shield / crew modifiers, and the two toggles */
+  .stressmod, .shieldmod, .crwmod, .rollrepnotdis, .amiklingon {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 7px 8px 0;
+    color: var(--kli-hdim);
+    font: 700 11px var(--kli-font);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    .text-entry {
+      width: 44px;
+      margin: 0;
+      padding: 1px;
+      text-align: center;
+      color: var(--kli-val);
+      font: 14px var(--kli-mono);
+    }
+  }
+  .rollrepnotdis { flex-direction: row-reverse; justify-content: flex-end; }
+  /* The roll keys. width:auto + border-box, or sta.css's width and the margins
+     push them past the column. No column gap: the second plate is pulled back
+     over the first's slant instead. */
+  .buttons {
+    box-sizing: border-box;
+    width: auto;
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 3px 0;
+    margin: 8px 8px 0;
+    padding: 0;
+    background: none;
+    > * + * { margin-left: var(--kli-seam); }
+  }
+  .buttons:not(:has(.btn3)) { grid-template-columns: 1fr; }
+
+  /* Tabs: alternating plates over a red rule, the active one gold */
+  nav.sheet-tabs.tabs {
+    display: flex;
+    gap: 0;
+    padding: 6px 7px 0;
+    margin: 0 0 4px;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -2px 0 var(--kli-red);
+    a.item {
+      position: relative;
+      flex: 1;
+      width: auto;
+      padding: 5px 10px 4px;
+      border: 0;
+      border-radius: 0;
+      color: var(--kli-hdim);
+      background: var(--kli-plate-idle);
+      box-shadow: none;
+      clip-path: var(--kli-plate-up);
+      font: 700 12px var(--kli-font);
+      letter-spacing: .12em;
+      text-align: center;
+      text-transform: uppercase;
+      text-shadow: none;
+      &:nth-child(even) { clip-path: var(--kli-plate-dn); }
+      & + a.item { margin-left: var(--kli-seam); }
+      &:first-child { border: 0; }
+      &:hover { color: var(--kli-hink); text-shadow: none; }
+      &.active { color: #1a0200; background: linear-gradient(180deg, #ffe480, var(--kli-gold) 55%, #b39734); }
+    }
+  }
+
+  /* Item sections: a caption led by the card's inverted triangle, over a scope
+     list. width:auto undoes sta.css's `.traits { width: 100% }`, which with
+     these margins pushed the Traits section past its column. */
+  .section {
+    --kli-sec: var(--kli-alarm);
+    width: auto;
+    margin: 8px;
+    > .title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 3px;
+      color: var(--kli-hink);
+      font-size: 12px;
+      &::before { content: ""; flex: none; width: 9px; height: 8px; background: var(--kli-sec); clip-path: var(--kli-tri); }
+    }
+    /* border-box: sta.css gives the header width:100% as a content box, so the
+       padding pushed its + key past the edge of the rows below it. The left
+       corner triangle marks the top of the list. */
+    .header {
+      box-sizing: border-box;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 6px;
+      background:
+        linear-gradient(to bottom right, var(--kli-c) 50%, transparent 50%) left top / 8px 8px no-repeat,
+        linear-gradient(rgba(111,210,74,.08), rgba(111,210,74,.08)),
+        var(--kli-glass);
+      border-radius: 0;
+      border-bottom: 0;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kli-c) 40%, #000);
+      color: var(--kli-faint);
+      font: 700 10px var(--kli-font);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      .image { flex: 0 0 20px; margin: 0; }
+    }
+    .row.entry {
+      position: relative;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      margin: 0;
+      padding: 2px 6px;
+      list-style: none;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 1px, transparent 1px 3px), var(--kli-glass);
+      border-bottom: 0;
+      box-shadow: inset 1px 0 0 color-mix(in srgb, var(--kli-c) 40%, #000), inset -1px 0 0 color-mix(in srgb, var(--kli-c) 40%, #000), inset 0 -1px 0 var(--kli-hair);
+      &:hover {
+        background: linear-gradient(rgba(111,210,74,.07), rgba(111,210,74,.07)), var(--kli-glass);
+        box-shadow: inset 2px 0 0 var(--kli-c), inset -1px 0 0 color-mix(in srgb, var(--kli-c) 40%, #000), inset 0 -1px 0 var(--kli-hair);
+      }
+    }
+    .row .image {
+      flex: 0 0 20px;
+      margin: 0;
+      img { width: 20px; height: 20px; border-radius: 0; clip-path: var(--kli-hex); }
+    }
+    /* height:auto undoes core's fixed input height, which made rows 32px tall. */
+    .item-name {
+      flex: 1;
+      min-width: 0;
+      height: auto;
+      min-height: 0;
+      border: 0;
+      padding: 1px 0;
+      background: transparent;
+      color: var(--kli-ink);
+      font: 600 14px var(--kli-font);
+      letter-spacing: .03em;
+      &.strike-through { opacity: .45; }
+    }
+    input.item-quantity:not([type=checkbox]), .list-entry.damage, .two-column-with-roll-secondary.list-entry {
+      flex: 0 0 34px;
+      width: 34px;
+      height: auto;
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 rgba(111,210,74,.3);
+      color: var(--kli-val);
+      font: 14px var(--kli-mono);
+      text-align: center;
+    }
+    /* Edit / delete surface on hover or keyboard focus, laid over the row end
+       so names get the full width of a narrow column. Values' used switch is
+       also an a.control, and must stay where it is. */
+    .row.entry > .control:not(.value-used) {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: auto;
+      gap: 0;
+      padding: 2px 2px 2px 12px;
+      opacity: 0;
+      pointer-events: none;
+      background: linear-gradient(90deg, transparent, var(--kli-glass) 30%);
+    }
+    /* The fade lives on the revealed state only, so hiding is instant — with
+       the transition on the base rule the keys flashed on every re-render
+       (see tmp-sheet.css). */
+    .row.entry:hover > .control:not(.value-used), .row.entry:focus-within > .control:not(.value-used) { opacity: 1; pointer-events: auto; transition: opacity .12s; }
+    /* The row keys: small bronze plates, alternating and interlocking. */
+    .control a {
+      display: grid;
+      place-items: center;
+      width: 20px;
+      height: 16px;
+      border-radius: 0;
+      color: #1a0200;
+      font-size: 9px;
+      background: linear-gradient(180deg, #e0b070, var(--kli-bronze));
+      box-shadow: none;
+      clip-path: var(--kli-plate-up);
+      text-shadow: none;
+      &:nth-child(even) { clip-path: var(--kli-plate-dn); }
+      & + a { margin-left: var(--kli-seam); }
+      &.delete:hover { background: linear-gradient(180deg, #ff9a80, var(--kli-alarm)); }
+      &.edit:hover { filter: brightness(1.18); }
+    }
+    .header .control.create {
+      width: 26px;
+      height: 16px;
+      margin-left: auto;
+      display: grid;
+      place-items: center;
+      border-radius: 0;
+      color: #041004;
+      font-size: 9px;
+      background: linear-gradient(180deg, #a8f080, var(--kli-c) 55%, #3e8a2a);
+      box-shadow: none;
+      clip-path: var(--kli-plate-up);
+    }
+    /* Values' "used" switch: a small triangle lamp instead of the slider icon.
+       The <i> keeps the data-action, so it stays the click target. */
+    .value-used { flex: 0 0 34px; width: 34px; }
+    a.value-used i {
+      display: block;
+      width: 14px;
+      height: 11px;
+      margin: 0 auto;
+      font-size: 0;
+      background: rgba(111,210,74,.2);
+      clip-path: var(--kli-tri);
+      cursor: pointer;
+      &::before { content: none; }
+      &.fa-toggle-on { background: var(--kli-alarm); filter: drop-shadow(0 0 4px var(--kli-alarm)); }
+    }
+  }
+  /* Section accents, by what each one holds */
+  .section.values { --kli-sec: var(--kli-gold); }
+  .section.belongings { --kli-sec: var(--kli-amber); }
+  .section.injuries {
+    --kli-sec: var(--kli-alarm);
+    .item-name, input.item-quantity:not([type=checkbox]) { color: var(--kli-alarm); }
+  }
+  .item-list-scrollable { scrollbar-color: #2c5a22 transparent; }
+
+  /* Two titles sit outside any .section — the ship's Notes and the supporting
+     character's Improvements — so they get the section caption here. */
+  .title:has(+ .note), .title:has(+ .supporting-char-grid) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 8px 3px;
+    color: var(--kli-hink);
+    font-size: 12px;
+    &::before { content: ""; flex: none; width: 9px; height: 8px; background: var(--kli-alarm); clip-path: var(--kli-tri); }
+  }
+
+  /* Notes editor: a scope. The sheet sizes .note, but nothing passed that
+     height on to the <prose-mirror> inside (see tmp-sheet.css), so the box
+     clips and is a flex column, and the text scrolls inside the editor. */
+  .note {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 6px 4px 6px 8px;
+    background: var(--kli-marks), var(--kli-scope);
+    border-radius: 0;
+    box-shadow: var(--kli-scope-edge);
+    color: var(--kli-ink);
+    font: 600 14px var(--kli-font);
+    > prose-mirror, > .editor {
+      flex: 1 1 auto;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-color: #2c5a22 transparent;
+    }
+    .editor-content { scrollbar-color: #2c5a22 transparent; }
+  }
+
+  /* The record header: the title on the housing (::before), and its code in
+     the mono face with the viewer's inverted triangle as a lamp at its right
+     end (::after). The lamp is two gradient halves, each the right triangle
+     that a corner-to-corner gradient cuts at its midline. */
+  .top-right-column::before, &.starship-sheet .right-column::before {
+    display: block;
+    margin: 0 0 4px;
+    padding: 7px 110px 4px 10px;
+    background: none;
+    box-shadow: none;
+    color: var(--kli-hink);
+    font: 700 13px var(--kli-font);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .top-right-column::after, &.starship-sheet .right-column::after {
+    position: absolute;
+    top: 5px;
+    right: 6px;
+    height: 20px;
+    padding: 0 32px 0 0;
+    color: var(--kli-code);
+    font: 11px/20px var(--kli-mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    background:
+      linear-gradient(to bottom left, var(--kli-lamp) 50%, transparent 50%) right 11px top / 11px 18px no-repeat,
+      linear-gradient(to bottom right, var(--kli-lamp) 50%, transparent 50%) right 0 top / 11px 18px no-repeat;
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--kli-lamp) 60%, transparent));
+    pointer-events: none;
+  }
+
+  /* ══ Character, NPC and supporting sheets (.character-sheet) ═══════════ */
+
+  &.character-sheet {
+    > .split-section { gap: 8px; }
+    > .split-section + .split-section { margin-top: 8px; }
+    .top-left-column { flex: 0 0 196px; padding-right: 0; }
+    .top-right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .bottom-left-column { flex: 0 0 184px; min-width: 0; padding-right: 0; }
+    .bottom-right-column { flex: 1 1 0; min-width: 0; padding-bottom: 4px; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .tab .note { height: 520px; margin: 8px; }
+
+    .top-right-column::before { content: "KDF Service Record"; }
+    .top-right-column::after { content: "Crew"; }
+
+    /* Character tab: scope strips in their rows */
+    .tab[data-tab="biography"] {
+      padding: 6px 8px;
+      .row { gap: 10px; margin-bottom: 8px; }
+      .column { min-width: 0; }
+      .acclaimfield .text-entry, .reprimand .text-entry, .influence .text-entry,
+      .might .text-entry, .wealth .text-entry { color: var(--kli-val); font: 18px var(--kli-mono); text-align: center; }
+    }
+
+    /* NPC / supporting type selector. The NPC template wraps each radio in a
+       .column, so the whole column becomes a plate — alternating and
+       interlocking like the tabs — that lights when its radio is checked; the
+       radio is laid invisibly over it, since a div is not a label. The
+       supporting template writes bare text + radios, so there the radio itself
+       is the cell. */
+    .npc-block {
+      margin: 2px 8px 6px;
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+        color: var(--kli-hdim);
+        font: 700 11px var(--kli-font);
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        > input[type=radio] { margin: 0 12px 0 5px; }
+        &:has(> .column) { gap: 0; }
+      }
+      .column {
+        position: relative;
+        flex: 1;
+        flex-direction: row;
+        justify-content: center;
+        padding: 5px 10px 4px;
+        color: var(--kli-hdim);
+        background: var(--kli-plate-idle);
+        box-shadow: none;
+        clip-path: var(--kli-plate-up);
+        &:nth-child(even) { clip-path: var(--kli-plate-dn); }
+        & + .column { margin-left: var(--kli-seam); }
+        input[type=radio] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; clip-path: none; }
+        &:has(input:checked) { color: #1a0200; background: linear-gradient(180deg, #ff9a80, var(--kli-alarm) 55%, #b33a28); }
+        &:has(input:focus-visible) { outline: 1px solid var(--kli-gold); outline-offset: -2px; }
+      }
+    }
+
+    /* Supporting character improvements: rows of hexagonal milestone cells */
+    .supporting-char-grid {
+      box-sizing: border-box;
+      width: auto;
+      margin: 0 8px;
+      background: var(--kli-marks), var(--kli-scope);
+      box-shadow: var(--kli-scope-edge);
+      .row { box-sizing: border-box; width: auto; gap: 8px; margin: 0; padding: 4px 8px; box-shadow: inset 0 -1px 0 var(--kli-hair); }
+      .label { flex: 1; color: var(--kli-ink); font: 600 14px var(--kli-font); }
+      .inputs { flex: 0 0 auto; display: flex; gap: 1px; }
+      input[type=checkbox] { width: 18px; height: 15px; background: #0d260b; }
+      input[type=checkbox]::before { content: none; }
+      input[type=checkbox]:checked { background: linear-gradient(180deg, #a8f080, var(--kli-c) 55%, #3e8a2a); }
+    }
+    /* A milestone's Arc switch: a triangle lamp */
+    .milestones input.item-quantity[type=checkbox] { width: 24px; height: 14px; background: #0d260b; clip-path: var(--kli-tri); }
+    .milestones input.item-quantity[type=checkbox]::before { content: none; }
+    .milestones input.item-quantity[type=checkbox]:checked { background: var(--kli-c); }
+  }
+
+  /* Captions, record titles and lamps per sheet */
+  &[data-sta2e-sheet="character"] { --kli-lamp: var(--kli-c); }
+  &[data-sta2e-sheet="npc"] {
+    --kli-lamp: var(--kli-alarm);
+    .image-field::after { content: "Contact File"; }
+    .top-right-column::before { content: "Non-Player Character"; }
+    .top-right-column::after { content: "NPC"; }
+    /* Personal Threat reuses the Stress keys; the kind stamp tells them apart. */
+    .track .bar .box.stress { --t: var(--kli-amber); }
+  }
+  &[data-sta2e-sheet="supporting"] {
+    --kli-lamp: var(--kli-c);
+    .top-right-column::before { content: "Supporting Character"; }
+    .top-right-column::after { content: "Sup"; }
+  }
+
+  /* ══ Starship and small craft (.starship-sheet) ═════════════════════════ */
+
+  &.starship-sheet {
+    > .split-section { gap: 8px; align-items: flex-start; }
+    .left-column { flex: 0 0 248px; min-width: 0; padding-right: 0; }
+    .right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .right-column::before {
+      content: "Vessel Record";
+      position: static;
+      width: auto;
+      border-radius: 0;
+    }
+    .right-column::after { content: "Vessel"; }
+    .image-field::after { content: "Registry"; }
+    .profile-img { width: 100%; height: auto; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .note { height: 110px; margin: 0 8px; }
+
+    /* Systems: name · cell · modifier · breaches */
+    .systems-block, .departments-block {
+      .stat.row { display: grid; grid-template-columns: minmax(0,1fr) 13px 26px 34px; }
+      .stat.header.row {
+        display: grid;
+        padding-bottom: 3px;
+        margin-bottom: 2px;
+        background: none;
+        box-shadow: inset 0 -1px 0 var(--kli-line);
+        color: var(--kli-faint);
+        font: 700 10px var(--kli-font);
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        .text.secondary-title { grid-column: 1 / 3; }
+        /* Monospace, so "Breaches" fits its column at a readable size */
+        .field.secondary-title { width: auto; text-align: right; font: 9px var(--kli-mono); letter-spacing: 0; white-space: nowrap; }
+      }
+      .numeric-entry { width: 100%; }
+    }
+    .departments-block .stat.row { grid-template-columns: minmax(0,1fr) 13px 26px; }
+    /* Breaches read red when non-zero. The template writes the count as the
+       input's value attribute, so this needs no script. */
+    .systems-block .field.breaches {
+      width: 100%;
+      margin: 0;
+      color: var(--kli-unlit);
+      text-shadow: none;
+      &:not([value="0"]) { color: var(--kli-alarm); text-shadow: 0 0 6px rgba(255,90,64,.8); }
+    }
+    .buttons { grid-template-columns: 1fr; }
+
+    /* The four ship stats, each a small scope */
+    .big-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 5px;
+      width: auto;
+      margin: 8px;
+    }
+    .big-row-column {
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      min-width: 0;
+      padding: 5px 4px 6px;
+      background: var(--kli-marks), var(--kli-scope);
+      border: 0;
+      border-radius: 0;
+      box-shadow: var(--kli-scope-edge);
+      .tracktitle { margin: 0; text-align: center; color: var(--kli-label); }
+      /* Reserve Power and Shaken: a wide triangle lamp */
+      .checkbox { width: 30px; height: 18px; background: #0d260b; clip-path: var(--kli-tri); }
+      .checkbox::before { content: none; }
+      .numeric-entry { width: 46px; padding: 0; font-size: 19px; text-align: center; }
+    }
+    /* Reserve Power lights green, Shaken red. */
+    .big-row-column:first-child .checkbox:checked { background: var(--kli-c); filter: drop-shadow(0 0 4px var(--kli-c)); }
+    .big-row-column:nth-child(2) .checkbox:checked { background: var(--kli-alarm); filter: drop-shadow(0 0 4px var(--kli-alarm)); }
+
+    /* Service record fields */
+    .right-column > .row { gap: 10px; width: auto; margin: 0 8px 8px; }
+    .right-column > .row > .column { min-width: 0; }
+
+    /* Toolkit: NPC Ship block. main.js writes its layout inline (a column, gap
+       and margin) and toggles display, so only the strip is styled here. Its
+       edge turns red once the ship is an NPC. */
+    .sta2e-npc-ship-block {
+      margin-inline: 8px;
+      padding: 5px 8px;
+      background: rgba(0,0,0,.28);
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 3px 0 0 var(--kli-rust);
+      color: var(--kli-hdim);
+      font: 700 11px var(--kli-font);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      &:has(.sta2e-npc-cb:checked) { box-shadow: inset 3px 0 0 var(--kli-alarm); }
+      label { cursor: pointer; }
+      .sta2e-crew-quality { flex-basis: 100%; gap: 12px; }
+      .sta2e-cq-title { color: var(--kli-hink); font-size: 11px; }
+      .sta2e-cq-option { font-size: 11px; }
+    }
+
+    /* Toolkit: Ship / Crew strip — the same plates as the sheet tabs */
+    .sta2e-crew-tabs {
+      display: flex;
+      gap: 0;
+      margin: 0 0 8px;
+      padding: 4px 7px 0;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -2px 0 var(--kli-red);
+      .sta2e-crew-tab {
+        flex: 1;
+        border: 0;
+        border-radius: 0;
+        padding: 5px 10px 4px;
+        cursor: pointer;
+        color: var(--kli-hdim);
+        background: var(--kli-plate-idle);
+        box-shadow: none;
+        clip-path: var(--kli-plate-up);
+        font: 700 12px var(--kli-font);
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        &:nth-child(even) { clip-path: var(--kli-plate-dn); }
+        & + .sta2e-crew-tab { margin-left: var(--kli-seam); }
+        &:hover { color: var(--kli-hink); }
+        &.is-active { color: #1a0200; background: linear-gradient(180deg, #ffe480, var(--kli-gold) 55%, #b39734); }
+      }
+    }
+
+    /* Toolkit: Crew tab panel */
+    .sta2e-crew-panel { padding: 0 8px; }
+    .sta2e-crew-section { margin: 8px 0; }
+    .sta2e-crew-heading {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 3px;
+      color: var(--kli-hink);
+      font: 700 12px var(--kli-font);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      &::before { content: ""; flex: none; width: 9px; height: 8px; background: var(--kli-alarm); clip-path: var(--kli-tri); }
+    }
+    .sta2e-crew-station, .sta2e-crew-member {
+      background: var(--kli-glass);
+      border-bottom: 0;
+      box-shadow: inset 1px 0 0 color-mix(in srgb, var(--kli-c) 40%, #000), inset -1px 0 0 color-mix(in srgb, var(--kli-c) 40%, #000), inset 0 -1px 0 var(--kli-hair);
+    }
+    .sta2e-crew-station-name { color: var(--kli-label); font: 700 11px var(--kli-font); letter-spacing: .1em; text-transform: uppercase; }
+    .sta2e-crew-select {
+      background: rgba(0,0,0,.5);
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 var(--kli-line);
+      color: var(--kli-ink);
+      font: 600 14px var(--kli-font);
+      option { background: var(--kli-glass); }
+    }
+    .sta2e-crew-station.is-vacant .sta2e-crew-select { color: var(--kli-unlit); }
+    .sta2e-crew-stat { color: var(--kli-val); font: 12px var(--kli-mono); }
+    .sta2e-crew-member-name { color: var(--kli-val); font: 600 14px var(--kli-font); }
+    .sta2e-crew-member-post { color: var(--kli-label); font: 600 11px var(--kli-font); letter-spacing: .08em; text-transform: uppercase; }
+    .sta2e-crew-badge { border-radius: 0; background: transparent; color: var(--kli-amber); box-shadow: inset 0 0 0 1px rgba(255,170,58,.5); }
+    .sta2e-crew-dept-tabs { gap: 3px 0; }
+    .sta2e-crew-dept-tab {
+      border: 0;
+      border-radius: 0;
+      padding-inline: 12px;
+      color: var(--kli-hdim);
+      background: var(--kli-plate-idle);
+      box-shadow: none;
+      clip-path: var(--kli-plate-up);
+      font: 700 11px var(--kli-font);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      &:nth-child(even) { clip-path: var(--kli-plate-dn); }
+      & + .sta2e-crew-dept-tab { margin-left: var(--kli-seam); }
+      &.is-active { color: #041004; background: linear-gradient(180deg, #a8f080, var(--kli-c) 55%, #3e8a2a); }
+      &.is-empty { opacity: .45; }
+    }
+    .sta2e-crew-drop { border: 1px dashed rgba(111,210,74,.35); border-radius: 0; color: var(--kli-faint); }
+  }
+  &[data-sta2e-sheet="starship"] { --kli-lamp: var(--kli-amber); }
+  &[data-sta2e-sheet="smallcraft"] {
+    --kli-lamp: var(--kli-c);
+    .image-field::after { content: "Auxiliary Craft"; }
+    .right-column::before { content: "Auxiliary Craft Record"; }
+    .right-column::after { content: "Aux"; }
+  }
+}
+
+/* The window around a Klingon sheet. _applySheetTheme skips these sheets, so
+   it no longer themes this header either; the frame takes the housing. */
+.window-content:has(.sta2e-kli-sheet[data-sta2e-sheet]) {
+  background: #140201;
+}
+.application:has(.sta2e-kli-sheet[data-sta2e-sheet]) > .window-header {
+  background: linear-gradient(180deg, #4a0c0a, #2c0605);
+  border-bottom: 1px solid #d23a1c;
+  color: #ffb6a4;
+}

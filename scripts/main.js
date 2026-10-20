@@ -3504,7 +3504,7 @@ function _sheetThemePalette(LC) {
  *  colors to match the currently active toolkit HUD theme.  Idempotent — safe
  *  to call any number of times. */
 function _applySheetTheme() {
-  // The TOS and TMP overlays (tos-sheet-theme.js) are tagged per sheet; re-tag open ones
+  // The era overlays (tos-sheet-theme.js) are tagged per sheet; re-tag open ones
   // first, since a theme or setting change is exactly what moves them in or out.
   refreshTosSheets();
   const STYLE_ID = "sta2e-sheet-theme";
@@ -3646,11 +3646,11 @@ function _applySheetTheme() {
   el.id          = STYLE_ID;
   // An actor given its own palette in the system's colour picker (sta v2.8.0+)
   // keeps it: every rule skips a sheet tagged by the renderActorSheetV2 hook below.
-  // So does a sheet wearing the TOS, TMP or ENT overlay (styles/tos-sheet.css,
-  // styles/tmp-sheet.css, styles/ent-sheet.css), which these !important rules
-  // would otherwise fight.
+  // So does a sheet wearing the TOS, TMP, ENT or Klingon overlay
+  // (styles/tos-sheet.css, tmp-sheet.css, ent-sheet.css, klingon-sheet.css),
+  // which these !important rules would otherwise fight.
   el.textContent = (css + "\n" + shipCss + "\n" + extendedTaskCss)
-    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *):not(.sta2e-tos-sheet):not(.sta2e-tmp-sheet):not(.sta2e-ent-sheet)");
+    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *):not(.sta2e-tos-sheet):not(.sta2e-tmp-sheet):not(.sta2e-ent-sheet):not(.sta2e-kli-sheet)");
   document.head.appendChild(el);
 }
 

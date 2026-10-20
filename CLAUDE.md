@@ -137,6 +137,30 @@ chamfer, so it keeps a plain outline and the **corner brackets are background la
 slanted edge as a gradient angle, the tab text — Crew / NPC / Sup / Vessel / Aux — as
 content). Checked against the real `*2e.hbs` templates the same way.
 
+**The Klingon overlay** is the same machinery for `klingon`: the tagger stamps
+`.sta2e-kli-sheet`, `_applySheetTheme` skips it, and [styles/klingon-sheet.css](styles/klingon-sheet.css)
+follows ent-sheet.css rule for rule in the look of the Klingon task and chat cards
+(`.tkc`): the columns are red housing, and everything that reads out — the
+attribute / discipline / system / department blocks, every item list, the portrait,
+the notes, the four ship stats — is a green-black phosphor scope. Typed fields are
+thin scope strips, tracks are rows of hexagonal cells (capped at 28px so a 3-step
+track stays hexagons), checkboxes and radios are hexagonal cells that light gold, the
+record header ends in the inverted-triangle lamp, and keys and tabs are backlit
+plates whose slant **alternates /===\ \===/** by `:nth-child`, each pulled back over
+its neighbour (`--kli-seam`) so they interlock. The design source is
+`docs/klingon-sheet-mockup.html`. Three traps it hit:
+
+- **A custom property holding `var(--k)` resolves where it is defined.** The plate
+  gradient lived on the root as `--kli-plate-fill`, where `--k` is unset, so every
+  key drew no fill; the gradient is now written in the key rule itself.
+- **A `clip-path` cuts off borders and box-shadows**, so an outlined hexagon is a rim
+  fill under an inset `::before`, and the scope's corner triangles are background
+  layers (`--kli-marks`), leaving the pseudo-elements free for captions and headers.
+- **Radios group by form.** The check renders the real templates with Foundry's
+  Handlebars into one page served beside Foundry's own `foundry2.css` and `sta.css`;
+  without a `<form>` round each sheet the NPC and supporting `system.npcType` radios
+  shared a group and unchecked each other.
+
 ### TMP Monitor Theme
 
 A second TMP theme, `tmp-monitor` ("TMP Monitor"), beside TMP Console: the later
@@ -2169,10 +2193,11 @@ through `lcarsChatCard`.
 | [styles/task-card-tmp.css](styles/task-card-tmp.css) | Shape for that skin — panel, monitors, meters, key bed, lenses — and the `@font-face` rules for `fonts/tmp/` |
 | [scripts/task-card-tng.js](scripts/task-card-tng.js) | TNG Bracket Console skin for the task card — used for `lcars-tng` regardless of `taskCardStyle` — and the `bracketTop` / `bracketBottom` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |
 | [styles/task-card-tng.css](styles/task-card-tng.css) | The bracket frame (`.tbc`, shared with the TNG chat frame), the task card's strips, gauges and keypad, and the `@font-face` rule for `fonts/tng/` (Antonio) |
-| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS or TMP overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
+| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS, TMP, ENT or Klingon overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
 | [styles/ent-sheet.css](styles/ent-sheet.css) | The ENT Bridge Touchscreen overlay for the same five sheets, structured like tmp-sheet.css |
+| [styles/klingon-sheet.css](styles/klingon-sheet.css) | The Klingon Targeting Scope overlay for the same five sheets, structured like ent-sheet.css |
 | [styles/tmp-monitor.css](styles/tmp-monitor.css) | The TMP Monitor theme for the Stardate HUD, the task card and the chat frame — repaints the TMP markup from its modifier classes |
 | [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
 | [scripts/task-card-ent.js](scripts/task-card-ent.js) | ENT Bridge Touchscreen skin for the task card — used for `ent-panel` regardless of `taskCardStyle` — and the `entHead` / `entFoot` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |
