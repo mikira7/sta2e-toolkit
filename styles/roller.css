@@ -39,9 +39,13 @@
   min-height: 0;
 }
 
+/* overflow-x is pinned too: with only overflow-y set, the browser treats the
+   other axis as auto, and content a pixel wider than the screen (Klingon's
+   scope, at 1px) drew a horizontal scrollbar under it. */
 .sta2e-roller-win .sta2e-roller .tbr-screen {
   flex: 1 1 auto;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }

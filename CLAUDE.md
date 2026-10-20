@@ -2168,6 +2168,13 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   screen, so under core's own window cap (100vh less 1.5 hotbars, overflow
   hidden) the screen gives way instead of the keys being clipped off a short
   display. TNG's keys therefore get their own `.tbr-keys` inside `.tbc-body`.
+  Two things keep that true: the rule pins `overflow-x: hidden` too (set alone,
+  `overflow-y` leaves the other axis `auto`, and Klingon's content, 1px wider than the
+  scope, drew a horizontal scrollbar), and an era stylesheet that sets `overflow` on its
+  screen element must not outrank it — tmp-monitor.css makes the card's `.tmc-scr`
+  `overflow: visible` four classes deep, so roller-tmp.css restates the scrolling for the
+  monitor inside `.sta2e-roller-win`. Check by capping a roller window's height in the
+  `--preview` page: every skin must scroll with its keys still inside.
 - **Die pips are buttons and must not become keys** — the pass skips `.sta2e-die-pip`,
   whose glow is the reroll hint.
 - **Don't use `stripDecorativeEmoji` alone on dice text.** Its U+2600–26FF range covers

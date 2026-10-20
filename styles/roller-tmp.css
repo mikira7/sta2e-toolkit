@@ -230,6 +230,14 @@
   margin: 0;
   padding: 0 0 4px;
 }
+/* tmp-monitor.css makes the card's monitors `overflow: visible` (they become
+   regions of one screen), four classes deep — which beat roller.css's
+   scrolling rule, so the monitor roller never scrolled and a short display
+   clipped its keys. Restated here, inside a roller window only. */
+.sta2e-roller-win .sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tmc-scr.tbr-screen {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 
 .sta2e-roller.sta2e-task-card--tmp.sta2e-task-card--tmpmon .tbr-head {
   border-bottom-color: rgba(0, 174, 240, 0.5);
