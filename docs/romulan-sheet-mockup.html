@@ -1,0 +1,1120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Romulan Actor Sheets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+/* ── Page chrome (not part of the design) ─────────────────────────────── */
+* { box-sizing: border-box; }
+body { margin: 0; background: #0c110e; color: #d8e4dc; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 960px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.lede { color: #84968a; margin: 0 0 22px; max-width: 800px; }
+.state { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #84968a; margin: 26px 0 8px; }
+.scroller { overflow-x: auto; padding-bottom: 6px; }
+.notes { margin-top: 36px; border-top: 1px solid #233128; padding-top: 16px; color: #84968a; font-size: 13px; }
+.notes h3 { color: #d8e4dc; font-size: 15px; margin: 0 0 6px; }
+.notes code { color: #8fe0a8; }
+/* A stand-in for Foundry's window chrome around the sheet */
+.fwin { width: 880px; background: #111; border: 1px solid #000; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.7); overflow: hidden; }
+.fwin-bar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: #1d1d22; color: #ccc; font-size: 13px; border-bottom: 1px solid #000; }
+.fwin-bar span { flex: 1; }
+.fwin-bar i { font-style: normal; color: #888; font-size: 12px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   ROMULAN RAPTOR WING SHEET
+   The chat card's look (task-card-romulan.css, `.trw`) carried onto the
+   sheet: cold green on a fine grid, diamond separators, nothing round.
+   The record panel wears the card's head — two swept wings round the
+   title, the code on a diamond line under it; every other panel takes the
+   diamond line alone. Readouts are hex wells and chamfered cells, tracks
+   are rows of diamonds, selectors are diamonds that light jade, and keys
+   are dark hex keys edged in their colour. Everything below is scoped to
+   .sta2e-rom-sheet, the class the render hook would add to the sheet's
+   root under the romulan theme. Selectors use the sta system's own class
+   names, so this is a prototype of the real overlay.
+   ══════════════════════════════════════════════════════════════════════ */
+.sta2e-rom-sheet {
+  --c: #22aa44;          /* frame green: wings, rules, edges */
+  --jade: #44dd88; --lit: #5cf09a;
+  --ink: #88cc88;        /* running text */
+  --val: #ccffcc;        /* values */
+  --label: #3f8a58;      /* captions */
+  --faint: #2f6a44;      /* header rows, dim numbers */
+  --gold: #d8c050; --lime: #aacc33; --teal: #40c8b0; --amber: #e08a2a; --alarm: #ff4a5a; --sage: #669966; --moss: #3e5c48;
+  --panel: #000f00; --glass: #000;
+  --line: rgba(34,170,68,.35);
+  --mono: "Share Tech Mono", Consolas, monospace;
+  --hex: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
+  --hex-s: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%);
+  --cham: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+  --dia: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  --top: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px);
+  --wing-l: polygon(0 0, 100% 52%, 100% 100%, 22px 34%);
+  --wing-r: polygon(100% 0, 0 52%, 0 100%, calc(100% - 22px) 34%);
+  padding: 8px;
+  font-family: "Oxanium", "Arial Narrow", sans-serif;
+  color: var(--ink);
+  background-color: #000a00;
+  background-image:
+    linear-gradient(rgba(34,170,68,.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34,170,68,.07) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* Panel: the card's frame at sheet scale — a darker field, a hairline in the
+   frame colour, no top edge (the head draws it). */
+.sta2e-rom-sheet .panel {
+  position: relative;
+  background: rgba(0,15,0,.82);
+  border: 1px solid var(--line);
+  border-top: 0;
+}
+
+/* Panel head: the diamond line. A short rule, the title, a long rule, three
+   diamonds stepping up in brightness, and the code led by a diamond in its
+   state colour. The three tick <i>s and .tab are what the mockups share. */
+.sta2e-rom-sheet .panel-head {
+  position: relative;
+  display: flex; align-items: center; min-height: 24px; padding: 0 8px 0 0;
+  font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--val);
+}
+.sta2e-rom-sheet .panel-head::before { content: ""; flex: 0 0 12px; height: 2px; background: var(--c); }
+.sta2e-rom-sheet .panel-head > span { flex: none; padding: 0 8px; }
+.sta2e-rom-sheet .lamps { flex: 1; display: flex; align-items: center; gap: 6px; }
+.sta2e-rom-sheet .lamps::before { content: ""; flex: 1; height: 1px; background: var(--line); margin-right: 2px; }
+.sta2e-rom-sheet .lamps i { width: 5px; height: 5px; background: var(--c); transform: rotate(45deg); opacity: .35; }
+.sta2e-rom-sheet .lamps i:nth-of-type(2) { opacity: .6; }
+.sta2e-rom-sheet .lamps i:nth-of-type(3) { opacity: .9; }
+.sta2e-rom-sheet .lamps .tab {
+  --l: var(--lit);
+  display: inline-flex; align-items: center; gap: 6px; width: auto; height: auto; margin-left: 6px; opacity: 1; transform: none;
+  background: none; font: 10px var(--mono); letter-spacing: .1em; color: var(--l); font-style: normal;
+}
+.sta2e-rom-sheet .lamps .tab::before { content: ""; width: 6px; height: 6px; background: var(--l); transform: rotate(45deg); box-shadow: 0 0 5px var(--l); }
+.sta2e-rom-sheet .lamps .tab.g { --l: var(--lit); }
+.sta2e-rom-sheet .lamps .tab.r { --l: var(--alarm); }
+.sta2e-rom-sheet .lamps .tab.a { --l: var(--gold); }
+.sta2e-rom-sheet .lamps .tab.b { --l: var(--teal); }
+/* The narrow side column keeps the code and drops the three diamonds. */
+.sta2e-rom-sheet .bottom-left-column .lamps > i:not(.tab), .starship-sheet.sta2e-rom-sheet .left-column .lamps > i:not(.tab) { display: none; }
+
+/* The record panel wears the card's whole head: the warbird head-on. Two
+   swept wings run from the edges into the underlined title; the code drops
+   onto the diamond line under it. */
+.sta2e-rom-sheet .top-right-column > .panel-head,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head {
+  align-items: flex-start; min-height: 0; padding: 0 0 18px; margin-bottom: 4px;
+  font-size: 14px; letter-spacing: .18em; color: #e4ffe8;
+}
+.sta2e-rom-sheet .top-right-column > .panel-head::before,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head::before {
+  flex: 1 1 0; height: 22px; background: var(--c); clip-path: var(--wing-l);
+}
+.sta2e-rom-sheet .top-right-column > .panel-head > span,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head > span {
+  padding: 6px 12px 5px; border-bottom: 2px solid var(--c);
+}
+.sta2e-rom-sheet .top-right-column > .panel-head .lamps,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head .lamps { flex: 1 1 0; align-self: stretch; align-items: flex-start; }
+.sta2e-rom-sheet .top-right-column > .panel-head .lamps::before,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head .lamps::before {
+  height: 22px; margin: 0; background: var(--c); clip-path: var(--wing-r);
+}
+.sta2e-rom-sheet .top-right-column > .panel-head .lamps > i:not(.tab),
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head .lamps > i:not(.tab) { display: none; }
+.sta2e-rom-sheet .top-right-column > .panel-head .tab,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head .tab {
+  position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); margin: 0; letter-spacing: .22em;
+}
+.sta2e-rom-sheet .top-right-column > .panel-head .tab::after,
+.starship-sheet.sta2e-rom-sheet .right-column > .panel-head .tab::after {
+  content: ""; width: 6px; height: 6px; background: var(--l); transform: rotate(45deg); box-shadow: 0 0 5px var(--l);
+}
+
+/* Readout blocks: the card's hex wells — black, ruled top and bottom in the
+   frame colour, corners cut. A clip-path cuts a border off, so the rules are
+   inset box-shadows. */
+.sta2e-rom-sheet .crt, .sta2e-rom-sheet .list, .sta2e-rom-sheet .big-row-column {
+  position: relative;
+  background: var(--glass);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--c) 55%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--c) 55%, transparent);
+  clip-path: var(--cham);
+}
+.sta2e-rom-sheet .crt { margin: 0 7px 7px; padding: 6px 12px; font: 600 13px/1.45 "Oxanium", sans-serif; }
+
+/* Keys: the card's edged hex keys — dark glass, the two ends in the key's
+   colour (turned into chevrons by the hex cut), the label a lighter shade. */
+.sta2e-rom-sheet .key, .sta2e-rom-sheet .check-button {
+  --k: var(--c);
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+  padding: 5px 14px 4px; border: 0; border-radius: 0;
+  font: 600 11px "Oxanium", sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--k) 70%, #fff);
+  background: linear-gradient(90deg, var(--k) 0 3px, #021a0c 3px calc(100% - 3px), var(--k) calc(100% - 3px));
+  clip-path: var(--hex-s);
+}
+.sta2e-rom-sheet .key:hover, .sta2e-rom-sheet .check-button:hover { filter: brightness(1.3); }
+.sta2e-rom-sheet .amber-key { --k: var(--amber); }
+.sta2e-rom-sheet .red-key   { --k: var(--alarm); }
+.sta2e-rom-sheet .green-key { --k: var(--lit); }
+.sta2e-rom-sheet .grey-key  { --k: var(--moss); color: var(--ink); }
+
+/* ── Top: portrait + name + tracks ────────────────────────────────────── */
+.sta2e-rom-sheet .split-section { display: flex; gap: 8px; }
+.sta2e-rom-sheet .split-section + .split-section { margin-top: 8px; }
+.sta2e-rom-sheet .top-left-column { flex: 0 0 196px; }
+.sta2e-rom-sheet .top-right-column { flex: 1; min-width: 0; }
+
+/* The portrait sits in a chamfered frame: a 2px rim in the frame colour
+   (the outer fill) round a chamfered image (the inner). */
+.sta2e-rom-sheet .image-field { margin: 7px 7px 4px; padding: 2px; background: color-mix(in srgb, var(--c) 55%, transparent); clip-path: var(--cham); }
+.sta2e-rom-sheet .profile-img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; clip-path: var(--cham);
+  background:
+    linear-gradient(45deg, transparent calc(50% - .5px), rgba(68,221,136,.18) calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)),
+    linear-gradient(-45deg, transparent calc(50% - .5px), rgba(68,221,136,.18) calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)),
+    radial-gradient(circle at 50% 38%, #2a6a3e 0 23%, transparent 24%),
+    radial-gradient(ellipse at 50% 100%, #1c4a2c 0 42%, transparent 43%),
+    radial-gradient(ellipse at 50% 40%, #0a2414, #000a00); }
+.sta2e-rom-sheet .viewer-cap { display: flex; justify-content: space-between; align-items: center; margin: 0 9px 7px;
+  font: 10px var(--mono); letter-spacing: .1em; color: var(--sage); text-transform: uppercase; }
+.sta2e-rom-sheet .viewer-cap span + span::before { content: "◆ "; color: var(--c); }
+
+.sta2e-rom-sheet .name-field { display: flex; align-items: stretch; gap: 8px; margin: 0 9px 6px; }
+.sta2e-rom-sheet .name-field-left { flex: 1; min-width: 0; }
+.sta2e-rom-sheet .title, .sta2e-rom-sheet .tracktitle {
+  font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--label); margin-bottom: 2px; }
+/* Typed fields: black, a frame-green underline (a box-shadow, since sta.css
+   forces some border colours with !important). */
+.sta2e-rom-sheet .name-field input {
+  width: 100%; background: var(--glass); border: 0; box-shadow: inset 0 -1px 0 var(--c); padding: 3px 6px 3px;
+  font: 700 20px "Oxanium", sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #e4ffe8; }
+.sta2e-rom-sheet .name-field input:focus { outline: none; box-shadow: inset 0 -1px 0 var(--gold); }
+.sta2e-rom-sheet .icon-column { display: flex; flex-direction: column; gap: 3px; justify-content: flex-end; }
+.sta2e-rom-sheet .icon-column .key { width: 38px; height: 20px; padding: 0; font-size: 11px; }
+
+.sta2e-rom-sheet .tracks { margin: 0 9px 9px; display: grid; gap: 6px; }
+.sta2e-rom-sheet .track-row { display: grid; grid-template-columns: 116px 1fr; align-items: center; gap: 8px; }
+.sta2e-rom-sheet .tracktitle { margin: 0; text-align: right; }
+.sta2e-rom-sheet .bar { display: flex; align-items: center; gap: 2px; }
+/* The system renders each step as div.box.<kind>[.selected], numbered. Each
+   becomes a diamond — the card's Successes meter, at a size that holds a
+   two-digit number — kept square by aspect-ratio, so a short track
+   (Determination's 3) is still diamonds and a long one (Reputation's 20)
+   shrinks them evenly rather than squashing them. Unlit: a rim in the
+   track's colour round dark glass, a dim number. Lit: filled, dark ink, a
+   glow. A clip-path cuts a border off, so the rim is the box's own fill and
+   the glass an inset diamond on ::before, behind the number (isolation keeps
+   the -1 z-index inside the box). */
+.sta2e-rom-sheet .box {
+  --t: var(--c);
+  position: relative; isolation: isolate;
+  flex: 0 1 23px; min-width: 15px; aspect-ratio: 1; height: auto; display: grid; place-items: center; cursor: pointer;
+  font: 10px var(--mono); color: var(--faint);
+  background: color-mix(in srgb, var(--t) 45%, #000); clip-path: var(--dia); }
+.sta2e-rom-sheet .box::before { content: ""; position: absolute; inset: 1.5px; z-index: -1; background: #021a0c; clip-path: var(--dia); }
+.sta2e-rom-sheet .box.selected { background: var(--t); color: #001005; filter: drop-shadow(0 0 3px var(--t)); }
+.sta2e-rom-sheet .box.selected::before { background: linear-gradient(180deg, color-mix(in srgb, var(--t) 70%, #fff), var(--t) 60%); }
+.sta2e-rom-sheet .box.rep { --t: var(--c); }
+.sta2e-rom-sheet .box.determination { --t: var(--gold); }
+.sta2e-rom-sheet .box.stress { --t: var(--alarm); }
+
+/* ── Bottom left: attributes / disciplines ──────────────────────────── */
+.sta2e-rom-sheet .bottom-left-column { flex: 0 0 176px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.sta2e-rom-sheet .bottom-right-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sta2e-rom-sheet .row-right { display: flex; align-items: center; gap: 7px; padding: 2px 0 3px; border-bottom: 1px solid rgba(34,170,68,.14); }
+.sta2e-rom-sheet .row-right:last-child { border-bottom: 0; }
+.sta2e-rom-sheet .row-right .list-entry { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 700; color: var(--label); }
+/* Selectors: a diamond outlined in the frame colour, filled jade when
+   checked — the roller's indicator. */
+.sta2e-rom-sheet .selector, .sta2e-rom-sheet .supporting-char-grid input[type=checkbox], .sta2e-rom-sheet .arc-lamp,
+.sta2e-rom-sheet .sta2e-npc-ship-block input[type=checkbox], .sta2e-rom-sheet .sta2e-npc-ship-block input[type=radio],
+.sta2e-rom-sheet .npc-block .row > input[type=radio] {
+  appearance: none; flex: none; margin: 2px 3px; width: 10px; height: 10px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--c); border-radius: 0; transform: rotate(45deg); }
+.sta2e-rom-sheet .selector:checked, .sta2e-rom-sheet .supporting-char-grid input[type=checkbox]:checked, .sta2e-rom-sheet .arc-lamp:checked,
+.sta2e-rom-sheet .sta2e-npc-ship-block input:checked, .sta2e-rom-sheet .npc-block .row > input[type=radio]:checked {
+  background: var(--lit); border-color: var(--lit); box-shadow: 0 0 6px var(--lit); }
+.sta2e-rom-sheet .numeric-entry { width: 30px; background: transparent; border: 0;
+  font: 16px var(--mono); color: var(--val); text-align: right; padding: 0; }
+.sta2e-rom-sheet .row-right.is-selected .list-entry,
+.sta2e-rom-sheet .row-right.is-selected .numeric-entry { color: var(--gold); }
+.sta2e-rom-sheet .side-controls { padding: 0 7px 8px; display: grid; gap: 6px; }
+.sta2e-rom-sheet .bottom-left-column .crt { padding: 5px 11px; }
+.sta2e-rom-sheet .bottom-left-column .numeric-entry { width: 24px; font-size: 15px; }
+.sta2e-rom-sheet .lamp-check { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--sage); }
+.sta2e-rom-sheet .buttons { display: grid; grid-template-columns: 1.3fr 1fr; gap: 3px; }
+.sta2e-rom-sheet .buttons .check-button { padding: 7px 10px 6px; font-size: 11px; white-space: nowrap; clip-path: var(--hex); }
+.sta2e-rom-sheet .stressmod { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--sage); }
+.sta2e-rom-sheet .inset-num { width: 44px; background: var(--glass); border: 0; box-shadow: inset 0 -1px 0 var(--c);
+  font: 14px var(--mono); color: var(--val); text-align: center; padding: 1px; }
+
+/* ── Tabs: hex keys over a frame-green rule; the active one filled ─────── */
+.sta2e-rom-sheet .sheet-tabs { display: flex; gap: 2px; padding: 6px 7px 0; border-bottom: 2px solid var(--c); }
+.sta2e-rom-sheet .sheet-tabs .item { flex: 1; text-align: center; padding: 5px 12px 4px; cursor: pointer; text-decoration: none;
+  font: 600 11px "Oxanium", sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--sage);
+  background: linear-gradient(90deg, var(--moss) 0 3px, #021a0c 3px calc(100% - 3px), var(--moss) calc(100% - 3px));
+  clip-path: var(--hex-s); }
+.sta2e-rom-sheet .sheet-tabs .item:hover { color: var(--val); }
+.sta2e-rom-sheet .sheet-tabs .item.active { background: var(--c); color: #001005; }
+.sta2e-rom-sheet .sheet-body { padding: 0 0 4px; }
+
+/* ── Item sections ──────────────────────────────────────────────────── */
+.sta2e-rom-sheet .items-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.sta2e-rom-sheet .items-split > div { min-width: 0; }
+.sta2e-rom-sheet .section { margin: 8px 7px; }
+/* A section caption: the card's section label — a diamond lead, then a rule. */
+.sta2e-rom-sheet .section > .title { display: flex; align-items: center; gap: 7px; margin: 0 0 4px; color: var(--jade); font-size: 11px; }
+.sta2e-rom-sheet .section > .title::before { content: ""; width: 6px; height: 6px; background: var(--c); transform: rotate(45deg); flex: none; }
+.sta2e-rom-sheet .section > .title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.sta2e-rom-sheet .list { padding: 2px 0; }
+.sta2e-rom-sheet .header.row { display: flex; align-items: center; gap: 6px; padding: 3px 12px 2px; background: rgba(34,170,68,.08);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
+  border-bottom: 1px solid rgba(34,170,68,.25); }
+.sta2e-rom-sheet .header.row .grow { flex: 1; }
+.sta2e-rom-sheet .row.entry { list-style: none; position: relative; display: flex; align-items: center; gap: 6px; padding: 2px 12px;
+  border-bottom: 1px solid rgba(34,170,68,.1); }
+.sta2e-rom-sheet .row.entry:last-child { border-bottom: 0; }
+.sta2e-rom-sheet .row.entry:hover { background: rgba(34,170,68,.08); }
+.sta2e-rom-sheet .row.entry:hover::before { content: ""; position: absolute; left: 4px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
+  background: var(--lit); transform: rotate(45deg); box-shadow: 0 0 4px var(--lit); }
+.sta2e-rom-sheet .row.entry .image { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; font-size: 10px; color: var(--c); }
+.sta2e-rom-sheet .item-name { flex: 1; min-width: 0; background: transparent; border: 0; padding: 1px 0;
+  font: 500 13.5px "Oxanium", sans-serif; letter-spacing: .02em; color: var(--val); }
+.sta2e-rom-sheet .item-name.strike-through { text-decoration: line-through; opacity: .45; }
+.sta2e-rom-sheet .item-quantity, .sta2e-rom-sheet .list-entry.damage {
+  width: 34px; text-align: center; background: transparent; border: 0; box-shadow: inset 0 -1px 0 rgba(34,170,68,.35);
+  font: 14px var(--mono); color: var(--val); padding: 0; }
+/* Edit / delete keys surface on hover or keyboard focus, laid over the row end. */
+.sta2e-rom-sheet .row.entry .control { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 2px; padding: 2px 2px 2px 14px; opacity: 0; pointer-events: none; transition: opacity .12s;
+  background: linear-gradient(90deg, transparent, var(--glass) 30%); }
+.sta2e-rom-sheet .row.entry:hover .control, .sta2e-rom-sheet .row.entry:focus-within .control { opacity: 1; pointer-events: auto; }
+.sta2e-rom-sheet .mini { --k: var(--sage); width: 22px; height: 16px; display: grid; place-items: center; cursor: pointer; font-size: 10px; line-height: 1;
+  color: color-mix(in srgb, var(--k) 70%, #fff);
+  background: linear-gradient(90deg, var(--k) 0 2px, #021a0c 2px calc(100% - 2px), var(--k) calc(100% - 2px)); clip-path: var(--hex-s); }
+.sta2e-rom-sheet .mini.add { --k: var(--lit); }
+.sta2e-rom-sheet .mini.del:hover { --k: var(--alarm); }
+/* "Used" toggle on Values: a diamond lamp */
+.sta2e-rom-sheet .value-used { width: 34px; display: grid; place-items: center; }
+.sta2e-rom-sheet .used-lamp { width: 9px; height: 9px; border: 1px solid var(--moss); transform: rotate(45deg); }
+.sta2e-rom-sheet .used-lamp.on { background: var(--alarm); border-color: var(--alarm); box-shadow: 0 0 5px var(--alarm); }
+
+/* Toolkit additions on belongings rows */
+.sta2e-rom-sheet .sta2e-wear, .sta2e-rom-sheet .sta2e-gear-dmg { padding: 1px 12px 0; font-size: 9.5px; }
+.sta2e-rom-sheet .sta2e-wear:not(.is-worn) { --k: var(--moss); color: var(--ink); }
+.sta2e-rom-sheet .sta2e-grenade-count { font: 12px var(--mono); color: var(--amber); padding: 0 4px; box-shadow: inset 0 0 0 1px rgba(224,138,42,.5); }
+.sta2e-rom-sheet .sta2e-gear-row-damaged .item-name { color: var(--alarm); }
+.sta2e-rom-sheet .sta2e-gear-row-damaged { box-shadow: inset 2px 0 0 var(--alarm); }
+
+/* ── Character tab ───────────────────────────────────────────────────── */
+.sta2e-rom-sheet .bio { padding: 9px; display: grid; gap: 9px; }
+.sta2e-rom-sheet .bio .row { display: grid; gap: 10px; }
+.sta2e-rom-sheet .bio .row.c4 { grid-template-columns: repeat(4,1fr); }
+.sta2e-rom-sheet .bio .row.c3 { grid-template-columns: repeat(3,1fr); }
+.sta2e-rom-sheet .bio .row.c2 { grid-template-columns: repeat(2,1fr); }
+.sta2e-rom-sheet .text-entry { width: 100%; box-sizing: border-box; background: var(--glass); border: 0; box-shadow: inset 0 -1px 0 var(--line);
+  padding: 3px 6px 2px; font: 500 13.5px "Oxanium", sans-serif; letter-spacing: .02em; color: var(--val); }
+.sta2e-rom-sheet .text-entry:focus { outline: none; box-shadow: inset 0 -1px 0 var(--gold); }
+.sta2e-rom-sheet .bio .column.num .text-entry { font: 18px var(--mono); text-align: center; }
+
+/* ── NPC / supporting: type selector ─────────────────────────────────
+   NPC wraps each radio in a .column, so the whole column becomes a hex key
+   that fills red when its radio is checked (:has). Supporting writes bare
+   text + radios in one .row, so there the radio itself is the diamond. */
+.sta2e-rom-sheet .npc-block { margin: 0 9px 7px; }
+.sta2e-rom-sheet .npc-block .row { display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--sage); }
+.sta2e-rom-sheet .npc-block .row > input[type=radio] { margin: 0 12px 0 6px; }
+.sta2e-rom-sheet .npc-block .column { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; padding: 5px 12px 4px; cursor: pointer;
+  background: linear-gradient(90deg, var(--moss) 0 3px, #021a0c 3px calc(100% - 3px), var(--moss) calc(100% - 3px)); color: var(--sage); clip-path: var(--hex-s); }
+.sta2e-rom-sheet .npc-block .column input[type=radio] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.sta2e-rom-sheet .npc-block .column:has(input:checked) { background: var(--alarm); color: #1a0005; }
+.sta2e-rom-sheet .npc-block .column:has(input:focus-visible) { outline: 1px solid var(--gold); outline-offset: 1px; }
+
+/* NPC: Personal Threat reuses box.stress, so the hook's data-sheet stamp is
+   what turns it amber. */
+.sta2e-rom-sheet[data-sheet="npc"] .box.stress { --t: var(--amber); }
+.sta2e-rom-sheet .buttons.one { grid-template-columns: 1fr; }
+
+/* ── Supporting: improvement grid and arc indicator ──────────────────── */
+.sta2e-rom-sheet .supporting-char-grid { padding: 2px 0; }
+.sta2e-rom-sheet .supporting-char-grid .row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid rgba(34,170,68,.1); }
+.sta2e-rom-sheet .supporting-char-grid .row:last-child { border-bottom: 0; }
+.sta2e-rom-sheet .supporting-char-grid .label { flex: 1; font: 500 13.5px "Oxanium", sans-serif; color: var(--val); }
+.sta2e-rom-sheet .supporting-char-grid .inputs { display: flex; gap: 5px; }
+.sta2e-rom-sheet .arc-lamp { width: 11px; height: 11px; cursor: default; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   STARSHIP / SMALL CRAFT (.starship-sheet — both templates share it)
+   ══════════════════════════════════════════════════════════════════════ */
+.starship-sheet.sta2e-rom-sheet > .split-section { align-items: flex-start; }
+.starship-sheet.sta2e-rom-sheet .left-column { flex: 0 0 226px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.starship-sheet.sta2e-rom-sheet .right-column { flex: 1; min-width: 0; }
+.starship-sheet.sta2e-rom-sheet .profile-img {
+  background:
+    linear-gradient(90deg, transparent calc(50% - .5px), rgba(68,221,136,.2) calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)),
+    radial-gradient(ellipse 9% 7% at 50% 46%, #5cf09a 0 100%, transparent 101%),
+    radial-gradient(ellipse 40% 9% at 50% 44%, #2a8a50 0 100%, transparent 101%),
+    radial-gradient(1px 1px at 20% 30%, #ccffcc, transparent), radial-gradient(1px 1px at 72% 20%, #88cc88, transparent),
+    radial-gradient(1px 1px at 82% 72%, #ccffcc, transparent), radial-gradient(1px 1px at 30% 78%, #88cc88, transparent),
+    radial-gradient(ellipse at 50% 40%, #04180a, #000500); }
+
+/* Systems: name · diamond · modifier · breaches */
+.starship-sheet.sta2e-rom-sheet .stat.row { display: grid; grid-template-columns: minmax(0,1fr) 14px 28px 28px; align-items: center; gap: 6px;
+  padding: 2px 0 3px; border-bottom: 1px solid rgba(34,170,68,.14); }
+.starship-sheet.sta2e-rom-sheet .stat.row:last-child { border-bottom: 0; }
+.starship-sheet.sta2e-rom-sheet .stat.row .list-entry { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 700; color: var(--label); }
+.starship-sheet.sta2e-rom-sheet .stat.header.row { font-size: 9.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--faint); border-bottom-color: rgba(34,170,68,.3); background: none; padding: 0 0 2px; }
+.starship-sheet.sta2e-rom-sheet .stat.header.row .text { grid-column: 1 / 3; }
+.starship-sheet.sta2e-rom-sheet .stat.header.row .field { text-align: right; }
+.starship-sheet.sta2e-rom-sheet .departments .stat.row { grid-template-columns: minmax(0,1fr) 14px 28px; }
+.starship-sheet.sta2e-rom-sheet .stat.row .numeric-entry { width: 100%; font-size: 15px; }
+.sta2e-rom-sheet input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+.sta2e-rom-sheet input[type=number]::-webkit-inner-spin-button,
+.sta2e-rom-sheet input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.starship-sheet.sta2e-rom-sheet .systems-block, .starship-sheet.sta2e-rom-sheet .departments-block { padding: 5px 12px; }
+.starship-sheet.sta2e-rom-sheet .systems-block .stat.row { grid-template-columns: minmax(0,1fr) 14px 22px 22px; gap: 5px; }
+/* Breaches read red when non-zero — value="{{breaches}}" in the template,
+   so the attribute selector works on every render. */
+.starship-sheet.sta2e-rom-sheet .numeric-entry.breaches { color: var(--faint); }
+.starship-sheet.sta2e-rom-sheet .numeric-entry.breaches:not([value="0"]) { color: var(--alarm); text-shadow: 0 0 6px rgba(255,74,90,.7); }
+.starship-sheet.sta2e-rom-sheet .stat.row.is-selected .list-entry,
+.starship-sheet.sta2e-rom-sheet .stat.row.is-selected .numeric-entry:not(.breaches) { color: var(--gold); }
+.starship-sheet.sta2e-rom-sheet .modrow { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--sage); }
+
+/* Crew Support and Shields tracks */
+.sta2e-rom-sheet .box.crew { --t: var(--amber); }
+.sta2e-rom-sheet .box.shields { --t: var(--teal); }
+
+/* The four ship stats: the card's readout cells — top corners cut, the
+   bottom edge in the frame colour. */
+.starship-sheet.sta2e-rom-sheet .big-row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 4px; margin: 0 9px 9px; }
+.starship-sheet.sta2e-rom-sheet .big-row-column { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 4px 6px;
+  background: var(--panel); clip-path: var(--top); box-shadow: inset 0 -2px 0 var(--c); }
+.starship-sheet.sta2e-rom-sheet .big-row-column .tracktitle { text-align: center; margin: 0; font-size: 9px; color: var(--faint); }
+/* Reserve Power and Shaken: a larger diamond lamp */
+.starship-sheet.sta2e-rom-sheet .big-row-column .checkbox { appearance: none; margin: 4px 0; width: 15px; height: 15px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--c); transform: rotate(45deg); }
+.starship-sheet.sta2e-rom-sheet .big-row-column .checkbox.power:checked { background: var(--lit); border-color: var(--lit); box-shadow: 0 0 7px var(--lit); }
+.starship-sheet.sta2e-rom-sheet .big-row-column .checkbox.shaken:checked { background: var(--alarm); border-color: var(--alarm); box-shadow: 0 0 7px var(--alarm); }
+.starship-sheet.sta2e-rom-sheet .big-row-column .numeric-entry { width: 44px; text-align: center; font-size: 19px; }
+
+/* Toolkit: NPC Ship block — a strip whose diamond lead turns red for an NPC */
+.starship-sheet.sta2e-rom-sheet .sta2e-npc-ship-block { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 9px 7px; padding: 5px 10px;
+  background: var(--panel); box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line), inset 3px 0 0 var(--moss);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--sage); }
+.starship-sheet.sta2e-rom-sheet .sta2e-npc-ship-block:has(.sta2e-npc-cb:checked) { box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line), inset 3px 0 0 var(--alarm); }
+.starship-sheet.sta2e-rom-sheet .sta2e-npc-ship-block label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-quality { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex-basis: 100%; }
+.starship-sheet.sta2e-rom-sheet .sta2e-cq-title { color: var(--val); }
+
+/* Toolkit: Ship / Crew strip — the same keys as .sheet-tabs */
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-tabs { display: flex; gap: 2px; padding: 0 7px; margin: 0 0 7px; border-bottom: 2px solid var(--c); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-tab { flex: 1; padding: 5px 12px 4px; cursor: pointer; border: 0;
+  font: 600 11px "Oxanium", sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--sage);
+  background: linear-gradient(90deg, var(--moss) 0 3px, #021a0c 3px calc(100% - 3px), var(--moss) calc(100% - 3px)); clip-path: var(--hex-s); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-tab.is-active { background: var(--c); color: #001005; }
+
+/* Service record fields */
+.starship-sheet.sta2e-rom-sheet .svc { margin: 0 9px 4px; display: grid; gap: 7px; }
+.starship-sheet.sta2e-rom-sheet .svc .row { display: grid; gap: 10px; }
+.starship-sheet.sta2e-rom-sheet .svc .row.c3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.starship-sheet.sta2e-rom-sheet .svc .row.c2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.starship-sheet.sta2e-rom-sheet .note { min-height: 60px; padding: 6px 12px; font: 500 13.5px "Oxanium", sans-serif; color: var(--val); }
+
+/* Toolkit: Crew tab panel */
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-section { margin: 8px 7px; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-heading { display: flex; align-items: center; gap: 7px; margin: 0 0 4px; color: var(--jade);
+  font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-heading::before { content: ""; width: 6px; height: 6px; background: var(--c); transform: rotate(45deg); flex: none; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-heading::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-station { display: grid; grid-template-columns: 120px minmax(0,1fr) auto; align-items: center; gap: 8px;
+  padding: 3px 12px; border-bottom: 1px solid rgba(34,170,68,.1); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-station-name { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--label); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-select { width: 100%; background: var(--glass); border: 0; box-shadow: inset 0 -1px 0 var(--line);
+  font: 500 13.5px "Oxanium", sans-serif; color: var(--val); padding: 1px 3px; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-select option { background: #000a00; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-station.is-vacant .sta2e-crew-select { color: var(--faint); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-stat { font: 12px var(--mono); color: var(--val); white-space: nowrap; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-dept-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 5px; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-dept-tab { padding: 3px 13px 2px; cursor: pointer; border: 0; font: 600 10.5px "Oxanium", sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--sage); background: linear-gradient(90deg, var(--moss) 0 2px, #021a0c 2px calc(100% - 2px), var(--moss) calc(100% - 2px)); clip-path: var(--hex-s); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-dept-tab.is-active { background: var(--jade); color: #001005; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-dept-tab.is-empty { opacity: .45; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-dept-n { font-family: var(--mono); margin-left: 3px; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-member { display: grid; grid-template-columns: 24px minmax(0,1fr) auto auto 18px; align-items: center; gap: 8px;
+  padding: 3px 12px; border-bottom: 1px solid rgba(34,170,68,.1); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-portrait { width: 22px; height: 22px; background: linear-gradient(135deg,#2a6a3e,#0a2414); clip-path: var(--cham); box-shadow: inset 0 0 0 1px var(--c); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-member-name { font: 500 13.5px "Oxanium", sans-serif; color: var(--val); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-member-post { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--label); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-badge { font: 600 9.5px "Oxanium", sans-serif; letter-spacing: .1em; text-transform: uppercase; padding: 0 5px;
+  box-shadow: inset 0 0 0 1px rgba(224,138,42,.55); color: var(--amber); }
+.starship-sheet.sta2e-rom-sheet .sta2e-crew-drop { margin-top: 6px; padding: 7px; text-align: center; box-shadow: inset 0 0 0 1px rgba(34,170,68,.3);
+  font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Romulan actor sheets</h1>
+  <p class="lede">The five 2e actor sheets — character, NPC, supporting, starship (Ship and Crew tabs) and small craft — in the Raptor Wing look the task card, chat cards and dice roller now wear under <code>romulan</code>: cold green on a fine grid, diamond separators, nothing round. The record panel wears the card's whole head — the warbird head-on, two swept wings running into the underlined title, the code on a diamond line beneath it — and every other panel takes the diamond line alone. Readouts and lists are the card's black hex wells, the ship's four stats its chamfered cells, tracks are rows of numbered diamonds, selectors are diamonds that light jade, and keys and tabs are the card's dark hex keys edged in their colour. Hover a list row to bring up its edit and delete keys; the tracks and selectors are live.</p>
+
+  <div class="state">Traits tab · Reason + Science selected</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Subcmdr. Tal</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-rom-sheet">
+
+      <div class="split-section">
+        <div class="top-left-column panel">
+          <div class="image-field"><div class="profile-img" title="Portrait"></div></div>
+          <div class="viewer-cap"><span>Personnel File</span><span>RSE 07</span></div>
+        </div>
+        <div class="top-right-column panel">
+          <div class="panel-head"><span>Imperial Fleet Record</span><div class="lamps"><i></i><i></i><i></i><i class="tab g">RSE 07</i></div></div>
+          <div class="name-field">
+            <div class="name-field-left">
+              <div class="title">Name</div>
+              <input name="name" type="text" value="Subcmdr. Tal">
+            </div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key amber-key" title="Linked">⛓</button>
+            </div>
+          </div>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Reputation</div>
+              <div class="bar" data-track="rep"></div></div>
+            <div class="track-row"><div class="tracktitle">Determination</div>
+              <div class="bar" data-track="determination"></div></div>
+            <div class="track-row"><div class="tracktitle">Stress</div>
+              <div class="bar" data-track="stress"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="split-section">
+        <div class="bottom-left-column">
+          <div class="panel">
+            <div class="panel-head"><span>Attributes</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">ATT</i></div></div>
+            <div class="crt attribute-block" data-list="attributes"></div>
+            <div class="panel-head"><span>Disciplines</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">DSC</i></div></div>
+            <div class="crt discipline-block" data-list="disciplines"></div>
+            <div class="side-controls">
+              <label class="lamp-check rollrepnotdis"><input class="selector" type="checkbox"> Roll Reputation, not Discipline</label>
+              <div class="buttons">
+                <div class="check-button btn attribute red-key">Task Roll</div>
+                <div class="check-button btn3 acclaim amber-key">Acclaim</div>
+              </div>
+              <div class="stressmod">Stress Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item">Character</a><a class="item active">Traits</a><a class="item">Development</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body">
+            <div class="section values">
+              <div class="title">Values</div>
+              <div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span class="value-used">Used</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">◆</div><input class="item-name" value="The Empire Endures"><a class="value-used"><i class="used-lamp"></i></a><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">◆</div><input class="item-name strike-through" value="Trust Is Earned in Silence"><a class="value-used"><i class="used-lamp on"></i></a><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">◆</div><input class="item-name" value="Mnhei'sahe Above All"><a class="value-used"><i class="used-lamp"></i></a><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div>
+            </div>
+            <div class="items-split">
+              <div>
+                <div class="section talents">
+                  <div class="title">Talents</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Role Ability: Tactical Officer"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Bold (Security)"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Cold Reading"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section focuses">
+                  <div class="title">Focuses</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Covert Operations"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Disruptor Weapons"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Encryption"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="section traits">
+                  <div class="title">Traits</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">▲</div><input class="item-name" value="Romulan"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry sta2e-gear-row-damaged"><div class="image">▲</div><input class="item-name" value="Disruptor Pistol (Broken)"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section belongings">
+                  <div class="title">Belongings</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                    <li class="row entry sta2e-gear-row-damaged"><div class="image">⌁</div><input class="item-name" value="Disruptor Pistol"><button class="key amber-key sta2e-gear-dmg" title="Repair">Repair</button><div class="list-entry damage">2</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Pulse Grenade"><span class="sta2e-grenade-count">×3</span><div class="list-entry damage">4</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Armour</span><span style="width:34px;text-align:center">Prot</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">⛨</div><input class="item-name" value="Uhlan Armour"><button class="key amber-key sta2e-wear is-worn">Worn</button><div class="list-entry damage">1</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Other</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">▣</div><input class="item-name" value="Scanner"><button class="key sta2e-wear">Wear</button><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">▣</div><input class="item-name" value="Medkit"><input class="item-quantity" type="number" value="2"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section injuries">
+                  <div class="title">Injuries</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Pot</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image" style="color:#ff5a3a">✚</div><input class="item-name" value="Plasma Burn" style="color:#ff7a5a"><input class="item-quantity" type="number" value="2" style="color:#ff7a5a"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="state">Character tab</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Subcmdr. Tal</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-rom-sheet">
+      <div class="split-section">
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item active">Character</a><a class="item">Traits</a><a class="item">Development</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body bio">
+            <div class="row c4">
+              <div class="column"><div class="title">Pronouns</div><input class="text-entry" value="He / Him"></div>
+              <div class="column"><div class="title">Species</div><input class="text-entry" value="Romulan"></div>
+              <div class="column"><div class="title">Rank</div><input class="text-entry" value="Lieutenant"></div>
+              <div class="column"><div class="title">Assignment</div><input class="text-entry" value="IRW Haakona"></div>
+            </div>
+            <div class="row c3">
+              <div class="column"><div class="title">Career Path</div><input class="text-entry" value="Romulan Imperial Fleet"></div>
+              <div class="column"><div class="title">Character Role</div><input class="text-entry" value="Weapons Officer"></div>
+              <div class="column"><div class="title">Experience</div><input class="text-entry" value="Experienced"></div>
+            </div>
+            <div class="row c2">
+              <div class="column"><div class="title">Environment</div><input class="text-entry" value="Romulus"></div>
+              <div class="column"><div class="title">Upbringing</div><input class="text-entry" value="Noble House"></div>
+            </div>
+            <div class="row c2">
+              <div class="column"><div class="title">Pastimes</div><input class="text-entry" value="Latrunculo, Romulan Ale"></div>
+              <div class="column"><div class="title">Career Events</div><input class="text-entry" value="Tomed Incident, Recruited by the Tal Shiar"></div>
+            </div>
+            <div class="row c4">
+              <div class="column num"><div class="title">Acclaim</div><input class="text-entry" value="3"></div>
+              <div class="column num"><div class="title">Reprimand</div><input class="text-entry" value="1"></div>
+              <div class="column" style="grid-column: span 2; align-self: end"><label class="lamp-check"><input class="selector" type="checkbox"> Klingon character (shows House, Caste, Glory…)</label></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════════ NPC ═══════════════════════════ -->
+  <div class="state">NPC sheet · Notable · Traits tab</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Tal Shiar Agent</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-rom-sheet" data-sheet="npc">
+      <div class="split-section">
+        <div class="top-left-column panel">
+          <div class="image-field"><div class="profile-img" title="Portrait"></div></div>
+          <div class="viewer-cap"><span>Contact File</span><span>TSH-0117</span></div>
+        </div>
+        <div class="top-right-column panel">
+          <div class="panel-head"><span>Non-Player Character</span><div class="lamps"><i></i><i></i><i></i><i class="tab r">NPC</i></div></div>
+          <div class="name-field">
+            <div class="name-field-left">
+              <div class="title">Name</div>
+              <input name="name" type="text" value="Tal Shiar Agent">
+            </div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key grey-key" title="Unlinked">⛓</button>
+            </div>
+          </div>
+          <div class="npc-block">
+            <div class="title">NPC Category</div>
+            <div class="row">
+              <div class="column">Minor <input type="radio" name="npcType-a" value="minor"></div>
+              <div class="column">Notable <input type="radio" name="npcType-a" value="notable" checked></div>
+              <div class="column">Major <input type="radio" name="npcType-a" value="major"></div>
+            </div>
+          </div>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Personal Threat</div>
+              <div class="bar" data-track="stress" data-max="6" data-lit="3"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="split-section">
+        <div class="bottom-left-column">
+          <div class="panel">
+            <div class="panel-head"><span>Attributes</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">ATT</i></div></div>
+            <div class="crt attribute-block" data-list="npc-attributes"></div>
+            <div class="panel-head"><span>Disciplines</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">DSC</i></div></div>
+            <div class="crt discipline-block" data-list="npc-disciplines"></div>
+            <div class="side-controls">
+              <div class="buttons one">
+                <div class="check-button btn attribute red-key">Task Roll</div>
+              </div>
+              <div class="stressmod">Stress Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item">Character</a><a class="item active">Traits</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body">
+            <div class="items-split">
+              <div>
+                <div class="section talents">
+                  <div class="title">Talents</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Bold (Security)"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Cold Reading"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section focuses">
+                  <div class="title">Focuses</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Hand-to-Hand Combat"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Intimidation"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="section traits">
+                  <div class="title">Traits</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">▲</div><input class="item-name" value="Romulan"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section belongings">
+                  <div class="title">Belongings</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Disruptor Pistol"><div class="list-entry damage">3</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Romulan Dagger"><div class="list-entry damage">2</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Armour</span><span style="width:34px;text-align:center">Prot</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">⛨</div><input class="item-name" value="Romulan Armour"><button class="key amber-key sta2e-wear is-worn">Worn</button><div class="list-entry damage">1</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════ SUPPORTING ═══════════════════════ -->
+  <div class="state">Supporting character sheet · Development tab</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Centurion Velal</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-rom-sheet" data-sheet="supporting">
+      <div class="split-section">
+        <div class="top-left-column panel">
+          <div class="image-field"><div class="profile-img" title="Portrait"></div></div>
+          <div class="viewer-cap"><span>Personnel File</span><span>RSE 1182</span></div>
+        </div>
+        <div class="top-right-column panel">
+          <div class="panel-head"><span>Supporting Character</span><div class="lamps"><i></i><i></i><i></i><i class="tab g">SUP</i></div></div>
+          <div class="name-field">
+            <div class="name-field-left">
+              <div class="title">Name</div>
+              <input name="name" type="text" value="Centurion Velal">
+            </div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key amber-key" title="Linked">⛓</button>
+            </div>
+          </div>
+          <!-- Supporting's selector is text + radios with no column wrappers,
+               exactly as the system template writes it. -->
+          <div class="npc-block">
+            <div class="row">Supporting Characters<input type="radio" name="npcType-b" value="supporting" checked>Supervisory Characters<input type="radio" name="npcType-b" value="supervising"></div>
+          </div>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Determination</div>
+              <div class="bar" data-track="determination" data-max="3" data-lit="1"></div></div>
+            <div class="track-row"><div class="tracktitle">Stress</div>
+              <div class="bar" data-track="stress" data-max="10" data-lit="2"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="split-section">
+        <div class="bottom-left-column">
+          <div class="panel">
+            <div class="panel-head"><span>Attributes</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">ATT</i></div></div>
+            <div class="crt attribute-block" data-list="sup-attributes"></div>
+            <div class="panel-head"><span>Disciplines</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">DSC</i></div></div>
+            <div class="crt discipline-block" data-list="sup-disciplines"></div>
+            <div class="side-controls">
+              <div class="buttons one">
+                <div class="check-button btn attribute red-key">Task Roll</div>
+              </div>
+              <div class="stressmod">Stress Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item">Character</a><a class="item">Traits</a><a class="item active">Development</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body">
+            <div class="section milestones">
+              <div class="title">Milestones / Arcs</div>
+              <div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Arc</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">✧</div><input class="item-name" value="Held the singularity core at Gasko"><input type="checkbox" class="arc-lamp" disabled><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">✧</div><input class="item-name" value="Loyalty Tested Arc"><input type="checkbox" class="arc-lamp" checked disabled><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div>
+            </div>
+            <div class="section">
+              <div class="title">Supporting Character Improvements</div>
+              <div class="supporting-char-grid list">
+                <div class="row"><div class="label">New value</div><div class="inputs">
+                  <input type="checkbox" checked><input type="checkbox" checked><input type="checkbox"><input type="checkbox"></div></div>
+                <div class="row"><div class="label">Improve an Attribute</div><div class="inputs"><input type="checkbox" checked></div></div>
+                <div class="row"><div class="label">Improve a Department</div><div class="inputs"><input type="checkbox"></div></div>
+                <div class="row"><div class="label">New Focus</div><div class="inputs">
+                  <input type="checkbox" checked><input type="checkbox"><input type="checkbox"></div></div>
+                <div class="row"><div class="label">New Talent</div><div class="inputs">
+                  <input type="checkbox"><input type="checkbox"><input type="checkbox"><input type="checkbox"></div></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════════ STARSHIP ═══════════════════════════ -->
+  <div class="state">Starship sheet · NPC ship · Ship tab · Sensors + Science selected, one Weapons breach</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>I.R.W. Valdore</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="starship-sheet sta2e-rom-sheet" data-sheet="starship">
+      <div class="split-section">
+        <div class="left-column">
+          <div class="panel">
+            <div class="image-field"><div class="profile-img" title="Ship image"></div></div>
+            <div class="viewer-cap"><span>Registry</span><span>IRW-0414</span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span>Systems</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">SYS</i></div></div>
+            <div class="crt systems-block" data-systems="ship"></div>
+            <div class="panel-head"><span>Departments</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">DEPT</i></div></div>
+            <div class="crt departments-block departments" data-depts="ship"></div>
+            <div class="side-controls">
+              <div class="buttons one"><div class="check-button btn attribute red-key">Task Roll</div></div>
+              <div class="modrow shieldmod">Shield Modifier <input class="inset-num" type="number" value="0"></div>
+              <div class="modrow crwmod">Crew Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="right-column panel">
+          <div class="panel-head"><span>Vessel Record</span><div class="lamps"><i></i><i></i><i></i><i class="tab r">IRW</i></div></div>
+          <div class="name-field">
+            <div class="name-field-left"><div class="title">Ship Name</div><input name="name" type="text" value="I.R.W. Valdore"></div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key grey-key" title="Unlinked">⛓</button>
+            </div>
+          </div>
+          <div class="sta2e-npc-ship-block">
+            <label class="sta2e-npc-toggle"><input type="checkbox" class="sta2e-npc-cb" checked><span>NPC Ship</span></label>
+            <label class="sta2e-allied-npc-toggle"><input type="checkbox" class="sta2e-allied-npc-cb"><span>Allied NPC</span></label>
+            <div class="sta2e-crew-quality"><span class="sta2e-cq-title">Crew Quality</span>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Poor</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Basic</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a" checked><span>Proficient</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Talented</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Exceptional</span></label>
+            </div>
+          </div>
+          <nav class="sta2e-crew-tabs"><button type="button" class="sta2e-crew-tab is-active">Ship</button><button type="button" class="sta2e-crew-tab">Crew</button></nav>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Crew Support</div><div class="bar" data-track="crew" data-max="4" data-lit="3"></div></div>
+            <div class="track-row"><div class="tracktitle">Shields</div><div class="bar" data-track="shields" data-max="12" data-lit="8"></div></div>
+          </div>
+          <div class="big-row">
+            <div class="big-row-column"><div class="tracktitle">Reserve Power</div><input class="checkbox power" type="checkbox" checked></div>
+            <div class="big-row-column"><div class="tracktitle">Shaken</div><input class="checkbox shaken" type="checkbox"></div>
+            <div class="big-row-column"><div class="tracktitle">Scale</div><input class="field numeric-entry" type="number" value="4"></div>
+            <div class="big-row-column"><div class="tracktitle">Resistance</div><input class="field numeric-entry" type="number" value="4"></div>
+          </div>
+          <div class="svc">
+            <div class="row c3">
+              <div class="column"><div class="title">Designation</div><input class="text-entry" value="IRW-0414"></div>
+              <div class="column"><div class="title">Space Frame</div><input class="text-entry" value="Mogai-class Warbird"></div>
+              <div class="column"><div class="title">Service Date</div><input class="text-entry" value="2368"></div>
+            </div>
+            <div class="row c2">
+              <div class="column"><div class="title">Mission Profile</div><input class="text-entry" value="Border Patrol"></div>
+              <div class="column"><div class="title">Refit</div><input class="text-entry" value="Cloaking device refit"></div>
+            </div>
+          </div>
+          <div class="section values">
+            <div class="title">Mission Directives</div>
+            <div class="list">
+              <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+              <li class="row entry"><div class="image">◆</div><input class="item-name" value="Shadow the Federation convoy"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+            </div>
+          </div>
+          <div class="items-split">
+            <div>
+              <div class="section talents"><div class="title">Talents</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">✦</div><input class="item-name" value="Rugged Design"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">✦</div><input class="item-name" value="Fast Targeting Systems"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section traits"><div class="title">Traits</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">▲</div><input class="item-name" value="Romulan Starship"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section"><div class="title">Notes</div><div class="list note">Last reported near Rigel X.</div></div>
+            </div>
+            <div>
+              <div class="section belongings"><div class="title">Equipment</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Disruptor Cannons"><div class="list-entry damage">5</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Photon Torpedoes"><div class="list-entry damage">4</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Other</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">▣</div><input class="item-name" value="Tractor Beam"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section launchbay"><div class="title">Launch Bay</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">➤</div><input class="item-name" value="Boarding Craft"><input class="item-quantity" type="number" value="2"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section injuries"><div class="title">Damage Report</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Pot</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image" style="color:#ff5a3a">✚</div><input class="item-name" value="Weapons Breach" style="color:#ff7a5a"><input class="item-quantity" type="number" value="1" style="color:#ff7a5a"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="state">Starship sheet · Crew tab (toolkit)</div>
+  <div class="scroller"><div class="fwin" style="width:640px">
+    <div class="fwin-bar"><span>IRW Haakona</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="starship-sheet sta2e-rom-sheet" data-sheet="starship">
+      <div class="right-column panel">
+        <div class="panel-head"><span>Vessel Record</span><div class="lamps"><i></i><i></i><i></i><i class="tab a">D'deridex</i></div></div>
+        <div class="name-field"><div class="name-field-left"><div class="title">Ship Name</div><input name="name" type="text" value="IRW Haakona"></div></div>
+        <nav class="sta2e-crew-tabs"><button type="button" class="sta2e-crew-tab">Ship</button><button type="button" class="sta2e-crew-tab is-active">Crew</button></nav>
+        <section class="sta2e-crew-section">
+          <div class="sta2e-crew-heading">Bridge Stations</div>
+          <div class="list">
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Captain</span><select class="sta2e-crew-select"><option>Cmdr. Toreth</option></select><span class="sta2e-crew-stat">PRE 11 · CMD 5</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">First Officer</span><select class="sta2e-crew-select"><option>Subcmdr. Tal</option></select><span class="sta2e-crew-stat">REA 12 · SCI 5</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Helm</span><select class="sta2e-crew-select"><option>Lt. Kalan</option></select><span class="sta2e-crew-stat">CTL 11 · CON 4</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Tactical</span><select class="sta2e-crew-select"><option>Lt. Vorak</option></select><span class="sta2e-crew-stat">DAR 10 · SEC 4</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Communications</span><select class="sta2e-crew-select"><option>Uhlan Mendak</option></select><span class="sta2e-crew-stat">INS 11 · CMD 3</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Engineering</span><select class="sta2e-crew-select"><option>Subcmdr. Taris</option></select><span class="sta2e-crew-stat">CTL 11 · ENG 5</span></div>
+            <div class="sta2e-crew-station is-vacant"><span class="sta2e-crew-station-name">Medical</span><select class="sta2e-crew-select"><option>— Vacant —</option></select><span class="sta2e-crew-stat">—</span></div>
+          </div>
+        </section>
+        <section class="sta2e-crew-section">
+          <div class="sta2e-crew-heading">Ship's Company <span class="sta2e-crew-count" style="color:#f0f0f0;font-family:var(--mono)">6</span></div>
+          <div class="sta2e-crew-dept-tabs">
+            <button class="sta2e-crew-dept-tab is-active">All <span class="sta2e-crew-dept-n">6</span></button><button class="sta2e-crew-dept-tab">Command <span class="sta2e-crew-dept-n">2</span></button><button class="sta2e-crew-dept-tab">Conn <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab">Engineering <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab">Security <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab">Science <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab is-empty">Medical <span class="sta2e-crew-dept-n">0</span></button>
+          </div>
+          <div class="list">
+            <div class="sta2e-crew-member"><span class="sta2e-crew-portrait"></span><span class="sta2e-crew-member-name">Cmdr. Toreth</span><span class="sta2e-crew-member-post">Captain</span><span class="sta2e-crew-badges"><span class="sta2e-crew-badge">Station</span></span><a class="mini del">✕</a></div>
+            <div class="sta2e-crew-member"><span class="sta2e-crew-portrait"></span><span class="sta2e-crew-member-name">Subcmdr. Tal</span><span class="sta2e-crew-member-post">First Officer</span><span class="sta2e-crew-badges"><span class="sta2e-crew-badge">Assigned</span></span><a class="mini del">✕</a></div>
+            <div class="sta2e-crew-member"><span class="sta2e-crew-portrait"></span><span class="sta2e-crew-member-name">Centurion Velal</span><span class="sta2e-crew-member-post">Engineering</span><span class="sta2e-crew-badges"><span class="sta2e-crew-badge">Roster</span></span><a class="mini del">✕</a></div>
+          </div>
+          <div class="sta2e-crew-drop">Drop a character here to add them to the ship's company</div>
+        </section>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════════ SMALL CRAFT ═══════════════════════════ -->
+  <div class="state">Small craft sheet · no Crew Support, Crew Modifier or Launch Bay</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Scorpion Fighter</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="starship-sheet sta2e-rom-sheet" data-sheet="smallcraft">
+      <div class="split-section">
+        <div class="left-column">
+          <div class="panel">
+            <div class="image-field"><div class="profile-img" title="Craft image"></div></div>
+            <div class="viewer-cap"><span>Auxiliary Craft</span><span>IRW-0414/T1</span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span>Systems</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">SYS</i></div></div>
+            <div class="crt systems-block" data-systems="craft"></div>
+            <div class="panel-head"><span>Departments</span><div class="lamps"><i></i><i></i><i></i><i class="tab b">DEPT</i></div></div>
+            <div class="crt departments-block departments" data-depts="craft"></div>
+            <div class="side-controls">
+              <div class="buttons one"><div class="check-button btn attribute red-key">Task Roll</div></div>
+              <div class="modrow shieldmod">Shield Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="right-column panel">
+          <div class="panel-head"><span>Auxiliary Craft Record</span><div class="lamps"><i></i><i></i><i></i><i class="tab g">T1</i></div></div>
+          <div class="name-field">
+            <div class="name-field-left"><div class="title">Ship Name</div><input name="name" type="text" value="Scorpion Fighter"></div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key amber-key" title="Linked">⛓</button>
+            </div>
+          </div>
+          <div class="sta2e-npc-ship-block"><label class="sta2e-npc-toggle"><input type="checkbox" class="sta2e-npc-cb"><span>NPC Ship</span></label></div>
+          <nav class="sta2e-crew-tabs"><button type="button" class="sta2e-crew-tab is-active">Ship</button><button type="button" class="sta2e-crew-tab">Crew</button></nav>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Shields</div><div class="bar" data-track="shields" data-max="6" data-lit="6"></div></div>
+          </div>
+          <div class="big-row">
+            <div class="big-row-column"><div class="tracktitle">Reserve Power</div><input class="checkbox power" type="checkbox"></div>
+            <div class="big-row-column"><div class="tracktitle">Shaken</div><input class="checkbox shaken" type="checkbox"></div>
+            <div class="big-row-column"><div class="tracktitle">Scale</div><input class="field numeric-entry" type="number" value="1"></div>
+            <div class="big-row-column"><div class="tracktitle">Resistance</div><input class="field numeric-entry" type="number" value="1"></div>
+          </div>
+          <div class="svc">
+            <div class="row c3">
+              <div class="column"><div class="title">Designation</div><input class="text-entry" value="IRW-0414/T1"></div>
+              <div class="column"><div class="title">Space Frame</div><input class="text-entry" value="Scorpion-class Fighter"></div>
+              <div class="column"><div class="title">Service Date</div><input class="text-entry" value="2365"></div>
+            </div>
+          </div>
+          <div class="items-split">
+            <div>
+              <div class="section talents"><div class="title">Talents</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">✦</div><input class="item-name" value="Atmospheric Flight"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+            </div>
+            <div>
+              <div class="section belongings"><div class="title">Equipment</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Disruptor"><div class="list-entry damage">2</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section injuries"><div class="title">Damage Report</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Pot</span><a class="mini add">+</a></div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="notes">
+    <h3>How this would be built</h3>
+    <p><b>Built:</b> <code>styles/romulan-sheet.css</code>, tagged by <code>tos-sheet-theme.js</code> as <code>.sta2e-rom-sheet</code> and skipped by <code>_applySheetTheme</code>, as described below. In the build the record wings are SVG backgrounds rather than clip-paths, so the title can share their pseudo-element.</p>
+    <p>The same route as the TOS, TMP, ENT and Klingon overlays: a CSS overlay, never a template. <code>tos-sheet-theme.js</code> would stamp <code>.sta2e-rom-sheet</code> (one more entry in <code>ERA_CLASSES</code>, under <code>isRomulanTheme</code>) beside the <code>data-sta2e-sheet="&lt;kind&gt;"</code> stamp it already writes, <code>_applySheetTheme</code> would skip a tagged sheet as it skips the others, and a new <code>styles/romulan-sheet.css</code> would follow <code>klingon-sheet.css</code> rule for rule. The panel heads, the wings and the diamond line are pseudo-elements on the template's own columns, as the Klingon header and the ENT ticks are, so builders emit no markup and every <code>data-action</code> keeps working.</p>
+    <p><b>What carries over from the chat card.</b> The gridded black (<code>.trw</code>'s two 12px gradients), the swept wings and the underlined title, the diamond line with its code, the hex well with its top and bottom rules, the chamfered readout cell with a frame-green bottom edge, the diamond note lead, and the edged hex key. Oxanium for labels (already bundled in <code>fonts/romulan/</code>) and Share Tech Mono for numbers (in <code>fonts/tmp/</code>).</p>
+    <p><b>Wings once, diamonds everywhere else.</b> The wings mark the record: the top-right panel on a character, NPC or supporting sheet and the right column's head on a starship or small craft (<code>.top-right-column &gt; .panel-head</code>, <code>.right-column &gt; .panel-head</code>). Every other panel takes the quieter diamond line — a short rule, the title, a long rule, three diamonds and the code — so a sheet does not read as a wall of wings. The record's code drops under its title, where the card puts its state.</p>
+    <p><b>Edges are fills and shadows, never borders.</b> Every cut shape is a <code>clip-path</code>, which cuts a border off at the corners, so a well's rules are inset <code>box-shadow</code>s, the portrait's rim is the frame's own fill under a chamfered image, and a key's coloured ends are stops in its background gradient — exactly as the card's keys are drawn. Typed fields are underlined with a box-shadow too, since sta.css forces some border colours with <code>!important</code>.</p>
+    <p><b>Colour by meaning.</b> Reputation is frame green, Shields teal, Determination gold, Stress red, Crew Support amber, and the NPC's Personal Threat amber through the <code>data-sta2e-sheet</code> stamp (it reuses <code>box stress</code>). Selected attributes, disciplines, systems and departments turn gold; non-zero breaches turn red through <code>.breaches:not([value="0"])</code>; the NPC category and a checked NPC Ship fill red. Tracks are the card's diamond meter at a larger size, numbered: each diamond is kept square with <code>aspect-ratio</code>, so a 20-step Reputation track shrinks its diamonds evenly instead of squashing them, and a lit one glows in its track's colour.</p>
+    <p><b>The traps the other overlays carry apply here too.</b> sta.css gives several blocks <code>width: 100%</code> as a content box (list headers, <code>.buttons</code>, <code>.text-entry</code>, the supporting improvement rows), so any padding added must come with <code>box-sizing: border-box</code>; radios group by form, so the check page wraps each sheet in its own <code>&lt;form&gt;</code>; and the real templates would be rendered with Foundry's Handlebars beside <code>foundry2.css</code> and <code>sta.css</code> to check it, as the Klingon overlay was.</p>
+  </div>
+</div>
+
+<script>
+// Fill the parts the system generates in JS: track boxes and the attribute /
+// discipline rows (both rendered by the sheet itself in Foundry).
+document.querySelectorAll('.bar[data-track]').forEach(bar => {
+  const kind = bar.dataset.track;
+  const [max, lit] = bar.dataset.max
+    ? [Number(bar.dataset.max), Number(bar.dataset.lit)]
+    : { rep: [20, 10], determination: [3, 2], stress: [13, 4] }[kind];
+  for (let i = 1; i <= max; i++) {
+    const d = document.createElement('div');
+    d.className = `box ${kind}${i <= lit ? ' selected' : ''}`;
+    d.textContent = i;
+    d.addEventListener('click', () => {
+      bar.querySelectorAll('.box').forEach((b, j) => b.classList.toggle('selected', j < i));
+    });
+    bar.appendChild(d);
+  }
+});
+const lists = {
+  attributes: [['Control', 9], ['Daring', 10], ['Fitness', 8], ['Insight', 11], ['Presence', 9], ['Reason', 12, true]],
+  disciplines: [['Command', 2], ['Conn', 1], ['Engineering', 3], ['Security', 1], ['Medicine', 2], ['Science', 5, true]],
+  'npc-attributes': [['Control', 9], ['Daring', 11, true], ['Fitness', 10], ['Insight', 8], ['Presence', 9], ['Reason', 7]],
+  'npc-disciplines': [['Command', 3], ['Conn', 2], ['Engineering', 1], ['Security', 4, true], ['Medicine', 1], ['Science', 1]],
+  'sup-attributes': [['Control', 10, true], ['Daring', 8], ['Fitness', 9], ['Insight', 9], ['Presence', 8], ['Reason', 10]],
+  'sup-disciplines': [['Command', 1], ['Conn', 2], ['Engineering', 4, true], ['Security', 1], ['Medicine', 1], ['Science', 3]],
+};
+// Ship systems: [name, modifier, breaches, selected]
+const systems = {
+  ship:  [['Communications', 9, 0], ['Computers', 10, 0], ['Engines', 10, 0], ['Sensors', 9, 0, true], ['Structure', 10, 0], ['Weapons', 11, 1]],
+  craft: [['Communications', 6, 0], ['Computers', 7, 0], ['Engines', 8, 0, true], ['Sensors', 7, 0], ['Structure', 6, 0], ['Weapons', 5, 0]],
+};
+const depts = {
+  ship:  [['Command', 2], ['Conn', 2], ['Engineering', 1], ['Security', 3], ['Medicine', 0], ['Science', 2, true]],
+  craft: [['Command', 0], ['Conn', 2, true], ['Engineering', 1], ['Security', 0], ['Medicine', 0], ['Science', 1]],
+};
+const pickOne = (el, row, cls) => row.querySelector('.selector').addEventListener('change', e => {
+  el.querySelectorAll('.stat.row:not(.header)').forEach(r => { r.classList.remove('is-selected'); r.querySelector('.selector').checked = false; });
+  e.target.checked = true; row.classList.add('is-selected');
+});
+document.querySelectorAll('[data-systems]').forEach(el => {
+  el.innerHTML = '<div class="stat header row"><div class="text">System</div><div class="field">Mod</div><div class="field">Brch</div></div>';
+  for (const [name, mod, br, sel] of systems[el.dataset.systems]) {
+    const row = document.createElement('div');
+    row.className = `stat row${sel ? ' is-selected' : ''}`;
+    row.innerHTML = `<div class="text list-entry">${name}</div><input class="selector system" type="checkbox"${sel ? ' checked' : ''}><input class="field numeric-entry" type="number" value="${mod}"><input class="field numeric-entry breaches" type="number" value="${br}">`;
+    pickOne(el, row); el.appendChild(row);
+  }
+});
+document.querySelectorAll('[data-depts]').forEach(el => {
+  for (const [name, val, sel] of depts[el.dataset.depts]) {
+    const row = document.createElement('div');
+    row.className = `stat row${sel ? ' is-selected' : ''}`;
+    row.innerHTML = `<div class="text list-entry">${name}</div><input class="selector department" type="checkbox"${sel ? ' checked' : ''}><input class="field numeric-entry" type="text" value="${val}">`;
+    pickOne(el, row); el.appendChild(row);
+  }
+});
+document.querySelectorAll('[data-list]').forEach(el => {
+  for (const [name, val, sel] of lists[el.dataset.list]) {
+    const row = document.createElement('div');
+    row.className = `row-right${sel ? ' is-selected' : ''}`;
+    row.innerHTML = `<div class="list-entry">${name}</div><input class="selector" type="checkbox"${sel ? ' checked' : ''}><input class="numeric-entry" type="text" value="${val}">`;
+    const box = row.querySelector('.selector');
+    box.addEventListener('change', () => {
+      el.querySelectorAll('.row-right').forEach(r => { r.classList.remove('is-selected'); r.querySelector('.selector').checked = false; });
+      box.checked = true; row.classList.add('is-selected');
+    });
+    el.appendChild(row);
+  }
+});
+</script>
+</body>
+</html>

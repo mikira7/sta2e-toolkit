@@ -5,17 +5,18 @@
  * character, starship and small craft: the TOS "Console Viewer" look (sibling of
  * task-card-tos.js, styles/tos-sheet.css), the TMP "Console Monitor" look
  * (sibling of task-card-tmp.js, styles/tmp-sheet.css), the ENT "Bridge
- * Touchscreen" look (sibling of task-card-ent.js, styles/ent-sheet.css) and the
+ * Touchscreen" look (sibling of task-card-ent.js, styles/ent-sheet.css), the
  * Klingon "Targeting Scope" look (sibling of task-card-klingon.js,
- * styles/klingon-sheet.css). This
+ * styles/klingon-sheet.css) and the Romulan "Raptor Wing" look (sibling of
+ * task-card-romulan.js, styles/romulan-sheet.css). This
  * module only decides which sheets get which; shape and colour live in the
  * stylesheets.
  *
  * ── An overlay, never a template ─────────────────────────────────────────────
  * Nothing in the system's markup is moved, wrapped or replaced. A render hook
  * stamps two things on the template root (.character-sheet / .starship-sheet):
- * the era class (`sta2e-tos-sheet`, `sta2e-tmp-sheet`, `sta2e-ent-sheet` or
- * `sta2e-kli-sheet`), and
+ * the era class (`sta2e-tos-sheet`, `sta2e-tmp-sheet`, `sta2e-ent-sheet`,
+ * `sta2e-kli-sheet` or `sta2e-rom-sheet`), and
  * `data-sta2e-sheet="<kind>"`. Every rule in each stylesheet hangs off both. Every data-action, input name and system
  * script — the track renderer rebuilds its keys on every render — therefore
  * keeps working, and the decorations (header strip, viewer caption, lamps) are
@@ -27,7 +28,7 @@
  * `box stress` keys.
  *
  * ── When it applies ──────────────────────────────────────────────────────────
- * Theme `tos-panel`, `tmp-console`, `tmp-monitor`, `ent-panel` or `klingon`, the
+ * Theme `tos-panel`, `tmp-console`, `tmp-monitor`, `ent-panel`, `klingon` or `romulan`, the
  * world setting `themeCharacterSheet`
  * on (the same switch that gates the toolkit's other sheet theming), and the
  * actor has not picked its own palette in the system's colour picker.
@@ -57,6 +58,7 @@ const ERA_CLASSES = {
   "tmp-monitor": ["sta2e-tmp-sheet", "sta2e-tmp-sheet--monitor"],
   "ent-panel":   ["sta2e-ent-sheet"],
   "klingon":     ["sta2e-kli-sheet"],
+  "romulan":     ["sta2e-rom-sheet"],
 };
 const ALL_ERA_CLASSES = [...new Set(Object.values(ERA_CLASSES).flat())];
 

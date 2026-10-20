@@ -65,6 +65,7 @@
     "styles/tmp-monitor-sheet.css",
     "styles/ent-sheet.css",
     "styles/klingon-sheet.css",
+    "styles/romulan-sheet.css",
     "styles/sta-palette-fix.css",
     "styles/appearance.css",
     "styles/token-maker.css"

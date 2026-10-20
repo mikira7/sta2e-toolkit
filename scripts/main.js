@@ -3646,11 +3646,12 @@ function _applySheetTheme() {
   el.id          = STYLE_ID;
   // An actor given its own palette in the system's colour picker (sta v2.8.0+)
   // keeps it: every rule skips a sheet tagged by the renderActorSheetV2 hook below.
-  // So does a sheet wearing the TOS, TMP, ENT or Klingon overlay
-  // (styles/tos-sheet.css, tmp-sheet.css, ent-sheet.css, klingon-sheet.css),
+  // So does a sheet wearing the TOS, TMP, ENT, Klingon or Romulan overlay
+  // (styles/tos-sheet.css, tmp-sheet.css, ent-sheet.css, klingon-sheet.css,
+  // romulan-sheet.css),
   // which these !important rules would otherwise fight.
   el.textContent = (css + "\n" + shipCss + "\n" + extendedTaskCss)
-    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *):not(.sta2e-tos-sheet):not(.sta2e-tmp-sheet):not(.sta2e-ent-sheet):not(.sta2e-kli-sheet)");
+    .replace(/\.(character-sheet|starship-sheet|extended-tasks)\b/g, ".$1:not(.sta2e-own-palette *):not(.sta2e-tos-sheet):not(.sta2e-tmp-sheet):not(.sta2e-ent-sheet):not(.sta2e-kli-sheet):not(.sta2e-rom-sheet)");
   document.head.appendChild(el);
 }
 

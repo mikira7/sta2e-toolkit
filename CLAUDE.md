@@ -161,6 +161,38 @@ its neighbour (`--kli-seam`) so they interlock. The design source is
   without a `<form>` round each sheet the NPC and supporting `system.npcType` radios
   shared a group and unchecked each other.
 
+**The Romulan overlay** is the same machinery for `romulan`: the tagger stamps
+`.sta2e-rom-sheet`, `_applySheetTheme` skips it, and [styles/romulan-sheet.css](styles/romulan-sheet.css)
+follows klingon-sheet.css rule for rule in the look of the Romulan task and chat cards
+(`.trw`, Raptor Wing): the gridded black, panels as darker fields with a hairline on
+three sides, every readout block, list, the notes and the portrait as the card's black
+hex wells ruled top and bottom, the four ship stats as its chamfered cells, tracks as rows
+of **numbered diamonds** (the card's Successes meter, kept square by `aspect-ratio` so a
+20-step Reputation shrinks them evenly), checkboxes and radios as diamonds that light
+jade, and keys and tabs as edged hex keys. The record column wears the card's whole head —
+two swept wings round the underlined title, the code on a diamond line under it — and
+every other block title takes the diamond line alone. The design source is
+`docs/romulan-sheet-mockup.html`. Three things it rests on:
+
+- **The wings are SVG backgrounds, not a clip-path.** The record title's text and its
+  underline live in the same `::before`; a clip-path would cut the title away. So the
+  wings are two data-URI polygons in the fixed frame green (the sheets never recolour
+  their frame), sized `calc(50% - var(--rom-gap) / 2)`, and `--rom-gap` — the title's
+  span — is set per kind, since each record has its own title length. The code
+  (`◆ Crew ◆`, `◆ NPC ◆`…) is the `::after`, in the kind's `--rom-lamp`.
+- **A track box is a rim fill under an inset `::before`.** The diamond is a clip-path,
+  which cuts off a border, so the outline is the box's own fill and the glass a second
+  diamond behind the number (`isolation: isolate` keeps its `z-index: -1` inside the
+  box). The renderer writes an inline `width: calc(100% / N)`; the flex-basis beats it.
+- **The portrait's chamfered rim is the `<img>`'s padding**, not a clip-path on
+  `.image-field`, which would cut off the caption hung below it.
+
+Checked the same way: the real `*2e.hbs` templates rendered with Foundry's Handlebars and
+the system's `en.json`, served beside `foundry2.css` and `sta.css`, tracks filled as
+`sta-actors.mjs` does, with no element left outside its column. That check is what moved
+the roll keys to `minmax(0, 1fr)` columns: a nowrap "Reputation Roll" widened its track
+past the 184px column.
+
 ### TMP Monitor Theme
 
 A second TMP theme, `tmp-monitor` ("TMP Monitor"), beside TMP Console: the later
@@ -2253,11 +2285,12 @@ through `lcarsChatCard`.
 | [styles/task-card-tmp.css](styles/task-card-tmp.css) | Shape for that skin — panel, monitors, meters, key bed, lenses — and the `@font-face` rules for `fonts/tmp/` |
 | [scripts/task-card-tng.js](scripts/task-card-tng.js) | TNG Bracket Console skin for the task card — used for `lcars-tng` regardless of `taskCardStyle` — and the `bracketTop` / `bracketBottom` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |
 | [styles/task-card-tng.css](styles/task-card-tng.css) | The bracket frame (`.tbc`, shared with the TNG chat frame), the task card's strips, gauges and keypad, and the `@font-face` rule for `fonts/tng/` (Antonio) |
-| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS, TMP, ENT or Klingon overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
+| [scripts/tos-sheet-theme.js](scripts/tos-sheet-theme.js) | Tags the 2e actor sheets for the TOS, TMP, ENT, Klingon or Romulan overlay — `registerTosSheetTheme`, `refreshTosSheets`. Imports only `lcars-theme.js` |
 | [styles/tos-sheet.css](styles/tos-sheet.css) | The TOS overlay for the character, NPC, supporting, starship and small craft sheets (native CSS nesting) |
 | [styles/tmp-sheet.css](styles/tmp-sheet.css) | The TMP overlay for the same five sheets, structured like tos-sheet.css |
 | [styles/ent-sheet.css](styles/ent-sheet.css) | The ENT Bridge Touchscreen overlay for the same five sheets, structured like tmp-sheet.css |
 | [styles/klingon-sheet.css](styles/klingon-sheet.css) | The Klingon Targeting Scope overlay for the same five sheets, structured like ent-sheet.css |
+| [styles/romulan-sheet.css](styles/romulan-sheet.css) | The Romulan Raptor Wing overlay for the same five sheets, structured like klingon-sheet.css |
 | [styles/tmp-monitor.css](styles/tmp-monitor.css) | The TMP Monitor theme for the Stardate HUD, the task card and the chat frame — repaints the TMP markup from its modifier classes |
 | [styles/tmp-monitor-sheet.css](styles/tmp-monitor-sheet.css) | The TMP Monitor repaint of the TMP sheet overlay |
 | [scripts/task-card-ent.js](scripts/task-card-ent.js) | ENT Bridge Touchscreen skin for the task card — used for `ent-panel` regardless of `taskCardStyle` — and the `entHead` / `entFoot` frame markup the chat card frame reuses. Imports only `lcars-theme.js` |

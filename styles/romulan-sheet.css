@@ -1,0 +1,1000 @@
+/*
+ * sta2e-toolkit | romulan-sheet.css
+ *
+ * The Romulan "Raptor Wing" overlay for the 2e actor sheets — character, NPC,
+ * supporting character, starship and small craft. Applied by
+ * scripts/tos-sheet-theme.js, which stamps `.sta2e-rom-sheet` and
+ * `data-sta2e-sheet="<kind>"` on the template root under the romulan theme;
+ * every rule below is nested under both. The design source is
+ * docs/romulan-sheet-mockup.html; the structure follows styles/klingon-sheet.css
+ * rule for rule, because that file (like ent-sheet.css before it) was checked
+ * against the real markup.
+ *
+ * The look is the Romulan task and chat cards' (styles/task-card-romulan.css,
+ * `.trw`): cold green on a fine grid, diamond separators, nothing round. The
+ * record column wears the card's whole head — the warbird head-on, two swept
+ * wings running into the underlined title, the code on a diamond line beneath
+ * it — and every other block takes the diamond line alone (a diamond, the
+ * title, a rule). Readouts and lists are the card's black hex wells, ruled top
+ * and bottom; the ship's four stats are its chamfered cells with a frame-green
+ * bottom edge; tracks are rows of numbered diamonds (the card's Successes
+ * meter); checkboxes and radios are diamonds that light jade; and keys and
+ * tabs are the card's dark hex keys, the two ends in the key's colour. Oxanium
+ * for labels (task-card-romulan.css declares it) and Share Tech Mono for
+ * numbers (task-card-tmp.css declares it).
+ *
+ * ── Rules this file lives by (the same as klingon-sheet.css) ────────────────
+ * 1. Style the system's markup where it stands. Nothing is wrapped or moved, so
+ *    the panels are the template's own columns, the wells its own blocks, and
+ *    the decorations are pseudo-elements or background layers.
+ * 2. No `!important`. Core's `.hidden { display: none !important }` sits in a
+ *    cascade layer and still wins, so `display` may be set freely. sta.css
+ *    carries a few `!important` border colours, so underlines and outlines on
+ *    inputs are drawn as box-shadows, which it never touches.
+ * 3. The root selector is a class plus an attribute, so every nested rule
+ *    outranks the system's `.character-sheet .x` rules on specificity. Tab items
+ *    need the full `nav.sheet-tabs.tabs a.item` chain to outrank the system's.
+ * 4. Inline styles the toolkit writes at runtime win: the NPC Ship block's
+ *    show/hide `display`, and the Crew tab's panel switching.
+ *
+ * Three things the shapes force:
+ *  • Every cut shape is a clip-path, which cuts off a border or box-shadow
+ *    outside it, so a well's rules are INSET box-shadows, a key's coloured
+ *    ends are stops in its background gradient (as on the card), and an
+ *    outlined track diamond is a rim fill under an inset ::before.
+ *  • The portrait's chamfered rim is the <img>'s own padding showing its
+ *    background, not a clip-path on .image-field — that would clip the
+ *    caption hung below it.
+ *  • The record head's wings are SVG backgrounds in the fixed frame green,
+ *    not a clip-path: the title text and its underline share the same
+ *    pseudo-element, and a clip-path would cut the title away. The wings
+ *    therefore do not follow a custom property; the sheets never recolour
+ *    their frame, so they need not.
+ */
+
+.sta2e-rom-sheet[data-sta2e-sheet] {
+  --rom-font: "STA2e Oxanium", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --rom-mono: "STA2e Share Tech Mono", Consolas, monospace;
+  --rom-c: #22aa44;        /* frame green: rules, edges, wings */
+  --rom-jade: #44dd88;
+  --rom-lit: #5cf09a;      /* a lit indicator */
+  --rom-ink: #88cc88;      /* running text */
+  --rom-val: #ccffcc;      /* values and typed text */
+  --rom-head: #e4ffe8;     /* the record title */
+  --rom-label: #3f8a58;    /* captions */
+  --rom-faint: #2f6a44;    /* header rows, dim numbers */
+  --rom-gold: #d8c050;
+  --rom-lime: #aacc33;
+  --rom-teal: #40c8b0;
+  --rom-amber: #e08a2a;
+  --rom-alarm: #ff4a5a;
+  --rom-sage: #669966;
+  --rom-moss: #3e5c48;
+  --rom-key-glass: #021a0c;
+  --rom-panel: rgba(0,15,0,.82);
+  --rom-glass: #000;
+  --rom-line: rgba(34,170,68,.35);
+  --rom-rule: color-mix(in srgb, var(--rom-c) 55%, transparent);
+  --rom-hair: rgba(34,170,68,.14);
+  --rom-lamp: var(--rom-lit);   /* the record code's colour, per kind below */
+  --rom-gap: 260px;             /* the record title's span between the wings, per kind */
+  --rom-hex: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
+  --rom-hex-s: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%);
+  --rom-cham: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+  --rom-top: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px);
+  --rom-dia: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  /* A well: black, ruled top and bottom in the frame colour. */
+  --rom-well-edge: inset 0 1px 0 var(--rom-rule), inset 0 -1px 0 var(--rom-rule);
+  /* An idle key or tab: dark glass with moss ends. A lit key's gradient is
+     written in its own rule, not here: a custom property holding var(--k)
+     resolves where it is DEFINED, and --k is not set on the root. */
+  --rom-key-idle: linear-gradient(90deg, var(--rom-moss) 0 3px, var(--rom-key-glass) 3px calc(100% - 3px), var(--rom-moss) calc(100% - 3px));
+  /* The system's palette variables, so anything drawn through them (the Crew
+     tab, rules this file never names) follows the theme. */
+  --sta-borderblue: #22aa44;
+  --sta-borderbluedark: #001a00;
+  --sta-darkestblue: #000a00;
+  --sta-palestblue: #5cf09a;
+  --sta-palestbluedark: #000f00;
+
+  padding: 8px;
+  color: var(--rom-ink);
+  font-family: var(--rom-font);
+  background-color: #000a00;
+  background-image:
+    linear-gradient(rgba(34,170,68,.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34,170,68,.07) 1px, transparent 1px);
+  background-size: 12px 12px;
+  scrollbar-color: #1d6a3e transparent;
+
+  /* ── Shared pieces ──────────────────────────────────────────────────────── */
+
+  /* Panels: the template's own columns, a darker field with a hairline on
+     three sides — the card frame has no top edge; its head draws one. */
+  .top-left-column, .top-right-column, .bottom-left-column, .bottom-right-column,
+  .left-column, .right-column {
+    position: relative;
+    padding: 0 0 8px;
+    background: var(--rom-panel);
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 1px 0 0 var(--rom-line), inset -1px 0 0 var(--rom-line), inset 0 -1px 0 var(--rom-line);
+  }
+
+  /* Labels */
+  .title, .tracktitle {
+    margin: 0 0 2px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    color: var(--rom-label);
+    font: 700 10px var(--rom-font);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+  }
+
+  /* Text fields: black with a frame-green underline. border-box, or
+     width:100% plus the padding runs the field past its column. */
+  .text-entry {
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    padding: 3px 6px 2px;
+    background: var(--rom-glass);
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--rom-line);
+    color: var(--rom-val);
+    font: 500 13.5px var(--rom-font);
+    letter-spacing: .02em;
+    &:focus { outline: none; box-shadow: inset 0 -1px 0 var(--rom-gold); }
+    &::placeholder { color: var(--rom-faint); }
+  }
+  input[type=number] { appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Every checkbox and radio is a diamond: a rotated square outlined in the
+     frame colour, filled jade when on. Core draws its own glyph in ::before /
+     ::after, which this replaces. */
+  input[type=checkbox], input[type=radio] {
+    appearance: none;
+    position: relative;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    margin: 2px 3px;
+    border: 1px solid var(--rom-c);
+    border-radius: 0;
+    cursor: pointer;
+    background: var(--rom-glass);
+    box-shadow: none;
+    transform: rotate(45deg);
+    &::before, &::after { content: none; display: none; }
+    &:checked { background: var(--rom-lit); border-color: var(--rom-lit); box-shadow: 0 0 6px var(--rom-lit); }
+    &:disabled { cursor: default; }
+    &:focus-visible { outline: 1px solid var(--rom-gold); outline-offset: 2px; }
+  }
+
+  /* Keys: the card's edged hex keys. --k is the key's colour. */
+  .check-button, .btn, .btn2, .btn3 {
+    --k: var(--rom-lit);
+    position: relative;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 7px 12px 6px;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+    color: color-mix(in srgb, var(--k) 70%, #fff);
+    line-height: 1.15;
+    background: linear-gradient(90deg, var(--k) 0 3px, var(--rom-key-glass) 3px calc(100% - 3px), var(--k) calc(100% - 3px));
+    box-shadow: none;
+    clip-path: var(--rom-hex);
+    font: 600 11px var(--rom-font);
+    letter-spacing: .1em;
+    text-align: center;
+    text-transform: uppercase;
+    &:hover { filter: brightness(1.3); }
+    &:active { filter: brightness(.85); }
+  }
+  .btn  { --k: var(--rom-alarm); }
+  .btn2 { --k: var(--rom-alarm); }
+  .btn3 { --k: var(--rom-amber); }
+  /* sta.css repaints these on hover; keep the key. */
+  .btn:hover, .btn2:hover, .btn3:hover {
+    background: linear-gradient(90deg, var(--k) 0 3px, var(--rom-key-glass) 3px calc(100% - 3px), var(--k) calc(100% - 3px));
+  }
+
+  /* Portrait: a chamfered frame, its caption beneath in the mono face. The rim
+     is the image's own padding showing its background; a clip-path on
+     .image-field would cut the caption off. */
+  .image-field {
+    position: relative;
+    width: auto;
+    height: auto;
+    margin: 8px 8px 22px;
+    padding: 0;
+    overflow: visible;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    &::after {
+      content: "Personnel File";
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: calc(100% + 6px);
+      color: var(--rom-sage);
+      font: 10px var(--rom-mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+  }
+  .profile-img {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    padding: 2px;
+    border: 0;
+    border-radius: 0;
+    object-fit: cover;
+    background: var(--rom-rule);
+    clip-path: var(--rom-cham);
+  }
+
+  /* Name field and the three system icons */
+  .name-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 4px 9px 6px;
+    .text-entry {
+      height: auto;
+      padding: 3px 6px 3px;
+      box-shadow: inset 0 -1px 0 var(--rom-c);
+      color: var(--rom-head);
+      font: 700 20px var(--rom-font);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+  }
+  .icon-column {
+    gap: 3px;
+    padding: 0;
+    justify-content: flex-end;
+    font-size: 11px;
+    > i {
+      width: 30px;
+      height: 18px;
+      padding: 0;
+      border-radius: 0;
+      background-color: var(--rom-sage);
+      mask-size: 12px;
+      cursor: pointer;
+    }
+    .linked:not(.unlinked) { background-color: var(--rom-amber); }
+    .linked.unlinked { opacity: .5; }
+  }
+
+  /* Tracks: rows of numbered diamonds — the card's Successes meter at a size
+     that holds a two-digit number. The renderer gives each key an inline
+     width; the flex-basis overrides it, and aspect-ratio keeps the diamond
+     square, so a long track (Reputation's 20) shrinks its diamonds evenly
+     instead of squashing them. Unlit: a rim in the track's colour (--t) round
+     dark glass, a dim number. Lit: filled, dark ink, a glow. The rim is the
+     box's own fill and the glass an inset diamond on ::before, behind the
+     number (isolation keeps the -1 z-index inside the box). */
+  .tracktitle { margin: 7px 9px 3px; }
+  .track { margin: 0 9px; }
+  .track .bar:not(.extendedtask) { display: flex; align-items: center; gap: 2px; padding: 0; }
+  /* Determination nests its renderer in a second .bar. */
+  .track .bar > .bar { flex: 1 1 auto; min-width: 0; }
+  .track .bar .box {
+    --t: var(--rom-c);
+    position: relative;
+    isolation: isolate;
+    flex: 0 1 23px;
+    align-self: center;
+    min-width: 14px;
+    height: auto;
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    color: var(--rom-faint);
+    background: color-mix(in srgb, var(--t) 45%, #000);
+    box-shadow: none;
+    clip-path: var(--rom-dia);
+    font: 10px var(--rom-mono);
+    line-height: 1;
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 1.5px;
+      z-index: -1;
+      background: var(--rom-key-glass);
+      clip-path: var(--rom-dia);
+    }
+    &:hover::before { background: #063a1c; }
+    &.selected {
+      color: #001005;
+      background: var(--t);
+      filter: drop-shadow(0 0 3px var(--t));
+      &::before { background: linear-gradient(180deg, color-mix(in srgb, var(--t) 70%, #fff), var(--t) 60%); }
+    }
+    &.rep { --t: var(--rom-c); }
+    &.shields { --t: var(--rom-teal); }
+    &.determination { --t: var(--rom-gold); }
+    &.crew, &.power { --t: var(--rom-amber); }
+    &.stress { --t: var(--rom-alarm); }
+  }
+  .track .shield-gap { flex: 0 0 6px; width: 6px; }
+
+  /* Wells: attribute / discipline / system / department blocks */
+  .attribute-block, .discipline-block, .systems-block, .departments-block {
+    position: relative;
+    margin: 8px 8px 8px;
+    padding: 6px 12px 5px;
+    background: var(--rom-glass);
+    border: 0;
+    border-radius: 0;
+    box-shadow: var(--rom-well-edge);
+    clip-path: var(--rom-cham);
+    color: var(--rom-ink);
+    font: 600 13px/1.45 var(--rom-font);
+    /* The block's title takes the diamond line: diamond, title, rule. */
+    > .title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0 0 4px;
+      color: var(--rom-val);
+      font: 700 11px var(--rom-font);
+      letter-spacing: .16em;
+      &::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--rom-c); transform: rotate(45deg); }
+      &::after { content: ""; flex: 1; height: 1px; background: var(--rom-line); }
+      a { color: var(--rom-gold); }
+    }
+  }
+
+  /* A readout row: name, diamond, value, a hairline under it. min-width:0
+     stops a long name propping the column open. */
+  .row-right, .stat.row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    margin: 0;
+    padding: 2px 0 3px;
+    box-shadow: inset 0 -1px 0 var(--rom-hair);
+    .list-entry {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      text-align: left;
+      text-transform: uppercase;
+      color: var(--rom-label);
+      font: 700 11px var(--rom-font);
+      letter-spacing: .12em;
+    }
+    &:has(.selector:checked) {
+      .list-entry, .numeric-entry:not(.breaches) { color: var(--rom-gold); }
+    }
+  }
+  .numeric-entry {
+    width: 28px;
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--rom-val);
+    font: 16px var(--rom-mono);
+    text-align: right;
+  }
+
+  /* Panel numerics: stress / shield / crew modifiers, and the two toggles */
+  .stressmod, .shieldmod, .crwmod, .rollrepnotdis, .amiklingon {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 7px 9px 0;
+    color: var(--rom-sage);
+    font: 700 10.5px var(--rom-font);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    .text-entry {
+      width: 44px;
+      margin: 0;
+      padding: 1px;
+      text-align: center;
+      box-shadow: inset 0 -1px 0 var(--rom-c);
+      color: var(--rom-val);
+      font: 14px var(--rom-mono);
+    }
+  }
+  .rollrepnotdis { flex-direction: row-reverse; justify-content: flex-end; }
+  /* The roll keys. width:auto + border-box, or sta.css's width and the margins
+     push them past the column; minmax(0, …) lets a long label wrap inside its
+     key rather than widening the track ("Reputation Roll" in a 184px column). */
+  .buttons {
+    box-sizing: border-box;
+    width: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 3px;
+    margin: 8px 8px 0;
+    padding: 0;
+    background: none;
+  }
+  .buttons:not(:has(.btn3)) { grid-template-columns: 1fr; }
+
+  /* Tabs: hex keys over a frame-green rule, the active one filled */
+  nav.sheet-tabs.tabs {
+    display: flex;
+    gap: 2px;
+    padding: 6px 7px 0;
+    margin: 0 0 4px;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -2px 0 var(--rom-c);
+    a.item {
+      position: relative;
+      flex: 1;
+      width: auto;
+      padding: 5px 12px 4px;
+      border: 0;
+      border-radius: 0;
+      color: var(--rom-sage);
+      background: var(--rom-key-idle);
+      box-shadow: none;
+      clip-path: var(--rom-hex-s);
+      font: 600 11px var(--rom-font);
+      letter-spacing: .14em;
+      text-align: center;
+      text-transform: uppercase;
+      text-shadow: none;
+      &:first-child { border: 0; }
+      &:hover { color: var(--rom-val); text-shadow: none; }
+      &.active { color: #001005; background: var(--rom-c); }
+    }
+  }
+
+  /* Item sections: a caption on the diamond line over a well list.
+     width:auto undoes sta.css's `.traits { width: 100% }`, which with these
+     margins pushed the Traits section past its column. */
+  .section {
+    --rom-sec: var(--rom-c);
+    width: auto;
+    margin: 8px;
+    > .title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0 0 4px;
+      color: var(--rom-jade);
+      font-size: 11px;
+      &::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--rom-sec); transform: rotate(45deg); }
+      &::after { content: ""; flex: 1; height: 1px; background: var(--rom-line); }
+    }
+    /* border-box: sta.css gives the header width:100% as a content box, so the
+       padding pushed its + key past the edge of the rows below it. Its top
+       rule opens the well the rows below continue. */
+    .header {
+      box-sizing: border-box;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px 2px;
+      background: linear-gradient(rgba(34,170,68,.08), rgba(34,170,68,.08)), var(--rom-glass);
+      border-radius: 0;
+      border-bottom: 0;
+      box-shadow: inset 0 1px 0 var(--rom-rule), inset 0 -1px 0 rgba(34,170,68,.25);
+      color: var(--rom-faint);
+      font: 700 9.5px var(--rom-font);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      .image { flex: 0 0 20px; margin: 0; }
+    }
+    .row.entry {
+      position: relative;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      margin: 0;
+      padding: 2px 10px;
+      list-style: none;
+      background: var(--rom-glass);
+      border-bottom: 0;
+      box-shadow: inset 0 -1px 0 var(--rom-hair);
+      &:last-child { box-shadow: inset 0 -1px 0 var(--rom-rule); }
+      &:hover {
+        background: linear-gradient(rgba(34,170,68,.08), rgba(34,170,68,.08)), var(--rom-glass);
+        box-shadow: inset 2px 0 0 var(--rom-lit), inset 0 -1px 0 var(--rom-hair);
+      }
+    }
+    .row .image {
+      flex: 0 0 20px;
+      margin: 0;
+      img { width: 20px; height: 20px; border-radius: 0; clip-path: var(--rom-cham); }
+    }
+    /* height:auto undoes core's fixed input height, which made rows 32px tall. */
+    .item-name {
+      flex: 1;
+      min-width: 0;
+      height: auto;
+      min-height: 0;
+      border: 0;
+      padding: 1px 0;
+      background: transparent;
+      color: var(--rom-val);
+      font: 500 13.5px var(--rom-font);
+      letter-spacing: .02em;
+      &.strike-through { opacity: .45; }
+    }
+    input.item-quantity:not([type=checkbox]), .list-entry.damage, .two-column-with-roll-secondary.list-entry {
+      flex: 0 0 34px;
+      width: 34px;
+      height: auto;
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 rgba(34,170,68,.35);
+      color: var(--rom-val);
+      font: 14px var(--rom-mono);
+      text-align: center;
+    }
+    /* Edit / delete surface on hover or keyboard focus, laid over the row end
+       so names get the full width of a narrow column. Values' used switch is
+       also an a.control, and must stay where it is. */
+    .row.entry > .control:not(.value-used) {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: auto;
+      gap: 2px;
+      padding: 2px 2px 2px 14px;
+      opacity: 0;
+      pointer-events: none;
+      background: linear-gradient(90deg, transparent, var(--rom-glass) 30%);
+    }
+    /* The fade lives on the revealed state only, so hiding is instant — with
+       the transition on the base rule the keys flashed on every re-render
+       (see tmp-sheet.css). */
+    .row.entry:hover > .control:not(.value-used), .row.entry:focus-within > .control:not(.value-used) { opacity: 1; pointer-events: auto; transition: opacity .12s; }
+    /* The row keys: small edged hex keys in sage. */
+    .control a {
+      --k: var(--rom-sage);
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 16px;
+      border-radius: 0;
+      color: color-mix(in srgb, var(--k) 70%, #fff);
+      font-size: 9px;
+      background: linear-gradient(90deg, var(--k) 0 2px, var(--rom-key-glass) 2px calc(100% - 2px), var(--k) calc(100% - 2px));
+      box-shadow: none;
+      clip-path: var(--rom-hex-s);
+      text-shadow: none;
+      &.delete:hover { --k: var(--rom-alarm); }
+      &.edit:hover { filter: brightness(1.3); }
+    }
+    .header .control.create {
+      --k: var(--rom-lit);
+      width: 26px;
+      height: 16px;
+      margin-left: auto;
+      display: grid;
+      place-items: center;
+      border-radius: 0;
+      color: color-mix(in srgb, var(--k) 70%, #fff);
+      font-size: 9px;
+      background: linear-gradient(90deg, var(--k) 0 2px, var(--rom-key-glass) 2px calc(100% - 2px), var(--k) calc(100% - 2px));
+      box-shadow: none;
+      clip-path: var(--rom-hex-s);
+    }
+    /* Values' "used" switch: a diamond lamp instead of the slider icon. The
+       <i> keeps the data-action, so it stays the click target. */
+    .value-used { flex: 0 0 34px; width: 34px; }
+    a.value-used i {
+      display: block;
+      box-sizing: border-box;
+      width: 9px;
+      height: 9px;
+      margin: 0 auto;
+      font-size: 0;
+      border: 1px solid var(--rom-moss);
+      background: transparent;
+      transform: rotate(45deg);
+      cursor: pointer;
+      &::before { content: none; }
+      &.fa-toggle-on { background: var(--rom-alarm); border-color: var(--rom-alarm); box-shadow: 0 0 5px var(--rom-alarm); }
+    }
+  }
+  /* Section accents, by what each one holds */
+  .section.values { --rom-sec: var(--rom-gold); }
+  .section.belongings { --rom-sec: var(--rom-amber); }
+  .section.injuries {
+    --rom-sec: var(--rom-alarm);
+    .item-name, input.item-quantity:not([type=checkbox]) { color: var(--rom-alarm); }
+  }
+  .item-list-scrollable { scrollbar-color: #1d6a3e transparent; }
+
+  /* Two titles sit outside any .section — the ship's Notes and the supporting
+     character's Improvements — so they get the section caption here. */
+  .title:has(+ .note), .title:has(+ .supporting-char-grid) {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 8px 8px 4px;
+    color: var(--rom-jade);
+    font-size: 11px;
+    &::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--rom-c); transform: rotate(45deg); }
+    &::after { content: ""; flex: 1; height: 1px; background: var(--rom-line); }
+  }
+
+  /* Notes editor: a well. The sheet sizes .note, but nothing passed that
+     height on to the <prose-mirror> inside (see tmp-sheet.css), so the box
+     clips and is a flex column, and the text scrolls inside the editor. */
+  .note {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 6px 6px 6px 12px;
+    background: var(--rom-glass);
+    border-radius: 0;
+    box-shadow: var(--rom-well-edge);
+    color: var(--rom-val);
+    font: 500 13.5px var(--rom-font);
+    > prose-mirror, > .editor {
+      flex: 1 1 auto;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-color: #1d6a3e transparent;
+    }
+    .editor-content { scrollbar-color: #1d6a3e transparent; }
+  }
+
+  /* The record head: the warbird head-on. ::before is the title, centred
+     between two swept wings (SVG backgrounds, see the header note) and
+     underlined across --rom-gap; ::after is the code on the diamond line
+     beneath it, in the kind's colour. */
+  .top-right-column::before, &.starship-sheet .right-column::before {
+    display: block;
+    position: static;
+    box-sizing: border-box;
+    width: auto;
+    height: 46px;
+    margin: 0 0 2px;
+    padding: 6px 0 0;
+    border-radius: 0;
+    box-shadow: none;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 22' preserveAspectRatio='none'%3E%3Cpolygon points='0,0 100,11.4 100,22 9,7.5' fill='%2322aa44'/%3E%3C/svg%3E")
+        left top / calc(50% - var(--rom-gap) / 2) 22px no-repeat,
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 22' preserveAspectRatio='none'%3E%3Cpolygon points='100,0 0,11.4 0,22 91,7.5' fill='%2322aa44'/%3E%3C/svg%3E")
+        right top / calc(50% - var(--rom-gap) / 2) 22px no-repeat,
+      linear-gradient(#22aa44, #22aa44) center 24px / var(--rom-gap) 2px no-repeat;
+    color: var(--rom-head);
+    font: 700 13px/16px var(--rom-font);
+    letter-spacing: .16em;
+    text-align: center;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .top-right-column::after, &.starship-sheet .right-column::after {
+    position: absolute;
+    top: 29px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--rom-lamp);
+    font: 10px/14px var(--rom-mono);
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    text-shadow: 0 0 5px color-mix(in srgb, var(--rom-lamp) 60%, transparent);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* ══ Character, NPC and supporting sheets (.character-sheet) ═══════════ */
+
+  &.character-sheet {
+    > .split-section { gap: 8px; }
+    > .split-section + .split-section { margin-top: 8px; }
+    .top-left-column { flex: 0 0 196px; padding-right: 0; }
+    .top-right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .bottom-left-column { flex: 0 0 184px; min-width: 0; padding-right: 0; }
+    .bottom-right-column { flex: 1 1 0; min-width: 0; padding-bottom: 4px; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .tab .note { height: 520px; margin: 8px; }
+
+    .top-right-column::before { content: "Imperial Fleet Record"; }
+    .top-right-column::after { content: "◆ Crew ◆"; }
+
+    /* Character tab: underlined fields in their rows */
+    .tab[data-tab="biography"] {
+      padding: 6px 9px;
+      .row { gap: 10px; margin-bottom: 8px; }
+      .column { min-width: 0; }
+      .acclaimfield .text-entry, .reprimand .text-entry, .influence .text-entry,
+      .might .text-entry, .wealth .text-entry { color: var(--rom-val); font: 18px var(--rom-mono); text-align: center; }
+    }
+
+    /* NPC / supporting type selector. The NPC template wraps each radio in a
+       .column, so the whole column becomes a hex key that fills red when its
+       radio is checked; the radio is laid invisibly over it, since a div is not
+       a label. The supporting template writes bare text + radios, so there the
+       radio itself is the diamond. */
+    .npc-block {
+      margin: 2px 9px 6px;
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        flex-wrap: wrap;
+        color: var(--rom-sage);
+        font: 700 10.5px var(--rom-font);
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        > input[type=radio] { margin: 0 12px 0 6px; }
+      }
+      .column {
+        position: relative;
+        flex: 1;
+        flex-direction: row;
+        justify-content: center;
+        padding: 5px 12px 4px;
+        color: var(--rom-sage);
+        background: var(--rom-key-idle);
+        box-shadow: none;
+        clip-path: var(--rom-hex-s);
+        input[type=radio] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; transform: none; }
+        &:has(input:checked) { color: #1a0005; background: var(--rom-alarm); }
+        &:has(input:focus-visible) { outline: 1px solid var(--rom-gold); outline-offset: -2px; }
+      }
+    }
+
+    /* Supporting character improvements: a well of diamond milestones */
+    .supporting-char-grid {
+      box-sizing: border-box;
+      width: auto;
+      margin: 0 8px;
+      padding: 2px 0;
+      background: var(--rom-glass);
+      box-shadow: var(--rom-well-edge);
+      .row { box-sizing: border-box; width: auto; gap: 8px; margin: 0; padding: 4px 12px; box-shadow: inset 0 -1px 0 var(--rom-hair); }
+      .label { flex: 1; color: var(--rom-val); font: 500 13.5px var(--rom-font); }
+      .inputs { flex: 0 0 auto; display: flex; gap: 5px; }
+    }
+  }
+
+  /* Captions, record titles and codes per sheet */
+  &[data-sta2e-sheet="character"] { --rom-lamp: var(--rom-lit); --rom-gap: 248px; }
+  &[data-sta2e-sheet="npc"] {
+    --rom-lamp: var(--rom-alarm);
+    --rom-gap: 250px;
+    .image-field::after { content: "Contact File"; }
+    .top-right-column::before { content: "Non-Player Character"; }
+    .top-right-column::after { content: "◆ NPC ◆"; }
+    /* Personal Threat reuses the Stress keys; the kind stamp tells them apart. */
+    .track .bar .box.stress { --t: var(--rom-amber); }
+  }
+  &[data-sta2e-sheet="supporting"] {
+    --rom-lamp: var(--rom-lit);
+    --rom-gap: 250px;
+    .top-right-column::before { content: "Supporting Character"; }
+    .top-right-column::after { content: "◆ Sup ◆"; }
+  }
+
+  /* ══ Starship and small craft (.starship-sheet) ═════════════════════════ */
+
+  &.starship-sheet {
+    > .split-section { gap: 8px; align-items: flex-start; }
+    .left-column { flex: 0 0 248px; min-width: 0; padding-right: 0; }
+    .right-column { flex: 1 1 0; min-width: 0; padding-left: 0; }
+    .right-column::before { content: "Vessel Record"; }
+    .right-column::after { content: "◆ Vessel ◆"; }
+    .image-field::after { content: "Registry"; }
+    .profile-img { width: 100%; height: auto; }
+    .items-column-left, .items-column-right { min-width: 0; padding: 0; }
+    .note { height: 110px; margin: 0 8px; }
+
+    /* Systems: name · diamond · modifier · breaches */
+    .systems-block, .departments-block {
+      .stat.row { display: grid; grid-template-columns: minmax(0,1fr) 16px 26px 34px; }
+      .stat.header.row {
+        display: grid;
+        padding-bottom: 3px;
+        margin-bottom: 2px;
+        background: none;
+        box-shadow: inset 0 -1px 0 var(--rom-line);
+        color: var(--rom-faint);
+        font: 700 9.5px var(--rom-font);
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        .text.secondary-title { grid-column: 1 / 3; }
+        /* Monospace, so "Breaches" fits its column at a readable size */
+        .field.secondary-title { width: auto; text-align: right; font: 9px var(--rom-mono); letter-spacing: 0; white-space: nowrap; }
+      }
+      .numeric-entry { width: 100%; }
+    }
+    .departments-block .stat.row { grid-template-columns: minmax(0,1fr) 16px 26px; }
+    /* Breaches read red when non-zero. The template writes the count as the
+       input's value attribute, so this needs no script. */
+    .systems-block .field.breaches {
+      width: 100%;
+      margin: 0;
+      color: var(--rom-faint);
+      &:not([value="0"]) { color: var(--rom-alarm); text-shadow: 0 0 6px rgba(255,74,90,.7); }
+    }
+    .buttons { grid-template-columns: 1fr; }
+
+    /* The four ship stats: the card's readout cells — top corners cut, the
+       bottom edge in the frame colour. */
+    .big-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 4px;
+      width: auto;
+      margin: 8px 9px;
+    }
+    .big-row-column {
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      min-width: 0;
+      padding: 5px 4px 6px;
+      background: #000f00;
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -2px 0 var(--rom-c);
+      clip-path: var(--rom-top);
+      .tracktitle { margin: 0; text-align: center; font-size: 9px; color: var(--rom-faint); }
+      /* Reserve Power and Shaken: a larger diamond lamp */
+      .checkbox { width: 15px; height: 15px; margin: 4px 0; }
+      .numeric-entry { width: 46px; padding: 0; font-size: 19px; text-align: center; }
+    }
+    /* Reserve Power lights jade, Shaken red. */
+    .big-row-column:nth-child(2) .checkbox:checked { background: var(--rom-alarm); border-color: var(--rom-alarm); box-shadow: 0 0 7px var(--rom-alarm); }
+
+    /* Service record fields */
+    .right-column > .row { gap: 10px; width: auto; margin: 0 9px 8px; }
+    .right-column > .row > .column { min-width: 0; }
+
+    /* Toolkit: NPC Ship block. main.js writes its layout inline (a column, gap
+       and margin) and toggles display, so only the strip is styled here. Its
+       edge turns red once the ship is an NPC. */
+    .sta2e-npc-ship-block {
+      margin-inline: 9px;
+      padding: 5px 10px 5px 14px;
+      background: #000f00;
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 1px 0 var(--rom-line), inset 0 -1px 0 var(--rom-line), inset 3px 0 0 var(--rom-moss);
+      color: var(--rom-sage);
+      font: 700 10.5px var(--rom-font);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      &:has(.sta2e-npc-cb:checked) { box-shadow: inset 0 1px 0 var(--rom-line), inset 0 -1px 0 var(--rom-line), inset 3px 0 0 var(--rom-alarm); }
+      label { cursor: pointer; }
+      .sta2e-crew-quality { flex-basis: 100%; gap: 12px; }
+      .sta2e-cq-title { color: var(--rom-val); font-size: 10.5px; }
+      .sta2e-cq-option { font-size: 10.5px; }
+    }
+
+    /* Toolkit: Ship / Crew strip — the same keys as the sheet tabs */
+    .sta2e-crew-tabs {
+      display: flex;
+      gap: 2px;
+      margin: 0 0 8px;
+      padding: 4px 7px 0;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -2px 0 var(--rom-c);
+      .sta2e-crew-tab {
+        flex: 1;
+        border: 0;
+        border-radius: 0;
+        padding: 5px 12px 4px;
+        cursor: pointer;
+        color: var(--rom-sage);
+        background: var(--rom-key-idle);
+        box-shadow: none;
+        clip-path: var(--rom-hex-s);
+        font: 600 11px var(--rom-font);
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        &:hover { color: var(--rom-val); }
+        &.is-active { color: #001005; background: var(--rom-c); }
+      }
+    }
+
+    /* Toolkit: Crew tab panel */
+    .sta2e-crew-panel { padding: 0 8px; }
+    .sta2e-crew-section { margin: 8px 0; }
+    .sta2e-crew-heading {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0 0 4px;
+      color: var(--rom-jade);
+      font: 700 11px var(--rom-font);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      &::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--rom-c); transform: rotate(45deg); }
+      &::after { content: ""; flex: 1; height: 1px; background: var(--rom-line); }
+    }
+    .sta2e-crew-station, .sta2e-crew-member {
+      background: var(--rom-glass);
+      border-bottom: 0;
+      box-shadow: inset 0 -1px 0 var(--rom-hair);
+    }
+    .sta2e-crew-station-name { color: var(--rom-label); font: 700 10.5px var(--rom-font); letter-spacing: .12em; text-transform: uppercase; }
+    .sta2e-crew-select {
+      background: var(--rom-glass);
+      border: 0;
+      border-radius: 0;
+      box-shadow: inset 0 -1px 0 var(--rom-line);
+      color: var(--rom-val);
+      font: 500 13.5px var(--rom-font);
+      option { background: #000a00; }
+    }
+    .sta2e-crew-station.is-vacant .sta2e-crew-select { color: var(--rom-faint); }
+    .sta2e-crew-stat { color: var(--rom-val); font: 12px var(--rom-mono); }
+    .sta2e-crew-member-name { color: var(--rom-val); font: 500 13.5px var(--rom-font); }
+    .sta2e-crew-member-post { color: var(--rom-label); font: 600 10.5px var(--rom-font); letter-spacing: .1em; text-transform: uppercase; }
+    .sta2e-crew-badge { border-radius: 0; background: transparent; color: var(--rom-amber); box-shadow: inset 0 0 0 1px rgba(224,138,42,.55); }
+    .sta2e-crew-dept-tabs { gap: 2px; }
+    .sta2e-crew-dept-tab {
+      border: 0;
+      border-radius: 0;
+      padding-inline: 13px;
+      color: var(--rom-sage);
+      background: linear-gradient(90deg, var(--rom-moss) 0 2px, var(--rom-key-glass) 2px calc(100% - 2px), var(--rom-moss) calc(100% - 2px));
+      box-shadow: none;
+      clip-path: var(--rom-hex-s);
+      font: 600 10.5px var(--rom-font);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      &.is-active { color: #001005; background: var(--rom-jade); }
+      &.is-empty { opacity: .45; }
+    }
+    .sta2e-crew-drop { border: 0; border-radius: 0; box-shadow: inset 0 0 0 1px rgba(34,170,68,.3); color: var(--rom-faint); }
+  }
+  &[data-sta2e-sheet="starship"] { --rom-lamp: var(--rom-amber); --rom-gap: 176px; }
+  &[data-sta2e-sheet="smallcraft"] {
+    --rom-lamp: var(--rom-lit);
+    --rom-gap: 258px;
+    .image-field::after { content: "Auxiliary Craft"; }
+    .right-column::before { content: "Auxiliary Craft Record"; }
+    .right-column::after { content: "◆ Aux ◆"; }
+  }
+}
+
+/* The window around a Romulan sheet. _applySheetTheme skips these sheets, so
+   it no longer themes this header either; the frame takes the grid's black. */
+.window-content:has(.sta2e-rom-sheet[data-sta2e-sheet]) {
+  background: #000a00;
+}
+.application:has(.sta2e-rom-sheet[data-sta2e-sheet]) > .window-header {
+  background: #000f00;
+  border-bottom: 2px solid #22aa44;
+  color: #ccffcc;
+}
