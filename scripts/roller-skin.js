@@ -12,6 +12,7 @@
  *                              modifier, as everywhere else
  *   ent     ent-panel          the ENT Bridge Touchscreen        styles/roller-ent.css
  *   klingon klingon            the Klingon Targeting Scope       styles/roller-klingon.css
+ *   romulan romulan            the Romulan Raptor Wing           styles/roller-romulan.css
  *
  * Any other theme gets the LCARS dialog unchanged: rollerSkin() returns null.
  *
@@ -40,17 +41,28 @@
  * the bottom of a short screen. Its colours are set inline per era and its shape is CSS, the
  * same split as every other key.
  *
+ * ── Scroll cues ──────────────────────────────────────────────────────────────
+ * Eras in SCROLL_CUES (Romulan so far) also get wireRollerScroll: a fade at
+ * whichever edge of the screen has more content, a "▼ n more" chip above the
+ * keys while anything is below the fold, and in the setup phase a sticky strip
+ * of section keys built from the `.tbr-head` captions the content already
+ * emits, which scrolls to a section and lights the one in view. All of it is
+ * added after render and lives inside the frame, so the content and its
+ * wiring are untouched.
+ *
  * Imports lcars-theme.js, the task card skins (task-card-tng.js,
- * task-card-tos.js, task-card-tmp.js, task-card-ent.js, task-card-klingon.js) and chat-card-frame.js, none of which
+ * task-card-tos.js, task-card-tmp.js, task-card-ent.js, task-card-klingon.js,
+ * task-card-romulan.js) and chat-card-frame.js, none of which
  * import this, so npc-roller.js can take it without a cycle.
  */
 
-import { getActiveLcThemeKey, getLcCssVars, isBracketTheme, isEntTheme, isKlingonTheme } from "./lcars-theme.js";
+import { getActiveLcThemeKey, getLcCssVars, isBracketTheme, isEntTheme, isKlingonTheme, isRomulanTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom, tbcPalette } from "./task-card-tng.js";
 import { tosKeyStyle } from "./task-card-tos.js";
 import { tmpLensStyle, tmpMonitorKeyStyle } from "./task-card-tmp.js";
 import { ENT, entHead, entFoot, keyStyle as entKeyStyle } from "./task-card-ent.js";
 import { KLI, klingonHead, keyStyle as klingonKeyStyle } from "./task-card-klingon.js";
+import { ROM, romulanHead, keyStyle as romulanKeyStyle } from "./task-card-romulan.js";
 import { stripDecorativeEmoji } from "./chat-card-frame.js";
 
 /**
@@ -62,7 +74,7 @@ const stripEmoji = text => String(text ?? "").split(/([★☆])/)
 
 /**
  * Which skin the roller wears for the active theme ("tng", "tos", "tmp",
- * "tmpmon", "ent", "klingon"), or null for the plain LCARS dialog. Read at
+ * "tmpmon", "ent", "klingon", "romulan"), or null for the plain LCARS dialog. Read at
  * render time, never cached.
  */
 export function rollerSkin() {
@@ -74,6 +86,7 @@ export function rollerSkin() {
     if (key === "tmp-monitor") return "tmpmon";
     if (isEntTheme(key)) return "ent";
     if (isKlingonTheme(key)) return "klingon";
+    if (isRomulanTheme(key)) return "romulan";
   } catch { /* no theme yet */ }
   return null;
 }
@@ -332,6 +345,31 @@ function klingonFrame(body, { title, phase, passed }) {
 </div>`;
 }
 
+/**
+ * Romulan: the Raptor Wing — the frame the Romulan task and chat cards wear
+ * (`.trw`: the warbird's swept wings round the title, the diamond line with
+ * the phase as its code, gridded black). The content goes straight on the
+ * grid, which is dark everywhere, so like ENT it needs no screen of its own;
+ * the screen is wrapped in `.trw-scrollwrap`, which carries the scroll cues'
+ * fades (wireRollerScroll). The frame colour gives the state: green setting
+ * up, gold passed, red failed. The root carries `.sta2e-task-card` so the
+ * footer keys can take the card's own `.trw-key` hex shape.
+ */
+const ROMULAN_FRAME = { setup: ROM.green, pass: ROM.gold, fail: ROM.alarm };
+
+function romulanFrame(body, { title, phase, passed }) {
+  const state = phase === "rolled" ? (passed ? "pass" : "fail") : "setup";
+  return `
+<div class="sta2e-roller sta2e-roller--romulan sta2e-task-card sta2e-task-card--romulan trw" data-theme="${getActiveLcThemeKey()}" data-phase="${phase}"
+  style="${getLcCssVars("tc")}--trw-c:${ROMULAN_FRAME[state]};">
+  ${romulanHead(title, phaseLabel(phase))}
+  <div class="trw-scrollwrap">
+    <div class="trw-screen tbr-screen">${body}</div>
+  </div>
+  <div class="trw-actions tbr-keys" data-roller-keys></div>
+</div>`;
+}
+
 const FRAMES = {
   tng: tngFrame,
   tos: tosFrame,
@@ -339,6 +377,7 @@ const FRAMES = {
   tmpmon: (body, o) => tmpFrame(body, o, true),
   ent: entFrame,
   klingon: klingonFrame,
+  romulan: romulanFrame,
 };
 
 /**
@@ -369,7 +408,7 @@ const footerRole = (action, index) => action === "cancel" ? "cancel"
 const TMP_KEY = { main: "green", post: "amber", danger: "magenta", minor: "off", cancel: "off" };
 
 /** Extra classes a footer key takes, so the era's own card key rules draw it. */
-const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big", ent: "tec-key", klingon: "tkc-key" };
+const FOOTER_CLASS = { tmp: "tmc-key tmc-key--big", tmpmon: "tmc-key tmc-key--big", ent: "tec-key", klingon: "tkc-key", romulan: "trw-key" };
 
 const FOOTER_PAINT = {
   tng: role => {
@@ -382,13 +421,14 @@ const FOOTER_PAINT = {
   tmpmon: role => tmpMonitorKeyStyle(TMP_KEY[role]),
   ent: role => entKeyStyle({ main: ENT.green, post: ENT.blue, danger: ENT.red, minor: ENT.slate, cancel: ENT.slate }[role]),
   klingon: role => klingonKeyStyle({ main: KLI.gold, post: KLI.amber, danger: KLI.alarm, minor: KLI.rust, cancel: KLI.rust }[role]),
+  romulan: role => romulanKeyStyle({ main: ROM.lit, post: ROM.gold, danger: ROM.alarm, minor: ROM.sage, cancel: ROM.moss }[role]),
 };
 
 /**
  * The inline colour of a footer key: the era's paint for the role its action
  * plays. Pure, so the test preview paints with the real colours.
  *
- * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon" | "ent" | "klingon"
+ * @param {string} skin    "tng" | "tos" | "tmp" | "tmpmon" | "ent" | "klingon" | "romulan"
  * @param {string} action  The button's DialogV2 action.
  * @param {number} index   Its position in the footer.
  * @returns {string} CSS declarations, or "" for an era with no skin.
@@ -426,4 +466,91 @@ export function seatRollerFooter(root) {
   });
   footer.classList.add("tbr-footer");
   slot.append(footer);
+  if (SCROLL_CUES.has(skin)) wireRollerScroll(frame);
+}
+
+// ── Scroll cues ──────────────────────────────────────────────────────────────
+
+/** Eras whose roller gets the fades, the "more" chip and the jump strip. */
+const SCROLL_CUES = new Set(["romulan"]);
+
+/** A caption's own words: the first span when it holds one (the Ship Pool
+ *  header also holds its Manage key), else its text. */
+const headLabel = head => (head.querySelector(":scope > span")?.textContent ?? head.textContent ?? "").trim();
+
+/**
+ * Give a frame's screen its scroll cues. The screen's parent takes
+ * `data-up` / `data-down` for the fades; a "▼ n more" chip is appended to
+ * it, counting the captions still below the fold, and scrolls to the next
+ * one; and in the setup phase, with three or more captions, a sticky strip of
+ * section keys goes at the top of the screen. Safe to call on any frame: it
+ * does nothing without a `.tbr-screen`, and nothing twice.
+ *
+ * @param {HTMLElement} frame  The `.sta2e-roller` root.
+ */
+export function wireRollerScroll(frame) {
+  const screen = frame?.querySelector?.(".tbr-screen");
+  if (!screen || screen.dataset.scrollCues) return;
+  screen.dataset.scrollCues = "1";
+  const wrap = screen.parentElement;
+  const doc = frame.ownerDocument;
+  const heads = [...screen.querySelectorAll(".tbr-head")].filter(h => headLabel(h));
+
+  let jump = null;
+  if (frame.dataset.phase === "setup" && heads.length >= 3) {
+    jump = doc.createElement("nav");
+    jump.className = "tbr-jump";
+    jump.setAttribute("aria-label", "Roller sections");
+    heads.forEach((head, i) => {
+      const key = doc.createElement("button");
+      key.type = "button";
+      key.textContent = headLabel(head);
+      key.dataset.jump = String(i);
+      jump.append(key);
+    });
+    screen.prepend(jump);
+  }
+
+  const more = doc.createElement("button");
+  more.type = "button";
+  more.className = "tbr-more";
+  more.setAttribute("aria-label", "Scroll down");
+  wrap.append(more);
+
+  // Positions are measured against the screen, so they hold however the
+  // content nests its sections.
+  const topOf = el => el.getBoundingClientRect().top - screen.getBoundingClientRect().top + screen.scrollTop;
+  const jumpH = () => jump?.offsetHeight ?? 0;
+  const scrollToEl = el => screen.scrollTo({ top: Math.max(0, topOf(el) - jumpH() - 4), behavior: "smooth" });
+
+  const update = () => {
+    const below = screen.scrollHeight - screen.clientHeight - screen.scrollTop;
+    wrap.toggleAttribute("data-up", screen.scrollTop > 2);
+    wrap.toggleAttribute("data-down", below > 2);
+    wrap.style.setProperty("--tbr-jump-h", `${jumpH()}px`);
+    const fold = screen.scrollTop + screen.clientHeight - 4;
+    const hidden = heads.filter(h => topOf(h) > fold).length;
+    more.textContent = hidden ? `▼ ${hidden} more` : "▼ more";
+    if (jump) {
+      const line = screen.scrollTop + jumpH() + 8;
+      let current = 0;
+      heads.forEach((h, i) => { if (topOf(h) <= line) current = i; });
+      if (below <= 2) current = heads.length - 1;
+      jump.querySelectorAll("button").forEach(b => b.classList.toggle("is-on", Number(b.dataset.jump) === current));
+    }
+  };
+
+  screen.addEventListener("scroll", update, { passive: true });
+  if (typeof ResizeObserver === "function") new ResizeObserver(update).observe(screen);
+  more.addEventListener("click", () => {
+    const fold = screen.scrollTop + screen.clientHeight - 4;
+    const next = heads.find(h => topOf(h) > fold);
+    if (next) scrollToEl(next);
+    else screen.scrollTo({ top: screen.scrollTop + screen.clientHeight * 0.8, behavior: "smooth" });
+  });
+  jump?.addEventListener("click", ev => {
+    const key = ev.target.closest?.("button[data-jump]");
+    if (key) scrollToEl(heads[Number(key.dataset.jump)]);
+  });
+  update();
 }

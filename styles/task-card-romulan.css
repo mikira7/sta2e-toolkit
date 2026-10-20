@@ -1,0 +1,519 @@
+/*
+ * sta2e-toolkit | task-card-romulan.css
+ *
+ * Shape for the Romulan "Raptor Wing" (docs/romulan-card-mockups.html,
+ * Concept A): the Romulan Stardate HUD opened out into a card — cold green on
+ * a fine grid, diamond separators, nothing round. The header is the warbird
+ * seen head-on, two swept wings rising out of the title; dice sit in
+ * hexagonal wells, readouts are chamfered cells, Successes against Difficulty
+ * is a row of diamonds, the result is a hex plate, and the keys are dark hex
+ * keys edged in their colour.
+ *
+ * Three parts:
+ *  • The FRAME hangs off `.trw`, which the task card
+ *    (scripts/task-card-romulan.js), the chat card frame's Romulan path
+ *    (romulanChatCard in scripts/chat-card-frame.js) and the dice roller
+ *    (roller-skin.js) all put on their root. Its colour is `--trw-c`, stamped
+ *    inline by whichever builder made the root.
+ *  • The TASK CARD rules hang off .sta2e-task-card--romulan.
+ *  • The CHAT CARD rules hang off .sta2e-chat-card--romulan: the body parts the
+ *    Romulan body pass classifies (`ccf-rom-*`) and the keys it stamps (--tck-a).
+ *
+ * ── The two hard rules from styles/task-card.css apply here too ─────────────
+ * 1. No `!important`.
+ * 2. Nothing may set background / border-color / color / opacity on a
+ *    task-card key. _armCardSelection() owns those while a reroll is armed and
+ *    restores them through style.cssText, so a key's colour is entirely
+ *    inline. The keys are edged, not filled (no data-filled), so arming takes
+ *    the unfilled path: yellow text on dark glass. Chat-card keys are painted
+ *    by a rule from --tck-a, exactly as the TOS, TMP, ENT and Klingon frames
+ *    paint theirs.
+ *
+ * Specificity: the shared rules in task-card.css go up to (0,2,1), so the task
+ * card rules here use three classes to win on specificity rather than on
+ * stylesheet order.
+ */
+
+/* ── Fonts ────────────────────────────────────────────────────────────────── */
+/* Oxanium, bundled in fonts/romulan (SIL Open Font License, text beside it),
+   under a name of our own so nothing else in a world can collide with it. It
+   is a variable font: one file covers 500 to 700. Latin subset only: ▶ → ★ ◆
+   fall through to the next font in the stack. The numbers use
+   "STA2e Share Tech Mono", declared in task-card-tmp.css. */
+@font-face {
+  font-family: "STA2e Oxanium";
+  src: url("../fonts/romulan/Oxanium-latin.woff2") format("woff2");
+  font-weight: 500 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* (0,2,0), to outrank chat-card.css's .sta2e-chat-card font on specificity. */
+.sta2e-task-card.trw,
+.sta2e-chat-card.trw {
+  font-family: var(--trw-font);
+}
+
+.trw button,
+.trw input,
+.trw select,
+.trw textarea {
+  font-family: inherit;
+}
+
+/* ── Frame ────────────────────────────────────────────────────────────────── */
+.trw {
+  --trw-font: "STA2e Oxanium", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --trw-mono: "STA2e Share Tech Mono", "Consolas", monospace;
+  --trw-c: #22aa44;
+  --trw-ink: #ccffcc;     /* values */
+  --trw-text: #88cc88;    /* running text */
+  --trw-label: #3f8a58;   /* captions */
+  --trw-panel: #000f00;
+  --trw-pass: #d8c050;
+  --trw-fail: #ff4a5a;
+  --trw-cost: #e08a2a;
+  --trw-hex: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--trw-c) 38%, transparent);
+  border-top: 0;
+  background-color: #000a00;
+  background-image:
+    linear-gradient(rgba(34, 170, 68, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 170, 68, 0.07) 1px, transparent 1px);
+  background-size: 12px 12px;
+  color: var(--trw-text);
+}
+
+/* The warbird head-on: two swept wings either side of the title, which is
+   underlined in the frame colour. The wings are clip-paths on empty <i>s. */
+.trw .trw-head {
+  display: grid;
+  grid-template-columns: minmax(14px, 1fr) auto minmax(14px, 1fr);
+  align-items: start;
+}
+
+.trw .trw-wing {
+  display: block;
+  height: 22px;
+  background: var(--trw-c);
+}
+.trw .trw-wing--l { clip-path: polygon(0 0, 100% 52%, 100% 100%, 22px 34%); }
+.trw .trw-wing--r { clip-path: polygon(100% 0, 0 52%, 0 100%, calc(100% - 22px) 34%); }
+
+.trw .trw-title {
+  min-width: 0;
+  max-width: 210px;
+  padding: 6px 8px 5px;
+  border-bottom: 2px solid var(--trw-c);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.14em;
+  text-align: center;
+  text-transform: uppercase;
+  color: #e4ffe8;
+  overflow-wrap: anywhere;
+}
+
+/* The code on the diamond line: ◆ CODE ◆. Empty, the line still shows its
+   two diamonds, which is the HUD's own separator. */
+.trw .trw-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 10px;
+  margin: 3px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--trw-c);
+}
+.trw .trw-code::before,
+.trw .trw-code::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: var(--trw-c);
+  transform: rotate(45deg);
+}
+
+.trw .trw-body { padding: 2px 9px 8px; }
+
+/* ── Task card ────────────────────────────────────────────────────────────── */
+.sta2e-task-card.sta2e-task-card--romulan[data-theme] {
+  --tcx-radius: 0;
+  /* The reroll tray reads these with fallbacks (combat-hud-core.js). */
+  --tcx-btn-radius: 0;
+  --tcx-tray-radius: 0;
+}
+
+.sta2e-task-card--romulan .trw-sub {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+  color: #669966;
+}
+
+/* A hexagonal well, its top and bottom edges ruled in the frame colour. */
+.sta2e-task-card--romulan .trw-well {
+  margin-bottom: 5px;
+  padding: 3px 14px 4px;
+  background: var(--trw-panel);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--trw-c) 45%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--trw-c) 45%, transparent);
+  clip-path: var(--trw-hex);
+}
+
+.sta2e-task-card--romulan .trw-lbl {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  text-transform: uppercase;
+  color: var(--trw-label);
+}
+.sta2e-task-card--romulan .trw-lbl > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sta2e-task-card--romulan .trw-lbl > span + span {
+  flex: none;
+  font-family: var(--trw-mono);
+  letter-spacing: 0.04em;
+  color: #44dd88;
+}
+
+.sta2e-task-card--romulan .trw-line {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2f6a44;
+}
+
+.sta2e-task-card--romulan .sta2e-card-die { font-family: var(--trw-mono); }
+
+/* Notes: a diamond leads each line, ruled above and below in its colour. */
+.sta2e-task-card--romulan .trw-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.sta2e-task-card--romulan .trw-note {
+  --tn: #aacc33;
+  position: relative;
+  padding: 2px 6px 2px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--tn) 40%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tn) 40%, transparent);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--trw-text);
+}
+.sta2e-task-card--romulan .trw-note::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--tn);
+  transform: rotate(45deg);
+}
+.sta2e-task-card--romulan .trw-note--warn  { --tn: #ff4a5a; }
+.sta2e-task-card--romulan .trw-note--bonus { --tn: #5cf09a; }
+.sta2e-task-card--romulan .trw-note--trait { --tn: #e08a2a; }
+
+/* ── Readout ──────────────────────────────────────────────────────────────── */
+.sta2e-task-card--romulan .trw-read {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  margin-bottom: 5px;
+}
+
+/* A cell with its top corners cut and its bottom edge in the frame colour. */
+.trw .trw-cell {
+  min-width: 0;
+  padding: 2px 6px 3px;
+  border-bottom: 2px solid var(--trw-c);
+  background: var(--trw-panel);
+  text-align: center;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px);
+}
+.trw .trw-cell > span {
+  display: block;
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  color: #2f6a44;
+}
+.trw .trw-cell > b {
+  display: block;
+  font-family: var(--trw-mono);
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.05;
+  color: var(--trw-ink);
+}
+.trw .trw-cell--gold > b { color: #d8c050; }
+.trw .trw-cell--red > b { color: #ff6a74; }
+
+/* The diamond meter: one per success, the Difficulty red at its head. */
+.trw .trw-dia {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 3px 0 8px;
+}
+.trw .trw-dia i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #226633;
+  transform: rotate(45deg);
+}
+.trw .trw-dia i.on {
+  border-color: var(--trw-c);
+  background: var(--trw-c);
+  box-shadow: 0 0 5px var(--trw-c);
+}
+.trw .trw-dia i.d { border-color: #cc2233; }
+.trw .trw-dia i.d.on {
+  border-color: #ff4a5a;
+  background: #ff4a5a;
+  box-shadow: 0 0 5px #ff4a5a;
+}
+
+.sta2e-task-card--romulan .trw-res {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 5px;
+}
+.sta2e-task-card--romulan .trw-res-lbl,
+.sta2e-task-card--romulan .trw-res-sub {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--trw-label);
+}
+.sta2e-task-card--romulan .trw-res-sub { color: #2f6a44; }
+
+/* The result: a full-width hex plate in the result's colour. */
+.sta2e-task-card--romulan .trw-result {
+  --rc: var(--trw-pass);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 1px 18px;
+  background: var(--rc);
+  color: #001005;
+  clip-path: var(--trw-hex);
+}
+.sta2e-task-card--romulan .trw-result strong {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.sta2e-task-card--romulan .trw-result small {
+  margin-left: auto;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.sta2e-task-card--romulan .trw-result--fail { --rc: var(--trw-fail); }
+.sta2e-task-card--romulan .trw-result--cost { --rc: var(--trw-cost); }
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* Each .sta2e-working-actions section stays a plain block: the reroll tray is
+   appended to it and must land below the keys. The grid is the inner list. */
+.sta2e-task-card--romulan .trw-actions { margin-top: 7px; }
+
+.sta2e-task-card--romulan .trw-sect-lbl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 2px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #44dd88;
+}
+.sta2e-task-card--romulan .trw-sect-lbl::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: var(--trw-c);
+  transform: rotate(45deg);
+}
+
+.sta2e-task-card.sta2e-task-card--romulan .trw-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+}
+
+/* A dark hex key, its two ends in its colour. Colour is inline (rule 2). */
+.sta2e-task-card.sta2e-task-card--romulan .trw-key {
+  display: block;
+  box-sizing: border-box;   /* "Completed" / "Applied to" are divs */
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 27px;
+  margin: 0;
+  padding: 4px 14px 3px;
+  border: 0 solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+  clip-path: var(--trw-hex);
+  transition: filter 0.11s ease-out;
+}
+
+/* A wide key spans the pad, and so does a key left alone at the end of a row. */
+.sta2e-task-card.sta2e-task-card--romulan .trw-pad > .trw-key.trw-key--wide,
+.sta2e-task-card.sta2e-task-card--romulan .trw-pad > .trw-key:nth-child(odd):last-child,
+.sta2e-task-card.sta2e-task-card--romulan .trw-pad > .trw-key:nth-child(odd):has(+ .trw-key--wide) {
+  grid-column: 1 / -1;
+}
+
+.sta2e-task-card.sta2e-task-card--romulan div.trw-key { cursor: default; }
+
+.sta2e-task-card--romulan button.trw-key:hover:not(:disabled) { filter: brightness(1.3); }
+.sta2e-task-card--romulan button.trw-key:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-task-card--romulan button.trw-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+
+/* The keys are two to a row, so a name wraps rather than ellipsing — the
+   shared rule in task-card.css clips it to one line. */
+.sta2e-task-card--romulan .trw-key .sta2e-rr-name {
+  overflow: visible;
+  white-space: normal;
+}
+.sta2e-task-card--romulan .sta2e-rr-cost { font-size: 9.5px; letter-spacing: 0.05em; text-transform: none; }
+
+/* The reroll tray's Cancel is written inline in the theme's textDim (#226633),
+   which nearly vanishes on this black. Its colour is out of reach without
+   !important, so it is brightened instead; the tray is not a key, so rule 2
+   above does not apply to it. */
+.sta2e-task-card--romulan .sta2e-tray-cancel { filter: brightness(2.2); }
+
+/* ── Chat card frame ─────────────────────────────────────────────────────── */
+/* romulanChatCard wraps every other card's body in the same frame. The body's
+   own padding rule in chat-card.css is (0,2,0); this outranks it. */
+.sta2e-chat-card.sta2e-chat-card--romulan .trw-body.ccf-body {
+  padding: 2px 8px 8px;
+}
+
+/* The body pass (romulanBodyHtml) stripped the LCARS boxes from these and
+   stamped a class; --tn-c is the shape's own accent where it had one. */
+.sta2e-chat-card--romulan .ccf-rom-tile {
+  padding: 3px;
+  border-bottom: 2px solid var(--tn-c, var(--trw-c));
+  background: var(--trw-panel);
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px);
+}
+
+.sta2e-chat-card--romulan .ccf-rom-plate {
+  border-top: 1px solid color-mix(in srgb, var(--trw-c) 35%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--trw-c) 35%, transparent);
+  background: var(--trw-panel);
+}
+.sta2e-chat-card--romulan .ccf-rom-plate[style*="--tn-c"] { border-left: 3px solid var(--tn-c); }
+
+/* A banner keeps its colour as a diamond lead and two rules, the card's own
+   note. The lead is inline, not positioned: the banner keeps its own inline
+   padding, which a rule cannot widen to make room for it. */
+.sta2e-chat-card--romulan .ccf-rom-note {
+  border-top: 1px solid color-mix(in srgb, var(--tn-c, var(--trw-c)) 40%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tn-c, var(--trw-c)) 40%, transparent);
+}
+.sta2e-chat-card--romulan .ccf-rom-note::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  vertical-align: 1px;
+  background: var(--tn-c, var(--trw-c));
+  transform: rotate(45deg);
+}
+
+.sta2e-chat-card--romulan .ccf-rom-chip {
+  border: 1px solid var(--tn-c, color-mix(in srgb, var(--trw-c) 55%, transparent));
+  background: color-mix(in srgb, var(--tn-c, var(--trw-c)) 12%, transparent);
+}
+
+.sta2e-chat-card--romulan .ccf-rom-ctl {
+  border: 0;
+  border-bottom: 1px solid var(--trw-c);
+  border-radius: 0;
+  background: #000;
+  color: var(--trw-ink);
+}
+.sta2e-chat-card--romulan input[type="checkbox"].ccf-rom-ctl,
+.sta2e-chat-card--romulan input[type="radio"].ccf-rom-ctl {
+  accent-color: var(--trw-c);
+}
+
+/* Keys, built from the --tck-a the body pass stamps (as the TOS, TMP, ENT and
+   Klingon frames do). Buttons injected without one keep their own look. Three
+   classes deep to outrank chat-card.css's `.sta2e-chat-card .ccf-body button`
+   radius. */
+.sta2e-chat-card.sta2e-chat-card--romulan .ccf-body button[style*="--tck-a"] {
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(90deg,
+    var(--tck-a) 0 3px, #021a0c 3px calc(100% - 3px), var(--tck-a) calc(100% - 3px));
+  color: color-mix(in srgb, var(--tck-a) 70%, #fff);
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  clip-path: var(--trw-hex);
+  box-shadow: none;
+}
+.sta2e-chat-card.sta2e-chat-card--romulan .ccf-body button[style*="--tck-a"]:hover:not(:disabled),
+.sta2e-chat-card.sta2e-chat-card--romulan .ccf-body button[style*="--tck-a"]:active:not(:disabled) {
+  box-shadow: none;
+}
+.sta2e-chat-card--romulan .ccf-body button[style*="--tck-a"]:hover:not(:disabled) { filter: brightness(1.3); }
+.sta2e-chat-card--romulan .ccf-body button[style*="--tck-a"]:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-chat-card--romulan .ccf-body button[style*="--tck-a"]:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }

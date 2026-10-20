@@ -166,6 +166,15 @@ export const KLINGON_THEME_KEYS = new Set(["klingon"]);
 /** Whether a theme id wears the Targeting Scope cards. */
 export function isKlingonTheme(key) { return KLINGON_THEME_KEYS.has(key); }
 
+/**
+ * Themes whose task card, chat cards and dice roller wear the Romulan Raptor
+ * Wing (task-card-romulan.js, romulanChatCard in chat-card-frame.js).
+ */
+export const ROMULAN_THEME_KEYS = new Set(["romulan"]);
+
+/** Whether a theme id wears the Raptor Wing cards. */
+export function isRomulanTheme(key) { return ROMULAN_THEME_KEYS.has(key); }
+
 export function themeForEra(era) {
   return ERA_THEME_DEFAULTS[era] ?? "lcars-tng";
 }

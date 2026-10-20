@@ -25,7 +25,7 @@
  */
 
 import { getLcTokens } from "./lcars-theme.js";
-import { tosifyBodyHtml, tngBodyHtml, entBodyHtml, klingonBodyHtml } from "./chat-card-frame.js";
+import { tosifyBodyHtml, tngBodyHtml, entBodyHtml, klingonBodyHtml, romulanBodyHtml } from "./chat-card-frame.js";
 import {
   readPool as _readPool,
   poolLimit as _poolLimit,
@@ -864,16 +864,18 @@ export function injectSpendPanels(message, html) {
     const panelHtml = buildSpendPanelHtml(rowSpendCtx, targetTokenId ?? `idx${idx}`, {
       isSecondaryAreaTarget: idx > 0,
     });
-    // The panel arrives after the card's frame was built, so a TOS (or TNG, ENT, Klingon) card's body
+    // The panel arrives after the card's frame was built, so a TOS (or TNG, ENT, Klingon, Romulan) card's body
     // pass never saw it; run the same pass here so it matches the card.
     const inTosCard = !!controls.closest(".sta2e-chat-card--tos");
     const inTngCard = !!controls.closest(".sta2e-chat-card--tng");
     const inEntCard = !!controls.closest(".sta2e-chat-card--ent");
     const inKlingonCard = !!controls.closest(".sta2e-chat-card--klingon");
+    const inRomulanCard = !!controls.closest(".sta2e-chat-card--romulan");
     controls.insertAdjacentHTML("beforebegin", inTosCard ? tosifyBodyHtml(panelHtml)
       : inTngCard ? tngBodyHtml(panelHtml)
       : inEntCard ? entBodyHtml(panelHtml)
-      : inKlingonCard ? klingonBodyHtml(panelHtml) : panelHtml);
+      : inKlingonCard ? klingonBodyHtml(panelHtml)
+      : inRomulanCard ? romulanBodyHtml(panelHtml) : panelHtml);
   });
 
   wireSpendPanel(html);

@@ -1,0 +1,358 @@
+/*
+ * sta2e-toolkit | roller-romulan.css
+ *
+ * The Adv. Dice Roller dialog under romulan: the Raptor Wing, the look of the
+ * Romulan task and chat cards. The markup comes from scripts/roller-skin.js
+ * (its `romulan` frame), which is the card's own `.trw` frame —
+ * task-card-romulan.css draws the gridded black, the wings and the diamond
+ * line. This file adds the roller's parts, from the classes the shared body
+ * pass leaves:
+ *
+ *   .tbr-head   a section header — a caption led by a diamond, over a rule
+ *   .tbr-ctl    a select / number / text field — black, underlined
+ *   .tbr-plate  a box the content drew with a 1px border — a chamfered panel
+ *   .tbr-note   a banner with a thick left border — a diamond-led strip
+ *   .tbr-key    a button — an edged hex key from --tbr-a
+ *   .tbr-fkey   the DialogV2 footer keys; they also take the card's .trw-key,
+ *               so their hex shape is the card's, and their colour is inline
+ *
+ * and the scroll cues wireRollerScroll adds: the fades on `.trw-scrollwrap`,
+ * the `.tbr-more` chip and the sticky `.tbr-jump` strip.
+ *
+ * Indicators are diamonds that light jade. They ignore the content's accent
+ * colours, which are the romulan tokens and include dark ones (#226633,
+ * #1a6633) that would draw a lit diamond unlit.
+ *
+ * Every rule hangs off `.sta2e-roller--romulan`, which only this skin emits.
+ * No `!important`.
+ */
+
+/* ── Window ───────────────────────────────────────────────────────────────── */
+.application.sta2e-roller-win--romulan .window-content {
+  padding: 4px;
+  background: #000700;
+}
+.application.sta2e-roller-win--romulan .dialog-form { gap: 0; }
+
+/* The frame is a flex column (roller.css); the wrapper round the screen joins
+   that chain so the screen still gives way, and is the positioning box for
+   the fades and the "more" chip. */
+.sta2e-roller-win .sta2e-roller--romulan > .trw-scrollwrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 4px;
+  border-top: 1px solid color-mix(in srgb, var(--trw-c) 35%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--trw-c) 35%, transparent);
+}
+
+.sta2e-roller--romulan .trw-screen {
+  padding: 0 6px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--trw-c) 70%, #000) #001505;
+}
+.sta2e-roller--romulan .trw-screen::-webkit-scrollbar { width: 8px; }
+.sta2e-roller--romulan .trw-screen::-webkit-scrollbar-track { background: #001505; }
+.sta2e-roller--romulan .trw-screen::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--trw-c) 70%, #000); }
+
+/* ── Scroll cues ──────────────────────────────────────────────────────────── */
+/* A fade at whichever edge has more content (wireRollerScroll sets data-up /
+   data-down). The top one sits under the jump strip. */
+.sta2e-roller--romulan .trw-scrollwrap::before,
+.sta2e-roller--romulan .trw-scrollwrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 8px;
+  z-index: 3;
+  height: 20px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sta2e-roller--romulan .trw-scrollwrap::before {
+  top: var(--tbr-jump-h, 0px);
+  background: linear-gradient(#000a00, transparent);
+}
+.sta2e-roller--romulan .trw-scrollwrap::after {
+  bottom: 0;
+  background: linear-gradient(transparent, #000a00);
+}
+.sta2e-roller--romulan .trw-scrollwrap[data-up]::before,
+.sta2e-roller--romulan .trw-scrollwrap[data-down]::after { opacity: 1; }
+
+/* "▼ n more", above the keys while anything is below the fold. */
+.sta2e-roller--romulan .tbr-more {
+  position: absolute;
+  right: 14px;
+  bottom: 4px;
+  z-index: 4;
+  display: none;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 3px 11px 2px;
+  border: 0;
+  border-radius: 0;
+  background: var(--trw-c);
+  color: #001005;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  font-family: var(--trw-mono);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%);
+  cursor: pointer;
+}
+.sta2e-roller--romulan .trw-scrollwrap[data-down] > .tbr-more { display: block; }
+.sta2e-roller--romulan .tbr-more:hover { filter: brightness(1.2); }
+
+/* The jump strip: sticky at the top of the screen, one hex key per section,
+   the one in view lit. It scrolls sideways when the keys outrun the width. */
+.sta2e-roller--romulan .tbr-jump {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  margin: 0 -6px 4px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--trw-c) 35%, transparent);
+  background: #000a00;
+}
+.sta2e-roller--romulan .tbr-jump::-webkit-scrollbar { display: none; }
+.sta2e-roller--romulan .tbr-jump > button {
+  flex: none;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 3px 10px 2px;
+  border: 0;
+  border-radius: 0;
+  background: #021a0c;
+  color: #669966;
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  text-transform: uppercase;
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%);
+  cursor: pointer;
+}
+.sta2e-roller--romulan .tbr-jump > button:hover { color: #ccffcc; }
+.sta2e-roller--romulan .tbr-jump > button.is-on { background: var(--trw-c); color: #001005; }
+
+/* ── Section captions ─────────────────────────────────────────────────────── */
+.sta2e-roller--romulan .tbr-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 9px 0 4px;
+  padding: 0 0 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--trw-c) 40%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #44dd88;
+}
+.sta2e-roller--romulan .tbr-head:first-child { margin-top: 2px; }
+
+.sta2e-roller--romulan .tbr-head::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: var(--trw-c);
+  transform: rotate(45deg);
+}
+/* A header holding a key (the Ship Pool's Manage) pushes it to the end. */
+.sta2e-roller--romulan .tbr-head > .tbr-key { margin-left: auto; }
+.sta2e-roller--romulan .tbr-head .tbr-key {
+  min-height: 0;
+  padding: 1px 12px 0;
+  font-size: 9.5px;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+.sta2e-roller--romulan .tbr-ctl {
+  box-sizing: border-box;
+  min-height: 20px;
+  height: auto;
+  padding: 1px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--trw-c);
+  border-radius: 0;
+  background: #000;
+  color: #ccffcc;
+  font-family: var(--trw-mono);
+  font-size: 12px;
+  outline: none;
+}
+.sta2e-roller--romulan .tbr-ctl:focus {
+  border-bottom-color: #d8c050;
+  box-shadow: 0 1px 0 #d8c050;
+}
+.sta2e-roller--romulan select.tbr-ctl option { background: #000a00; color: #ccffcc; }
+.sta2e-roller--romulan .tbr-ctl[readonly] { border-bottom-color: color-mix(in srgb, var(--trw-c) 45%, #000); }
+
+/* ── Plates and strips ────────────────────────────────────────────────────── */
+.sta2e-roller--romulan .tbr-plate {
+  border: 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--tbr-a, var(--trw-c)) 70%, transparent);
+  border-radius: 0;
+  background: #000f00;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px);
+}
+
+.sta2e-roller--romulan .tbr-note {
+  border-top: 1px solid color-mix(in srgb, var(--tbr-a, var(--trw-c)) 40%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tbr-a, var(--trw-c)) 40%, transparent);
+}
+.sta2e-roller--romulan .tbr-note::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  vertical-align: 1px;
+  background: var(--tbr-a, var(--trw-c));
+  transform: rotate(45deg);
+}
+
+/* ── Indicators ───────────────────────────────────────────────────────────── */
+/* A diamond outlined in the frame colour, filled jade when checked. Core
+   draws checkboxes with an icon pseudo-element; ours replaces it. */
+.sta2e-roller--romulan input[type="checkbox"],
+.sta2e-roller--romulan input[type="radio"] {
+  appearance: none;
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin: 2px 3px;
+  padding: 0;
+  border: 1px solid var(--trw-c);
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+  transform: rotate(45deg);
+  cursor: pointer;
+}
+.sta2e-roller--romulan input[type="checkbox"]::before,
+.sta2e-roller--romulan input[type="checkbox"]::after,
+.sta2e-roller--romulan input[type="radio"]::before,
+.sta2e-roller--romulan input[type="radio"]::after {
+  content: none;
+  display: none;
+}
+.sta2e-roller--romulan input[type="checkbox"]:checked,
+.sta2e-roller--romulan input[type="radio"]:checked {
+  border-color: #5cf09a;
+  background: #5cf09a;
+  box-shadow: 0 0 6px #5cf09a;
+}
+.sta2e-roller--romulan input[type="checkbox"]:disabled,
+.sta2e-roller--romulan input[type="radio"]:disabled { opacity: 0.4; cursor: default; }
+
+/* A range is a hairline track with a diamond riding it, in the input's own
+   accent (the Complication range stays red). */
+.sta2e-roller--romulan input[type="range"] {
+  appearance: none;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sta2e-roller--romulan input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: color-mix(in srgb, var(--trw-c) 35%, transparent);
+}
+.sta2e-roller--romulan input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tbr-a, #5cf09a);
+  transform: rotate(45deg);
+}
+.sta2e-roller--romulan input[type="range"]::-moz-range-track {
+  height: 2px;
+  background: color-mix(in srgb, var(--trw-c) 35%, transparent);
+}
+.sta2e-roller--romulan input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tbr-a, #5cf09a);
+  transform: rotate(45deg);
+}
+
+/* ── Keys ─────────────────────────────────────────────────────────────────── */
+/* The chat frame's Romulan keys: dark glass, the two ends in the key's own
+   accent, cut to a hexagon. */
+.sta2e-roller--romulan .tbr-key {
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(90deg,
+    var(--tbr-a, var(--trw-c)) 0 3px, #021a0c 3px calc(100% - 3px), var(--tbr-a, var(--trw-c)) calc(100% - 3px));
+  color: color-mix(in srgb, var(--tbr-a, var(--trw-c)) 70%, #fff);
+  box-shadow: none;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 7px 100%, 0 50%);
+  cursor: pointer;
+  transition: filter 0.11s ease-out;
+}
+.sta2e-roller--romulan .tbr-key:hover:not(:disabled) { filter: brightness(1.3); }
+.sta2e-roller--romulan .tbr-key:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-roller--romulan .tbr-key:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+/* The keys are the card's .trw-key hexes (task-card-romulan.css); this is
+   only the card's two-column pad, a key left alone in the left column
+   spanning it. */
+.sta2e-roller--romulan .trw-actions.tbr-keys {
+  margin: 0;
+  padding: 6px 6px 7px;
+  border-top: 2px solid var(--trw-c);
+  background: #000700;
+}
+
+.sta2e-roller--romulan .form-footer.tbr-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sta2e-roller--romulan .tbr-footer > .tbr-fkey:nth-child(odd):last-child { grid-column: 1 / -1; }
+.sta2e-roller--romulan .tbr-footer > button.tbr-fkey:hover:not(:disabled) { filter: brightness(1.3); }
+.sta2e-roller--romulan .tbr-footer > button.tbr-fkey:active:not(:disabled) { filter: brightness(0.85); }
+.sta2e-roller--romulan .tbr-footer > button.tbr-fkey:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+
+/* ── Short windows ────────────────────────────────────────────────────────── */
+/* Under a short viewport the frame tightens so more of the form fits above
+   the keys: the title loses its padding, captions their gap. */
+@media (max-height: 760px) {
+  .sta2e-roller--romulan .trw-title { padding-top: 4px; padding-bottom: 3px; font-size: 13px; }
+  .sta2e-roller--romulan .trw-code { margin-top: 2px; margin-bottom: 2px; }
+  .sta2e-roller--romulan .tbr-head { margin-top: 6px; }
+}

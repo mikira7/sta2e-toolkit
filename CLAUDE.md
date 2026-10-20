@@ -1789,7 +1789,16 @@ and its buttons backlit plates from `--tck-a`. The accent is the scope's phospho
 (`--tkc-c`: border, corner marks, lamp); the housing never changes. Body text keeps its
 inline `klingon` token colours, made for near-black. A banner's triangle lead is an
 **inline** `::before`, because the banner keeps its own inline padding and a positioned
-lead sat on its text. The spend panel gets the same pass. Every other era still gets
+lead sat on its text. The spend panel gets the same pass.
+
+**Under `romulan` it returns the Raptor Wing frame** (`romulanChatCard`): the task card's
+`.trw` frame and `romulanHead` — the title between two swept wings, an empty diamond line
+under it — with the body straight on the gridded black (the body element is `.ccf-body`),
+through **`romulanBodyHtml`**, the same pass with the `rom` prefix. Its parts are redrawn
+in [styles/task-card-romulan.css](styles/task-card-romulan.css): tiles become chamfered
+cells with an accent bottom edge, plates ruled panels, banners diamond-led strips, and the
+buttons dark hex keys whose two ends take `--tck-a`. The accent is `--trw-c` (wings,
+title rule, diamonds). The spend panel gets the same pass. Every other era still gets
 `legacy()`.
 
 Out of scope by choice: the warp navigation cards
@@ -1996,6 +2005,37 @@ Petch`; the numbers use `STA2e Share Tech Mono`. The dice roller wears the same 
 (see Dice Roller Skins). Covered by [tests/klingon-cards.mjs](tests/klingon-cards.mjs),
 which also has `--preview`.
 
+**The Romulan Raptor Wing skin.** Under `romulan` (`isRomulanTheme`) the card is
+rendered by [task-card-romulan.js](scripts/task-card-romulan.js) (shape in
+[styles/task-card-romulan.css](styles/task-card-romulan.css)), whatever `taskCardStyle`
+says and from the same `skinView`, with the same DOM contract. The design source is
+`docs/romulan-card-mockups.html` (Concept A): the Romulan Stardate HUD opened out — cold
+green on a fine grid, diamond separators, nothing round. The header is the warbird head-on,
+two swept wings (clip-paths on empty `<i>`s) rising out of the underlined title, with the
+state on a diamond line under it. Dice sit in hexagonal wells, readouts are chamfered cells
+(Momentum gold, complications red), Successes against Difficulty is a row of diamonds (the
+Difficulty red at its head, 6–16 long), and the result is a full-width hex plate. The frame
+colour (`--trw-c`) gives the state: green working, sage assist, gold passed, red failed. A
+pass carries the flavour word *mnhei'sahe* after the rules term; a fail carries none. Three
+things it rests on:
+
+- **Keys are edged, not filled: no `data-filled`.** A key is dark glass with a 3px end in
+  its colour at each side (`keyStyle`: stops in the background gradient, plus
+  `border-color` and a lightened `color`); the hex `clip-path` turns the ends into
+  chevrons. Arming takes `_armCardSelection`'s unfilled path — yellow text on dark glass —
+  as ENT's tabs do, and restoring `cssText` brings the ends back.
+- **The keys sit inside `.trw-body`, under the readout**, unlike Klingon's (which sit on
+  the housing below the scope): the whole card is one gridded black.
+- **Two die colours are Romulan-specific** in npc-roller.js. The primary (`#22aa44`) is the
+  same green as a success, so a crit is gold (`#d8c050`, `critDieColour`), and a success
+  is the brighter `#5cf09a` (`successDieColour`), since the token green reads dim beside
+  the gold.
+
+Oxanium is bundled in `fonts/romulan/` (SIL OFL, licence beside it) as `STA2e Oxanium` —
+a variable font, so one file covers weights 500–700; the numbers use `STA2e Share Tech
+Mono`. The dice roller wears the same frame (see Dice Roller Skins). Covered by
+[tests/romulan-cards.mjs](tests/romulan-cards.mjs), which also has `--preview`.
+
 The card carries **no emoji**; the surviving glyphs are functional and monochrome (`★★`
 on a crit die, `▶` armed, `→` on Add to Task Roll). The roller *dialog* carries none
 either, in any era — content, footer labels and the text its wiring writes at runtime
@@ -2006,7 +2046,8 @@ re-roll chat message still use theirs.
 
 The Adv. Dice Roller dialog (`buildDialogContent` in npc-roller.js) wears each era's
 chat card look; the design source for the first six is `docs/roller-mockups.html`, and the
-Klingon one follows its chat card (`docs/klingon-card-mockups.html`, Concept C).
+Klingon and Romulan ones follow their chat cards (`docs/klingon-card-mockups.html`, Concept C;
+`docs/romulan-card-mockups.html`, Concept A).
 One module, [roller-skin.js](scripts/roller-skin.js), holds the shared pass and one frame
 per era, and `rollerSkin()` names the one the active theme wears:
 
@@ -2018,9 +2059,25 @@ per era, and `rollerSkin()` names the one the active theme wears:
 | `tmpmon` | `tmp-monitor` | the same plus `.sta2e-task-card--tmpmon`, code tab (`SET` / `OK` / `NEG`) and ticks; tmp-monitor.css repaints it | [roller-tmp.css](styles/roller-tmp.css) |
 | `ent` | `ent-panel` | the card's `.tec` touchscreen — chamfered outline, title with ticks and a `Setup` / `Rolled` tab, hex footer; colour blue / green / red by state. Content straight on the glass; in setup each section is a bracketed well | [roller-ent.css](styles/roller-ent.css) |
 | `klingon` | `klingon` | the card's `.tkc` Targeting Scope — red housing, title with its `Setup` / `Rolled` code and the triangle lamp, **one** scope for the whole content (phosphor green / gold / red by state), plate keys below on the housing | [roller-klingon.css](styles/roller-klingon.css) |
+| `romulan` | `romulan` | the card's `.trw` Raptor Wing — wings round the title, `Setup` / `Rolled` on the diamond line, content straight on the grid inside `.trw-scrollwrap` (green / gold / red by state), hex keys below a rule, and the **scroll cues** | [roller-romulan.css](styles/roller-romulan.css) |
 
-The themes outside these (Starfleet Blue, Romulan) get `null` and the LCARS
-dialog unchanged. Adding an era is a frame
+The themes outside these (Starfleet Blue) get `null` and the LCARS
+dialog unchanged.
+
+**Scroll cues (Romulan).** Eras in `SCROLL_CUES` (roller-skin.js) get
+`wireRollerScroll`, called by `seatRollerFooter` after render, on top of the shared
+`.tbr-screen` scrolling: a fade at whichever edge has more content (`data-up` /
+`data-down` on the screen's parent, `.trw-scrollwrap`), a "▼ n more" chip above the keys
+counting the captions still below the fold (clicking scrolls to the next), and, in the setup
+phase with three or more captions, a sticky `.tbr-jump` strip of section keys built from
+the `.tbr-head` captions the content already emits — it scrolls to a section and lights the
+one in view. A caption's label is its first `<span>` when it has one (the Ship Pool header
+also holds its Manage key). Everything is added inside the frame after render, so the
+content and its wiring are untouched; positions are measured against the screen, so they
+hold however the content nests its sections. Opting another era in is one `SCROLL_CUES`
+entry plus its fade, chip and strip rules — the screen's parent must be a positioned flex
+column, as `.trw-scrollwrap` is. Covered by [tests/roller-skins.mjs](tests/roller-skins.mjs)
+against a small DOM stub. Adding an era is a frame
 function, a `FRAMES` and a `FOOTER_PAINT` entry, a `rollerSkin()` case and a stylesheet.
 
 **Wrap, never replace — the chat card frame's rule, for the same reason.** The content
@@ -2059,15 +2116,18 @@ stylesheet draws only those `tbr-*` classes. Five things it rests on:
   accent would draw a lit indicator looking unlit. **Klingon's do the same** for the same
   reason (#662200, #884400): hexagonal cells — a rim fill under an inset `::before`,
   since a `clip-path` would cut off any border — that light gold. Its range pointer is
-  the exception and keeps `--tbr-a`, so the Complication range stays red.
+  the exception and keeps `--tbr-a`, so the Complication range stays red. **Romulan's**
+  are diamonds (a rotated box, outlined in the frame colour) that light jade, for the
+  same reason (#226633, #1a6633); its range thumb is a diamond in `--tbr-a`.
 - **A crit die is coloured by `critDieColour()`, never `LC.primary` directly.** Every die
   renderer in npc-roller.js (the dialog's pips and pickers, the chat summary, and the
   Working Results card's shared `diceRow`) used the theme's primary for a crit, and
   ent-panel's primary is the panel grey `#c7c7c7` — beside a miss's `#aaa` a crit read
   as a miss. Under ENT it is gold (`#f0b400`, ENT.amber), under Klingon gold too
-  (`#ffd84a`, its primary being the complication red); every other theme keeps its
+  (`#ffd84a`, its primary being the complication red), under Romulan gold
+  (`#d8c050`, its primary being the success green); every other theme keeps its
   primary. **A success likewise goes through `successDieColour()`**, the token green
-  everywhere except Klingon's scope phosphor.
+  everywhere except Klingon's scope phosphor and Romulan's brighter `#5cf09a`.
 - **The content root's own fill goes** (the pass drops `background` from
   `#sta2e-npc-roller`), so the CRT's glow and the monitor's grid show behind it.
   So do its inline `max-height` and `overflow`: **the frame's `.tbr-screen` is
@@ -2204,15 +2264,18 @@ through `lcarsChatCard`.
 | [styles/task-card-ent.css](styles/task-card-ent.css) | The touchscreen frame (`.tec`, shared with the ENT chat frame), the task card's wells, readout bars and tab keys, the `ccf-ent-*` body parts, and the `@font-face` rules for `fonts/ent/` (Rajdhani) |
 | [scripts/task-card-klingon.js](scripts/task-card-klingon.js) | Klingon Targeting Scope skin for the task card — used for `klingon` regardless of `taskCardStyle` — and the `klingonHead` markup the chat card frame reuses. Imports only `lcars-theme.js` |
 | [styles/task-card-klingon.css](styles/task-card-klingon.css) | The housing and scope (`.tkc`, shared with the Klingon chat frame), the task card's hex dice cells, triangle meter and plates, the `ccf-kli-*` body parts, and the `@font-face` rules for `fonts/klingon/` (Chakra Petch) |
-| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP, ENT and Klingon frames. Imports only `lcars-theme.js`, `task-card-tng.js`, `task-card-ent.js` and `task-card-klingon.js`; `legacy` thunk keeps the other eras frozen |
+| [scripts/task-card-romulan.js](scripts/task-card-romulan.js) | Romulan Raptor Wing skin for the task card — used for `romulan` regardless of `taskCardStyle` — and the `romulanHead` markup the chat card frame and the dice roller reuse. Imports only `lcars-theme.js` |
+| [styles/task-card-romulan.css](styles/task-card-romulan.css) | The Raptor Wing frame (`.trw`, shared with the Romulan chat frame and roller), the task card's hex wells, chamfered cells, diamond meter and edged hex keys, the `ccf-rom-*` body parts, and the `@font-face` rule for `fonts/romulan/` (Oxanium) |
+| [scripts/chat-card-frame.js](scripts/chat-card-frame.js) | `lcarsChatCard` — the TNG Bracket Console frame every other chat card shares, and the TOS, TMP, ENT, Klingon and Romulan frames. Imports only `lcars-theme.js`, `task-card-tng.js`, `task-card-ent.js`, `task-card-klingon.js` and `task-card-romulan.js`; `legacy` thunk keeps the other eras frozen |
 | [styles/chat-card.css](styles/chat-card.css) | Shared chat card rules and the TOS / TMP frames; the TNG brackets live in task-card-tng.css |
 | [styles/task-card.css](styles/task-card.css) | Shape-only CSS for the task card — frame radius per era, the two-column reroll grid |
-| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS, TMP Console, TMP Monitor, ENT, Klingon), footer seating. Imports only `lcars-theme.js`, the task card skins and `chat-card-frame.js` |
+| [scripts/roller-skin.js](scripts/roller-skin.js) | Era skins for the Adv. Dice Roller dialog — the shared body pass, one frame per era (TNG / First Contact, TOS, TMP Console, TMP Monitor, ENT, Klingon, Romulan), footer seating, and the Romulan scroll cues (`wireRollerScroll`). Imports only `lcars-theme.js`, the task card skins and `chat-card-frame.js` |
 | [styles/roller-tng.css](styles/roller-tng.css) | Shape for the TNG roller skin — section strips, stadium fields, pill indicators, range, keys, the footer keypad |
 | [styles/roller-tos.css](styles/roller-tos.css) | Shape for the TOS roller skin — housing, section captions on the CRT, amber readout fields, indicator lamps, backlit keys |
 | [styles/roller-tmp.css](styles/roller-tmp.css) | The roller's form parts for both TMP skins — captions, amber typed windows, lens indicators, lens keys; the monitor's outlined versions one class deeper |
 | [styles/roller-ent.css](styles/roller-ent.css) | The roller's parts for the ENT skin — bracketed section wells, underlined mono fields, yellow indicators, edge tabs |
 | [styles/roller-klingon.css](styles/roller-klingon.css) | The roller's parts for the Klingon skin — captions led by the inverted triangle, underlined mono fields, hexagonal gold indicators, a triangle range pointer, backlit plates, the scope's scrollbar |
+| [styles/roller-romulan.css](styles/roller-romulan.css) | The roller's parts for the Romulan skin — diamond-led captions, underlined mono fields, diamond indicators, edged hex keys, and the scroll cues: the wrapper's fades, the "more" chip, the sticky jump strip |
 | [scripts/task-maker.js](scripts/task-maker.js) | The GM's task-authoring dialog — Normal / Extended / Opposed tabs, the posted request card, extended-task resolution |
 | [scripts/opposed-panel.js](scripts/opposed-panel.js) | The Opposed Task tab's markup and wiring. A leaf by necessity — it may import only `lcars-theme.js` and `ship-pool.js` |
 | [styles/task-maker.css](styles/task-maker.css) | Shape-only CSS for the Task Maker dialog and its pickers — spine, elbow bars, `[data-mode]` tab visibility, fluid grids, container queries |

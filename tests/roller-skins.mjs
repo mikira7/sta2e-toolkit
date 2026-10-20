@@ -1,14 +1,15 @@
 // node tests/roller-skins.mjs [--preview out.html]
 //
 // The era skins for the Adv. Dice Roller dialog (roller-skin.js): TNG / First
-// Contact, TOS, TMP Console, TMP Monitor, ENT and Klingon. The dialog content is the REAL buildDialogContent from
+// Contact, TOS, TMP Console, TMP Monitor, ENT, Klingon and Romulan. The dialog content is the REAL buildDialogContent from
 // npc-roller.js, lifted out of the source and run in a vm with its helpers
 // stubbed (the pattern tests/ground-melee-vfx.mjs uses), in the setup and the
 // rolled phase. Checks that the shared body pass keeps every id, class, data-*
 // and wiring-toggled display the content had, that no square corners, LCARS
 // font or accent-color survive, that die pips are left alone, that each era
 // gets its own frame and footer slot, and that themes without a skin
-// (Starfleet Blue, Romulan) keep the plain dialog.
+// (Starfleet Blue) keep the plain dialog. The Romulan scroll cues
+// (wireRollerScroll) are driven against a small DOM stub.
 //
 // --preview writes a page rendering both phases in every skinned era against the real stylesheets, with the footer seated as it is after render.
 import assert from 'node:assert/strict';
@@ -26,7 +27,7 @@ globalThis.game = {
 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { getLcTokens, getActiveLcThemeKey, isEntTheme, isKlingonTheme } = await import('../scripts/lcars-theme.js');
+const { getLcTokens, getActiveLcThemeKey, isEntTheme, isKlingonTheme, isRomulanTheme } = await import('../scripts/lcars-theme.js');
 const skin = await import('../scripts/roller-skin.js');
 
 // ── Lift the real builder out of npc-roller.js ───────────────────────────────
@@ -56,7 +57,7 @@ const constSrc = name => {
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 const context = vm.createContext({
   LC, game: globalThis.game, console, Math, Number, String, Object, Array, JSON,
-  getActiveLcThemeKey, isEntTheme, isKlingonTheme,
+  getActiveLcThemeKey, isEntTheme, isKlingonTheme, isRomulanTheme,
   isSkinnedRoller: skin.isSkinnedRoller,
   _rollResourceProfile: () => ({ usesPlayerPayment: true }),
   isFlightControllerPilotTask: () => false,
@@ -207,7 +208,7 @@ check('decorative emoji are dropped, functional glyphs kept', () => {
 check('which skin each theme wears', () => {
   const want = { 'lcars-tng': 'tng', 'lcars-fc': 'tng', 'tos-panel': 'tos',
     'tmp-console': 'tmp', 'tmp-monitor': 'tmpmon', 'ent-panel': 'ent',
-    klingon: 'klingon', blue: null, romulan: null };
+    klingon: 'klingon', romulan: 'romulan', blue: null };
   for (const [t, s] of Object.entries(want)) {
     withTheme(t, () => {
       assert.equal(skin.rollerSkin(), s, t);
@@ -315,6 +316,108 @@ check('Klingon: the scope frame, head code and lamp, keys slot, phosphor by stat
   assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--tkc-c:#ff5a40;/);
 }));
 
+check('Romulan: the Raptor Wing frame, wings and code, a wrapped screen, keys slot, colour by state', () => withTheme('romulan', () => {
+  const out = skin.skinRollerHtml('<div id="x"></div>', { title: '⚔ Disruptor Bank', phase: 'setup' });
+  assert.match(out, /class="sta2e-roller sta2e-roller--romulan sta2e-task-card sta2e-task-card--romulan trw"/);
+  assert.match(out, /data-theme="romulan"/);
+  assert.match(out, /--trw-c:#22aa44;/);
+  assert.match(out, /<div class="trw-title">Disruptor Bank<\/div>/);
+  assert.match(out, /<div class="trw-code">Setup<\/div>/);
+  assert.equal((out.match(/class="trw-wing/g) ?? []).length, 2);
+  assert.match(out, /<div class="trw-scrollwrap">\s*<div class="trw-screen tbr-screen"><div id="x"><\/div><\/div>\s*<\/div>/);
+  assert.match(out, /class="trw-actions tbr-keys" data-roller-keys/);
+  assert.ok(out.indexOf('tbr-keys') > out.indexOf('trw-scrollwrap'), 'the keys sit outside the scrolling screen');
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: true }), /--trw-c:#d8c050;[\s\S]*trw-code">Rolled</);
+  assert.match(skin.skinRollerHtml('', { phase: 'rolled', passed: false }), /--trw-c:#ff4a5a;/);
+}));
+
+check('Romulan scroll cues: a jump strip from the captions, the more chip, fades by scroll position', () => {
+  // A small DOM: enough of Element for wireRollerScroll, with layout faked
+  // from a per-element top and the screen's scroll metrics.
+  class El {
+    constructor(tag, doc) { this.tagName = tag.toUpperCase(); this.ownerDocument = doc; this.children = []; this.parentElement = null;
+      this.dataset = {}; this.attrs = {}; this.listeners = {}; this.style = { setProperty: (k, v) => { this.style[k] = v; } };
+      this.className = ''; this.textContent = ''; this._top = 0; }
+    get classList() { const el = this; return {
+      contains: c => el.className.split(/\s+/).includes(c),
+      toggle: (c, on) => { const set = new Set(el.className.split(/\s+/).filter(Boolean)); on ? set.add(c) : set.delete(c); el.className = [...set].join(' '); },
+    }; }
+    append(...kids) { for (const k of kids) { k.parentElement = this; this.children.push(k); } }
+    prepend(k) { k.parentElement = this; this.children.unshift(k); }
+    setAttribute(k, v) { this.attrs[k] = v; }
+    toggleAttribute(k, on) { if (on) this.attrs[k] = ''; else delete this.attrs[k]; }
+    hasAttribute(k) { return k in this.attrs; }
+    addEventListener(t, fn) { (this.listeners[t] ??= []).push(fn); }
+    fire(t, ev = {}) { for (const fn of this.listeners[t] ?? []) fn(ev); }
+    all() { return this.children.flatMap(c => [c, ...c.all()]); }
+    matches(sel) {
+      if (sel === '.tbr-screen') return this.classList.contains('tbr-screen');
+      if (sel === '.tbr-head') return this.classList.contains('tbr-head');
+      if (sel === 'button') return this.tagName === 'BUTTON';
+      if (sel === ':scope > span') return false;
+      return false;
+    }
+    querySelector(sel) {
+      if (sel === ':scope > span') return this.children.find(c => c.tagName === 'SPAN') ?? null;
+      return this.all().find(e => e.matches(sel)) ?? null;
+    }
+    querySelectorAll(sel) { return this.all().filter(e => e.matches(sel)); }
+    get offsetHeight() { return this.classList.contains('tbr-jump') ? 24 : 0; }
+    getBoundingClientRect() { const sc = this._screen; return { top: this === sc ? 0 : this._top - (sc?.scrollTop ?? 0) }; }
+  }
+  const doc = { createElement: tag => new El(tag, doc) };
+  const mk = (tag, cls, parent) => { const e = doc.createElement(tag); e.className = cls; parent?.append(e); return e; };
+  const frame = mk('div', 'sta2e-roller sta2e-roller--romulan');
+  frame.dataset.phase = 'setup';
+  const wrap = mk('div', 'trw-scrollwrap', frame);
+  const screen = mk('div', 'trw-screen tbr-screen', wrap);
+  Object.assign(screen, { scrollTop: 0, clientHeight: 300, scrollHeight: 1000, scrollTo({ top }) { this.scrollTop = top; this.fire('scroll'); } });
+  const body = mk('div', '', screen);
+  const tops = [10, 200, 420, 640, 860];
+  const names = ['Subcmdr. Tal', 'Officer Advantages', 'Dice Pool', 'Ship Pool', 'Task Options'];
+  for (const [i, top] of tops.entries()) {
+    const head = mk('div', 'tbr-head', body);
+    if (i === 3) { const sp = mk('span', '', head); sp.textContent = 'Ship Pool'; head.textContent = 'Ship PoolManage'; }
+    else head.textContent = names[i];
+    head._top = top;
+  }
+  for (const e of [frame, ...frame.all()]) e._screen = screen;
+
+  skin.wireRollerScroll(frame);
+  const jump = screen.children[0];
+  assert.equal(jump.className, 'tbr-jump', 'the strip is the first thing on the screen');
+  const keys = jump.children;
+  assert.deepEqual(keys.map(k => k.textContent), names, 'one key per caption, the Ship Pool key without its Manage text');
+  assert.ok(keys[0].classList.contains('is-on'), 'the first section is lit');
+  const more = wrap.children.at(-1);
+  assert.equal(more.className, 'tbr-more');
+  assert.equal(more.textContent, '▼ 3 more', 'three captions below the fold');
+  assert.ok(wrap.hasAttribute('data-down') && !wrap.hasAttribute('data-up'));
+
+  keys[2].closest = () => keys[2];
+  jump.fire('click', { target: keys[2] });
+  assert.equal(screen.scrollTop, 420 - 24 - 4, 'a jump key scrolls its caption under the strip');
+  assert.ok(wrap.hasAttribute('data-up'));
+  assert.ok(keys[2].classList.contains('is-on') && !keys[0].classList.contains('is-on'));
+
+  screen.scrollTop = 700; screen.fire('scroll');
+  assert.ok(!wrap.hasAttribute('data-down'), 'no fade at the bottom once scrolled to the end');
+  assert.ok(keys[4].classList.contains('is-on'), 'at the end the last section is lit');
+
+  skin.wireRollerScroll(frame);
+  assert.equal(screen.children.filter(c => c.className === 'tbr-jump').length, 1, 'wiring twice adds nothing');
+
+  const rolled = mk('div', 'sta2e-roller');
+  rolled.dataset.phase = 'rolled';
+  const w2 = mk('div', '', rolled);
+  const s2 = mk('div', 'tbr-screen', w2);
+  Object.assign(s2, { scrollTop: 0, clientHeight: 300, scrollHeight: 300, scrollTo() {} });
+  for (const e of [rolled, ...rolled.all()]) e._screen = s2;
+  skin.wireRollerScroll(rolled);
+  assert.equal(s2.children.length, 0, 'no jump strip in the rolled phase');
+  assert.ok(!w2.hasAttribute('data-down'), 'nothing to scroll, no fade');
+});
+
 check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('tng', 'roll', 0), /background:#ff9966;color:#000000;/);
   assert.match(skin.footerKeyStyle('tng', 'cancel', 1), /background:#5a5650;color:#f2f2f2;/);
@@ -339,7 +442,11 @@ check('footer keys: main action, cancel and the rest per era', () => {
   assert.match(skin.footerKeyStyle('klingon', 'reroll-all', 2), /^--k:#ff5a40;/, 'Klingon re-roll all is red');
   assert.match(skin.footerKeyStyle('klingon', 'cancel', 0), /^--k:#7a5040;.*color:#ffe6dc;$/, 'Klingon cancel is the dim plate, light ink');
   assert.deepEqual(skin.footerKeyClasses('klingon'), ['tbr-fkey', 'tkc-key']);
-  assert.equal(skin.footerKeyStyle('romulan', 'roll', 0), '');
+  assert.match(skin.footerKeyStyle('romulan', 'roll', 0), /^--k:#5cf09a;/, 'Romulan main is the jade key');
+  assert.match(skin.footerKeyStyle('romulan', 'reroll-all', 2), /^--k:#ff4a5a;/, 'Romulan re-roll all is red');
+  assert.match(skin.footerKeyStyle('romulan', 'cancel', 0), /^--k:#3e5c48;/, 'Romulan cancel is the dim key');
+  assert.deepEqual(skin.footerKeyClasses('romulan'), ['tbr-fkey', 'trw-key']);
+  assert.equal(skin.footerKeyStyle('blue', 'roll', 0), '');
 });
 
 check('a crit die is gold under ENT, whose primary is the grey of a miss', () => {
@@ -366,8 +473,18 @@ check('under Klingon a crit die is gold (the primary is the complication red) an
   });
 });
 
+check('under Romulan a crit die is gold (the primary is the success green) and a success the bright jade', () => {
+  const critStars = h => [...h.matchAll(/color:\s*([^;"]+);"?>★★/g)].map(m => m[1].trim());
+  withTheme('romulan', () => {
+    const stars = critStars(build(rolledState()));
+    assert.ok(stars.length > 0, 'the rolled dialog draws a crit');
+    assert.deepEqual([...new Set(stars)], ['#d8c050']);
+    assert.match(build(rolledState()), /#5cf09a/);
+  });
+});
+
 check('themes without a skin keep the plain dialog', () => {
-  for (const t of ['blue', 'romulan']) {
+  for (const t of ['blue']) {
     withTheme(t, () => {
       const raw = build(baseState());
       assert.equal(raw.includes('tbr-head'), false, t);
@@ -382,9 +499,9 @@ if (pi > 0) {
   const out = path.resolve(process.argv[pi + 1]);
   const css = ['chat-card.css', 'task-card.css', 'task-card-tng.css', 'task-card-tos.css', 'task-card-tmp.css',
     'tmp-monitor.css', 'task-card-ent.css', 'roller.css', 'roller-tng.css', 'roller-tos.css', 'roller-tmp.css', 'roller-ent.css',
-    'task-card-klingon.css', 'roller-klingon.css']
+    'task-card-klingon.css', 'roller-klingon.css', 'task-card-romulan.css', 'roller-romulan.css']
     .map(f => fs.readFileSync(`${root}/styles/${f}`, 'utf8')).join('\n')
-    .replace(/url\("\.\.\/fonts\/(tng|tmp|ent|klingon)\/([^"]+)"\)/g,
+    .replace(/url\("\.\.\/fonts\/(tng|tmp|ent|klingon|romulan)\/([^"]+)"\)/g,
       (_, d, f) => `url("data:font/woff2;base64,${fs.readFileSync(`${root}/fonts/${d}/${f}`).toString('base64')}")`);
   const asset = f => `data:image/svg+xml;base64,${fs.readFileSync(f).toString('base64')}`;
   const d20 = asset('C:/Program Files/Foundry Virtual Tabletop/resources/app/public/icons/svg/d20-grey.svg');
@@ -399,7 +516,7 @@ if (pi > 0) {
         <footer class="form-footer">${buttons.map(([a, l], i) => `<button type="submit" data-action="${a}" data-paint="${skin.footerKeyStyle(skinName, a, i)}" data-classes="${skin.footerKeyClasses(skinName).join(' ')}"><i class="fas fa-x"></i> ${l}</button>`).join('')}</footer>
       </form></section></div>`;
   const panes = [];
-  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor', 'ent-panel', 'klingon']) {
+  for (const t of ['lcars-tng', 'lcars-fc', 'tos-panel', 'tmp-console', 'tmp-monitor', 'ent-panel', 'klingon', 'romulan']) {
     withTheme(t, () => {
       const s = skin.rollerSkin();
       const setupHtml = skin.skinRollerHtml(build(baseState()), { title: 'Phaser Banks', phase: 'setup' });

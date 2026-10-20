@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Romulan Chat Card Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700&family=Cinzel:wght@600;700&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Saira+Semi+Condensed:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+/* ── Page chrome (not part of any design) ─────────────────────────────── */
+:root {
+  --page-bg: #0c110e; --page-ink: #d8e4dc; --page-dim: #84968a; --page-rule: #233128;
+  /* romulan tokens from scripts/lcars-theme.js */
+  --r-bg: #000a00; --r-panel: #000f00; --r-green: #22aa44; --r-jade: #44dd88; --r-sage: #669966;
+  --r-txt: #88cc88; --r-dim: #226633; --r-bright: #ccffcc; --r-border: #1a6633; --r-borderdim: #001a00;
+  --r-yellow: #aacc33; --r-orange: #cc6622; --r-red: #cc2233;
+  /* working shades lifted from the tokens for type on black */
+  --r-lit: #5cf09a; --r-gold: #d8c050; --r-teal: #40c8b0; --r-blood: #ff4a5a; --r-amber: #e08a2a;
+  --r-fail: #3e5c48;
+  --win-h: 560px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page-bg); color: var(--page-ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1180px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .02em; }
+.lede { color: var(--page-dim); margin: 0 0 18px; max-width: 840px; }
+.lede code, .notes code, .concept-head code { color: #8fe0a8; }
+.ctl { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  background: #111a14ee; border: 1px solid var(--page-rule); border-radius: 6px; padding: 8px 12px; margin: 0 0 28px;
+  font-size: 13px; color: var(--page-dim); backdrop-filter: blur(4px); }
+.ctl b { color: var(--page-ink); font-variant-numeric: tabular-nums; }
+.ctl input[type=range] { width: 200px; accent-color: #44dd88; }
+.ctl button { background: #1a271f; color: var(--page-ink); border: 1px solid var(--page-rule); border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+section.concept { margin-bottom: 60px; }
+.concept-head { border-bottom: 1px solid var(--page-rule); padding-bottom: 10px; margin-bottom: 14px; max-width: 880px; }
+.concept-head .tag { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--page-dim); }
+.concept-head h2 { font-size: 18px; margin: 2px 0 4px; }
+.concept-head p { margin: 0; color: var(--page-dim); font-size: 13px; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--page-dim); }
+.swatches span { display: inline-flex; align-items: center; gap: 5px; }
+.swatches i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.subhead { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--page-dim); margin: 22px 0 8px; }
+.chatrow { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 22px; }
+@media (max-width: 1000px) { .chatrow { grid-template-columns: minmax(0, 320px); justify-content: center; } }
+.chatlog { background: #0b0f0c; border: 1px solid var(--page-rule); border-radius: 6px; padding: 10px;
+  display: flex; flex-direction: column; gap: 12px; align-self: start; min-width: 0; }
+.msg-meta { font-size: 11px; color: #6f8075; margin: 0 0 4px 2px; }
+.notes { margin-top: 18px; color: var(--page-dim); font-size: 13px; max-width: 880px; }
+.notes h3 { color: var(--page-ink); font-size: 15px; margin: 0 0 6px; }
+.notes li { margin-bottom: 4px; }
+button { font: inherit; cursor: pointer; }
+
+/* Shared die: the live card's markup — Foundry's d20-grey.svg drawn faint
+   behind the value, which carries the colour. */
+.d20 { position: relative; width: 30px; height: 30px; display: inline-grid; place-items: center; flex: none; }
+.d20 img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .22; pointer-events: none; }
+.d20 b { position: relative; z-index: 1; font-weight: 700; font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.9); }
+.d20 i { position: absolute; top: 1px; left: 0; right: 0; text-align: center; font-style: normal; font-size: 7px; letter-spacing: -1px; z-index: 1; }
+.d20.crit b { padding-top: 6px; }
+.d20 { color: var(--r-lit); }
+.d20.crit { color: var(--r-gold); } .d20.x { color: var(--r-blood); } .d20.f { color: var(--r-fail); }
+.d20.sel img { opacity: .8; filter: sepia(1) saturate(6) hue-rotate(4deg) brightness(1.15) drop-shadow(0 0 5px #ffcc33); }
+.dice { display: flex; gap: 3px; flex-wrap: wrap; }
+
+/* ── Roller window (core's DialogV2 chrome, simplified) ────────────────── */
+.pair { display: grid; grid-template-columns: repeat(2, 340px); gap: 28px; align-items: start; }
+@media (max-width: 780px) { .pair { grid-template-columns: 340px; justify-content: center; } }
+.phase-lbl { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--page-dim); margin-bottom: 4px; }
+.fwin { width: 340px; height: var(--win-h); display: flex; flex-direction: column; background: #0b0b0b;
+  border: 1px solid #333; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.6); overflow: hidden;
+  container-type: size; container-name: rwin; resize: vertical; min-height: 300px; }
+.fwin-head { flex: none; display: flex; justify-content: space-between; padding: 5px 9px; background: #1c1c1c;
+  color: #ccc; font-size: 12px; border-bottom: 1px solid #333; }
+.fwin-body { flex: 1 1 auto; min-height: 0; display: flex; }
+/* Everything below is the same skeleton in all three frames:
+   frame (column) → head (fixed) → scroller (flex, the ONLY thing that scrolls) → keys (fixed) */
+.rfr { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.rscroll-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+.rscroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth;
+  scrollbar-width: thin; scrollbar-color: var(--sb-thumb) var(--sb-track); }
+.rscroll::-webkit-scrollbar { width: 8px; }
+.rscroll::-webkit-scrollbar-track { background: var(--sb-track); }
+.rscroll::-webkit-scrollbar-thumb { background: var(--sb-thumb); }
+/* Scroll cues: fades at whichever edge has more content, and a count chip */
+.rscroll-wrap::before, .rscroll-wrap::after { content: ""; position: absolute; left: 0; right: 8px; height: 22px;
+  pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 3; }
+.rscroll-wrap::before { top: var(--jump-h, 0px); background: linear-gradient(var(--scr-bg), transparent); }
+.rscroll-wrap::after  { bottom: 0; background: linear-gradient(transparent, var(--scr-bg)); }
+.rscroll-wrap[data-up]::before, .rscroll-wrap[data-down]::after { opacity: 1; }
+.rmore { position: absolute; right: 14px; bottom: 4px; z-index: 4; pointer-events: auto; display: none;
+  font: 600 10px/1 "Share Tech Mono", monospace; letter-spacing: .08em; padding: 3px 7px; cursor: pointer; }
+.rscroll-wrap[data-down] .rmore { display: block; }
+/* Jump strip: sticky inside the scroller, one key per section */
+.rjump { position: sticky; top: 0; z-index: 5; display: flex; gap: 2px; padding: 4px 6px; overflow-x: auto; scrollbar-width: none; }
+.rjump::-webkit-scrollbar { display: none; }
+.rjump button { flex: none; border: 0; padding: 2px 7px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+/* Small windows compact the form rather than clip it */
+@container rwin (max-height: 520px) {
+  .rf-sect { padding-top: 3px !important; padding-bottom: 3px !important; margin-bottom: 3px !important; }
+  .fwin .rf-check small, .fwin .rf-desc { display: none; }
+  .rfr .d20 { width: 26px; height: 26px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT A — RAPTOR WING
+   The Romulan Stardate HUD (diamond separators, precise grid, cold green)
+   opened out into a card. The header is the warbird seen head-on: two
+   swept wings rising out of a central title. Every box is a chamfered
+   hexagon; nothing is round.
+   ══════════════════════════════════════════════════════════════════════ */
+.a { --c: var(--r-green); font-family: "Oxanium", "Arial Narrow", sans-serif; color: var(--r-txt); position: relative;
+  background-color: var(--r-bg);
+  background-image: linear-gradient(rgba(34,170,68,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(34,170,68,.07) 1px, transparent 1px);
+  background-size: 12px 12px; border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); border-top: 0; }
+.a-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; height: 30px; }
+.a-wing { height: 22px; background: var(--c); }
+.a-wing.l { clip-path: polygon(0 0, 100% 52%, 100% 100%, 22px 34%); }
+.a-wing.r { clip-path: polygon(100% 0, 0 52%, 0 100%, calc(100% - 22px) 34%); }
+.a-title { padding: 6px 8px 0; font: 700 15px/1 "Oxanium", sans-serif; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--r-bright); white-space: nowrap; max-width: 190px; overflow: hidden; text-overflow: ellipsis; text-align: center;
+  border-bottom: 2px solid var(--c); padding-bottom: 5px; }
+.a-code { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 3px 0 4px;
+  font: 600 10px/1 "Oxanium", sans-serif; letter-spacing: .22em; text-transform: uppercase; color: var(--c); }
+.a-code::before, .a-code::after { content: ""; width: 7px; height: 7px; background: var(--c); transform: rotate(45deg); }
+.a-body { padding: 2px 9px 6px; }
+.a-id { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--r-sage); margin-bottom: 5px; text-align: center; }
+.a-hex { clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%); }
+.a-well { background: var(--r-panel); padding: 3px 14px 4px; margin-bottom: 5px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--c) 45%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--c) 45%, transparent); }
+.a-lbl { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--r-dim); }
+.a-lbl span:last-child { color: var(--r-jade); }
+.a .d20 b { font-family: "Oxanium", sans-serif; font-size: 14px; }
+.a-note { font-size: 11.5px; font-weight: 600; color: var(--r-txt); padding: 2px 8px 2px 16px; margin-bottom: 5px; position: relative;
+  border-top: 1px solid color-mix(in srgb, var(--nc, var(--r-yellow)) 40%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--nc, var(--r-yellow)) 40%, transparent); }
+.a-note::before { content: ""; position: absolute; left: 4px; top: 50%; width: 6px; height: 6px; margin-top: -3px; background: var(--nc, var(--r-yellow)); transform: rotate(45deg); }
+.a-read { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-bottom: 5px; }
+.a-read.two { grid-template-columns: repeat(2, 1fr); }
+.a-cell { background: var(--r-panel); padding: 2px 6px 3px; text-align: center; border-bottom: 2px solid var(--c);
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%, 0 6px); }
+.a-cell span { display: block; font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--r-dim); }
+.a-cell b { display: block; font: 600 20px/1.05 "Oxanium", sans-serif; color: var(--vc, var(--r-bright)); }
+.a-cell.wide { grid-column: 1 / -1; }
+.a-meter { display: flex; gap: 6px; justify-content: center; margin: 3px 0 8px; }
+.a-meter i { width: 9px; height: 9px; transform: rotate(45deg); border: 1px solid var(--r-dim); }
+.a-meter i.on { background: var(--c); border-color: var(--c); box-shadow: 0 0 5px var(--c); }
+.a-meter i.d { border-color: var(--r-red); }
+.a-meter i.d.on { background: var(--r-blood); border-color: var(--r-blood); box-shadow: 0 0 5px var(--r-blood); }
+.a-result { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 18px; margin: 0 -2px 6px;
+  background: var(--rc, var(--r-gold)); color: #001005; font: 700 15px/1 "Oxanium", sans-serif; letter-spacing: .2em; text-transform: uppercase; }
+.a-result em { font: italic 600 11px/1 "Oxanium", sans-serif; letter-spacing: .06em; text-transform: none; opacity: .75; }
+.a-result small { margin-left: auto; white-space: nowrap; font-size: 11px; letter-spacing: .08em; }
+.a-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 2px; }
+.a-key { --k: var(--r-green); position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 26px; padding: 3px 14px; border: 0; color: color-mix(in srgb, var(--k) 70%, #fff);
+  background: linear-gradient(90deg, var(--k) 0 3px, #021a0c 3px calc(100% - 3px), var(--k) calc(100% - 3px));
+  font: 600 11px/1.1 "Oxanium", sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%); }
+.a-key small { font-size: 9px; letter-spacing: .06em; opacity: .7; text-transform: none; }
+.a-key.wide { grid-column: 1 / -1; }
+.a-key.armed { color: #ffee44; background: linear-gradient(90deg, #ffee44 0 3px, #1c1a00 3px calc(100% - 3px), #ffee44 calc(100% - 3px)); }
+.a-spend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--r-txt); margin-bottom: 5px; }
+.a-spend span { flex: 1; }
+.a-step { width: 20px; height: 18px; border: 1px solid var(--r-border); background: #021a0c; color: var(--r-jade); font-size: 12px; line-height: 1; padding: 0; }
+.a-spend b { color: var(--r-bright); width: 16px; text-align: center; }
+.a-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--c) 35%, transparent); font-size: 10px; letter-spacing: .14em; color: var(--r-dim); text-transform: uppercase; }
+.a-foot b { color: var(--r-sage); font-weight: 600; }
+.a-foot i { font-style: normal; color: var(--c); padding: 0 4px; }
+
+/* Concept A roller */
+.ra { --scr-bg: #000a00; --sb-track: #001505; --sb-thumb: #22aa44; }
+.ra .rfr { --c: var(--r-green); background: var(--r-bg); }
+.ra .a-head { flex: none; }
+.ra .rscroll { background-image: linear-gradient(rgba(34,170,68,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(34,170,68,.06) 1px, transparent 1px); background-size: 12px 12px; }
+.ra .rjump { background: #000a00; border-bottom: 1px solid var(--r-border); }
+.ra .rjump button { background: #021a0c; color: var(--r-sage); font-family: "Oxanium", sans-serif;
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%); padding: 3px 9px; }
+.ra .rjump button.on { background: var(--r-green); color: #001005; }
+.ra .rmore { background: var(--r-green); color: #001005; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%); padding: 3px 10px; }
+.ra .rf-sect { margin: 6px 8px; padding: 4px 14px 6px; background: var(--r-panel);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  box-shadow: inset 0 1px 0 #1a6633, inset 0 -1px 0 #1a6633; }
+.ra .rf-cap { display: flex; justify-content: space-between; align-items: center; gap: 6px; font: 700 10px/1.4 "Oxanium", sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--r-jade); margin-bottom: 3px; }
+.ra .rf-cap::before { content: ""; width: 6px; height: 6px; background: var(--r-green); transform: rotate(45deg); flex: none; }
+.ra .rf-cap span:first-child { flex: 1; }
+.ra .rf-cap span + span { color: var(--r-sage); letter-spacing: .08em; }
+.ra .rf-keys { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 6px 8px 8px; border-top: 2px solid var(--r-green); background: #000700; }
+.ra .rf-flbl { color: var(--r-dim); }
+.ra .rf-sel, .ra .rf-num { background: #000; color: var(--r-bright); border: 0; border-bottom: 1px solid var(--r-green); font-family: "Share Tech Mono", monospace; }
+.ra .rf-ind { width: 10px; height: 10px; transform: rotate(45deg) scale(.85); border: 1px solid var(--r-green); }
+.ra input:checked + .rf-ind { background: var(--r-lit); box-shadow: 0 0 6px var(--r-lit); }
+.ra .rf-slot { clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 6px 100%, 0 50%); background: #021a0c; }
+.ra .rf-slot.on { background: var(--r-green); }
+.ra .rf-segs i { transform: skewX(-20deg); background: #2a0a10; }
+.ra .rf-segs i.on { background: var(--r-blood); }
+.ra .rf-note { border-left: 0; padding-left: 14px; position: relative; }
+.ra .rf-note::before { content: ""; position: absolute; left: 3px; top: 7px; width: 6px; height: 6px; background: var(--nc, var(--r-yellow)); transform: rotate(45deg); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT B — TAL SHIAR DOSSIER
+   Every card is an intelligence file. A hatched classification band in
+   the card colour, a Roman-capital title, a raptor seal, ledger rows with
+   leaders, redaction bars, and the result struck as an ink stamp. Keys
+   are filled tabs with a cut corner, like file dividers.
+   ══════════════════════════════════════════════════════════════════════ */
+.b { --c: var(--r-green); background: #0b1310; color: #b8d8c0; font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  border: 1px solid #1d3a2a; box-shadow: 0 2px 10px rgba(0,0,0,.5); position: relative; }
+.b-band { display: flex; justify-content: space-between; align-items: center; height: 18px; padding: 0 6px;
+  background: repeating-linear-gradient(-45deg, var(--c) 0 6px, color-mix(in srgb, var(--c) 45%, #000) 6px 12px); }
+.b-band span { background: var(--c); color: #04100a; padding: 1px 5px; font: 600 9px/1.2 "IBM Plex Mono", monospace; letter-spacing: .2em; text-transform: uppercase; }
+.b-hdr { display: flex; gap: 8px; align-items: center; padding: 6px 8px 5px; border-bottom: 1px solid #1d3a2a; }
+.b-hdr > div:not(.b-seal) { flex: 1; min-width: 0; }
+.b-title { font: 700 16px/1.1 "Cinzel", serif; letter-spacing: .06em; color: #e2f0e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-ref { font: 500 10px/1.5 "IBM Plex Mono", monospace; color: #6c8c78; letter-spacing: .04em; }
+.b-rd { display: inline-block; height: 9px; background: #3b5446; vertical-align: -1px; }
+.b-seal { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--c);
+  border: 2px solid color-mix(in srgb, var(--c) 70%, transparent); box-shadow: inset 0 0 0 2px #0b1310, inset 0 0 0 3px color-mix(in srgb, var(--c) 45%, transparent); transform: rotate(-8deg); }
+.b-seal svg { width: 24px; height: 24px; }
+.b-body { padding: 5px 8px 6px; }
+.b-tray { border-top: 3px double #24442f; border-bottom: 3px double #24442f; padding: 2px 0 3px; margin-bottom: 5px; }
+.b-tray + .b-tray { border-top: 0; margin-top: -5px; }
+.b-lbl { display: flex; justify-content: space-between; font: 600 9.5px/1.5 "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: #6c8c78; }
+.b-lbl span:last-child { color: #a8d8b8; }
+.b .d20 b { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; }
+.b-note { font-size: 12px; font-weight: 600; color: #cfe6d6; padding: 1px 6px; margin-bottom: 5px; background: color-mix(in srgb, var(--nc, var(--r-yellow)) 10%, transparent);
+  border-left: 2px solid var(--nc, var(--r-yellow)); }
+.b-note::before { content: "Annot. "; font: 600 9px "IBM Plex Mono", monospace; letter-spacing: .1em; color: var(--nc, var(--r-yellow)); text-transform: uppercase; }
+.b-row { display: flex; align-items: baseline; gap: 4px; font-size: 13px; font-weight: 600; letter-spacing: .04em; line-height: 1.35; }
+.b-row span:first-child { text-transform: uppercase; font-size: 11.5px; letter-spacing: .1em; color: #8fb09a; }
+.b-row i { flex: 1; border-bottom: 1px dotted #355a44; transform: translateY(-3px); }
+.b-row b { font: 600 13px "IBM Plex Mono", monospace; color: var(--vc, #e2f0e6); }
+.b-tally { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: -1px; }
+.b-tally i { width: 3px; height: 11px; background: var(--r-lit); border: 0; transform: none; flex: none; }
+.b-tally i.d { background: var(--r-blood); }
+.b-tally i.off { background: #22382c; }
+.b-stampline { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 6px 0 7px; min-height: 30px; }
+.b-stamp { display: inline-block; padding: 2px 10px 1px; border: 3px double var(--rc, var(--r-gold)); color: var(--rc, var(--r-gold));
+  font: 700 15px/1.1 "Cinzel", serif; letter-spacing: .18em; text-transform: uppercase; transform: rotate(-4deg); opacity: .92;
+  mask: radial-gradient(circle at 30% 40%, #000 60%, rgba(0,0,0,.75) 100%); }
+.b-stamp em { display: block; font: italic 600 9px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: none; text-align: center; }
+.b-stampline small { font: 600 11px "IBM Plex Mono", monospace; color: #a8d8b8; }
+.b-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.b-key { --k: var(--r-green); display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-height: 26px; padding: 3px 14px 3px 7px;
+  border: 0; background: var(--k); color: #03120a; font: 700 12px/1.1 "Barlow Condensed", sans-serif; letter-spacing: .08em; text-transform: uppercase; text-align: left;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%); box-shadow: inset 0 -2px 0 rgba(0,0,0,.25); }
+.b-key small { font-size: 10px; letter-spacing: .04em; opacity: .75; text-transform: none; }
+.b-key.wide { grid-column: 1 / -1; }
+.b-key.armed { background: #f2ea5a; }
+.b-spend { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 5px; }
+.b-spend span { flex: 1; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #8fb09a; }
+.b-step { width: 20px; height: 18px; border: 1px solid #355a44; background: #10201a; color: #cfe6d6; padding: 0; line-height: 1; }
+.b-spend b { font-family: "IBM Plex Mono", monospace; width: 14px; text-align: center; }
+.b-foot { display: flex; justify-content: space-between; border-top: 1px solid #1d3a2a; padding: 3px 8px; font: 500 9.5px/1.4 "IBM Plex Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: #557563; }
+.b-foot b { color: #8fb09a; font-weight: 500; }
+
+/* Concept B roller */
+.rb { --scr-bg: #0b1310; --sb-track: #0b1310; --sb-thumb: #355a44; }
+.rb .rfr { --c: var(--r-green); background: #0b1310; font-family: "Barlow Condensed", sans-serif; color: #b8d8c0; }
+.rb .b-band, .rb .b-hdr { flex: none; }
+.rb .rjump { background: #0b1310; border-bottom: 1px solid #1d3a2a; gap: 0; padding: 0 6px; }
+.rb .rjump button { background: transparent; color: #6c8c78; font: 600 9.5px/1 "IBM Plex Mono", monospace; padding: 6px 6px 5px; border-bottom: 2px solid transparent; }
+.rb .rjump button.on { color: #e2f0e6; border-bottom-color: var(--r-green); }
+.rb .rmore { background: #0b1310; color: #a8d8b8; border: 1px solid #355a44; }
+.rb .rf-sect { margin: 0 8px; padding: 6px 0 7px; border-bottom: 1px dashed #24442f; }
+.rb .rf-cap { display: flex; justify-content: space-between; font: 600 10px/1.4 "IBM Plex Mono", monospace; letter-spacing: .14em; text-transform: uppercase; color: #8fb09a; margin-bottom: 3px; }
+.rb .rf-cap span:first-child::before { content: attr(data-n) " · "; color: var(--r-green); }
+.rb .rf-cap span + span { color: #557563; }
+.rb .rf-keys { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px 8px 8px; border-top: 3px double #24442f; }
+.rb .rf-flbl { color: #6c8c78; font-family: "IBM Plex Mono", monospace; }
+.rb .rf-sel, .rb .rf-num { background: #050b08; color: #e2f0e6; border: 1px solid #24442f; font-family: "IBM Plex Mono", monospace; }
+.rb .rf-ind { width: 11px; height: 11px; border: 1px solid #557563; background: #050b08; }
+.rb input:checked + .rf-ind { background: transparent; border-color: var(--r-lit); }
+.rb input:checked + .rf-ind::after { content: "✓"; display: block; color: var(--r-lit); font-size: 11px; line-height: 9px; text-align: center; font-weight: 700; }
+.rb .rf-check--radio .rf-ind { border-radius: 50%; }
+.rb .rf-slot { border: 1px dashed #355a44; }
+.rb .rf-slot.on { border-style: solid; border-color: var(--r-gold); }
+.rb .rf-segs i { background: #2a1418; }
+.rb .rf-segs i.on { background: var(--r-blood); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CONCEPT C — SINGULARITY CONSOLE
+   The warbird bridge of the Nemesis era: dark green glass with one great
+   swept corner, gold hairlines, a hatched intake strip, a recessed curved
+   screen, and the quantum singularity as the readout — Successes run
+   round a segmented ring, Difficulty is the red inner arc, Momentum sits
+   in the core. Keys are backlit plates, rounded on the hull side.
+   ══════════════════════════════════════════════════════════════════════ */
+.c { --c: var(--r-green); position: relative; color: #9fd8b0; font-family: "Saira Semi Condensed", "Arial Narrow", sans-serif;
+  background: linear-gradient(160deg, #0f2a1b, #061109 55%, #040b06); border: 1px solid color-mix(in srgb, var(--c) 45%, #0a2a16);
+  border-radius: 24px 3px 3px 3px; box-shadow: inset 0 0 0 1px rgba(216,192,80,.10), 0 2px 12px rgba(0,0,0,.5); }
+.c-head { display: flex; align-items: center; gap: 8px; padding: 7px 9px 5px 20px; border-radius: 24px 3px 0 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 32%, transparent), transparent 75%); border-bottom: 1px solid rgba(216,192,80,.35); }
+.c-title { flex: 1; min-width: 0; font: 700 14px/1.1 "Saira Semi Condensed", sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #e0fbe8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-code { flex: none; font: 10px/1 "Share Tech Mono", monospace; letter-spacing: .1em; color: var(--r-gold); border: 1px solid rgba(216,192,80,.5); padding: 3px 6px; border-radius: 8px 2px 8px 2px; }
+.c-hatch { height: 5px; margin: 0 9px 0 16px; background: repeating-linear-gradient(60deg, var(--c) 0 2px, transparent 2px 7px); opacity: .55; }
+.c-body { padding: 4px 8px 7px; }
+.c-id { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #6fa680; margin: 0 0 5px 8px; }
+.c-scr { background: #020a05; border-radius: 12px 3px 12px 3px; padding: 4px 9px 5px; margin-bottom: 5px;
+  box-shadow: inset 0 0 16px rgba(34,170,68,.16), inset 0 0 0 1px #154a2c; }
+.c-lbl { display: flex; justify-content: space-between; font: 600 10px/1.5 "Saira Semi Condensed", sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #3f8a58; }
+.c-lbl span:last-child { font-family: "Share Tech Mono", monospace; color: var(--r-gold); }
+.c .d20 b { font-family: "Share Tech Mono", monospace; font-size: 13px; }
+.c-note { font-size: 12px; font-weight: 500; color: #bfe8cc; padding: 2px 8px; margin-bottom: 5px; border-radius: 0 8px 8px 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--nc, var(--r-yellow)) 22%, transparent), transparent); border-left: 2px solid var(--nc, var(--r-yellow)); }
+.c-read { display: grid; grid-template-columns: 84px 1fr; gap: 9px; align-items: center; margin-bottom: 5px; }
+.c-ring { position: relative; width: 84px; height: 84px; }
+.c-ring::before, .c-ring::after { content: ""; position: absolute; border-radius: 50%; }
+/* outer: Successes, 12 segments of 30deg */
+.c-ring::before { inset: 0;
+  background: conic-gradient(var(--r-lit) 0 calc(var(--s) * 30deg), #12301d 0);
+  -webkit-mask: repeating-conic-gradient(#000 0 26deg, transparent 0 30deg), radial-gradient(circle, transparent 60%, #000 61%);
+  -webkit-mask-composite: source-in; mask: repeating-conic-gradient(#000 0 26deg, transparent 0 30deg) intersect, radial-gradient(circle, transparent 60%, #000 61%);
+  filter: drop-shadow(0 0 3px rgba(92,240,154,.5)); }
+/* inner: Difficulty, red arc */
+.c-ring::after { inset: 15px;
+  background: conic-gradient(var(--r-blood) 0 calc(var(--d) * 30deg), #2a1418 0);
+  -webkit-mask: repeating-conic-gradient(#000 0 26deg, transparent 0 30deg), radial-gradient(circle, transparent 74%, #000 75%);
+  -webkit-mask-composite: source-in; mask: repeating-conic-gradient(#000 0 26deg, transparent 0 30deg) intersect, radial-gradient(circle, transparent 74%, #000 75%); }
+.c-core { position: absolute; inset: 26px; border-radius: 50%; display: grid; place-items: center; text-align: center;
+  background: radial-gradient(circle at 40% 35%, #2c6a44, #031008 70%); box-shadow: 0 0 10px rgba(68,221,136,.35); }
+.c-core b { display: block; font: 18px/1 "Share Tech Mono", monospace; color: #e0fbe8; }
+.c-core span { display: block; font-size: 7px; letter-spacing: .14em; text-transform: uppercase; color: var(--r-gold); margin-top: -2px; }
+.c-rows div { display: flex; justify-content: space-between; align-items: baseline; padding: 1px 0; border-bottom: 1px solid #12301d;
+  font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #5f9a72; }
+.c-rows b { font: 16px/1.1 "Share Tech Mono", monospace; color: var(--vc, #e0fbe8); }
+.c-result { display: flex; align-items: center; gap: 8px; margin: 2px 0 7px; padding: 3px 10px 3px 14px; border-radius: 14px 2px 2px 14px;
+  background: linear-gradient(90deg, var(--rc, var(--r-gold)), color-mix(in srgb, var(--rc, var(--r-gold)) 30%, transparent));
+  color: #031008; font: 700 14px/1.1 "Saira Semi Condensed", sans-serif; letter-spacing: .2em; text-transform: uppercase; }
+.c-result em { font: italic 500 11px/1 "Saira Semi Condensed", sans-serif; letter-spacing: .04em; text-transform: none; opacity: .8; }
+.c-result small { margin-left: auto; font: 11px "Share Tech Mono", monospace; letter-spacing: .04em; color: #e0fbe8; text-transform: none; }
+.c-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.c-key { --k: var(--r-green); display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 26px; padding: 3px 8px; border: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--k) 80%, #fff 20%), var(--k) 55%, color-mix(in srgb, var(--k) 70%, #000));
+  color: #031008; font: 700 11.5px/1.1 "Saira Semi Condensed", sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 0 6px color-mix(in srgb, var(--k) 40%, transparent); }
+.c-key:nth-child(odd)  { border-radius: 12px 2px 2px 12px; }
+.c-key:nth-child(even) { border-radius: 2px 12px 12px 2px; }
+.c-key.wide { grid-column: 1 / -1; border-radius: 12px; }
+.c-key small { font-size: 9.5px; letter-spacing: .04em; opacity: .75; text-transform: none; font-weight: 600; }
+.c-key.armed { background: linear-gradient(180deg, #fff9a0, #f2e04a 55%, #b8a828); }
+.c-spend { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #6fa680; margin-bottom: 5px; }
+.c-spend span { flex: 1; }
+.c-step { width: 20px; height: 18px; border: 0; border-radius: 9px; background: #12301d; color: #e0fbe8; padding: 0; line-height: 1; }
+.c-spend b { font-family: "Share Tech Mono", monospace; color: #e0fbe8; width: 14px; text-align: center; }
+.c-foot { display: flex; justify-content: space-between; margin-top: 6px; padding: 3px 4px 0 8px; border-top: 1px solid rgba(216,192,80,.25);
+  font: 10px/1.4 "Share Tech Mono", monospace; letter-spacing: .08em; color: #8a7e3a; }
+.c-foot b { font-weight: 400; color: var(--r-gold); }
+
+/* Concept C roller */
+.rc { --scr-bg: #020a05; --sb-track: #020a05; --sb-thumb: #2a6a44; }
+.rc .rfr { --c: var(--r-green); background: linear-gradient(160deg, #0f2a1b, #061109 55%, #040b06); border-radius: 0; color: #9fd8b0; font-family: "Saira Semi Condensed", sans-serif; }
+.rc .c-head { border-radius: 24px 0 0 0; flex: none; }
+.rc .c-hatch { flex: none; margin-bottom: 4px; }
+.rc .rscroll-wrap { margin: 0 8px; border-radius: 12px 3px 12px 3px; overflow: hidden; background: #020a05; box-shadow: inset 0 0 16px rgba(34,170,68,.16), inset 0 0 0 1px #154a2c; }
+.rc .rjump { background: #020a05; border-bottom: 1px solid #154a2c; }
+.rc .rjump button { background: #0c2416; color: #6fa680; border-radius: 8px 2px 8px 2px; font-family: "Saira Semi Condensed", sans-serif; font-weight: 600; }
+.rc .rjump button.on { background: var(--r-green); color: #031008; }
+.rc .rmore { background: var(--r-gold); color: #031008; border-radius: 8px 2px 8px 2px; }
+.rc .rf-sect { margin: 0 8px; padding: 6px 2px 7px; border-bottom: 1px solid #12301d; }
+.rc .rf-cap { display: flex; justify-content: space-between; font: 600 10px/1.5 "Saira Semi Condensed", sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #3f8a58; margin-bottom: 3px; }
+.rc .rf-cap span + span { font-family: "Share Tech Mono", monospace; color: var(--r-gold); letter-spacing: .06em; }
+.rc .rf-keys { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 7px 8px 9px; }
+.rc .rf-keys .c-key:nth-child(odd) { border-radius: 12px 2px 2px 12px; }
+.rc .rf-keys .c-key:nth-child(even) { border-radius: 2px 12px 12px 2px; }
+.rc .rf-flbl { color: #3f8a58; }
+.rc .rf-sel, .rc .rf-num { background: #061a0e; color: #e0fbe8; border: 0; border-radius: 8px 2px 8px 2px; box-shadow: inset 0 0 0 1px #1d5a36; font-family: "Share Tech Mono", monospace; }
+.rc .rf-ind { width: 18px; height: 10px; border-radius: 5px; background: #12301d; position: relative; }
+.rc .rf-ind::after { content: ""; position: absolute; top: 2px; left: 2px; width: 6px; height: 6px; border-radius: 50%; background: #3f8a58; transition: left .12s; }
+.rc input:checked + .rf-ind { background: #1d6a3e; }
+.rc input:checked + .rf-ind::after { left: 10px; background: var(--r-lit); box-shadow: 0 0 5px var(--r-lit); }
+.rc .rf-check--radio .rf-ind { width: 10px; }
+.rc .rf-check--radio input:checked + .rf-ind::after { left: 2px; }
+.rc .rf-slot { border-radius: 50%; background: #0c2416; box-shadow: inset 0 0 0 1px #1d5a36; }
+.rc .rf-slot.on { box-shadow: inset 0 0 0 2px var(--r-gold), 0 0 6px rgba(216,192,80,.5); }
+.rc .rf-segs i { border-radius: 2px; background: #2a1418; }
+.rc .rf-segs i.on { background: var(--r-blood); box-shadow: 0 0 4px var(--r-blood); }
+
+/* ── Roller form parts, shared skeleton (colours set per concept above) ── */
+.rf-two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rf-field { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rf-flbl { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+.rf-sel { width: 100%; min-width: 0; font-size: 12px; padding: 2px 4px; }
+.rf-num { width: 46px; font-size: 13px; padding: 1px 4px; text-align: center; }
+.rf-field--num { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rf-aside { font-size: 10px; opacity: .7; }
+.rf-stat { display: flex; gap: 14px; margin-top: 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; }
+.rf-stat b { font-family: "Share Tech Mono", monospace; font-size: 13px; }
+.rf-check { display: flex; align-items: flex-start; gap: 7px; padding: 2px 0; cursor: pointer; font-size: 12.5px; line-height: 1.25; }
+.rf-check input { position: absolute; opacity: 0; pointer-events: none; }
+.rf-ind { flex: none; margin-top: 2px; display: inline-block; }
+.rf-check small { display: block; font-size: 10.5px; opacity: .6; }
+.rf-indent { margin-left: 18px; }
+.rf-talent, .rf-desc { font-size: 11px; opacity: .7; margin-top: 2px; }
+.rf-pay { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.rf-src { display: flex; gap: 4px; }
+.rf-src i { width: 20px; height: 20px; display: grid; place-items: center; font: 700 10px/1 "Share Tech Mono", monospace; font-style: normal; border-radius: 50%; }
+.rf-src i.m { background: #1f5ad0; color: #fff; } .rf-src i.t { background: #c02030; color: #fff; }
+.rf-slots { display: flex; gap: 3px; }
+.rf-slot { width: 20px; height: 20px; display: grid; place-items: center; font: 700 10px/1 "Share Tech Mono", monospace; color: #fff; }
+.rf-paybar { display: flex; justify-content: space-between; font-size: 10.5px; opacity: .8; margin-bottom: 3px; }
+.rf-range { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; }
+.rf-segs { position: relative; flex: 1; display: flex; gap: 3px; height: 10px; }
+.rf-segs i { flex: 1; }
+.rf-segs input { position: absolute; inset: -4px 0; width: 100%; opacity: 0; cursor: pointer; }
+.rf-rval { font-family: "Share Tech Mono", monospace; width: 14px; text-align: center; }
+.rf-note { font-size: 11.5px; padding: 2px 6px; margin: 4px 8px; border-left: 2px solid var(--nc, var(--r-yellow)); }
+.rf-dice { display: flex; gap: 3px; flex-wrap: wrap; }
+.rf-sub { font-size: 10.5px; opacity: .6; margin-top: -2px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Romulan chat cards and dice roller</h1>
+  <p class="lede">Three concepts for the <code>romulan</code> theme, worn by the Romulan campaign era: the Working Results task card, the damage cards (ship and ground), the smaller cards (Confirmed, Sensor Contact, Hazard Entry) and the Adv. Dice Roller in each concept's frame. As with the TNG, TOS, TMP, ENT and Klingon concepts, each is one frame shared by every card, with the card type given by the frame colour. Colours start from the <code>romulan</code> tokens in <code>lcars-theme.js</code>; footers carry the After Settlement date the Romulan Stardate HUD already shows (<code>formatRomulanDate</code>). Rules terms stay in English; Rihannsu appears only as flavour, using words the HUD already uses. Cards are shown at Foundry's chat sidebar width.</p>
+
+  <div class="ctl">
+    <span>Roller window height <b id="hval">560px</b></span>
+    <input id="hrange" type="range" min="320" max="980" step="10" value="560" aria-label="Roller window height">
+    <button data-h="900">Desktop 1080p</button><button data-h="620">Laptop 768p</button><button data-h="460">720p / tablet</button><button data-h="360">Tiny</button>
+    <span>Every roller window is also drag-resizable from its bottom edge.</span>
+  </div>
+
+  <!-- ═══════════════════════════ A ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept A · the Stardate HUD, opened out</div>
+      <h2>Raptor Wing</h2>
+      <p>The Romulan HUD's own language — cold green on a fine grid, diamond separators, nothing round — made into a card. The header is the warbird seen head-on: two swept wings rising out of the title. Dice sit in hexagonal wells, readouts are chamfered cells, Successes against Difficulty is a row of diamonds (red for the Difficulty), and the result is a full-width hex plate. Keys are dark hex keys edged in their colour, so arming takes the unfilled path. Closest to what the era already shows, and the cheapest to build.</p>
+      <div class="swatches"><span><i style="background:#22aa44"></i>Task</span><span><i style="background:#d8c050"></i>Passed</span><span><i style="background:#ff4a5a"></i>Damage / failed</span><span><i style="background:#40c8b0"></i>Sensors</span><span><i style="background:#e08a2a"></i>Hazard</span><span><i style="background:#669966"></i>Assist</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Subcmdr. Tal · Working</div>
+        <div class="a">
+          <div class="a-head"><i class="a-wing l"></i><div class="a-title">Fire Disruptors</div><i class="a-wing r"></i></div>
+          <div class="a-code">Task · 03</div>
+          <div class="a-body">
+            <div class="a-id">Subcmdr. Tal · Comp Range 20</div>
+            <div class="a-well a-hex">
+              <div class="a-lbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 crit"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+            </div>
+            <div class="a-well a-hex">
+              <div class="a-lbl"><span>IRW Haakona · Weapons + Security</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+            </div>
+            <div class="a-note">Tactical advantage: +1 bonus Momentum on success</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Successes</span><b>4</b></div>
+              <div class="a-cell"><span>Difficulty</span><b>2</b></div>
+              <div class="a-cell" style="--vc:#d8c050"><span>Momentum</span><b>2</b></div>
+            </div>
+            <div class="a-meter"><i class="d on"></i><i class="d on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
+            <div class="a-result a-hex">Success <em>mnhei'sahe</em><small>+2 Momentum</small></div>
+            <div class="sta2e-working-actions"><div class="a-keys">
+              <button class="a-key armed">▶ Determination<small>Multiple dice</small></button>
+              <button class="a-key">Targeting Solution</button>
+              <button class="a-key" style="--k:#aacc33">Talent Reroll</button>
+              <button class="a-key" style="--k:#669966">Edit Card</button>
+              <button class="a-key wide" style="--k:#ff4a5a">Resolve Hit · 4 Successes</button>
+            </div></div>
+            <div class="a-foot"><span>1738 AS<i>◆</i>14 d'Khellian</span><b>14:32</b></div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="a" style="--c:#ff4a5a">
+          <div class="a-head"><i class="a-wing l"></i><div class="a-title">Disruptor Hit</div><i class="a-wing r"></i></div>
+          <div class="a-code">Damage · 02</div>
+          <div class="a-body">
+            <div class="a-id">IRW Haakona ▸ U.S.S. Gettysburg</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Damage</span><b>8</b></div>
+              <div class="a-cell"><span>Resist</span><b>−3</b></div>
+              <div class="a-cell"><span>Shields</span><b>12→7</b></div>
+            </div>
+            <div class="a-result a-hex" style="--rc:#ff4a5a">Breach<small>Weapons</small></div>
+            <div class="a-note" style="--nc:#e08a2a">Shields below 50%: one breach to Weapons</div>
+            <div class="a-spend"><span>Spend Momentum · +1 Damage</span><button class="a-step">−</button><b>1</b><button class="a-step">+</button></div>
+            <div class="a-keys">
+              <button class="a-key" style="--k:#ff4a5a">Apply Damage</button>
+              <button class="a-key" style="--k:#669966">Undo</button>
+            </div>
+            <div class="a-foot"><span>Tactical</span><b>14:33</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="a" style="--c:#ff4a5a">
+          <div class="a-head"><i class="a-wing l"></i><div class="a-title">Disruptor Pistol</div><i class="a-wing r"></i></div>
+          <div class="a-code">Damage · 04</div>
+          <div class="a-body">
+            <div class="a-id">Centurion Velal ▸ Reman Insurgent</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Severity</span><b>4</b></div>
+              <div class="a-cell"><span>Protect</span><b>−1</b></div>
+              <div class="a-cell"><span>Stress</span><b>8→5</b></div>
+            </div>
+            <div class="a-result a-hex" style="--rc:#ff4a5a">Deadly Injury</div>
+            <div class="a-keys">
+              <button class="a-key" style="--k:#ff4a5a">Take Injury</button>
+              <button class="a-key" style="--k:#aacc33">Avoid<small>2 Threat</small></button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Cmdr. Toreth · Confirmed</div>
+        <div class="a" style="--c:#d8c050">
+          <div class="a-head"><i class="a-wing l"></i><div class="a-title">Decrypt Transmission</div><i class="a-wing r"></i></div>
+          <div class="a-code">Passed</div>
+          <div class="a-body">
+            <div class="a-read two"><div class="a-cell wide" style="--vc:#d8c050"><span>Momentum gained</span><b>+2</b></div></div>
+            <div class="a-keys"><button class="a-key wide" style="--k:#d8c050">Add Momentum to Pool (+2)</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Cmdr. Toreth · Sensors</div>
+        <div class="a" style="--c:#40c8b0">
+          <div class="a-head"><i class="a-wing l"></i><div class="a-title">Sensor Contact</div><i class="a-wing r"></i></div>
+          <div class="a-code">Reveal</div>
+          <div class="a-body">
+            <div class="a-id">Hidden vessel</div>
+            <div class="a-read">
+              <div class="a-cell"><span>Bearing</span><b>047</b></div>
+              <div class="a-cell"><span>Mark</span><b>15</b></div>
+              <div class="a-cell"><span>Range</span><b>Med</b></div>
+            </div>
+            <div class="a-foot"><span>Zone</span><b>Neutral Zone</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="a" style="--c:#e08a2a">
+          <div class="a-head"><i class="a-wing l"></i><div class="a-title">Hazard Entry</div><i class="a-wing r"></i></div>
+          <div class="a-code">Hazard · 03</div>
+          <div class="a-body">
+            <div class="a-id">Plasma Storm · Lingering</div>
+            <div class="a-read two">
+              <div class="a-cell"><span>Haakona</span><b>Hull</b></div>
+              <div class="a-cell"><span>Potency</span><b>3</b></div>
+            </div>
+            <div class="a-keys">
+              <button class="a-key" style="--k:#e08a2a">Build &amp; Apply</button>
+              <button class="a-key" style="--k:#aacc33">Established</button>
+              <button class="a-key wide" style="--k:#669966">Ignore</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+
+    <div class="subhead">Dice roller · Raptor Wing</div>
+    <div class="pair" data-roller="a"></div>
+  </section>
+
+  <!-- ═══════════════════════════ B ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept B · the Tal Shiar file</div>
+      <h2>Tal Shiar Dossier</h2>
+      <p>Every card is an intelligence file on dark slate-green. A hatched classification band in the card colour names the type, the title is set in Roman capitals beside a raptor seal, and the reference line carries redaction bars. Dice sit in a tray between double rules, readouts are ledger rows with dot leaders and a tally, and the result is struck as an ink stamp with its Rihannsu gloss. Keys are filled file-divider tabs with a cut corner, so arming lights them yellow. The most distinctly Romulan of the three, and the quietest in a busy chat log.</p>
+      <div class="swatches"><span><i style="background:#22aa44"></i>Task</span><span><i style="background:#d8c050"></i>Passed</span><span><i style="background:#ff4a5a"></i>Damage / failed</span><span><i style="background:#40c8b0"></i>Sensors</span><span><i style="background:#e08a2a"></i>Hazard</span><span><i style="background:#669966"></i>Assist</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Subcmdr. Tal · Working</div>
+        <div class="b">
+          <div class="b-band"><span>Task</span><span>Restricted</span></div>
+          <div class="b-hdr"><div><div class="b-title">Fire Disruptors</div><div class="b-ref">Subcmdr. Tal · Ref <span class="b-rd" style="width:26px"></span>-03 · CR 20</div></div><div class="b-seal raptor"></div></div>
+          <div class="b-body">
+            <div class="b-tray">
+              <div class="b-lbl"><span>Control + Security</span><span>T 12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 crit"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+            </div>
+            <div class="b-tray">
+              <div class="b-lbl"><span>IRW Haakona · Weapons + Security</span><span>T 10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+            </div>
+            <div class="b-note">Tactical advantage: +1 bonus Momentum on success</div>
+            <div class="b-row"><span>Successes</span><i></i><b>04</b><span class="b-tally"><i class="d"></i><i class="d"></i><i></i><i></i><i class="off"></i><i class="off"></i></span></div>
+            <div class="b-row"><span>Difficulty</span><i></i><b>02</b></div>
+            <div class="b-row" style="--vc:#d8c050"><span>Momentum</span><i></i><b>02</b></div>
+            <div class="b-stampline"><span class="b-stamp">Success<em>mnhei'sahe</em></span><small>+2 Momentum</small></div>
+            <div class="sta2e-working-actions"><div class="b-keys">
+              <button class="b-key armed" data-filled="1">▶ Determination<small>Multiple dice</small></button>
+              <button class="b-key" data-filled="1">Targeting Solution</button>
+              <button class="b-key" data-filled="1" style="--k:#aacc33">Talent Reroll</button>
+              <button class="b-key" data-filled="1" style="--k:#669966">Edit Card</button>
+              <button class="b-key wide" data-filled="1" style="--k:#ff4a5a">Resolve Hit · 4 Successes</button>
+            </div></div>
+          </div>
+          <div class="b-foot"><span>Eyes only</span><b>1738 AS · 14 d'Khellian · 14:32</b></div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="b" style="--c:#ff4a5a">
+          <div class="b-band"><span>Damage</span><span>Tactical</span></div>
+          <div class="b-hdr"><div><div class="b-title">Disruptor Hit</div><div class="b-ref">IRW Haakona ▸ U.S.S. Gettysburg</div></div><div class="b-seal raptor"></div></div>
+          <div class="b-body">
+            <div class="b-row"><span>Damage</span><i></i><b>8</b></div>
+            <div class="b-row"><span>Resistance</span><i></i><b>−3</b></div>
+            <div class="b-row"><span>Shields</span><i></i><b>12 → 7</b></div>
+            <div class="b-stampline"><span class="b-stamp" style="--rc:#ff4a5a">Breach</span><small>Weapons</small></div>
+            <div class="b-note" style="--nc:#e08a2a">Shields below 50%: one breach to Weapons</div>
+            <div class="b-spend"><span>Spend Momentum · +1 Damage</span><button class="b-step">−</button><b>1</b><button class="b-step">+</button></div>
+            <div class="b-keys">
+              <button class="b-key" data-filled="1" style="--k:#ff4a5a">Apply Damage</button>
+              <button class="b-key" data-filled="1" style="--k:#669966">Undo</button>
+            </div>
+          </div>
+          <div class="b-foot"><span>Tactical log</span><b>14:33</b></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="b" style="--c:#ff4a5a">
+          <div class="b-band"><span>Damage</span><span>Field report</span></div>
+          <div class="b-hdr"><div><div class="b-title">Disruptor Pistol</div><div class="b-ref">Centurion Velal ▸ Reman Insurgent</div></div></div>
+          <div class="b-body">
+            <div class="b-row"><span>Severity</span><i></i><b>4</b></div>
+            <div class="b-row"><span>Protection</span><i></i><b>−1</b></div>
+            <div class="b-row"><span>Stress</span><i></i><b>8 → 5</b></div>
+            <div class="b-stampline"><span class="b-stamp" style="--rc:#ff4a5a">Deadly Injury</span></div>
+            <div class="b-keys">
+              <button class="b-key" data-filled="1" style="--k:#ff4a5a">Take Injury</button>
+              <button class="b-key" data-filled="1" style="--k:#aacc33">Avoid<small>2 Threat</small></button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Cmdr. Toreth · Confirmed</div>
+        <div class="b" style="--c:#d8c050">
+          <div class="b-band"><span>Confirmed</span><span>Filed</span></div>
+          <div class="b-hdr"><div><div class="b-title">Decrypt Transmission</div></div></div>
+          <div class="b-body">
+            <div class="b-row" style="--vc:#d8c050"><span>Momentum gained</span><i></i><b>+2</b></div>
+            <div class="b-keys" style="margin-top:6px"><button class="b-key wide" data-filled="1" style="--k:#d8c050">Add Momentum to Pool (+2)</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Cmdr. Toreth · Sensors</div>
+        <div class="b" style="--c:#40c8b0">
+          <div class="b-band"><span>Sensors</span><span>Reveal</span></div>
+          <div class="b-hdr"><div><div class="b-title">Sensor Contact</div><div class="b-ref">Hidden vessel · class <span class="b-rd" style="width:40px"></span></div></div></div>
+          <div class="b-body">
+            <div class="b-row"><span>Bearing</span><i></i><b>047</b></div>
+            <div class="b-row"><span>Mark</span><i></i><b>15</b></div>
+            <div class="b-row"><span>Range</span><i></i><b>Medium</b></div>
+          </div>
+          <div class="b-foot"><span>Zone</span><b>Neutral Zone</b></div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="b" style="--c:#e08a2a">
+          <div class="b-band"><span>Hazard</span><span>Lingering</span></div>
+          <div class="b-hdr"><div><div class="b-title">Hazard Entry</div><div class="b-ref">Plasma Storm</div></div></div>
+          <div class="b-body">
+            <div class="b-row"><span>Haakona</span><i></i><b>Hull</b></div>
+            <div class="b-row"><span>Potency</span><i></i><b>3</b></div>
+            <div class="b-keys" style="margin-top:6px">
+              <button class="b-key" data-filled="1" style="--k:#e08a2a">Build &amp; Apply</button>
+              <button class="b-key" data-filled="1" style="--k:#aacc33">Established</button>
+              <button class="b-key wide" data-filled="1" style="--k:#669966">Ignore</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+
+    <div class="subhead">Dice roller · Tal Shiar Dossier</div>
+    <div class="pair" data-roller="b"></div>
+  </section>
+
+  <!-- ═══════════════════════════ C ═══════════════════════════ -->
+  <section class="concept">
+    <div class="concept-head">
+      <div class="tag">Concept C · the warbird bridge</div>
+      <h2>Singularity Console</h2>
+      <p>The Nemesis-era warbird bridge: dark green glass with one great swept corner, gold hairlines, a hatched intake strip, and a recessed screen for the dice. The readout is the ship's quantum singularity — Successes light round a twelve-segment ring, the Difficulty is the red inner arc, and Momentum sits in the core — so a glance says how far past the Difficulty the roll went. Keys are backlit plates rounded on the hull side and filled, so arming lights them yellow. The richest look, and the one that needs the most new CSS.</p>
+      <div class="swatches"><span><i style="background:#22aa44"></i>Task</span><span><i style="background:#d8c050"></i>Passed</span><span><i style="background:#ff4a5a"></i>Damage / failed</span><span><i style="background:#40c8b0"></i>Sensors</span><span><i style="background:#e08a2a"></i>Hazard</span><span><i style="background:#669966"></i>Assist</span></div>
+    </div>
+    <div class="chatrow">
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Subcmdr. Tal · Working</div>
+        <div class="c">
+          <div class="c-head"><span class="c-title">Fire Disruptors</span><span class="c-code">D2 · CR20</span></div>
+          <div class="c-hatch"></div>
+          <div class="c-body">
+            <div class="c-id">Subcmdr. Tal</div>
+            <div class="c-scr">
+              <div class="c-lbl"><span>Control + Security</span><span>T12</span></div>
+              <div class="dice">
+                <span class="sta2e-card-die d20 crit"><img alt=""><i>★★</i><b>1</b></span>
+                <span class="sta2e-card-die d20"><img alt=""><b>9</b></span>
+                <span class="sta2e-card-die d20 f sel"><img alt=""><b>15</b></span>
+              </div>
+              <div class="c-lbl" style="margin-top:2px"><span>IRW Haakona · Weapons + Security</span><span>T10</span></div>
+              <div class="dice"><span class="sta2e-card-die d20"><img alt=""><b>7</b></span></div>
+            </div>
+            <div class="c-note">Tactical advantage: +1 bonus Momentum on success</div>
+            <div class="c-read">
+              <div class="c-ring" style="--s:4;--d:2"><div class="c-core"><div><b>2</b><span>Mom.</span></div></div></div>
+              <div class="c-rows">
+                <div><span>Successes</span><b>04</b></div>
+                <div><span>Difficulty</span><b style="--vc:#ff4a5a">02</b></div>
+                <div><span>Complic.</span><b>00</b></div>
+              </div>
+            </div>
+            <div class="c-result">Success <em>mnhei'sahe</em><small>+2 Momentum</small></div>
+            <div class="sta2e-working-actions"><div class="c-keys">
+              <button class="c-key armed" data-filled="1">▶ Determination<small>Multiple dice</small></button>
+              <button class="c-key" data-filled="1">Targeting Solution</button>
+              <button class="c-key" data-filled="1" style="--k:#aacc33">Talent Reroll</button>
+              <button class="c-key" data-filled="1" style="--k:#669966">Edit Card</button>
+              <button class="c-key wide" data-filled="1" style="--k:#ff4a5a">Resolve Hit · 4 Successes</button>
+            </div></div>
+            <div class="c-foot"><span>1738 AS · 14 d'Khellian</span><b>14:32</b></div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Gamemaster · Ship damage</div>
+        <div class="c" style="--c:#ff4a5a">
+          <div class="c-head"><span class="c-title">Disruptor Hit</span><span class="c-code">DMG</span></div>
+          <div class="c-hatch"></div>
+          <div class="c-body">
+            <div class="c-id">IRW Haakona ▸ U.S.S. Gettysburg</div>
+            <div class="c-scr c-rows">
+              <div><span>Damage</span><b>8</b></div>
+              <div><span>Resistance</span><b>−3</b></div>
+              <div style="border:0"><span>Shields</span><b>12→7</b></div>
+            </div>
+            <div class="c-result" style="--rc:#ff4a5a">Breach<small>Weapons</small></div>
+            <div class="c-note" style="--nc:#e08a2a">Shields below 50%: one breach to Weapons</div>
+            <div class="c-spend"><span>Spend Momentum · +1 Damage</span><button class="c-step">−</button><b>1</b><button class="c-step">+</button></div>
+            <div class="c-keys">
+              <button class="c-key" data-filled="1" style="--k:#ff4a5a">Apply Damage</button>
+              <button class="c-key" data-filled="1" style="--k:#669966">Undo</button>
+            </div>
+            <div class="c-foot"><span>Tactical</span><b>14:33</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Ground damage</div>
+        <div class="c" style="--c:#ff4a5a">
+          <div class="c-head"><span class="c-title">Disruptor Pistol</span><span class="c-code">DMG</span></div>
+          <div class="c-hatch"></div>
+          <div class="c-body">
+            <div class="c-id">Centurion Velal ▸ Reman Insurgent</div>
+            <div class="c-scr c-rows">
+              <div><span>Severity</span><b>4</b></div>
+              <div><span>Protection</span><b>−1</b></div>
+              <div style="border:0"><span>Stress</span><b>8→5</b></div>
+            </div>
+            <div class="c-result" style="--rc:#ff4a5a">Deadly Injury</div>
+            <div class="c-keys">
+              <button class="c-key" data-filled="1" style="--k:#ff4a5a">Take Injury</button>
+              <button class="c-key" data-filled="1" style="--k:#aacc33">Avoid<small>2 Threat</small></button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="chatlog"><div>
+        <div class="msg-meta">Cmdr. Toreth · Confirmed</div>
+        <div class="c" style="--c:#d8c050">
+          <div class="c-head"><span class="c-title">Decrypt Transmission</span><span class="c-code">OK</span></div>
+          <div class="c-hatch"></div>
+          <div class="c-body">
+            <div class="c-scr c-rows"><div style="border:0"><span>Momentum gained</span><b style="--vc:#d8c050">+2</b></div></div>
+            <div class="c-keys"><button class="c-key wide" data-filled="1" style="--k:#d8c050">Add Momentum to Pool (+2)</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Cmdr. Toreth · Sensors</div>
+        <div class="c" style="--c:#40c8b0">
+          <div class="c-head"><span class="c-title">Sensor Contact</span><span class="c-code">SNS</span></div>
+          <div class="c-hatch"></div>
+          <div class="c-body">
+            <div class="c-id">Reveal · Hidden vessel</div>
+            <div class="c-scr c-rows">
+              <div><span>Bearing</span><b>047</b></div>
+              <div><span>Mark</span><b>15</b></div>
+              <div style="border:0"><span>Range</span><b>Medium</b></div>
+            </div>
+            <div class="c-foot"><span>Zone</span><b>Neutral Zone</b></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="msg-meta">Gamemaster · Hazard</div>
+        <div class="c" style="--c:#e08a2a">
+          <div class="c-head"><span class="c-title">Hazard Entry</span><span class="c-code">HZD</span></div>
+          <div class="c-hatch"></div>
+          <div class="c-body">
+            <div class="c-id">Plasma Storm · Lingering</div>
+            <div class="c-scr c-rows">
+              <div><span>Haakona</span><b>Hull</b></div>
+              <div style="border:0"><span>Potency</span><b>3</b></div>
+            </div>
+            <div class="c-keys">
+              <button class="c-key" data-filled="1" style="--k:#e08a2a">Build &amp; Apply</button>
+              <button class="c-key" data-filled="1" style="--k:#aacc33">Established</button>
+              <button class="c-key wide" data-filled="1" style="--k:#669966">Ignore</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+
+    <div class="subhead">Dice roller · Singularity Console</div>
+    <div class="pair" data-roller="c"></div>
+  </section>
+
+  <div class="notes">
+    <h3>The roller on small screens</h3>
+    <ul>
+      <li><b>One scroller, keys pinned.</b> Every frame is the same column: header (fixed) → screen (the only element that scrolls) → keys (fixed). The screen is <code>flex: 1; min-height: 0; overflow-y: auto</code>, so on a short display it gives way and Roll / Resolve / Cancel never leave the window. This is the <code>.tbr-screen</code> rule <code>roller.css</code> already applies, so it carries straight over.</li>
+      <li><b>Scroll cues.</b> A fade appears at whichever edge has more content, and a "▼ n more" chip sits above the keys while anything is below the fold — clicking it scrolls one section. The scrollbar is themed per concept (<code>scrollbar-color</code> plus the WebKit pseudo-elements).</li>
+      <li><b>Jump strip.</b> In the setup phase a sticky strip of section keys (Officer · Pool · Assist · Ship · Options · Traits) sits at the top of the screen; it scrolls to a section and lights the one in view. It is built from the section headers <code>sectionHeader</code> already emits, so the content needs no new markup.</li>
+      <li><b>Compaction.</b> The window is a size container, and under 520px tall the form tightens: hint lines (<code>small</code>, Complication description) hide and dice shrink to 26px. The window stays drag-resizable from its bottom edge (core's resize handle in Foundry).</li>
+      <li>Try it with the height slider at the top of this page.</li>
+    </ul>
+    <h3>Notes for building any of these</h3>
+    <ul>
+      <li>The working card would follow the Klingon route: a <code>task-card-romulan.js</code> skin from the same <code>skinView</code>, used for <code>romulan</code> whatever <code>taskCardStyle</code> says, keeping the DOM contract (<code>.sta2e-working-actions</code>, <code>.sta2e-card-die</code> dice with their <code>&lt;img&gt;</code>, button classes, <code>data-*</code>). The other cards get a <code>romulanChatCard</code> branch in <code>lcarsChatCard</code>, with the body through <code>_consoleBodyHtml(html, "rom")</code> so tiles, plates, notes and chips map onto <b>A</b>'s cells and hex wells, <b>B</b>'s ledger rows and trays, or <b>C</b>'s screen.</li>
+      <li>The roller becomes a <code>romulan</code> entry in <code>roller-skin.js</code> (<code>FRAMES</code>, <code>FOOTER_PAINT</code>, <code>rollerSkin()</code>) plus <code>styles/roller-romulan.css</code>, drawing only the shared <code>tbr-*</code> classes, as every other era does.</li>
+      <li>Every key keeps its colour inline (<code>--k</code> here). <b>A</b>'s keys are edged, not filled, so arming takes <code>_armCardSelection</code>'s unfilled path (yellow text and edge). <b>B</b> and <b>C</b> carry <code>data-filled="1"</code>, so arming lights them yellow, as shown. <b>A</b>'s and <b>B</b>'s cut shapes are a <code>clip-path</code>; <b>C</b>'s rounding is positional, odd and even children as in the TNG keypad.</li>
+      <li><b>Dice colours.</b> The romulan primary (<code>#22aa44</code>) is the same green as a success, so a crit would vanish; <code>critDieColour()</code> would return gold (<code>#d8c050</code>) under Romulan, and <code>successDieColour()</code> the brighter <code>#5cf09a</code> — the token green reads dim on black.</li>
+      <li><b>Built:</b> Concept A ships as <code>task-card-romulan.js</code> / <code>romulanChatCard</code> (body pass prefix <code>rom</code>) and the <code>romulan</code> roller skin, with the scroll cues as <code>wireRollerScroll</code> in <code>roller-skin.js</code>. In the build the chat frame's diamond line is left empty; the task card's carries the state.</li>
+      <li><b>A</b>'s wings, <b>B</b>'s hatched band and seal and <b>C</b>'s ring are pseudo-elements or background layers in a build, so builders emit no extra markup. <b>C</b>'s ring needs <code>--s</code> / <code>--d</code> written inline on the readout; it is a <code>conic-gradient</code> under a two-layer <code>mask</code>, capped at 12 segments.</li>
+      <li>Rihannsu appears only beside an English rules term (<i>mnhei'sahe</i> on a pass) and in the date, all words the Stardate HUD already uses. A world setting could turn them off.</li>
+      <li>The raptor in <b>B</b>'s seal is a plain vector drawn for this mockup, not the Star Empire's emblem.</li>
+      <li>Fonts: <b>A</b> Oxanium; <b>B</b> Cinzel, Barlow Condensed and IBM Plex Mono; <b>C</b> Saira Semi Condensed with Share Tech Mono (already bundled in <code>fonts/tmp/</code>). All are Google fonts under the SIL OFL and would be bundled as <code>fonts/klingon/</code> is.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+/* D20 icon */
+const D20 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyODAgMzIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiPg0KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTI0Ni42OTQ1NiwtMzc1LjY2NzQ1KSI+DQo8cGF0aCBmaWxsPSIjQUFBQUFBIiBkPSJNMzc5LjkzLDM3NS42NjhjLTAuNTcsMC4wMTktMS4yMjYsMC4yMjgtMS41ODUsMC43MzFsLTgwLjY3Myw5Ni41MjcgICBjLTEuMzQyLDEuNjgxLTEuNDMzLDIuMDU2LDAuMzY2LDIuMDczbDE2MS41OS0wLjQyN2MyLjIyMS0wLjE4MiwyLjIzLTAuMDcsMC43OTItMS45NTFsLTc5LjI3LTk2LjUyNyAgIEMzODAuOTg2LDM3NS44NCwzODAuNTAxLDM3NS42NTQsMzc5LjkzLDM3NS42NjhMMzc5LjkzLDM3NS42Njh6IE0zOTUuNDE5LDM4NC4yNjZsNzIuNzQ2LDg4LjQ3OCAgIGMwLjk3NCwxLjE4MiwxLjIxMiwxLjI0OSwyLjkyNywwLjQyN2wzOC4zNTQtMTcuNTYyYzIuNTEzLTEuMTM0LDIuMTY1LTEuMzY2LDAuNDg3LTIuNUwzOTUuNDE5LDM4NC4yNjZ6IE0zNjEuNDU0LDM4Ny40OTggICBjLTAuMDM0LTAuMDcyLTAuNjI1LDAuMzctMS45NTIsMS4yODFMMjUzLjg5LDQ1OC4yOTJsMzMuMDUsMTUuMDAxYzEuNzI0LDAuNTY4LDIuMjM5LDAuNTk5LDMuMzU0LTAuNzkzbDY5LjY5OC04My4yMzQgICBDMzYwLjk3MywzODguMTI5LDM2MS40ODcsMzg3LjU3LDM2MS40NTQsMzg3LjQ5OEwzNjEuNDU0LDM4Ny40OTh6IE01MTUuMDU2LDQ1OS43NTZjLTAuMzI4LDAuMDIzLTAuODQ2LDAuMjEyLTEuNjQ2LDAuNTQ4ICAgbC0zOS4zOTIsMTcuOTg5Yy0xLjM5OCwwLjYzNS0xLjMxMSwxLjQ5LTAuNzkyLDIuNTYxbDQ1Ljc5MywxMTYuMTYybC0zLjI5Mi0xMzUuMzA5ICAgQzUxNS42MjYsNDYwLjIyOCw1MTUuNjA0LDQ1OS43MTcsNTE1LjA1Niw0NTkuNzU2TDUxNS4wNTYsNDU5Ljc1NnogTTI1MC45MDIsNDYzLjM1NGwtNC4yMDgsMTMxLjY1MWwzOC43ODItMTEzLjkwNyAgIGMwLjU3My0xLjY4MiwwLjU1OS0xLjc2Ny0wLjYxLTIuMzE3TDI1MC45MDIsNDYzLjM1NEwyNTAuOTAyLDQ2My4zNTR6IE00NjEuNzYxLDQ4MC40MjdsLTE2NS4yNDksMC40MjcgICBjLTIuMzYxLTAuMDM1LTIuMjY0LTAuMDMzLTEuMDk4LDEuODlsODMuOTA1LDE0MS41MjljMS40MTcsMi4xNTksMS4yNjUsMi4wOTIsMi43NDQtMC4xMjFsODAuNjEyLTE0MS43NzIgICBDNDYzLjM4Myw0ODEuMjUzLDQ2My44ODcsNDgwLjQ2Niw0NjEuNzYxLDQ4MC40MjdMNDYxLjc2MSw0ODAuNDI3eiBNNDY4LjM0Nyw0ODQuMTQ3Yy0wLjE1MiwwLjA2NC0wLjMxOCwwLjYzOS0wLjc5MywxLjUyNCAgIGwtODEuMTYsMTQyLjgwOWMtMC44ODcsMS41MDgtMS4wOTcsMi4wNDgsMS4wMzYsMS43MDhsMTI4Ljg0NS0xNy43NDRjMi4wNDQtMC40NjcsMS45ODItMS4xOTcsMS4yODEtMy4yMzJsLTQ4LjYtMTIzLjQ3OSAgIEM0NjguNjM1LDQ4NC41NSw0NjguNSw0ODQuMDgzLDQ2OC4zNDcsNDg0LjE0N0w0NjguMzQ3LDQ4NC4xNDd6IE0yOTAuMTcxLDQ4NS40ODljLTAuMTU4LDAuMTEzLTAuMywwLjcxNS0wLjYwOSwxLjU4NSAgIGwtNDEuMTYsMTIxLjE2MmMtMC43MDEsMi41NzMtMC43OCwzLjU0MSwxLjgyOSw0LjAyNGwxMjMuMTEzLDE3LjgwNWMyLjMyOCwwLjM1MSwyLjAzLTAuODIyLDEuNDYzLTEuOTUxbC04My43ODMtMTQxLjM0NSAgIEMyOTAuNDk4LDQ4NS43MDIsMjkwLjMyOSw0ODUuMzc1LDI5MC4xNzEsNDg1LjQ4OUwyOTAuMTcxLDQ4NS40ODl6IE0yNTguMTU4LDYxOS4zMzRsMTIwLjc5Niw2OC41MzggICBjMS41NjQsMC45NDksMS45MjksMC42MDQsMS43MDctMS4wMzZsLTIuNTYxLTQ4LjA1Yy0wLjA3LTEuNTUxLTAuMjgtMi4xODMtMS44OS0yLjQzOUwyNTguMTU4LDYxOS4zMzRMMjU4LjE1OCw2MTkuMzM0eiAgICBNNTA3LjkyMiw2MTkuNDU1bC0xMjIuNjI1LDE2Ljk1MmMtMS42MTgsMC4yMzgtMS4zMjYsMS4wMzItMS4zNDIsMi4xOTVsMi42MjIsNDguOTAzYzAuMTM1LDEuNDgzLDAuMDkxLDIuMDE3LDEuODksMS4wOTggICBMNTA3LjkyMiw2MTkuNDU1eiIvPjwvZz48L3N2Zz4=";
+
+/* Raptor seal for concept B */
+const RAPTOR = `<svg viewBox="0 0 40 40" fill="currentColor" aria-hidden="true"><path d="M20 5 L23 13 L37 8 L28 19 L24 18 L22.5 26 L20 30 L17.5 26 L16 18 L12 19 L3 8 L17 13 Z"/><circle cx="14" cy="32" r="3"/><circle cx="26" cy="32" r="3"/></svg>`;
+document.querySelectorAll(".raptor").forEach(el => { el.innerHTML = RAPTOR; });
+
+/* ── Roller content: the same scenario in every frame ───────────────── */
+const die = (v, cls = "", star = false) => `<span class="sta2e-card-die d20 ${cls}"><img alt="">${star ? "<i>★★</i>" : ""}<b>${v}</b></span>`;
+const chk = (label, hint, on, radio, name) => `<label class="rf-check${radio ? " rf-check--radio" : ""}"><input type="${radio ? "radio" : "checkbox"}"${name ? ` name="${name}"` : ""}${on ? " checked" : ""}><span class="rf-ind"></span><span>${label}${hint ? `<small>${hint}</small>` : ""}</span></label>`;
+const sel = (lbl, opts) => `<label class="rf-field"><span class="rf-flbl">${lbl}</span><select class="rf-sel">${opts.map(o => `<option>${o}</option>`).join("")}</select></label>`;
+
+function sections(k) {
+  return [
+    ["officer", "Officer", "Subcmdr. Tal", "T 12", `<div class="rf-two">${sel("Attribute", ["Control (9)", "Daring (10)", "Fitness (8)", "Insight (9)", "Presence (11)", "Reason (9)"])}${sel("Discipline", ["Security (3)", "Command (4)", "Conn (2)", "Engineering (2)", "Science (2)", "Medicine (1)"])}</div><div class="rf-stat"><span>Target <b>12</b></span><span>Focus <b>1–3</b></span></div>`],
+    ["adv", "Advantages", "Officer Advantages", "", `${chk("Has Focus", "crit on 1–3", true)}${chk("Dedicated Focus", "crit on 1–6")}${chk("Spend Determination", "force one die to roll 1")}<div class="rf-talent">Cold Reading (Insight) — reroll available post-roll</div>`],
+    ["pool", "Pool", "Dice Pool", "", `<div class="rf-pay"><div class="rf-src"><i class="m">M</i><i class="t">T</i></div><div class="rf-slots"><span class="rf-slot on">M</span><span class="rf-slot"></span><span class="rf-slot"></span><span class="rf-slot"></span><span class="rf-slot"></span><span class="rf-slot"></span></div></div><div class="rf-paybar"><span>Dice Pool <b>3</b></span><span>1D = 1 · 2D = 3 · 3D = 6</span></div><div class="rf-two">${chk("Free Die")}${chk("Auto-Success (−1 Die)")}</div>`],
+    ["assist", "Assist", "Centurion Velal · Assisting", "T 14", `<div class="rf-two">${sel("Attribute", ["Reason (10)"])}${sel("Discipline", ["Engineering (4)"])}</div><div class="rf-stat"><span>Target <b>14</b></span><span>Focus <b>1–4</b></span></div>${chk("Has Focus", "assist die crits on 1–4", true)}`],
+    ["ship", "Ship", "Ship Pool", "IRW Haakona", `${chk("Ship assists this roll", "", true)}<div class="rf-two">${sel("System", ["Weapons (10)", "Sensors (9)", "Engines (9)"])}${sel("Department", ["Security (3)", "Conn (2)", "Science (2)"])}</div><div class="rf-stat"><span>Target <b>13</b></span><span>Focus <b>1–3</b></span></div>${chk("Reserve Power rerouted", "assist die counts as 1 · complications count 2")}`],
+    ["opts", "Options", "Task Options", "", `<label class="rf-field rf-field--num"><span class="rf-flbl">Difficulty</span><input class="rf-num" type="number" min="0" value="2"><span class="rf-aside">+1 Cloaked target</span></label><div class="rf-range"><span class="rf-flbl">Complication</span><span class="rf-segs"><i class="on"></i><i></i><i></i><i></i><i></i><input type="range" min="1" max="5" value="1" aria-label="Complication"></span><b class="rf-rval">1</b></div><div class="rf-desc">Complications on: 20</div>${chk("Targeting Solution", "", true)}<div class="rf-indent rf-two">${chk("Reroll d20", "", true, true, k + "-ts")}${chk("Target System", "", false, true, k + "-ts")}</div>${chk("Calibrate Sensors", "ignore 1 trait or reroll 1d20")}`],
+    ["traits", "Traits", "Scene Traits", "", `${chk("Plasma Storm", "+1 Difficulty", true)}${chk("Federation Patrol", "+1 Complication range")}${chk("Neutral Zone Treaty", "")}`],
+  ];
+}
+
+const capHtml = (k, i, title, aside) => `<div class="rf-cap"><span data-n="${String(i + 1).padStart(2, "0")}">${title}</span>${aside ? `<span>${aside}</span>` : ""}</div>`;
+
+function setupScreen(k) {
+  const secs = sections(k);
+  const jump = `<div class="rjump">${secs.map(([id, short], i) => `<button type="button" data-jump="${id}"${i === 0 ? ' class="on"' : ""}>${short}</button>`).join("")}</div>`;
+  const notes = `<div class="rf-note" style="--nc:#aacc33">Disruptor Bank — DMG 4 · Medium range</div>`;
+  return jump + notes + secs.map(([id, , title, aside, body], i) => `<div class="rf-sect" data-sect="${id}">${capHtml(k, i, title, aside)}${body}</div>`).join("");
+}
+
+/* Rolled phase: dice blocks, then the concept's own readout */
+function rolledScreen(k) {
+  const blocks = `
+    <div class="rf-sect">${capHtml(k, 0, "Subcmdr. Tal · Control + Security", "T 12")}<div class="rf-dice">${die(1, "crit", true)}${die(9)}${die(15, "f")}</div></div>
+    <div class="rf-sect">${capHtml(k, 1, "Assist — Centurion Velal", "T 14")}<div class="rf-sub">Reason + Engineering</div><div class="rf-dice">${die(6)}</div></div>
+    <div class="rf-sect">${capHtml(k, 2, "Haakona · Weapons + Security", "T 13")}<div class="rf-dice">${die(11)}</div></div>
+    <div class="rf-note" style="--nc:#aacc33">Targeting Solution — click any crew die to reroll (free, one use)</div>
+    <div class="rf-note" style="--nc:#e08a2a">Plasma Storm: +1 Difficulty</div>`;
+  const readout = {
+    a: `<div class="rf-sect"><div class="a-read"><div class="a-cell"><span>Successes</span><b>5</b></div><div class="a-cell"><span>Difficulty</span><b>3</b></div><div class="a-cell" style="--vc:#d8c050"><span>Momentum</span><b>2</b></div></div><div class="a-meter"><i class="d on"></i><i class="d on"></i><i class="d on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div><div class="a-result a-hex" style="margin:0">Hit<em>mnhei'sahe</em><small>Complic. 0</small></div></div>`,
+    b: `<div class="rf-sect"><div class="b-row"><span>Successes</span><i></i><b>05</b><span class="b-tally"><i class="d"></i><i class="d"></i><i class="d"></i><i></i><i></i></span></div><div class="b-row"><span>Difficulty</span><i></i><b>03</b></div><div class="b-row" style="--vc:#d8c050"><span>Momentum</span><i></i><b>02</b></div><div class="b-row"><span>Complications</span><i></i><b>00</b></div><div class="b-stampline" style="margin-bottom:0"><span class="b-stamp">Hit<em>mnhei'sahe</em></span></div></div>`,
+    c: `<div class="rf-sect"><div class="c-read"><div class="c-ring" style="--s:5;--d:3"><div class="c-core"><div><b>2</b><span>Mom.</span></div></div></div><div class="c-rows"><div><span>Successes</span><b>05</b></div><div><span>Difficulty</span><b style="--vc:#ff4a5a">03</b></div><div><span>Complic.</span><b>00</b></div></div></div><div class="c-result" style="margin:0">Hit<em>mnhei'sahe</em></div></div>`,
+  }[k];
+  const rr = { a: "a-key", b: "b-key", c: "c-key" }[k];
+  const filled = k === "a" ? "" : ' data-filled="1"';
+  const rerolls = `<div class="rf-sect sta2e-working-actions">${capHtml(k, 3, "Rerolls Available")}<div class="${k}-keys">
+    <button class="${rr}"${filled} style="--k:#aacc33">Cold Reading</button><button class="${rr}"${filled} style="--k:#aacc33">Spend Determination</button>
+    <button class="${rr} wide"${filled} style="--k:#aacc33">Talent / Trait Reroll</button></div></div>`;
+  return blocks + readout + rerolls;
+}
+
+function frame(k, phase) {
+  const title = "Fire Disruptors";
+  const code = phase === "setup" ? "Setup" : "Rolled";
+  const st = phase === "setup" ? "#22aa44" : "#d8c050";
+  const head = {
+    a: `<div class="a" style="--c:${st};border:0;background:none"><div class="a-head"><i class="a-wing l"></i><div class="a-title">${title}</div><i class="a-wing r"></i></div><div class="a-code">${code}</div></div>`,
+    b: `<div class="b" style="--c:${st};border:0;box-shadow:none"><div class="b-band"><span>Roller</span><span>${code}</span></div><div class="b-hdr"><div><div class="b-title">${title}</div><div class="b-ref">Subcmdr. Tal · Tactical</div></div><div class="b-seal raptor">${RAPTOR}</div></div></div>`,
+    c: `<div class="c-head" style="--c:${st}"><span class="c-title">${title}</span><span class="c-code">${code.toUpperCase()}</span></div><div class="c-hatch" style="--c:${st}"></div>`,
+  }[k];
+  const keyCls = { a: "a-key", b: "b-key", c: "c-key" }[k];
+  const filled = k === "a" ? "" : ' data-filled="1"';
+  const main = phase === "setup" ? "Roll Dice" : "Resolve Hit (5 succ.)";
+  const keys = `<div class="rf-keys"><button type="button" class="${keyCls} wide"${filled} style="--k:#5cf09a">${main}</button><button type="button" class="${keyCls} wide"${filled} style="--k:#4a5a50;color:${k === "a" ? "#9fb8a8" : "#e0f0e6"}">Cancel</button></div>`;
+  const screen = phase === "setup" ? setupScreen(k) : rolledScreen(k);
+  return `<div><div class="phase-lbl">${phase === "setup" ? "Setup" : "Rolled"}</div>
+    <div class="fwin"><div class="fwin-head"><span>Adv. Dice Roller — Subcmdr. Tal — Disruptor Bank</span><span>✕</span></div>
+    <div class="fwin-body r${k}"><div class="rfr">${head}
+      <div class="rscroll-wrap"><div class="rscroll">${screen}<div style="height:6px"></div></div><div class="rmore">▼ more</div></div>
+      ${keys}</div></div></div></div>`;
+}
+
+document.querySelectorAll("[data-roller]").forEach(el => {
+  const k = el.dataset.roller;
+  el.innerHTML = frame(k, "setup") + frame(k, "rolled");
+});
+document.querySelectorAll(".d20 img").forEach(img => { img.src = D20; });
+
+/* ── Scroll behaviour: cues, "more" chip, jump strip ─────────────────── */
+document.querySelectorAll(".rscroll-wrap").forEach(wrap => {
+  const sc = wrap.querySelector(".rscroll");
+  const jump = sc.querySelector(".rjump");
+  const more = wrap.querySelector(".rmore");
+  const sects = [...sc.querySelectorAll(".rf-sect")];
+  const jh = () => jump ? jump.offsetHeight : 0;
+  wrap.style.setProperty("--jump-h", jh() + "px");
+  const update = () => {
+    const below = sc.scrollHeight - sc.clientHeight - sc.scrollTop;
+    wrap.toggleAttribute("data-up", sc.scrollTop > 2);
+    wrap.toggleAttribute("data-down", below > 2);
+    const top = sc.scrollTop + jh() + 8;
+    const hidden = sects.filter(s => s.offsetTop > sc.scrollTop + sc.clientHeight - 4).length;
+    more.textContent = hidden ? `▼ ${hidden} more` : "▼ more";
+    if (jump) {
+      let cur = sects.filter(s => s.dataset.sect && s.offsetTop <= top).pop() ?? sects[0];
+      if (below <= 2) cur = sects[sects.length - 1];
+      jump.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.jump === cur?.dataset.sect));
+    }
+  };
+  sc.addEventListener("scroll", update, { passive: true });
+  new ResizeObserver(update).observe(sc);
+  more.addEventListener("click", () => {
+    const next = sects.find(s => s.offsetTop + s.offsetHeight > sc.scrollTop + sc.clientHeight + 2);
+    sc.scrollTo({ top: next ? next.offsetTop - jh() - 4 : sc.scrollHeight });
+  });
+  jump?.addEventListener("click", ev => {
+    const id = ev.target.closest("button")?.dataset.jump;
+    const s = id && sc.querySelector(`[data-sect="${id}"]`);
+    if (s) sc.scrollTo({ top: s.offsetTop - jh() - 4 });
+  });
+  update();
+});
+
+/* ── Window height control ───────────────────────────────────────────── */
+const hr = document.getElementById("hrange"), hv = document.getElementById("hval");
+const setH = h => { document.documentElement.style.setProperty("--win-h", h + "px"); hr.value = h; hv.textContent = h + "px";
+  document.querySelectorAll(".fwin").forEach(w => w.style.height = ""); };
+hr.addEventListener("input", () => setH(hr.value));
+document.querySelectorAll(".ctl button[data-h]").forEach(b => b.addEventListener("click", () => setH(b.dataset.h)));
+</script>
+</body>
+</html>

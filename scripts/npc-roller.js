@@ -14,7 +14,7 @@
  * Task result is evaluated against Difficulty and posted to chat as an LCARS card.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme, isRomulanTheme } from "./lcars-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
@@ -52,6 +52,7 @@ import { renderTmpTaskCard } from "./task-card-tmp.js";
 import { renderTngTaskCard } from "./task-card-tng.js";
 import { renderEntTaskCard } from "./task-card-ent.js";
 import { renderKlingonTaskCard } from "./task-card-klingon.js";
+import { renderRomulanTaskCard } from "./task-card-romulan.js";
 import { lcarsChatCard } from "./chat-card-frame.js";
 import { isSkinnedRoller, skinRollerHtml, seatRollerFooter } from "./roller-skin.js";
 import { clearAssistPending } from "./assist-pending.js";
@@ -864,26 +865,36 @@ export async function dsnShowPool(dice, speaker = null) {
  * ENT, whose primary is the panel grey (#c7c7c7) — beside a miss's #aaa it read
  * as a miss, so a crit there is the ENT gold (ENT.amber in task-card-ent.js) —
  * and under Klingon, whose primary is the same red as a complication, so a
- * crit there is the scope's gold (KLI.gold in task-card-klingon.js).
+ * crit there is the scope's gold (KLI.gold in task-card-klingon.js) — and
+ * under Romulan, whose primary is the same green as a success, so a crit there
+ * is the Raptor Wing's gold (ROM.gold in task-card-romulan.js).
  * Every die renderer in this file uses it: the dialog's pips and pickers, the
  * chat summary, and the shared diceRow of the Working Results card.
  */
 const ENT_CRIT_GOLD = "#f0b400";
 const KLINGON_CRIT_GOLD = "#ffd84a";
+const ROMULAN_CRIT_GOLD = "#d8c050";
 const critDieColour = () => {
   const key = getActiveLcThemeKey();
-  return isEntTheme(key) ? ENT_CRIT_GOLD : isKlingonTheme(key) ? KLINGON_CRIT_GOLD : LC.primary;
+  return isEntTheme(key) ? ENT_CRIT_GOLD : isKlingonTheme(key) ? KLINGON_CRIT_GOLD
+    : isRomulanTheme(key) ? ROMULAN_CRIT_GOLD : LC.primary;
 };
 
 /**
  * The colour a successful die's number is drawn in: the theme's green, except
  * under Klingon, whose green is an olive (#886600) that reads dimmer than a
  * miss's #aaa on the Targeting Scope — so it takes the scope's phosphor
- * (KLI.phosphor in task-card-klingon.js). Every die renderer in this file uses
- * it, as with critDieColour; other green text keeps the token.
+ * (KLI.phosphor in task-card-klingon.js) — and under Romulan, whose green
+ * (#44dd88) reads dim beside the gold crit on black, so it takes the brighter
+ * ROM.lit (task-card-romulan.js). Every die renderer in this file uses it, as
+ * with critDieColour; other green text keeps the token.
  */
 const KLINGON_SUCCESS_GREEN = "#6fd24a";
-const successDieColour = () => isKlingonTheme(getActiveLcThemeKey()) ? KLINGON_SUCCESS_GREEN : LC.green;
+const ROMULAN_SUCCESS_GREEN = "#5cf09a";
+const successDieColour = () => {
+  const key = getActiveLcThemeKey();
+  return isKlingonTheme(key) ? KLINGON_SUCCESS_GREEN : isRomulanTheme(key) ? ROMULAN_SUCCESS_GREEN : LC.green;
+};
 
 
 export function diePipHtml(die, index, poolKey, rerollHint = null) {
@@ -3930,8 +3941,9 @@ export function buildPlayerRollCardHtml(rollData) {
   // below, so building them unconditionally would run — and risk throwing in —
   // new code on the classic path, which must stay byte-identical.
   //
-  // The TOS, TMP, TNG, ENT and Klingon eras have their own skins (task-card-tos.js,
-  // task-card-tmp.js, task-card-tng.js, task-card-ent.js, task-card-klingon.js) fed the same view. They take precedence
+  // The TOS, TMP, TNG, ENT, Klingon and Romulan eras have their own skins (task-card-tos.js,
+  // task-card-tmp.js, task-card-tng.js, task-card-ent.js, task-card-klingon.js,
+  // task-card-romulan.js) fed the same view. They take precedence
   // over taskCardStyle, so under lcars-tng the classic card's spine frame
   // (lcarsFrame below) is no longer reached.
   let cardStyle = "classic";
@@ -3942,7 +3954,8 @@ export function buildPlayerRollCardHtml(rollData) {
   const tngSkin = isBracketTheme(getActiveLcThemeKey());
   const entSkin = isEntTheme(getActiveLcThemeKey());
   const klingonSkin = isKlingonTheme(getActiveLcThemeKey());
-  if (cardStyle === "slim" || tosSkin || tmpSkin || tngSkin || entSkin || klingonSkin) {
+  const romulanSkin = isRomulanTheme(getActiveLcThemeKey());
+  if (cardStyle === "slim" || tosSkin || tmpSkin || tngSkin || entSkin || klingonSkin || romulanSkin) {
     const showShipBlock = (shipDice ?? []).length > 0;
     const skinView = ({
       rollData, diceRow, renderResourceTokens, p,
@@ -4065,6 +4078,7 @@ export function buildPlayerRollCardHtml(rollData) {
       : tngSkin ? renderTngTaskCard(skinView)
       : entSkin ? renderEntTaskCard(skinView)
       : klingonSkin ? renderKlingonTaskCard(skinView)
+      : romulanSkin ? renderRomulanTaskCard(skinView)
       : renderSlimTaskCard(skinView);
   }
 

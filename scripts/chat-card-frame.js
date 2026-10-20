@@ -9,9 +9,10 @@
  * frame instead (tosChatCard below), the sibling of task-card-tos.js, and under
  * TMP (tmp-console) the Console Monitor frame (tmpChatCard), the sibling of
  * task-card-tmp.js, under ENT (ent-panel) the Bridge Touchscreen frame
- * (entChatCard), the sibling of task-card-ent.js, and under Klingon (klingon)
+ * (entChatCard), the sibling of task-card-ent.js, under Klingon (klingon)
  * the Targeting Scope frame (klingonChatCard), the sibling of
- * task-card-klingon.js.
+ * task-card-klingon.js, and under Romulan (romulan) the Raptor Wing frame
+ * (romulanChatCard), the sibling of task-card-romulan.js.
  *
  * Shape: the TNG "Bracket Console" (tngChatCard below) — open brackets at the
  * four corners, the title centred in the top bar's gap, segmented side arms. It
@@ -35,15 +36,16 @@
  * against a controls element in there. Anything that rebuilt the body would have
  * to re-establish all of it.
  *
- * Nearly a leaf: it imports lcars-theme.js, task-card-tng.js, task-card-ent.js
- * and task-card-klingon.js, each of which imports only lcars-theme.js, so any builder
+ * Nearly a leaf: it imports lcars-theme.js, task-card-tng.js, task-card-ent.js,
+ * task-card-klingon.js and task-card-romulan.js, each of which imports only lcars-theme.js, so any builder
  * can use it without risking an import cycle.
  */
 
-import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme } from "./lcars-theme.js";
+import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme, isRomulanTheme } from "./lcars-theme.js";
 import { bracketTop, bracketBottom } from "./task-card-tng.js";
 import { entHead, entFoot } from "./task-card-ent.js";
 import { klingonHead } from "./task-card-klingon.js";
+import { romulanHead } from "./task-card-romulan.js";
 
 const LC = new Proxy({}, { get(_, prop) { return getLcTokens()[prop]; } });
 
@@ -249,6 +251,13 @@ export function entBodyHtml(html) { return _consoleBodyHtml(html, "ent"); }
 export function klingonBodyHtml(html) { return _consoleBodyHtml(html, "kli"); }
 
 /**
+ * The Romulan body pass: the same classifier with `ccf-rom-*` classes, which
+ * task-card-romulan.css redraws as the Raptor Wing's cells, wells and notes.
+ * Exported for the spend panel, injected after render.
+ */
+export function romulanBodyHtml(html) { return _consoleBodyHtml(html, "rom"); }
+
+/**
  * The TOS "Console Viewer" frame: a gunmetal housing, a header with the title
  * and three indicator lamps (the first lit in the card's accent), and the body
  * set into a curved amber CRT. The body goes through the TOS body pass
@@ -388,11 +397,39 @@ function klingonChatCard({ title, accent, body, rootClass, attrs }) {
 </div>`;
 }
 
+/** The Romulan frame's theme gate, matching `romulanSkin` in npc-roller.js. */
+export function isRomulanChatCardFrame() {
+  try { return isRomulanTheme(getActiveLcThemeKey()); }
+  catch { return false; }
+}
+
+/**
+ * The Romulan "Raptor Wing" frame — the sibling of task-card-romulan.js,
+ * built from the same romulanHead markup and `.trw` classes, so the frame
+ * exists once in task-card-romulan.css. The accent is the frame colour: the
+ * wings, the title's rule and the diamond line (--trw-c). The body goes
+ * straight on the gridded black through romulanBodyHtml — its LCARS shapes
+ * become chamfered cells, wells and diamond-led notes, its buttons edged hex
+ * keys — and keeps `.ccf-body`, which several wirers use as their host. Body
+ * text keeps the `romulan` token colours it is written in, which are made
+ * for black.
+ */
+function romulanChatCard({ title, accent, body, rootClass, attrs }) {
+  const colour = accent || LC.primary;
+  return `
+<div class="sta2e-chat-card sta2e-chat-card--romulan trw${rootClass ? ` ${rootClass}` : ""}" ${attrs} data-theme="${getActiveLcThemeKey()}"
+  style="${getLcCssVars("cc")}--ccf-c:${colour};--trw-c:${colour};">
+  ${romulanHead(stripDecorativeEmoji(title))}
+  <div class="trw-body ccf-body">${romulanBodyHtml(body)}</div>
+</div>`;
+}
+
 export function lcarsChatCard({ title, accent, body, legacy, rootClass = "", attrs = "" }) {
   if (isTosChatCardFrame()) return tosChatCard({ title, accent, body, rootClass, attrs });
   if (isTmpChatCardFrame()) return tmpChatCard({ title, accent, body, rootClass, attrs });
   if (isEntChatCardFrame()) return entChatCard({ title, accent, body, rootClass, attrs });
   if (isKlingonChatCardFrame()) return klingonChatCard({ title, accent, body, rootClass, attrs });
+  if (isRomulanChatCardFrame()) return romulanChatCard({ title, accent, body, rootClass, attrs });
   if (!isChatCardFrame()) return legacy();
   return tngChatCard({ title, accent, body, rootClass, attrs });
 }
