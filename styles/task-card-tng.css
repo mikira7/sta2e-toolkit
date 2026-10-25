@@ -437,3 +437,9 @@
 .sta2e-chat-card.sta2e-chat-card--tng .tbc-body.ccf-body > * {
   zoom: 1.15;
 }
+
+/* A keypad in a chat card (the opposed task, the warp card) is the task card's,
+   sized for an unzoomed card, so it skips the zoom. */
+.sta2e-chat-card.sta2e-chat-card--tng .tbc-body.ccf-body > :is(.tbc-pad, :has(> .tbc-pad)) {
+  zoom: 1;
+}

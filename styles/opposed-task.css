@@ -965,8 +965,3 @@
 @container (max-width: 340px) {
   .sta2e-op-v2-sides { flex-direction: column; }
 }
-
-/* Under the TNG frame the keys are the task card's keypad (task-card-tng.css),
-   sized for an unzoomed card; the chat body's 1.15 zoom would draw them larger
-   than the task card's own. */
-.sta2e-chat-card.sta2e-chat-card--tng .tbc-body.ccf-body > .sta2e-op-v2-actions { zoom: 1; }

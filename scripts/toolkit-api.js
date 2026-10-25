@@ -18,6 +18,8 @@ import {
   tokensSharingZone as _tokensSharingZone,
 } from "./zone-dynamic.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { getLcTokens } from "./lcars-theme.js";
+import { isChatCardFrame, lcarsChatCard } from "./chat-card-frame.js";
 import { openInteriorGenerator as _openInteriorGenerator } from "./interior-generator.js";
 import { generateInterior as _generateInterior } from "./interior-layout.js";
 import { createInteriorScene as _createInteriorScene } from "./interior-scene.js";
@@ -33,6 +35,63 @@ import {
   getTurnActions as _getTurnActions,
   requestTurnOrderSpend as _requestTurnOrderSpend,
 } from "./combat/initiative-order.js";
+
+/** "2371-04-12" → "12 Apr 2371", or null. */
+function _fmtWarpDate(iso) {
+  if (!iso) return null;
+  const [y, m, d] = String(iso).split("-");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return months[parseInt(m, 10) - 1] ? `${d} ${months[parseInt(m, 10) - 1]} ${y}` : null;
+}
+
+/**
+ * The framed warp card's body. Shapes the frames' body passes recognise: the
+ * two readouts are 1px-bordered tiles (padding 3px), the travel time a
+ * left-border note, the stardates a bordered plate. Under the TNG frame the
+ * keys are the task card's keypad (task-card-tng.css); elsewhere they are
+ * plain buttons the frame repaints from their inline colour.
+ */
+function _warpCardBody({ shipName, destination, warpFactor, speedStr, distanceLY, timeParts, deltaEncoded, departure, arrival, timeLabel }) {
+  const LC = getLcTokens();
+  const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const cap = `font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${LC.textDim};`;
+  const tile = (label, value, unit, colour) => `
+    <div style="flex:1 1 0;min-width:0;border:1px solid ${LC.borderDim};padding:3px 8px 5px;">
+      <div style="${cap}">${label}</div>
+      <div style="font-size:15px;font-weight:700;color:${colour};">${value}<span style="font-size:10px;margin-left:4px;color:${LC.textDim};">${unit}</span></div>
+    </div>`;
+  const tng = isChatCardFrame();
+  const keys = tng
+    ? `<div class="sta2e-warp-buttons tbc-pad" style="margin-top:8px;">
+        <button type="button" class="sta2e-confirm-travel tbc-key" data-delta="${deltaEncoded}" style="background:${LC.primary};color:#000000;">Confirm Travel</button>
+        <button type="button" class="sta2e-cancel-travel tbc-key" style="background:${LC.red};color:#000000;">Cancel</button>
+      </div>`
+    : `<div class="sta2e-warp-buttons" style="margin-top:8px;display:flex;gap:6px;">
+        <button type="button" class="sta2e-confirm-travel" data-delta="${deltaEncoded}" style="flex:1 1 auto;padding:6px 10px;border:1px solid ${LC.primary};color:${LC.primary};font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">Confirm Travel</button>
+        <button type="button" class="sta2e-cancel-travel" style="flex:0 1 auto;padding:6px 12px;border:1px solid ${LC.red};color:${LC.red};font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">Cancel</button>
+      </div>`;
+  return `
+  <div style="padding:2px 2px 0;">
+    <div style="${cap}">Destination Route</div>
+    <div style="font-size:14px;font-weight:700;color:${LC.tertiary};letter-spacing:0.04em;text-transform:uppercase;">
+      ${esc(shipName)} <span style="color:${LC.primary};">▶</span> ${esc(destination)}</div>
+  </div>
+  <div style="display:flex;gap:6px;margin-top:6px;">
+    ${tile("Distance", Number(distanceLY).toFixed(2), "LY", LC.text)}
+    ${tile("Warp", esc(warpFactor), speedStr ? `${speedStr}c` : "", LC.primary)}
+  </div>
+  <div style="margin-top:6px;border-left:3px solid ${LC.primary};padding:3px 8px;">
+    <div style="${cap}">Travel Time</div>
+    <div style="font-size:12px;font-weight:700;color:${LC.text};">${timeParts.join(", ")}</div>
+  </div>
+  ${departure && arrival ? `
+  <div style="margin-top:6px;border:1px solid ${LC.borderDim};padding:4px 8px;display:flex;align-items:center;gap:8px;">
+    <div style="flex:1 1 0;min-width:0;"><div style="${cap}">Departure ${timeLabel}</div><div style="font-size:12px;font-weight:700;color:${LC.text};">${esc(departure)}</div></div>
+    <div style="color:${LC.primary};">▶</div>
+    <div style="flex:1 1 0;min-width:0;text-align:right;"><div style="${cap}">Arrival ${timeLabel}</div><div style="font-size:12px;font-weight:700;color:${LC.text};">${esc(arrival)}</div></div>
+  </div>` : ""}
+  ${keys}`;
+}
 
 export class ToolkitAPI {
 
@@ -498,6 +557,25 @@ export class ToolkitAPI {
   </div>
 </div>`;
     }
+
+    // Under a theme with a chat card frame (TNG / First Contact, TOS, TMP, ENT,
+    // Klingon, Romulan) the card wears that frame like every other card; the
+    // era designs above stay as the legacy path for the rest. The body is
+    // written in theme tokens and plain LCARS shapes so each frame's body pass
+    // can redraw it. The confirm wiring in main.js finds the buttons by class.
+    const legacyContent = content;
+    content = lcarsChatCard({
+      title: "Navigational Analysis",
+      body: _warpCardBody({
+        shipName, destination, warpFactor, speedStr, distanceLY, timeParts, deltaEncoded,
+        // ENT keeps dates rather than stardates, as its legacy card does.
+        departure: campaign.era === "ent" ? _fmtWarpDate(campaign.calendarDate) : depSD,
+        arrival:   campaign.era === "ent" ? _fmtWarpDate(arrivalDate) : arrSD,
+        timeLabel: campaign.era === "ent" ? "Date" : "Stardate",
+      }),
+      rootClass: "sta2e-warp-card",
+      legacy: () => legacyContent,
+    });
 
     await ChatMessage.create({
       content,

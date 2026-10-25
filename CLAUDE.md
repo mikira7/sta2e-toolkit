@@ -1866,9 +1866,14 @@ buttons dark hex keys whose two ends take `--tck-a`. The accent is `--trw-c` (wi
 title rule, diamonds). The spend panel gets the same pass. Every other era still gets
 `legacy()`.
 
-Out of scope by choice: the warp navigation cards
-([warp-calc.js](scripts/warp-calc.js), [toolkit-api.js](scripts/toolkit-api.js)) and the
-star-system reports, which have deliberate bespoke skins.
+**The warp travel card** (`postWarpCard` in [toolkit-api.js](scripts/toolkit-api.js))
+goes through the frame too: `_warpCardBody` writes it in theme tokens and the shapes the
+body passes recognise (two readout tiles, a travel-time note, a stardate plate), and under
+the TNG frame its Confirm / Cancel are the task card's keypad. Its old per-era designs are
+the `legacy` thunk. The local fallback cards in [warp-calc.js](scripts/warp-calc.js) only
+run when the API is missing and keep their bespoke skins, as do the star-system reports.
+A keypad in any TNG chat card (`.tbc-pad`, or a direct child holding one) skips the
+body's 1.15 zoom, so its keys match the task card's size.
 
 ### Working Task Card
 

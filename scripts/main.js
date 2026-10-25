@@ -5137,7 +5137,7 @@ Hooks.on("renderChatMessageHTML", (_message, html) => {
         await game.sta2eToolkit.advanceByDuration(delta);
         // Re-query after await in case DOM was replaced; fall back to captured ref
         const confirmBtn = html.querySelector(".sta2e-confirm-travel") ?? btn;
-        if (confirmBtn) confirmBtn.textContent = "✅ Travel Confirmed";
+        if (confirmBtn) confirmBtn.textContent = "✓ Travel Confirmed";
         ui.notifications.info("STA 2e Toolkit: Stardate advanced.");
       } catch (err) {
         console.error("STA 2e Toolkit | Error confirming travel:", err);
@@ -5157,7 +5157,7 @@ Hooks.on("renderChatMessageHTML", (_message, html) => {
         btn.disabled = true;
         btn.style.opacity = "0.5";
       });
-      e.currentTarget.textContent = "❌ Cancelled";
+      e.currentTarget.textContent = "✕ Cancelled";
     });
 });
 
