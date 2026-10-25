@@ -346,6 +346,8 @@
 .sta2e-task-card--tng .tbc-result--cost { color: var(--tbc-cost); }
 
 /* ── Keypad ───────────────────────────────────────────────────────────────── */
+/* Shared with the TNG chat frame, whose opposed task card draws its keys as
+   this keypad (the :is() keeps each selector at the task card's specificity). */
 /* Each .sta2e-working-actions section stays a plain block: the reroll tray is
    appended to it and must land below the keys. The grid is the inner list. */
 .sta2e-task-card--tng .tbc-actions { margin-top: 7px; }
@@ -359,7 +361,7 @@
   color: var(--tbc-c3);
 }
 
-.sta2e-task-card.sta2e-task-card--tng .tbc-pad {
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) .tbc-pad {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 3px;
@@ -367,7 +369,7 @@
 
 /* A key is rounded on its outer end only: the right column on the right, the
    left column on the left. Colour is inline (rule 2 above). */
-.sta2e-task-card.sta2e-task-card--tng .tbc-key {
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) .tbc-key {
   display: block;
   box-sizing: border-box;   /* "Completed" / "Applied to" are divs */
   width: 100%;
@@ -389,7 +391,7 @@
   transition: filter 0.11s ease-out;
 }
 
-.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key:nth-child(odd) {
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) .tbc-pad > .tbc-key:nth-child(odd) {
   padding: 11px 8px 3px 13px;
   border-radius: 14px 0 0 14px;
   text-align: left;
@@ -397,20 +399,20 @@
 
 /* A wide key spans the pad, and so does a left-column key left on its own —
    the last one, or one followed straight by a wide key. */
-.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key.tbc-key--wide,
-.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key:nth-child(odd):last-child,
-.sta2e-task-card.sta2e-task-card--tng .tbc-pad > .tbc-key:nth-child(odd):has(+ .tbc-key--wide) {
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) .tbc-pad > .tbc-key.tbc-key--wide,
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) .tbc-pad > .tbc-key:nth-child(odd):last-child,
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) .tbc-pad > .tbc-key:nth-child(odd):has(+ .tbc-key--wide) {
   grid-column: 1 / -1;
   padding: 10px 14px 4px;
   border-radius: 14px;
   text-align: center;
 }
 
-.sta2e-task-card.sta2e-task-card--tng div.tbc-key { cursor: default; }
+:is(.sta2e-task-card.sta2e-task-card--tng, .sta2e-chat-card.sta2e-chat-card--tng) div.tbc-key { cursor: default; }
 
-.sta2e-task-card--tng button.tbc-key:hover:not(:disabled) { filter: brightness(1.15); }
-.sta2e-task-card--tng button.tbc-key:active:not(:disabled) { filter: brightness(0.85); }
-.sta2e-task-card--tng button.tbc-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+:is(.sta2e-task-card--tng, .sta2e-chat-card--tng) button.tbc-key:hover:not(:disabled) { filter: brightness(1.15); }
+:is(.sta2e-task-card--tng, .sta2e-chat-card--tng) button.tbc-key:active:not(:disabled) { filter: brightness(0.85); }
+:is(.sta2e-task-card--tng, .sta2e-chat-card--tng) button.tbc-key:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
 
 /* The keys are two to a row, so a name wraps rather than ellipsing — the
    shared rule in task-card.css clips it to one line. */

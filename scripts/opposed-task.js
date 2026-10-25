@@ -25,7 +25,8 @@
  */
 
 import { getActiveLcThemeKey, getLcCssVars, getLcThemeTemplate, getLcTokens } from "./lcars-theme.js";
-import { lcarsChatCard } from "./chat-card-frame.js";
+import { isChatCardFrame, lcarsChatCard } from "./chat-card-frame.js";
+import { tbcPalette } from "./task-card-tng.js";
 import { allRolledDice, callOutTargetsBonusMomentum, chiefMedicalOfficerBonusMomentum, flightControllerBonusMomentum, openNpcRoller, openPlayerRoller, packTacticsBonusMomentum } from "./npc-roller.js";
 import { readOfficerStats } from "./crew-manifest.js";
 import { labelFromKey as _labelFromKey, orderedShipsForActor, serializeShipsForRoller } from "./ship-pool.js";
@@ -754,7 +755,7 @@ function _renderCardHtml(d) {
   }
 
   const blindNote = d.options?.blindDefender && defRolled && !atkRolled
-    ? `<div style="font-size:10px;color:${textDim};margin-top:2px;">🔒 Blind: defender successes shown to GM only.</div>`
+    ? `<div style="font-size:10px;color:${textDim};margin-top:2px;">Blind: defender successes shown to GM only.</div>`
     : "";
 
   // Hide defender's successes publicly if blind is on and attacker hasn't rolled yet
@@ -763,48 +764,60 @@ function _renderCardHtml(d) {
   const atkLineHtml = atkStatusLine;
 
   // Pill-style action buttons matching the mockup
-  const btnBase = `flex:1;padding:8px 10px;background:transparent;border:1px solid ${primary};
-    border-radius:2px;color:${primary};font-family:${font};font-size:10px;font-weight:700;
-    letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;display:flex;
-    align-items:center;justify-content:center;gap:6px;`;
-  const btnDisabled = `flex:1;padding:8px 10px;background:transparent;border:1px solid ${LC.borderDim};
-    border-radius:2px;color:${textDim};font-family:${font};font-size:10px;font-weight:700;
-    letter-spacing:0.12em;text-transform:uppercase;cursor:not-allowed;opacity:0.5;display:flex;
-    align-items:center;justify-content:center;gap:6px;`;
+  // Under the TNG frame the keys are the task card's keypad: two columns of
+  // filled LCARS keys rounded on their outer ends (task-card-tng.css). Colour is
+  // inline from the bracket palette, shape is CSS, so nothing here may carry an
+  // inline radius, padding or display. Every other era's frame repaints plain
+  // buttons itself (keyifyButtons), and the legacy card keeps outlined pills.
+  const tngPad = isChatCardFrame();
+  const P = tngPad ? tbcPalette() : null;
+  // flex-basis auto + nowrap: in a narrow chat log a pill wraps to its own row
+  // whole instead of being squeezed until its label breaks letter by letter.
+  const pill = c => `background:transparent;border:1px solid ${c};color:${c};padding:8px 10px;
+    border-radius:2px;font-family:${font};font-size:10px;font-weight:700;letter-spacing:0.08em;
+    text-transform:uppercase;white-space:nowrap;`;
+  const pillRow = "flex:1 1 auto;display:flex;align-items:center;justify-content:center;gap:6px;";
+  const btnDisabledStyle = `${pillRow}${pill(LC.borderDim)}color:${textDim};cursor:not-allowed;opacity:0.5;`;
+  // tag: "button" | "div"; attrs carry the class and data-* the wiring reads.
+  const key = ({ tag = "button", cls = "", attrs = "", colour, label, wide = false, disabled = false, title = "" }) => {
+    const t = title ? ` title="${title}"` : "";
+    if (tngPad) {
+      const c = disabled ? P.dim : colour;
+      const k = `tbc-key${wide ? " tbc-key--wide" : ""}${cls ? ` ${cls}` : ""}`;
+      return tag === "div"
+        ? `<div class="sta2e-task-btn ${k}" style="background:${c};color:#000000;">${label}</div>`
+        : `<button type="button" class="${k}" ${attrs}${disabled ? " disabled" : ""}${t} style="background:${c};color:#000000;">${label}</button>`;
+    }
+    const style = disabled ? btnDisabledStyle : `${pillRow}${pill(colour)}cursor:pointer;`;
+    return tag === "div"
+      ? `<div style="${btnDisabledStyle}">${label}</div>`
+      : `<button type="button"${cls ? ` class="${cls}"` : ""} ${attrs}${disabled ? " disabled" : ""}${t} style="${style}">${label}</button>`;
+  };
 
   const defBtn = !defRolled
-    ? `<button type="button" class="sta2e-op-roll" data-side="defender" data-task-id="${d.taskId}"
-        style="${btnBase}">🛡 Defender Roll</button>`
-    : `<div style="${btnDisabled}">🛡 Defender Rolled</div>`;
+    ? key({ cls: "sta2e-op-roll", attrs: `data-side="defender" data-task-id="${d.taskId}"`, colour: tngPad ? P.addToRoll : primary, label: "Defender Roll" })
+    : key({ tag: "div", label: "Defender Rolled", disabled: true });
 
   const atkBtn = canRollAtk
-    ? `<button type="button" class="sta2e-op-roll" data-side="attacker" data-task-id="${d.taskId}"
-        style="${btnBase}">⚔ Attacker Roll</button>`
+    ? key({ cls: "sta2e-op-roll", attrs: `data-side="attacker" data-task-id="${d.taskId}"`, colour: tngPad ? P.confirmPass : primary, label: "Attacker Roll" })
     : atkRolled
-      ? `<div style="${btnDisabled}">⚔ Attacker Rolled</div>`
-      : `<button type="button" disabled style="${btnDisabled}">⚔ Attacker Roll</button>`;
+      ? key({ tag: "div", label: "Attacker Rolled", disabled: true })
+      : key({ label: "Attacker Roll", disabled: true });
 
   const gmCancel = !resolved
-    ? `<button type="button" class="sta2e-op-cancel" data-task-id="${d.taskId}"
-        style="padding:8px 10px;background:transparent;border:1px solid ${LC.red ?? "#cc4444"};
-          border-radius:2px;color:${LC.red ?? "#cc4444"};font-family:${font};font-size:11px;
-          font-weight:700;cursor:pointer;"
-        title="GM only — cancel this opposed task">✕</button>`
+    ? key({ cls: "sta2e-op-cancel", attrs: `data-task-id="${d.taskId}"`, colour: tngPad ? P.fail : (LC.red ?? "#cc4444"),
+        label: tngPad ? "Cancel" : "✕", title: "GM only — cancel this opposed task" })
     : "";
 
   // GM-only trait modifier button (ground/starship combat, before resolution).
-  // Hidden for non-GM users in wireOpposedTaskCard. Lets any GM apply or adjust
+  // Removed for non-GM users in wireOpposedTaskCard. Lets any GM apply or adjust
   // the manual trait difficulty modifier — replaces the old blocking popup.
   const traitBtnLabel = difficultyInfo.traitDelta
-    ? `🎚 ${traitLabel}`
-    : "🎚 Trait";
+    ? traitLabel
+    : "Trait";
   const gmTrait = (isGroundCombat || isStarshipCombat) && !resolved
-    ? `<button type="button" class="sta2e-op-trait" data-task-id="${d.taskId}"
-        style="padding:8px 10px;background:transparent;border:1px solid ${secondary};
-          border-radius:2px;color:${secondary};font-family:${font};font-size:10px;
-          font-weight:700;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;
-          white-space:nowrap;"
-        title="GM only — apply or adjust the trait difficulty modifier">${traitBtnLabel}</button>`
+    ? key({ cls: "sta2e-op-trait", attrs: `data-task-id="${d.taskId}"`, colour: tngPad ? P.cost : secondary,
+        label: traitBtnLabel, title: "GM only — apply or adjust the trait difficulty modifier" })
     : "";
 
   const opposedNote = (isGroundCombat || isStarshipCombat) && !resolved
@@ -827,7 +840,7 @@ function _renderCardHtml(d) {
   };
 
   const sideBlock = (label, portraitSrc, name, attrLabel, discLabel, compRangeText, statusHtml, accentColor, shipLineHtml = "") => `
-    <div class="sta2e-op-v2-side" style="flex:1;padding:8px 12px;">
+    <div class="sta2e-op-v2-side" style="flex:1 1 0;min-width:0;padding:8px 12px;">
       <div style="display:flex;gap:8px;align-items:flex-start;">
         <img src="${portraitSrc || "icons/svg/mystery-man.svg"}"
           style="width:32px;height:32px;object-fit:cover;border:1px solid ${accentColor};border-radius:2px;flex-shrink:0;background:#000;"
@@ -844,30 +857,39 @@ function _renderCardHtml(d) {
     </div>`;
 
   const kind = isStarshipCombat ? "Starship Combat" : isGroundCombat ? "Ground Combat" : "Social Contest";
+  // The header already reads "Opposed Task"; don't repeat the default name under it.
+  const showHeading = !!String(d.taskName ?? "").trim()
+    && String(d.taskName).trim().toLowerCase() !== "opposed task";
   const opBody = `
 
-  <div style="padding:8px 12px 4px;">
-    <div style="font-size:14px;font-weight:700;color:${primary};letter-spacing:0.02em;">${_esc(d.taskName)}</div>
-    ${d.flavor ? `<div style="margin-top:2px;font-size:10px;color:${textDim};font-style:italic;line-height:1.4;">${_esc(d.flavor)}</div>` : ""}
-  </div>
+  ${showHeading || d.flavor ? `<div style="padding:8px 12px 4px;">
+    ${showHeading ? `<div style="font-size:14px;font-weight:700;color:${primary};letter-spacing:0.02em;">${_esc(d.taskName)}</div>` : ""}
+    ${d.flavor ? `<div style="margin-top:${showHeading ? 2 : 0}px;font-size:10px;color:${textDim};font-style:italic;line-height:1.4;">${_esc(d.flavor)}</div>` : ""}
+  </div>` : ""}
   ${opposedNote}
 
+  <div class="sta2e-op-v2-sideswrap" style="container-type:inline-size;margin:6px 10px 0;">
   <div class="sta2e-op-v2-sides"
-    style="display:flex;margin:6px 10px 0;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(0,0,0,0.25);">
+    style="display:flex;border:1px solid ${LC.borderDim};border-radius:2px;background:rgba(0,0,0,0.25);">
     ${sideBlock("Defender", d.defender.actorImg, d.defender.actorName, defAttrLabel, defDiscLabel, defCompRangeText, defLineHtml, primary, shipAssistLine(d.defender))}
-    <div style="width:1px;background:${LC.borderDim};"></div>
+    <div class="sta2e-op-v2-divider" style="flex:0 0 1px;align-self:stretch;background:${LC.borderDim};"></div>
     ${sideBlock("Attacker", d.attacker.actorImg, d.attacker.actorName, atkAttrLabel, atkDiscLabel, atkCompRangeText, atkLineHtml, primary, shipAssistLine(d.attacker))}
+  </div>
   </div>
 
   ${resolutionBlock}
 
   ${!resolved ? `
+    ${tngPad ? `
+    <div class="sta2e-op-v2-actions" style="padding:8px 10px;">
+      <div class="tbc-pad">${defBtn}${atkBtn}${gmTrait}${gmCancel}</div>
+    </div>` : `
     <div class="sta2e-op-v2-actions" style="padding:8px 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
       ${defBtn}
       ${atkBtn}
       ${gmTrait}
       ${gmCancel}
-    </div>
+    </div>`}
     ${blindNote ? `<div style="padding:0 12px 6px;">${blindNote}</div>` : ""}
   ` : `<div style="height:6px;"></div>`}
 
