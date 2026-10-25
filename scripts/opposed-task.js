@@ -418,7 +418,8 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
     : _normalizeTraitModifier({ traitModifierMode: "none" });
 
   const defenderOfficer = opts.defenderOfficer ?? readOfficerStats(resolveActingOfficer(defenderActor, defStationId));
-  const attackerOfficer = opts.attackerOfficer ?? readOfficerStats(resolveActingOfficer(attackerActor, atkStationId));
+  const attackerOfficerActor = resolveActingOfficer(attackerActor, atkStationId);
+  const attackerOfficer = opts.attackerOfficer ?? readOfficerStats(attackerOfficerActor);
 
   const taskId = foundry.utils.randomID();
   const taskData = {
@@ -447,7 +448,8 @@ export async function startStarshipCombatOpposedTask(opts = {}) {
         : 0,
       // In ship combat the tracker activates the *officer*, not the ship, so the
       // bought extra Major Action's debt sits on the officer's combatant.
-      extraActionPenalty: getExtraActionDifficulty(attackerOfficers[0] ?? attackerActor),
+      extraActionPenalty: getExtraActionDifficulty(attackerOfficerActor)
+        || getExtraActionDifficulty(attackerActor),
       attackPatternPenalty: opts.attackPatternPenalty ? 1 : Number(opts.attackPatternPenalty ?? 0),
       defenderComplicationRange: opts.defenderComplicationRange ?? 1,
       attackerComplicationRange: opts.attackerComplicationRange ?? 1,

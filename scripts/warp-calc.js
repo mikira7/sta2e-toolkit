@@ -677,7 +677,7 @@ function makeRenderFn({ prefix, warpToC, presets, defaultWarp, ctx }) {
         <div style="color:#fff;font-size:0.95em;">${formatTimeFull(t, warp, speedC)}</div>
       </td>
     </tr>
-    ${dateRow}
+    ${sdRow}
   </table>
   <div style="background:#0d0500;border-top:1px solid #222;padding:5px 12px;display:flex;justify-content:space-between;">
     <div style="color:#441100;font-size:0.5em;letter-spacing:2px;">FEDERATION NAVIGATIONAL SYSTEMS</div>

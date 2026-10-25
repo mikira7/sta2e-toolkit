@@ -3176,6 +3176,9 @@ export class CombatHUD {
             const _attackPatternPenalty = _shipAttackPatternDifficultyReduction(_defenderToken);
             const _starter = game.sta2eToolkit?.startStarshipCombatOpposedTask;
             if (_starter && _defenderToken?.actor) {
+              // Attack committed — charge the Major Action (idempotent per attack).
+              // This branch returns, so the charge below never reached it.
+              await this._markWeaponMajor();
               await _starter({
                 taskName: `Attack - ${weapon.name}`,
                 attackerActorId: actor.id,
@@ -11067,18 +11070,18 @@ export class CombatHUD {
     }
 
     // Weapons Armed badge
-    if (isShip && CombatHUD.getWeaponsArmed(token?.actor ?? actor)) {
+    if (isShip && CombatHUD.getWeaponsArmed(token?.actor)) {
       row.appendChild(this._statusBadge("⚡", "Armed", "Weapons armed — ready to fire", true, async () => {
-        await CombatHUD.setWeaponsArmed(token?.actor ?? actor, false);
+        await CombatHUD.setWeaponsArmed(token?.actor, false);
         this._refresh();
       }));
       hasAny = true;
     }
 
     // Shields Lowered badge
-    if (isShip && CombatHUD.getShieldsLowered(token?.actor ?? actor)) {
+    if (isShip && CombatHUD.getShieldsLowered(token?.actor)) {
       row.appendChild(this._statusBadge("🛡️", "Shields Down", "Shields lowered — click to restore", true, async () => {
-        const a   = token?.actor ?? actor;
+        const a   = token?.actor;
         const doc = a.isToken && a.token && !a.token.isLinked
           ? a.token : a.isToken ? (game.actors.get(a.id ?? a._id) ?? a) : a;
         const savedValue = CombatHUD.getShieldsSavedMax(a) ?? 0;
@@ -11092,9 +11095,9 @@ export class CombatHUD {
     }
 
     // Modulated Shields badge — ship only, shown in status section
-    if (isShip && CombatHUD.getModulatedShields(token?.actor ?? actor)) {
+    if (isShip && CombatHUD.getModulatedShields(token?.actor)) {
       row.appendChild(this._statusBadge("🔰", "Modulated", "+2 Resistance until next hit", true, async () => {
-        await CombatHUD.setModulatedShields(token?.actor ?? actor, false);
+        await CombatHUD.setModulatedShields(token?.actor, false);
         this._refresh();
       }));
       hasAny = true;
@@ -11103,11 +11106,11 @@ export class CombatHUD {
     // Dept strain badges — one per strained department
     const DEPTS = ["command","conn","engineering","security","medicine","science"];
     for (const dkey of DEPTS) {
-      const strain = isShip ? CombatHUD.getDeptStrainRange(token?.actor ?? actor, dkey) : 0;
+      const strain = isShip ? CombatHUD.getDeptStrainRange(token?.actor, dkey) : 0;
       if (strain > 0) {
         const dLabel = CombatHUD.deptLabel(dkey);
         row.appendChild(this._statusBadge("💥", `${dLabel} +${strain}`, `Crew Casualties — ${dLabel} dept complication range +${strain}`, true, async () => {
-          await CombatHUD.clearDeptStrain(token?.actor ?? actor, dkey);
+          await CombatHUD.clearDeptStrain(token?.actor, dkey);
           this._refresh();
         }));
         hasAny = true;
