@@ -1542,6 +1542,27 @@ export async function checkOpposedTaskForTokens(weaponName, attackerToken, targe
   return { proceed: true, difficulty: null, defenseType: null, defenderSuccesses: null };
 }
 
+/**
+ * The combat the Combat HUD belongs to on this client, or null.
+ *
+ * Not `game.combat`: on a player's client that is whatever encounter their
+ * combat tracker sidebar happens to show (`ui.combat.viewed`), which can be
+ * null or a different encounter while the GM's combat is running — so the HUD
+ * never auto-opened for them. This looks for an active or started combat on
+ * the given scene (the canvas scene by default), or one linked to no scene.
+ */
+export function hudCombat(scene = canvas?.scene) {
+  const sceneId = scene?.id ?? null;
+  const onScene = c => !c.scene || c.scene.id === sceneId;
+  const combats = game.combats?.contents ?? [];
+  const viewed = game.combat;
+  if (viewed && (viewed.active || viewed.started) && onScene(viewed)) return viewed;
+  return combats.find(c => c.active && c.started && onScene(c))
+      ?? combats.find(c => c.active && onScene(c))
+      ?? combats.find(c => c.started && onScene(c))
+      ?? null;
+}
+
 export class CombatHUD {
   static _shipAttackAnimationQueue = Promise.resolve();
 
@@ -1604,7 +1625,7 @@ export class CombatHUD {
 
   close() {
     if (this._pinned) return;
-    if (game.combat?.active) {
+    if (hudCombat()) {
       // During combat: stay visible, switch to roster view
       this._token               = null;
       this._pendingWeapon       = null;
@@ -1936,7 +1957,7 @@ export class CombatHUD {
   _refresh() {
     if (!this._el) return;
     if (!this._token) {
-      if (game.combat?.active) this._buildRoster();
+      if (hudCombat()) this._buildRoster();
       return;
     }
     this._el.innerHTML = "";
@@ -2007,7 +2028,7 @@ export class CombatHUD {
     const list = document.createElement("div");
     list.style.cssText = "padding:6px 8px;display:flex;flex-direction:column;gap:4px;";
 
-    const combatants = game.combat?.combatants ?? [];
+    const combatants = hudCombat()?.combatants ?? [];
     if (!combatants.size) {
       const empty = document.createElement("div");
       empty.style.cssText = `font-size:10px;color:${LC.textDim};font-family:${LC.font};padding:4px;`;

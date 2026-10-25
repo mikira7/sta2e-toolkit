@@ -28,7 +28,7 @@ registerDestructibleObjects();
 registerDestructibleCombat();
 import { openWarpCalc } from "./warp-calc.js";
 import { AlertHUD } from "./alert-hud.js";
-import { CombatHUD, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, promptWarpFleeStyle, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
+import { CombatHUD, hudCombat, BRIDGE_STATIONS, TASK_PARAMS, checkOpposedTaskForTokens, openWeaponAttackForOfficer, applyScanForWeakness, updateScanForWeaknessCard, applyDefenseModeForOfficer, applyModulateShieldsForOfficer, applyCalibrateWeaponsForOfficer, applyTargetingSolutionForOfficer, consumeTargetingSolutionForOfficer, applyPrepareForOfficer, applyImpulseForOfficer, applyThrustersForOfficer, applyCalibrateSensorsForOfficer, consumeCalibrateSensorsForOfficer, applyLaunchProbeForOfficer, applyDirectForOfficer, lockTractorBeam, applyWarpForOfficer, applyRamForOfficer, handleOfficerTaskResult, showRerouteSystemDialog, showTransportConfigDialog, hasRapidFireTorpedoLauncher, hasCloakingDevice, handleCloakActivateResult, applyCloakDeactivateForOfficer, runImpulseEngageCard, runWarpEngageCard, runWarpFleeCard, promptShipCardDestination, promptWarpFleeStyle, resolveTalentStressActor, applyTalentStressCost, rollDataHasAnyRerollUsed } from "./combat-hud.js";
 import { buildWeaponContext, refreshToolkitSpriteCache } from "./weapon-configs.js";
 import { spawnEngineTrail } from "./engine-trail-vfx.js";
 import { registerBreachTrailHooks } from "./breach-trail-vfx.js";
@@ -2948,8 +2948,10 @@ Hooks.on("controlToken", (token, controlled) => {
   if (!combatHud) return;
 
   if (controlled && token?.actor) {
-    // Open for any token during active combat, or if already open/pinned
-    if (game.combat?.active || combatHud._pinned) {
+    // Open for any token during active combat, or if already open/pinned.
+    // hudCombat, not game.combat: a player's game.combat follows their
+    // tracker sidebar and is often null while the GM's combat runs.
+    if (hudCombat(token.document?.parent) || combatHud._pinned) {
       combatHud.open(token);
     }
   } else if (!controlled) {
@@ -3006,7 +3008,11 @@ Hooks.on("updateCombat", async (combat, changes) => {
 
   const combatHud = game.sta2eToolkit?.combatHud;
   if (!combatHud) return;
-  if (changes.active === true) {
+  // `active` is set when an encounter is activated; Begin Combat only sends
+  // {round: 1, turn: 0}, so it needs its own test.
+  const begun = changes.round === 1 && (changes.turn ?? 0) === 0;
+  const onThisScene = !combat.scene || combat.scene.id === canvas?.scene?.id;
+  if ((changes.active === true || begun) && onThisScene) {
     const token = canvas.tokens?.controlled[0]
       ?? canvas.tokens?.get(combat.combatant?.tokenId);
     if (token?.actor) {
