@@ -87,6 +87,8 @@ import { registerWarpViewscreenBehavior } from "./warp-viewscreen-behavior.js";
 import { registerRegionTerrainBehaviors } from "./region-terrain-behaviors.js";
 import { registerRandomTeleportBehavior } from "./random-teleport-behavior.js";
 import { registerDoorLightBehavior } from "./door-light-behavior.js";
+import { registerRegionLogicBehavior } from "./region-logic-behavior.js";
+import { registerRegionLogicEditor } from "./region-logic-editor.js";
 import { registerLightToggleSound } from "./light-toggle-sound.js";
 import { isActiveGM, SET_ACTIVE_GM_ACTION, handleSetActiveGmRequest } from "./gm-authority.js";
 import { REVEAL_FLAG } from "./region-terrain.js";
@@ -611,6 +613,8 @@ Hooks.once("init", () => {
   registerRegionTerrainBehaviors();
   registerRandomTeleportBehavior();
   registerDoorLightBehavior();
+  registerRegionLogicBehavior();
+  registerRegionLogicEditor();
   registerLightToggleSound();
   registerSensorContacts();
   registerTokenToolkitHud();

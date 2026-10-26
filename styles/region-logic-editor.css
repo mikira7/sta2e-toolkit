@@ -1,0 +1,421 @@
+/*
+ * sta2e-toolkit | region-logic-editor.css
+ *
+ * Shape for the Region Logic editor (scripts/region-logic-editor.js). Colour
+ * arrives as --rle-* custom properties from getLcCssVars("rle") on the root,
+ * and each node's category colour as --rle-c.
+ *
+ * A node's sizes are NOT set here: --rle-node-w, --rle-head-h, --rle-row-h,
+ * --rle-pad and --rle-foot-h come from the constants in
+ * region-logic-editor-model.js, which also places every port. Every node part
+ * is box-sizing: border-box with a fixed height, and borders are drawn as
+ * box-shadows, so nothing adds a pixel the wire maths does not know about.
+ */
+
+.sta2e-region-logic-editor .window-content {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rle {
+  box-sizing: border-box;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr) 290px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  background: var(--rle-bg);
+  color: var(--rle-text);
+  font-family: var(--rle-font);
+  font-size: 13px;
+}
+.rle *, .rle *::before, .rle *::after { box-sizing: border-box; }
+
+.rle button {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--rle-panel);
+  color: var(--rle-text);
+  box-shadow: inset 0 0 0 1px var(--rle-border-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  width: auto;
+}
+.rle button:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--rle-primary); color: var(--rle-text-bright); }
+.rle button:disabled { opacity: 0.4; cursor: default; }
+.rle button.rle-primary { background: var(--rle-primary); color: var(--rle-bg); box-shadow: none; font-weight: bold; }
+.rle button.rle-danger:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--rle-red); color: var(--rle-red); }
+
+.rle input[type="text"], .rle input[type="number"], .rle select {
+  font-family: inherit;
+  font-size: 12px;
+  height: 26px;
+  min-width: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--rle-text-bright);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--rle-border-dim);
+  padding: 0 6px;
+}
+.rle input:focus, .rle select:focus { outline: none; box-shadow: inset 0 0 0 1px var(--rle-primary); }
+.rle select option { background: var(--rle-bg); color: var(--rle-text); }
+
+/* ── Palette ─────────────────────────────────────────────────────────────── */
+
+.rle-palette {
+  grid-row: 1 / 3;
+  overflow-y: auto;
+  padding: 8px 8px 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.rle-pal-group { display: flex; flex-direction: column; gap: 3px; }
+.rle-pal-title {
+  background: var(--rle-c);
+  color: var(--rle-bg);
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 0 12px 12px 0;
+}
+.rle .rle-pal-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+  margin-left: 8px;
+  border-radius: 4px;
+  box-shadow: inset 3px 0 0 var(--rle-c);
+  overflow: hidden;
+  cursor: grab;
+}
+.rle .rle-pal-item i { flex: 0 0 1.1em; text-align: center; color: var(--rle-c); }
+.rle .rle-pal-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Main column ─────────────────────────────────────────────────────────── */
+
+.rle-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--rle-border-dim);
+  border-right: 1px solid var(--rle-border-dim);
+}
+.rle-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--rle-border-dim);
+}
+.rle-toolbar .rle-tpl { width: 190px; flex: 0 1 190px; }
+.rle-gap { flex: 1 1 auto; }
+.rle-zoom { min-width: 3.4em; text-align: center; font-size: 12px; color: var(--rle-text-dim); }
+
+.rle-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  outline: none;
+  touch-action: none;
+  cursor: default;
+  background-color: rgba(0, 0, 0, 0.35);
+  background-image: radial-gradient(circle, var(--rle-border-dim) 1px, transparent 1.2px);
+}
+.rle-canvas.is-panning { cursor: grabbing; }
+.rle-canvas:focus-visible { box-shadow: inset 0 0 0 1px var(--rle-primary); }
+
+.rle-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+.rle-nodes { position: absolute; left: 0; top: 0; }
+
+/* The wire layer reaches --rle-svg-off round the origin; its group is shifted back. */
+.rle-wires {
+  position: absolute;
+  left: calc(-1 * var(--rle-svg-off));
+  top: calc(-1 * var(--rle-svg-off));
+  overflow: visible;
+  pointer-events: none;
+}
+.rle-wire {
+  fill: none;
+  stroke: var(--rle-text-dim);
+  stroke-width: 2.5;
+  pointer-events: none;
+}
+.rle-wire--pos { stroke: var(--rle-green); }
+.rle-wire--neg { stroke: var(--rle-red); }
+.rle-wire.is-selected { stroke: var(--rle-yellow); stroke-width: 4; }
+.rle-wire--temp { stroke: var(--rle-yellow); stroke-dasharray: 6 4; }
+.rle-wire-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* ── Nodes ───────────────────────────────────────────────────────────────── */
+
+.rle-node {
+  position: absolute;
+  width: var(--rle-node-w);
+  background: var(--rle-panel);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--rle-border-dim), 0 3px 10px rgba(0, 0, 0, 0.5);
+  user-select: none;
+  cursor: move;
+}
+.rle-node.is-selected { box-shadow: 0 0 0 2px var(--rle-yellow), 0 3px 12px rgba(0, 0, 0, 0.6); }
+.rle-node.is-unknown { opacity: 0.75; }
+/* A disabled node is skipped by every run; dimmed, with a DISABLED badge. */
+.rle-node.is-disabled { opacity: 0.5; filter: grayscale(0.6); }
+.rle-node.is-disabled.is-selected { opacity: 0.8; }
+/* The nodes the selected Enable / Disable node acts on. */
+.rle-node.is-controlled { box-shadow: 0 0 0 2px var(--rle-red), 0 3px 10px rgba(0, 0, 0, 0.5); }
+
+.rle-node-head {
+  height: var(--rle-head-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  background: var(--rle-c);
+  color: var(--rle-bg);
+  font-weight: bold;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+}
+.rle-node-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rle-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--rle-text-dim);
+}
+.rle-badge.is-on { color: var(--rle-green); }
+.rle-badge--disabled { color: var(--rle-red); }
+
+.rle-node-ports { padding: var(--rle-pad) 0; }
+.rle-row {
+  height: var(--rle-row-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rle-port, .rle-port-gap {
+  position: relative;
+  flex: 0 1 50%;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--rle-text-dim);
+  white-space: nowrap;
+  overflow: visible;
+}
+.rle-port { cursor: crosshair; }
+.rle-port--in { padding-left: 12px; }
+.rle-port--out { padding-right: 12px; justify-content: flex-end; margin-left: auto; }
+.rle-port::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--rle-bg);
+  box-shadow: inset 0 0 0 2px var(--rle-c);
+}
+.rle-port--in::before { left: -6px; }
+.rle-port--out::before { right: -6px; }
+.rle-port--pos { color: var(--rle-green); }
+.rle-port--pos::before { box-shadow: inset 0 0 0 2px var(--rle-green); }
+.rle-port--neg { color: var(--rle-red); }
+.rle-port--neg::before { box-shadow: inset 0 0 0 2px var(--rle-red); }
+.rle-port:hover::before { background: var(--rle-c); }
+.rle-canvas.is-wiring .rle-port--in::before { background: var(--rle-panel); box-shadow: inset 0 0 0 2px var(--rle-yellow); }
+.rle-port.is-target::before { background: var(--rle-yellow); }
+
+.rle-node-sum {
+  height: var(--rle-foot-h);
+  line-height: var(--rle-foot-h);
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--rle-text);
+  opacity: 0.8;
+  border-top: 1px solid var(--rle-border-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Empty state and help ────────────────────────────────────────────────── */
+
+.rle-empty {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: min(440px, 90%);
+  height: fit-content;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  text-align: center;
+  background: var(--rle-panel);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--rle-border-dim);
+}
+.rle-empty[hidden] { display: none; }
+.rle-empty strong { color: var(--rle-primary); font-size: 15px; }
+.rle-empty-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+
+.rle-help {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  color: var(--rle-text-dim);
+  pointer-events: none;
+  text-align: center;
+}
+
+/* ── Inspector ───────────────────────────────────────────────────────────── */
+
+.rle-inspector {
+  grid-row: 1 / 2;
+  grid-column: 3;
+  overflow-y: auto;
+  padding: 8px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.rle-insp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  margin: 0 -10px 0 0;
+  background: var(--rle-c, var(--rle-primary));
+  color: var(--rle-bg);
+  border-radius: 14px 0 0 14px;
+  min-width: 0;
+}
+.rle-insp-head strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rle-insp-head span { flex: 1 1 auto; text-align: right; font-size: 11px; opacity: 0.75; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rle-insp-heading {
+  margin-top: 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--rle-border-dim);
+  color: var(--rle-primary);
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+.rle-insp-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--rle-text); opacity: 0.85; }
+.rle-mono { font-family: monospace; font-size: 11px; overflow-wrap: anywhere; opacity: 0.7; }
+.rle-insp-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rle-insp-state { font-size: 12px; }
+
+.rle-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rle-field > span:first-child { font-size: 11px; color: var(--rle-text-dim); }
+.rle-field small { font-size: 11px; line-height: 1.3; color: var(--rle-text-dim); opacity: 0.85; }
+.rle-field--check { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rle-field--check > span:first-child { display: none; }
+.rle-field--check input { margin: 0; accent-color: var(--rle-primary); }
+.rle-field--check span { font-size: 12px; color: var(--rle-text); }
+.rle-field--check small { flex: 0 0 100%; }
+.rle-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.rle-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  min-width: 0;
+  cursor: pointer;
+}
+.rle-pick input { margin: 0; accent-color: var(--rle-red); }
+.rle-pick i { flex: 0 0 1.1em; text-align: center; opacity: 0.8; }
+.rle-pick span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rle-pick small { flex: 0 0 auto; opacity: 0.55; font-size: 10px; }
+.rle-inline { display: flex; gap: 4px; align-items: center; min-width: 0; }
+.rle-inline input[type="text"] { flex: 1 1 auto; }
+.rle-inline input[type="color"] { flex: 0 0 30px; width: 30px; height: 26px; padding: 0; border: 0; background: none; }
+.rle-inline button { flex: 0 0 auto; }
+
+.rle-uuids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.rle-uuids li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 2px 1px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  min-width: 0;
+}
+.rle-uuids li span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rle-uuids li.is-missing span { color: var(--rle-red); }
+.rle-uuids li.is-empty { opacity: 0.6; padding: 4px 8px; }
+.rle .rle-uuids button { min-height: 20px; padding: 0 6px; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.rle-foot {
+  grid-column: 2 / 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--rle-border-dim);
+}
+.rle-status { flex: 1 1 auto; font-size: 12px; color: var(--rle-text-dim); }
+.rle-status.is-dirty { color: var(--rle-yellow); }

@@ -119,9 +119,17 @@ export function cooldownField(hint) {
   return field;
 }
 
-function _cooldownState(behavior) {
-  const stored = behavior?.getFlag?.(MODULE, "cooldown") ?? null;
-  const local = _local.get(behavior?.uuid) ?? null;
+// A behavior with several cooldowns (Region Logic, one per Cooldown node) names
+// each one by `slot`; it is kept under the flag `cooldowns.<slot>`. No slot is
+// the classic behaviors' single `cooldown`.
+const _flagPath = slot => (slot ? `cooldowns.${slot}` : "cooldown");
+const _localKey = (behavior, slot) => (slot ? `${behavior?.uuid}|${slot}` : behavior?.uuid);
+
+function _cooldownState(behavior, slot = null) {
+  const stored = (slot
+    ? behavior?.getFlag?.(MODULE, "cooldowns")?.[slot]
+    : behavior?.getFlag?.(MODULE, "cooldown")) ?? null;
+  const local = _local.get(_localKey(behavior, slot)) ?? null;
   if (!stored) return local;
   if (!local) return stored;
   return (local.until ?? 0) >= (stored.until ?? 0) ? local : stored;
@@ -132,10 +140,11 @@ function _cooldownState(behavior) {
  * @param {RegionBehavior} behavior
  * @param {TokenDocument} entering
  * @param {(t: TokenDocument) => boolean} [counts]  Which tokens inside count as "still there".
+ * @param {string|null} [slot]  Which of the behavior's cooldowns; none for the classic single one.
  * @returns {false|"cooling"|"occupied"}
  */
-export function cooldownBlocked(behavior, entering, counts = () => true) {
-  const state = _cooldownState(behavior);
+export function cooldownBlocked(behavior, entering, counts = () => true, slot = null) {
+  const state = _cooldownState(behavior, slot);
   if (!state) return false;
   if (Date.now() < (state.until ?? 0)) return "cooling";
   if (state.waitEmpty) {
@@ -147,20 +156,20 @@ export function cooldownBlocked(behavior, entering, counts = () => true) {
 }
 
 /** Start the behavior's cooldown now. No-op for 0 seconds. */
-export async function startCooldown(behavior, seconds) {
+export async function startCooldown(behavior, seconds, slot = null) {
   if (!(seconds > 0) || !behavior) return;
   const state = { until: Date.now() + seconds * 1000, waitEmpty: true };
-  _local.set(behavior.uuid, state);
+  _local.set(_localKey(behavior, slot), state);
   if (!behavior.canUserModify?.(game.user, "update")) return;
-  try { await behavior.update({ [`flags.${MODULE}.cooldown`]: state }); }
+  try { await behavior.update({ [`flags.${MODULE}.${_flagPath(slot)}`]: state }); }
   catch (err) { console.warn("STA2e Toolkit | Could not save the behavior's cooldown", err); }
 }
 
 /** GM only. End the cooldown at once, including the wait for the Region to empty. */
-export async function clearCooldown(behavior) {
-  _local.delete(behavior?.uuid);
+export async function clearCooldown(behavior, slot = null) {
+  _local.delete(_localKey(behavior, slot));
   if (!game.user.isGM || !behavior) return;
-  await behavior.update({ [`flags.${MODULE}.cooldown`]: null });
+  await behavior.update({ [`flags.${MODULE}.${_flagPath(slot)}`]: null });
 }
 
 /**

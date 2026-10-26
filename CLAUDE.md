@@ -640,6 +640,79 @@ Attack Difficulty is `concealmentAttackDifficulty`: **+2** on a revealed hidden 
 
 **Light toggle sounds** ([light-toggle-sound.js](scripts/light-toggle-sound.js)) are a separate, behavior-independent feature on the light itself: flags `soundOn` / `soundOff` / `soundVolume` / `soundRadius` from fields injected into the AmbientLight config's Basic tab. They play on any change of `hidden` — a behavior's switch (so a sequence clicks light by light) or a GM toggling it. **No socket**: `updateAmbientLight` fires on every client and each plays for itself, only while viewing that scene; a radius makes it positional (`canvas.sounds.playAtPosition`, walls on). The state flag is written **before** the first step, so a trigger arriving mid-sequence reads where the behavior is heading; each switch takes a generation number (`_generations`) and a newer one stops an older sequence at its next pause, then plans from the documents as they stand.
 
+### Region Logic
+
+`sta2e-toolkit.regionLogic` ([region-logic-behavior.js](scripts/region-logic-behavior.js)): one behavior whose triggers, conditions and actions are a **graph of nodes**, not a fixed form. It sits **beside** Door & Light Control and Random Teleport, which stay in the Add Behavior list on purpose. Their sheets carry a **Convert to Region Logic** key that builds the same flow on the same Region and disables the original; a switch that was on stays on. Six files:
+
+| file | is |
+|---|---|
+| [region-logic-graph.js](scripts/region-logic-graph.js) | the graph and the runner — a leaf with **no imports** |
+| [region-logic-nodes.js](scripts/region-logic-nodes.js) | the node catalog, one descriptor per type |
+| [region-logic-convert.js](scripts/region-logic-convert.js) | Door & Light / Random Teleport system data → graph — a leaf |
+| region-logic-behavior.js | the type, the event handlers, the sheet panel, the API |
+| [region-logic-editor.js](scripts/region-logic-editor.js) | the visual flow editor window |
+| [region-logic-editor-model.js](scripts/region-logic-editor-model.js) | the editor's geometry, edits and templates — imports only the two leaves above |
+
+Covered by [tests/region-logic.mjs](tests/region-logic.mjs) and [tests/region-logic-editor.mjs](tests/region-logic-editor.mjs). Five things it rests on:
+
+- **A node is a descriptor, not a code path** (`{type, label, icon, category, inputs, outputs, defaults, fields?, trigger?, accepts?, summary?, run}`), the Token HUD section pattern again. Adding a feature is one `registerRegionLogicNode` call (also on `game.sta2eToolkit`); the runner, behavior and sheet do not change. `run` returns an output port, an array of them, or null to stop.
+- **Wires go port to port, and a node may have several inputs.** A switch node takes `on` / `off` / `toggle`, because a switch's state must be **one** thing however many triggers reach it. Two nodes for on and off would each keep their own state, and the End Delay supersede (a returning token cancelling the switch-off) only works within one queue key.
+- **Doors, Lights and Ambient Sounds are separate switch nodes** (`doors`, `lights`, `ambientSounds`, from `_registerKindSwitch`). Each has its own state, queue and saved looks, and shows only its own fields. Its run empties the other two target lists before calling `runSwitch`, so a config can never reach past its kind. By default it **does not wait** for its sequence: it returns `out` at once and the switch runs on (errors logged), because wires leaving one port run in order and a Doors node with a Start Delay would otherwise hold up the Lights wired beside it. `waitDone` makes it wait.
+- **The combined `switch` node stays registered but `hidden`** from the palette. Convert builds it, older flows hold it, and it is the only way one sequence can step across kinds (Sequence Group numbers shared by a door and a light). It always waits, as the classic behavior does. Anything asking "is this a switch?" reads the descriptor's `switchState`, never `type === "switch"`.
+- **The classic engines are the nodes' engines.** `runSwitch(host, …)` in door-light-behavior.js and `runRandomTeleport({…})` in random-teleport-behavior.js were split out of the old handlers; a `SwitchHost` says where the state is stored. Door & Light keeps its `doorLight` flag; a node keeps `regionLogic.switches.<nodeId>`. A fix to switching or teleporting lands in both behaviors.
+- **Per-node state is keyed by node id.** Once Per Token marks `regionLogicUsed.<behaviorId>_<nodeId>` on the token. A Cooldown node uses `region-token-uses.js` with a **slot** (`cooldowns.<nodeId>`; no slot is the classics' single `cooldown`).
+- **Every run is on the active GM**, including the teleport, which the classic type sometimes leaves to the mover. Starts run concurrently; wires leaving one port run in order. A run has a step budget (`MAX_STEPS`), so a loop stops instead of hanging the GM.
+- **A node may branch with its own context.** `run` may return `{port, ctx}` entries; the runner follows each with that context, in order. **Each Token Inside** (`eachToken`) returns one per token inside (who-filtered, taken when it runs) with `token` set and `movement` null, so what follows acts on each token in turn — one after another, which is what lets Random Teleport's Avoid Occupied see the previous token land. Without a branch context, a teleport's `ctx.token = landed` would leak into the next token's branch.
+- **Door Changes (`doorChange`) is the one trigger that is not a Region event.** An `updateWall` hook in region-logic-behavior.js runs it on the active GM for every enabled Region Logic behavior, on any scene, that holds a door node; no doors picked means any door on the Region's own scene. `updateWall` gives only the new `ds`, and the client that changed it is often a player's, so the old state cannot ride in the update options: **every client remembers each door's last `ds`** ([region-logic-doors.js](scripts/region-logic-doors.js), a leaf), seeded from every scene on `ready`, so a GM who becomes the active GM later already has it. "Unlocked" needs the remembered state to have been Locked; a door never seen raises only what its new state shows.
+- **The Switch node (`latch`) is memory, not a target.** Inputs `on` / `off` / `toggle` set it and leave by `set`; `check` leaves by `yes` or `no`. It starts off. Its state sits where the door and light switches keep theirs (`regionLogic.switches.<nodeId>.active`, written by `setLogicSwitch`), so the ON/OFF badge and `isLogicSwitchOn` need no special case, and its inspector has Turn On / Turn Off keys. It is how a flow arms itself and disarms after firing once: the **Lock in, unlock to teleport** template arms it on entry and checks it on unlock, and turns it off after the teleport. That template also sends the Doors node `off` with the door set to No change after a teleport, and on **nobody**. A token trigger skips a switch already in the state it asks for (`onlyIfChanged`), so a Doors node left "on" after the GM unlocked by hand would never lock the door again.
+- **Any node can be disabled.** A disabled trigger never fires, and a branch that reaches a disabled node stops there. `runGraph` and `triggerNodes` take an `isDisabled(node)` option and ask it **as each node is reached**, so a node disabled earlier in the same run stops the branches after it. The state is the behavior flag `regionLogic.disabled.<nodeId>`: `true` until enabled, or the ms time it re-enables itself (`isDisabledValue`). A timed disable needs no timer; it stops counting once the clock passes it, and the open editor polls once a second to redraw when that happens.
+  - It is set by the **Enable / Disable** node (`toggleNodes`: inputs disable / enable / toggle, a `nodes` field of node ids, and Re-enable After seconds). It can also be set by every node's own Enable/Disable key in the inspector, by `game.sta2eToolkit.setRegionLogicNodeEnabled`, or by Reset on the sheet, which now re-enables every node.
+  - Disabling again **restarts** a timed disable.
+  - `insertFragment` renames ids inside any `config.nodes` array along with the nodes, so a template or a duplicated group points at its own copies.
+  - The `nodes` field type renders a checklist of the graph's other nodes. Selecting an Enable / Disable node outlines its targets in red.
+- **Each Token Inside has a third port, `done` ("after all")**, returned after every per-token entry, so it fires once every token's branch has finished. Disable things there, not inside the loop: disabling the teleport inside it would stop at the first token. The **Lock in, teleport, then rest** template does exactly this. It also disables the Door Changes trigger, because an unlock during the rest would otherwise reach the Enable / Disable node again and restart the timer.
+- **Task Roll (`taskRoll`) posts a Task Maker request card and STOPS the run**, returning null. A player can take minutes to roll, so nothing waits in memory, and a reload does not lose the flow. The card's `taskData.regionLogic` (`{behaviorUuid, nodeId, tokenUuid}`) travels into the roller as `regionLogicContext` (task-maker.js → `openNpcRoller` → state → the Working Results card's `rollData`, which every rebuild spreads forward).
+  - The active GM's `updateChatMessage` hook (`_onTaskConfirmed`) keys on `rollData.confirmed`, like the complications card, and calls `resumeRegionLogicTask`. That runs on from the node's `pass` or `fail` port (`confirmedPassed`), with the token re-fetched by UUID and `ctx.event` "taskRoll".
+  - The resume uses `runGraph`'s **`{node, port}` start**: that node is not run, only followed.
+  - A message flag (`regionLogicResumed`) makes sure one card resumes its flow once.
+  - Anyone may roll it, not just the client that posted it. That is why this does not use `taskCallback`, which lives only on the client that opened the roller.
+  - With no token in hand (a button, a door), the node posts nothing.
+- **Only token enter and leave skip a switch already in the asked-for state** (`_skipIfSame`). A button, a door change or a passed Task Roll is deliberate, so it re-applies the switch. Otherwise a Doors node that still read "on" after the GM relocked by hand would never unlock on a second pass.
+- **A teleport no mover started** (button, door, Each Token Inside — `ctx.movement` is null) runs as the token's player owner, so core's pull rules take that player along, and passes `viewSelf: false` to `runRandomTeleport`, so the GM's view does not jump to the destination scene.
+
+Two differences from the classics, both deliberate:
+
+- Once Per Token marks the token as it passes, and the converter puts the cooldown after it. A fresh token entering during a cooldown is therefore used up, where the classics would not mark it.
+- Nothing stops the mover's movement before a GM-side teleport; the GM's teleport replaces it.
+
+The graph is one `ObjectField`, which core's auto-sheet does not render, so the sheet's form never touches it. A panel injected on `renderRegionBehaviorConfig` lists the flow (`flowOrder`, each node's `summary`, or its own `title`), an **Open Flow Editor** key, the Button triggers, and a Reset Uses & Cooldowns key.
+
+**The flow editor** (`openRegionLogicEditor`, also on `game.sta2eToolkit`) has a palette of node types, a canvas you can pan and zoom, and an inspector built from each descriptor's `fields`. A field is `{key, label, type, hint?, showIf?(config)}`, and `key` is a dotted config path. The types are:
+
+- text, boolean, audio and color.
+- number, where `nullable` makes a blank store null.
+- select, whose choices are an object or a function. A `""` key is the blank option.
+- `uuids`, with `docType`, `layer`, `noun` and an optional `filter`. Add Selected reads that canvas layer's controlled objects.
+- `heading`, which has no key.
+
+A node type with no `fields` shows "Nothing to set". Six things the editor rests on:
+
+- **Geometry is computed, never measured.** `NODE_W`, `HEAD_H`, `ROW_H`, `PAD` and `FOOT_H` in the model place every port. The editor writes the same numbers onto its root as custom properties for [styles/region-logic-editor.css](styles/region-logic-editor.css). Every node part has a fixed height and its borders are box-shadows, so a wire always lands on its dot. Change a size in the model, never in the stylesheet.
+- **Every edit is pure.** The model returns a new graph, so undo is a list of graphs. A node drag is the one in-place change, and it moves a **copy**; the graph it started from goes on the undo stack. When the drag mutated the live graph, Undo could not go back.
+- **The shell renders once; the parts are redrawn by hand** (`_drawNodes`, `_drawWires`, `_drawInspector`). ApplicationV2's `render()` replaces the whole window, which would drop focus and pointer capture mid-drag.
+- **The inspector rebuilds a tick after a change** (`_queueInspector`). `change` fires *before* focus moves, so rebuilding at once removed the control Tab was heading to. A tick later the panel notes where focus landed and puts it back.
+- **The canvas has `data-keyboard-focus="true"`, and its keydown stops propagation.** Foundry's keyboard manager listens on `window`. Without both, Delete in the editor would also delete the walls or lights selected on the map.
+- **The wire layer is an SVG offset by `SVG_OFF`** (10 000 px) round the origin, with its group shifted back. That keeps wires at negative coordinates drawn *and* clickable.
+
+The rest of its behaviour:
+
+- **Saving.** Edits stay local until Save, which is one `system.graph` update. Closing with unsaved changes asks first.
+- **Outside changes.** Another GM's save reloads an editor that has nothing unsaved, and only warns one that has edits. A switch's state change redraws its ON/OFF badge.
+- **Adding nodes.** Templates (`TEMPLATES`) go in below the existing flow; two of them are built by the converter. A node added from the palette goes to the nearest free spot (`freeSpot`).
+- **Titles.** A node may carry its own `title`, which `normalizeGraph` keeps.
+- **Unknown types.** A node whose type is not registered (an extension that is off) keeps the ports its wires use, so nothing is lost.
+- **Press.** The panel's macro line and the Press key on a Button node use the saved graph, so Press is disabled while there are unsaved changes.
+
 ### Planetary Rings & Orbital Views
 
 [star-system-scene.js](scripts/star-system-scene.js) builds five planet layouts:
@@ -2427,6 +2500,7 @@ through `lcarsChatCard`.
 | [scripts/spawn-buffer.js](scripts/spawn-buffer.js) | Hold/restore group buffer, keyed by setting |
 | [scripts/spawn-regions.js](scripts/spawn-regions.js) | Region spawn destinations — pad-marker discovery/order, grid fill, `parseLocation`, `buildLocationOptions`, and the shared region geometry (`regionPolygons`, `regionBounds`, `regionCentre`, `regionContainsPoint`). **Geometry comes off the RegionDocument, never the placeable** — `Region#polygons` and `Region#testPoint` are deprecated since v13 and log on every call. `regionBounds` is the exception: `Region#bounds` is not deprecated and gives the *animated* bounds, which is what canvas drawing wants |
 | [scripts/region-pad-config.js](scripts/region-pad-config.js) | Injects the spawn-marker checkbox + Pad Group field into Region Config |
+| [styles/region-logic-editor.css](styles/region-logic-editor.css) | Shape for the Region Logic flow editor; node sizes come from the model's constants as custom properties |
 | [scripts/region-spline-tool.js](scripts/region-spline-tool.js) | The Regions-toolbar **Curve** tool — the scene-control descriptor, the two `RegionLayer` patches, the control-point stamp, and the Region Config rebuild panel |
 | [scripts/spline-geometry.js](scripts/spline-geometry.js) | Closed centripetal Catmull-Rom over flat `[x,y,…]` arrays — adaptive sampling, the tangent overshoot clamp, and the centroid-tolerant outline match. A leaf with **no imports** |
 | [scripts/scene-warp.js](scripts/scene-warp.js) | Scene Warp state — the scene flag, phase ramp, course/rotation conversions, the ship test. A leaf with **no imports**, so the firing path can consult it without a cycle |

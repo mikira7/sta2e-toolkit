@@ -1576,6 +1576,9 @@ export async function postTaskRequestCard(snapshot) {
     reactorAction: snapshot.reactorAction ?? null,
     // A repair request (gear-damage-ui.js): a passed roll repairs this item.
     gearRepair: snapshot.gearRepair ?? null,
+    // A Region Logic Task Roll ({behaviorUuid, nodeId, tokenUuid}): the active
+    // GM picks the flow up again from the confirmed Working Results card.
+    regionLogic: snapshot.regionLogic ?? null,
     extendedTask: extendedSnapshot ? {
       actorId: extendedSnapshot.actorId,
       actorName: extendedSnapshot.actorName,
@@ -2826,5 +2829,6 @@ function launchTaskRoller(taskData) {
       : null,
     initialTraitSelectedIds: selectedTraitIdsForRoller(taskData.traits),
     initialTraitDifficultyDirections: traitDifficultyDirectionsForRoller(taskData.traits),
+    regionLogicContext: taskData.regionLogic ?? null,
   });
 }

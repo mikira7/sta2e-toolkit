@@ -84,6 +84,16 @@ await check('0 seconds starts nothing; Clear ends it at once', async () => {
   assert.equal(cooldownBlocked(b, tok('A')), false);
 });
 
+await check('named slots are separate cooldowns, apart from the classic one', async () => {
+  const b = behavior('B6');
+  await startCooldown(b, 10, 'nodeA');
+  assert.equal(cooldownBlocked(b, tok('A'), undefined, 'nodeA'), 'cooling');
+  assert.equal(cooldownBlocked(b, tok('A'), undefined, 'nodeB'), false);
+  assert.equal(cooldownBlocked(b, tok('A')), false);
+  await clearCooldown(b, 'nodeA');
+  assert.equal(cooldownBlocked(b, tok('A'), undefined, 'nodeA'), false);
+});
+
 await check('a move that starts inside the Region is not an entry', () => {
   const scene = {};
   const region = { parent: scene, inside: p => p.x >= 0 && p.x < 100 };

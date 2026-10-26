@@ -230,7 +230,7 @@ function _qualifies(token, triggerBy) {
  * is not animating. Raced with the tab being hidden, as core's teleport does,
  * since the ticker stops in a background tab.
  */
-async function _waitUntilSeen(token, region, inside) {
+export async function waitUntilSeen(token, region, inside) {
   const anim = token?.rendered ? token.object?.movementAnimationPromise : null;
   if (!anim) return;
   const crossed = () => {
@@ -262,7 +262,7 @@ async function _onTokenEnter(event) {
   if (this.oncePerToken && hasUsed(token, USED_FLAG, behaviorId)) return;
   const counts = t => _qualifies(t, this.triggerBy);
   if (this.cooldown > 0 && cooldownBlocked(this.parent, token, counts)) return;
-  await _waitUntilSeen(token, this.region, true);
+  await waitUntilSeen(token, this.region, true);
   // Again after the wait: another token may have triggered it meanwhile.
   if (this.cooldown > 0) {
     if (cooldownBlocked(this.parent, token, counts)) return;
@@ -281,7 +281,7 @@ async function _onTokenEnter(event) {
 async function _onTokenExit(event) {
   if (!isActiveGM() || this.trigger !== "presence" || this.onLeave === "keep") return;
   const leaving = event.data.token;
-  await _waitUntilSeen(leaving, this.region, false);
+  await waitUntilSeen(leaving, this.region, false);
   // A path that only clipped the edge ends back inside: not a departure.
   if (leaving?.regions?.has(this.region)) return;
   // Checked after the wait: someone may have walked in while this one walked out.
@@ -307,8 +307,9 @@ async function _sleepUnless(ms, stop) {
   }
 }
 
-function _readState(behavior) {
-  const raw = behavior.getFlag(MODULE, STATE_FLAG) ?? {};
+/** The stored `{active, saved: [...]}` as `{active, saved: {[uuid]: look}}`. */
+function _parseState(raw) {
+  raw ??= {};
   const saved = {};
   for (const entry of Array.isArray(raw.saved) ? raw.saved : []) {
     if (entry?.uuid) saved[entry.uuid] = { color: entry.color ?? null, alpha: entry.alpha ?? null,
@@ -319,11 +320,43 @@ function _readState(behavior) {
 
 /** Is this behavior currently switched on? */
 export function isDoorLightOn(behavior) {
-  return _readState(behavior).active;
+  return _parseState(behavior.getFlag(MODULE, STATE_FLAG)).active;
 }
 
-function _resolve(behavior, uuid) {
-  try { return fromUuidSync(uuid, { relative: behavior }); } catch { return null; }
+function _resolve(relative, uuid) {
+  try { return fromUuidSync(uuid, { relative }); } catch { return null; }
+}
+
+/**
+ * The defaults of a switch's settings, matching the schema's initial values.
+ * Region Logic's Doors & Lights node starts from these.
+ */
+export const SWITCH_DEFAULTS = Object.freeze({
+  doors: [], lights: [], sounds: [],
+  sequence: { startDelay: 0, endDelay: 0, stepDelay: 0, grouping: "count", perStep: 1,
+    offTiming: "sequence", order: "forward" },
+  on:  { door: "open",   light: "on",  sound: "on",  color: null, alpha: null, animation: "" },
+  off: { door: "closed", light: "off", sound: "off", color: null, alpha: null, animation: "" },
+});
+
+/**
+ * What a switch works on. A Door & Light Control behavior is one; a Region
+ * Logic Doors & Lights node is another, with its state kept under the node.
+ * @typedef {object} SwitchHost
+ * @property {string} key          Queue and generation key — one per switch.
+ * @property {Document} relative   What relative target UUIDs resolve against.
+ * @property {object} config       {doors, lights, sounds, sequence, on, off}.
+ * @property {() => object} read   The stored `{active, saved}`.
+ * @property {(raw: object) => Promise} write
+ */
+function _behaviorHost(behavior) {
+  return {
+    key: behavior.uuid,
+    relative: behavior,
+    get config() { return behavior.system; },
+    read: () => behavior.getFlag(MODULE, STATE_FLAG),
+    write: raw => behavior.update({ [`flags.${MODULE}.${STATE_FLAG}`]: raw }),
+  };
 }
 
 function _snapshot(kind, doc) {
@@ -355,24 +388,33 @@ export async function setDoorLightState(behaviorOrUuid, want, { onlyIfChanged = 
     ui.notifications?.warn("STA2e Toolkit | Not a Door & Light Control behavior.");
     return;
   }
+  return runSwitch(_behaviorHost(behavior), want, { onlyIfChanged });
+}
+
+/**
+ * Switch any {@link SwitchHost} on, off, or to the other state — the shared
+ * engine under setDoorLightState and Region Logic's Doors & Lights node.
+ * GM only; on any other client it warns and does nothing.
+ */
+export async function runSwitch(host, want, { onlyIfChanged = false } = {}) {
   if (!game.user.isGM) {
     ui.notifications?.warn("STA2e Toolkit | Only a GM can switch doors and lights.");
     return;
   }
-  const key = behavior.uuid;
+  const key = host.key;
   // A newer switch cuts short a sequence still stepping (see _apply).
   const generation = (_generations.get(key) ?? 0) + 1;
   _generations.set(key, generation);
   const run = (_queues.get(key) ?? Promise.resolve())
     .catch(() => {})
-    .then(() => _apply(behavior, want, onlyIfChanged, () => _generations.get(key) !== generation));
+    .then(() => _apply(host, want, onlyIfChanged, () => _generations.get(key) !== generation));
   _queues.set(key, run);
   try { return await run; }
   finally { if (_queues.get(key) === run) _queues.delete(key); }
 }
 
-async function _apply(behavior, want, onlyIfChanged, superseded) {
-  let current = _readState(behavior);
+async function _apply(host, want, onlyIfChanged, superseded) {
+  let current = _parseState(host.read());
   const activating = want === "toggle" ? !current.active : !!want;
   if (onlyIfChanged && activating === current.active) return activating;
 
@@ -381,21 +423,21 @@ async function _apply(behavior, want, onlyIfChanged, superseded) {
   // supersedes this wait, and its own ON then finds the state already on and
   // changes nothing — the lights never blink. Writing OFF first (as the start
   // of a sequence does) would make that ON re-save the lit look as "original".
-  const endDelay = activating ? 0 : (behavior.system.sequence?.endDelay ?? 0);
+  const endDelay = activating ? 0 : (host.config.sequence?.endDelay ?? 0);
   if (endDelay > 0) {
     // Wakes early when superseded, so a returning token's switch is not stuck
     // in the queue behind the rest of a long End Delay.
     await _sleepUnless(endDelay, superseded);
     if (superseded()) return current.active;
-    current = _readState(behavior);
+    current = _parseState(host.read());
   }
 
-  const sys = behavior.system;
+  const sys = host.config;
   const docs = new Map();
   const targets = [];
   for (const { key, noun } of TARGETS) {
     for (const uuid of sys[key] ?? []) {
-      const doc = _resolve(behavior, uuid);
+      const doc = _resolve(host.relative, uuid);
       if (!doc) { console.warn(`STA2e Toolkit | Door & Light Control: ${uuid} does not exist`); continue; }
       docs.set(doc.uuid, doc);
       targets.push(_snapshot(noun, doc));
@@ -409,11 +451,9 @@ async function _apply(behavior, want, onlyIfChanged, superseded) {
   // The state is written FIRST, so a trigger arriving mid-sequence reads where
   // the behavior is heading rather than where it started — a token leaving
   // while the lights are still coming up switches it off, not on again.
-  await behavior.update({
-    [`flags.${MODULE}.${STATE_FLAG}`]: {
-      active: activating,
-      saved: Object.entries(saved).map(([uuid, look]) => ({ uuid, ...look })),
-    },
+  await host.write({
+    active: activating,
+    saved: Object.entries(saved).map(([uuid, look]) => ({ uuid, ...look })),
   });
 
   const toRow = ({ uuid, changes }) => {

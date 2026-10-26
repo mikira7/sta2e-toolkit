@@ -24,7 +24,8 @@
       "terrainHazard": {},
       "sensorShroud": {},
       "randomTeleport": {},
-      "doorLightControl": {}
+      "doorLightControl": {},
+      "regionLogic": {}
     }
   },
   "styles": [
@@ -50,6 +51,7 @@
     "styles/task-card-klingon.css",
     "styles/task-card-romulan.css",
     "styles/task-maker.css",
+    "styles/region-logic-editor.css",
     "styles/spawn-window.css",
     "styles/zones.css",
     "styles/character-creator.css",

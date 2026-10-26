@@ -4430,7 +4430,7 @@ function _buildPlayerRollCardHtml(rollData) {
  * @param {boolean}  opts.hasTargetingSolution - Whether Targeting Solution is active
  * @param {object[]} opts.availableShips       - Serialized ship list for sheet-mode selector
  */
-export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, pointDefenseActive = false, pointDefensePenalty = 0, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, showAssistRollToggle = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {} } = {}) {
+export async function openNpcRoller(actor, token, { hasTargetingSolution = false, hasRapidFireTorpedo = false, weaponContext = null, stationId = null, officer = null, opposedDifficulty = null, opposedDefenseType = null, pointDefenseActive = false, pointDefensePenalty = 0, defenderSuccesses = null, opposedDefenderBonus = 0, hasAttackPattern = false, helmOfficer = null, attackRunActive = false, rallyContext = false, taskLabel = null, taskContext = null, taskCallback = null, opposedTaskRef = null, opposedTraitTarget = null, callOutTargetsEligible = false, difficulty: startDifficulty = null, complicationRange: startComplicationRange = null, ignoreBreachPenalty = false, noShipAssist = false, shipSystemKey: overrideShipSysKey = null, shipDeptKey: overrideShipDeptKey = null, crewQuality: overrideCrewQuality = null, playerMode = false, groundMode = false, groundIsNpc = false, usesPlayerPayment: overrideUsesPlayerPayment = null, aimRerolls = 0, defaultAttr = null, defaultDisc = null, noPoolButton = false, sheetMode = false, showAssistRollToggle = false, availableShips = [], isAssistRoll = false, methodicalPlanningAssist = false, onAssignShips = null, combatTaskContext = null, extendedTaskContext = null, shipAssist: initialShipAssist = null, selectedShipIdx: initialShipIdx = -1, suppressWeaponResolution = false, initialTraitSelectedIds = [], initialTraitDifficultyDirections = {}, regionLogicContext = null } = {}) {
 
   if (groundMode && weaponContext && !isAssistRoll && opposedTaskRef?.side !== "defender") {
     const attackWeapon = actor?.items?.get?.(weaponContext.weaponId)
@@ -4823,6 +4823,10 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
     showOffSource: _showOffTalent.source,
     showOffSelected: false,
     extendedTaskContext,
+    // A Region Logic Task Roll waiting on this roll (region-logic-behavior.js
+    // resumes the flow from the confirmed card). Rebuilds spread rollData, so
+    // it survives rerolls and the confirm.
+    regionLogicContext,
     hasMeticulous: _meticulousTalent.hasTalent,
     meticulousSource: _meticulousTalent.source,
     meticulousSelected: false,
@@ -5249,6 +5253,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       showOffSource: state.showOffSource ?? null,
       showOffSelected: state.showOffSelected ?? false,
       extendedTaskContext: state.extendedTaskContext ?? null,
+      regionLogicContext: state.regionLogicContext ?? null,
       hasMeticulous: state.hasMeticulous ?? false,
       meticulousSource: state.meticulousSource ?? null,
       meticulousSelected: state.meticulousSelected ?? false,

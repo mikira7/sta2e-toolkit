@@ -350,6 +350,8 @@
   "TYPES.HINTS.RegionBehavior.sta2e-toolkit.sensorShroud": "An obscured area — a nebula, an ion storm, a sensor-dampening field. Hides tokens inside from players, adds its potency to sensor and attack Difficulty, and can be pierced by the Reveal action.",
   "TYPES.RegionBehavior.sta2e-toolkit.doorLightControl": "Door & Light Control (STA Toolkit)",
   "TYPES.HINTS.RegionBehavior.sta2e-toolkit.doorLightControl": "Switches a list of doors, lights and ambient sounds between an ON and an OFF state: open, close or lock doors; turn lights on or off and change their colour, intensity or animation; turn sounds on or off. Triggered while a token is inside, by each token entering (toggle), or only by the GM's buttons.",
+  "TYPES.RegionBehavior.sta2e-toolkit.regionLogic": "Region Logic (STA Toolkit)",
+  "TYPES.HINTS.RegionBehavior.sta2e-toolkit.regionLogic": "Build what this Region does from triggers, conditions and actions wired together: tokens entering or leaving, buttons, once per token, cooldowns, chance, waits, doors and lights, random teleports, sounds and chat messages.",
   "TYPES.RegionBehavior.sta2e-toolkit.randomTeleport":"Random Teleport (STA Toolkit)",
   "TYPES.HINTS.RegionBehavior.sta2e-toolkit.randomTeleport": "Teleports a token that enters this Region to one of a list of destination Regions, picked at random. Can skip destinations that already hold a token, avoid sending a token to the same destination twice in a row, and weight destinations by the Teleport Weight in their own Region Config.",
   "STA2E.Widget.Button.SceneWarp.Label": "Scene Warp",

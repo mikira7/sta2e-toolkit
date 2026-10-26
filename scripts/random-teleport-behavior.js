@@ -148,12 +148,7 @@ async function _onTokenMoveIn(event) {
   // Displacement does not trigger teleportation (core's rule).
   if (movement.passed?.waypoints?.at(-1)?.action === "displace") return;
 
-  const destinations = [];
-  for (const uuid of this.destinations) {
-    const region = fromUuidSync(uuid, { relative: this.parent });
-    if (region instanceof foundry.documents.RegionDocument) destinations.push(region);
-    else console.warn(`STA2e Toolkit | Random Teleport: ${uuid} does not exist`);
-  }
+  const destinations = resolveDestinations(this.destinations, this.parent);
   if (!destinations.length) return;
 
   const token = event.data.token;
@@ -164,7 +159,6 @@ async function _onTokenMoveIn(event) {
   if (this.cooldown > 0 && cooldownBlocked(this.parent, token, _countsForCooldown)) return;
   if (user.isSelf) token.stopMovement();
   if (!_shouldTeleport(token, destinations, user, this.cooldown > 0)) return;
-  const originLevel = token._source.level;
 
   // Started when it triggers, so tokens arriving during the delay are blocked
   // too. Re-checked first: on this client another token may just have started it.
@@ -173,61 +167,99 @@ async function _onTokenMoveIn(event) {
     startCooldown(this.parent, this.cooldown);
   }
 
+  const behaviorId = this.parent.id;
+  await runRandomTeleport({
+    key: behaviorId, config: this, destinations, region: this.region, token, movement, user,
+    extraFlags: this.oncePerToken ? { [USED_FLAG]: { [behaviorId]: true } } : null,
+  });
+}
+
+/** The destination Regions behind a list of (possibly relative) UUIDs; missing ones are skipped. */
+export function resolveDestinations(uuids, relative) {
+  const out = [];
+  for (const uuid of uuids ?? []) {
+    let region = null;
+    try { region = fromUuidSync(uuid, { relative }); } catch { /* reported below */ }
+    if (region instanceof foundry.documents.RegionDocument) out.push(region);
+    else console.warn(`STA2e Toolkit | Random Teleport: ${uuid} does not exist`);
+  }
+  return out;
+}
+
+/**
+ * The teleport itself, once a trigger has decided it should happen: wait for
+ * the move to finish, sit out the Teleport Delay, pick a destination, move the
+ * token and pull the users who follow it. Shared by Random Teleport and Region
+ * Logic's Teleport node; the caller has already checked who teleports.
+ * @param {object} p
+ * @param {string} p.key          Names this teleport in the token's last-pick flag
+ *                                (the behavior id; for a node, behavior + node).
+ * @param {object} p.config       placement, snap, avoidOccupied, noRepeat, delay,
+ *                                departSound, arriveSound, soundVolume, soundAudience, transition.
+ * @param {RegionDocument[]} p.destinations
+ * @param {RegionDocument} p.region   The Region the token entered.
+ * @param {object} [p.extraFlags]     More module flags to write in the teleport's own update.
+ * @returns {Promise<TokenDocument|null>} The token as it landed.
+ */
+export async function runRandomTeleport({
+  key, config, destinations, region, token, movement, user, extraFlags = null, viewSelf = true,
+}) {
+  const originLevel = token._source.level;
+
   // Wait for the movement animation, unless the tab is hidden (core's rule).
   if (token.rendered && token.object?.movementAnimationPromise) {
     await game.raceWithWindowHidden(token.object.movementAnimationPromise);
   }
 
-  const behaviorId = this.parent.id;
-  const delay = Math.max(0, Number(this.delay) || 0);
+  const delay = Math.max(0, Number(config.delay) || 0);
   if (delay > 0) {
     // One wait per token: stepping off and back on mid-wait must not queue a
     // second teleport behind the first.
-    const key = `${behaviorId}|${token.id}`;
-    if (_pending.has(key)) return;
-    _pending.add(key);
-    _playTeleportSound(this, this.departSound, token);
+    const pendingKey = `${key}|${token.id}`;
+    if (_pending.has(pendingKey)) return null;
+    _pending.add(pendingKey);
+    playRegionSound(config, config.departSound, token);
     try { await new Promise(resolve => setTimeout(resolve, delay)); }
-    finally { _pending.delete(key); }
-    if (token.parent?.tokens?.get(token.id) !== token) return;   // deleted during the wait
-    if (!token.regions.has(this.region)) return;                  // moved off: cancelled
+    finally { _pending.delete(pendingKey); }
+    if (token.parent?.tokens?.get(token.id) !== token) return null;   // deleted during the wait
+    if (!token.regions.has(region)) return null;                      // moved off: cancelled
   }
 
-  const lastUuid = this.noRepeat ? (token.getFlag(MODULE, LAST_FLAG)?.[behaviorId] ?? null) : null;
+  const lastUuid = config.noRepeat ? (token.getFlag(MODULE, LAST_FLAG)?.[key] ?? null) : null;
   const destination = pickDestination(destinations, {
-    avoidOccupied: this.avoidOccupied,
+    avoidOccupied: config.avoidOccupied,
     lastUuid,
-    isOccupied: region => [...(region.tokens ?? [])].some(t => t !== token && t.id !== token.id),
-    weightOf: region => region.getFlag(MODULE, TELEPORT_WEIGHT_FLAG),
+    isOccupied: r => [...(r.tokens ?? [])].some(t => t !== token && t.id !== token.id),
+    weightOf: r => r.getFlag(MODULE, TELEPORT_WEIGHT_FLAG),
   });
-  if (!destination) return;
-  if (!token.regions.has(this.region)) return;
+  if (!destination) return null;
+  if (!token.regions.has(region)) return null;
 
   // Relative placement keeps the token's offset within this Region.
-  const center = token.getCenterPoint(movement.destination);
-  const bounds = this.region.bounds;
+  const center = token.getCenterPoint(movement?.destination);
+  const bounds = region.bounds;
   const offset = {
     x: (center.x - bounds.left) / bounds.width,
     y: (center.y - bounds.top) / bounds.height,
   };
 
-  const pan = this.transition.type
-    ? { transitionType: this.transition.type, duration: this.transition.duration, force: true }
+  const transition = config.transition ?? {};
+  const pan = transition.type
+    ? { transitionType: transition.type, duration: transition.duration, force: true }
     : { duration: 0, force: true };
-  const flags = { [LAST_FLAG]: { [behaviorId]: destination.uuid } };
-  if (this.oncePerToken) flags[USED_FLAG] = { [behaviorId]: true };
+  const flags = { [LAST_FLAG]: { [key]: destination.uuid }, ...(extraFlags ?? {}) };
   const updateData = { flags: { [MODULE]: flags } };
-  if (!(delay > 0)) _playTeleportSound(this, this.departSound, token);   // a delay played it already
+  if (!(delay > 0)) playRegionSound(config, config.departSound, token);   // a delay played it already
   const landed = await destination.teleportToken(token, {
-    placement: this.placement, snap: this.snap, offset, pan, updateData,
+    placement: config.placement, snap: config.snap, offset, pan, updateData,
   });
-  _playTeleportSound(this, this.arriveSound, landed);
+  playRegionSound(config, config.arriveSound, landed);
 
   const destinationLevel = landed._source.level;
-  if (token.parent === destination.parent && originLevel === destinationLevel) return;
+  if (token.parent === destination.parent && originLevel === destinationLevel) return landed;
 
   // Follow the token to its new scene or level — core's pull rules.
-  const viewOptions = { level: destinationLevel, controlledTokens: [landed.id], transition: this.transition };
+  const viewOptions = { level: destinationLevel, controlledTokens: [landed.id], transition };
   if (game.user.isGM) {
     if (token.parent !== destination.parent) {
       destination.parent.pullUsers(_usersToPull(token, user, game.user), viewOptions);
@@ -236,9 +268,12 @@ async function _onTokenMoveIn(event) {
       destination.parent.pullUsers([user], viewOptions);
     }
   }
-  if (user.isSelf && token.parent.isView && canvas.level?.id === originLevel) {
+  // viewSelf false: a teleport no one on this client moved (a Region Logic door
+  // or button run) must not drag the GM's view to another scene.
+  if (viewSelf && user.isSelf && token.parent.isView && canvas.level?.id === originLevel) {
     await destination.parent.view(viewOptions);
   }
+  return landed;
 }
 
 /**
@@ -249,7 +284,7 @@ async function _onTokenMoveIn(event) {
  * "owners" sends it to the token's owners and the GMs. Never throws: a missing
  * file must not stop the teleport.
  */
-function _playTeleportSound(sys, src, token) {
+export function playRegionSound(sys, src, token) {
   if (!src) return;
   try {
     const data = { src, volume: sys.soundVolume ?? 0.8, loop: false, channel: "environment" };

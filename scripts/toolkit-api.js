@@ -20,6 +20,13 @@ import {
 import { TransporterVFX } from "./transporter-vfx.js";
 import { setDoorLightState as _setDoorLightState, resetDoorLightUses as _resetDoorLightUses } from "./door-light-behavior.js";
 import { resetRandomTeleport as _resetRandomTeleport } from "./random-teleport-behavior.js";
+import {
+  fireRegionLogic as _fireRegionLogic, setRegionLogicGraph as _setRegionLogicGraph,
+  resetRegionLogic as _resetRegionLogic, convertToRegionLogic as _convertToRegionLogic,
+  setRegionLogicNodeEnabled as _setRegionLogicNodeEnabled,
+} from "./region-logic-behavior.js";
+import { registerRegionLogicNode as _registerRegionLogicNode } from "./region-logic-nodes.js";
+import { openRegionLogicEditor as _openRegionLogicEditor } from "./region-logic-editor.js";
 import { getLcTokens } from "./lcars-theme.js";
 import { isChatCardFrame, lcarsChatCard } from "./chat-card-frame.js";
 import { openInteriorGenerator as _openInteriorGenerator } from "./interior-generator.js";
@@ -132,6 +139,44 @@ export class ToolkitAPI {
 
   /** GM only. The same reset for a Once Per Token Door & Light Control behavior. */
   resetDoorLightUses(behaviorOrUuid, tokenOrUuid = null) { return _resetDoorLightUses(behaviorOrUuid, tokenOrUuid); }
+
+  /**
+   * GM only. Press a Region Logic behavior's Button trigger — the one with
+   * this label or node id, or every one of its buttons when omitted.
+   */
+  fireRegionLogic(behaviorOrUuid, labelOrNodeId = null) { return _fireRegionLogic(behaviorOrUuid, labelOrNodeId); }
+
+  /** GM only. Replace a Region Logic behavior's graph ({nodes, wires}). */
+  setRegionLogicGraph(behaviorOrUuid, graph) { return _setRegionLogicGraph(behaviorOrUuid, graph); }
+
+  /** GM only. Clear a Region Logic behavior's Once Per Token marks and cooldowns. */
+  // Also enables every node an Enable / Disable node (or a macro) disabled.
+  resetRegionLogic(behaviorOrUuid) { return _resetRegionLogic(behaviorOrUuid); }
+
+  /**
+   * GM only. Enable or disable one Region Logic node by id; `seconds` > 0 makes
+   * a disable re-enable itself after that long.
+   */
+  setRegionLogicNodeEnabled(behaviorOrUuid, nodeId, enabled, seconds = 0) {
+    return _setRegionLogicNodeEnabled(behaviorOrUuid, nodeId, enabled, seconds);
+  }
+
+  /**
+   * GM only. Rebuild a Door & Light Control or Random Teleport behavior as a
+   * Region Logic behavior on the same Region, and disable the original.
+   */
+  convertToRegionLogic(behaviorOrUuid) { return _convertToRegionLogic(behaviorOrUuid); }
+
+  /**
+   * Add a node type to Region Logic. `desc` is {type, label, icon, category,
+   * inputs, outputs, defaults, fields?, trigger?, accepts?, summary?, run} —
+   * see region-logic-graph.js; `fields` (region-logic-nodes.js) is what the
+   * editor's inspector shows.
+   */
+  registerRegionLogicNode(desc) { return _registerRegionLogicNode(desc); }
+
+  /** GM only. Open the visual flow editor for a Region Logic behavior (document or UUID). */
+  openRegionLogicEditor(behaviorOrUuid) { return _openRegionLogicEditor(behaviorOrUuid); }
 
   constructor({ campaignStore, hud, dateEditor, campaignManager }) {
     this.campaignStore = campaignStore;
