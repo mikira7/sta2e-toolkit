@@ -360,6 +360,16 @@ picker.
   read the same flag: `CombatHUD._getTargetProtection`, the single place every
   ground damage path sums armour, then skips armour not marked worn — for every
   actor, NPCs included.
+- **A worn flashlight lights its token** ([wearable-light.js](scripts/wearable-light.js),
+  covered by [tests/wearable-light.mjs](tests/wearable-light.mjs)). Items match the
+  world setting `flashlightItems` by name; range, arc (120° default) and colour are
+  the `flashlight*` settings. It is core's token `light` with an `angle`, which core
+  centres on `document.rotation`, so the cone follows the facing with no renderer
+  and no socket. The token's own light is saved in the flag `lightBaseline` and put
+  back when the flashlight comes off, breaks (gear-damage) or is deleted. A linked
+  character is lit on **every scene**; `preCreateToken` lights a new token (or
+  restores one copied from a lit token). Writes run on the active GM; `setWorn`
+  forces them locally when no GM is connected.
 - **Rules re-evaluate on the active GM only**, off `create/update/deleteActiveEffect`,
   `updateToken` (toolkit `conditions`/`defenseMode`), `updateItem` (worn or name),
   `create/deleteItem` and library edits. `settle()` is the single writer and is

@@ -29,6 +29,7 @@ import {
   actorTraitNames, mayMimic, parseKeywords, stateIsDressed, storeMimicInLibrary,
 } from "./appearance-data.js";
 import { isActiveGM, getActiveGM } from "./gm-authority.js";
+import { refreshActorLight } from "./wearable-light.js";
 
 export const APPEARANCE_SOCKET_ACTION = "appearanceApply";
 
@@ -499,7 +500,10 @@ export function isWorn(item) {
 export async function setWorn(item, worn) {
   if (!isWearable(item)) return;
   await item.update({ [`flags.${MODULE}.${WORN_FLAG}`]: !!worn });
-  if (!getActiveGM() && item.parent) await refreshActor(item.parent, { force: true });
+  if (!getActiveGM() && item.parent) {
+    await refreshActor(item.parent, { force: true });
+    await refreshActorLight(item.parent, { force: true });
+  }
 }
 
 /** Re-evaluate every figure of an actor. */

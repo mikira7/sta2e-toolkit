@@ -1,0 +1,134 @@
+{
+  "textureGridSize": 200,
+  "width": 400,
+  "assets": [
+    {
+      "material": "wood",
+      "weight": "thin",
+      "file": "modules/sta2e-toolkit/assets/doors/wood-thin.webp",
+      "width": 400,
+      "height": 42,
+      "leafHeight": 20,
+      "handles": true,
+      "crop": {
+        "left": 55,
+        "top": 293,
+        "width": 1882,
+        "height": 206
+      },
+      "source": "docs/door-textures/sources/wood-thin.png"
+    },
+    {
+      "material": "wood",
+      "weight": "thick",
+      "file": "modules/sta2e-toolkit/assets/doors/wood-thick.webp",
+      "width": 400,
+      "height": 70,
+      "leafHeight": 40,
+      "handles": true,
+      "crop": {
+        "left": 56,
+        "top": 197,
+        "width": 2071,
+        "height": 316
+      },
+      "source": "docs/door-textures/sources/wood-thick.png"
+    },
+    {
+      "material": "stone",
+      "weight": "thin",
+      "file": "modules/sta2e-toolkit/assets/doors/stone-thin.webp",
+      "width": 400,
+      "height": 20,
+      "leafHeight": 20,
+      "handles": false,
+      "crop": {
+        "left": 45,
+        "top": 440,
+        "width": 1511,
+        "height": 115
+      },
+      "source": "docs/door-textures/sources/stone-thin.png"
+    },
+    {
+      "material": "stone",
+      "weight": "thick",
+      "file": "modules/sta2e-toolkit/assets/doors/stone-thick.webp",
+      "width": 400,
+      "height": 40,
+      "leafHeight": 40,
+      "handles": false,
+      "crop": {
+        "left": 63,
+        "top": 353,
+        "width": 1658,
+        "height": 185
+      },
+      "source": "docs/door-textures/sources/stone-thick.png"
+    },
+    {
+      "material": "metal",
+      "weight": "thin",
+      "file": "modules/sta2e-toolkit/assets/doors/metal-thin.webp",
+      "width": 400,
+      "height": 36,
+      "leafHeight": 20,
+      "handles": true,
+      "crop": {
+        "left": 55,
+        "top": 414,
+        "width": 1484,
+        "height": 182
+      },
+      "source": "docs/door-textures/sources/metal-thin.png"
+    },
+    {
+      "material": "metal",
+      "weight": "thick",
+      "file": "modules/sta2e-toolkit/assets/doors/metal-thick.webp",
+      "width": 400,
+      "height": 70,
+      "leafHeight": 40,
+      "handles": true,
+      "crop": {
+        "left": 61,
+        "top": 180,
+        "width": 2058,
+        "height": 354
+      },
+      "source": "docs/door-textures/sources/metal-thick.png"
+    },
+    {
+      "material": "jail",
+      "weight": "thin",
+      "file": "modules/sta2e-toolkit/assets/doors/jail-thin.webp",
+      "width": 400,
+      "height": 20,
+      "leafHeight": 20,
+      "handles": false,
+      "crop": {
+        "left": 29,
+        "top": 370,
+        "width": 1716,
+        "height": 137
+      },
+      "source": "docs/door-textures/sources/jail-thin.png"
+    },
+    {
+      "material": "jail",
+      "weight": "thick",
+      "file": "modules/sta2e-toolkit/assets/doors/jail-thick.webp",
+      "width": 400,
+      "height": 40,
+      "leafHeight": 40,
+      "handles": false,
+      "crop": {
+        "left": 16,
+        "top": 236,
+        "width": 2142,
+        "height": 241
+      },
+      "source": "docs/door-textures/sources/jail-thick.png"
+    }
+  ]
+}

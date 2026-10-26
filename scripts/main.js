@@ -143,6 +143,7 @@ import {
   testShieldIdle,
 } from "./shield-idle-vfx.js";
 import { registerPersonalShieldVfxHooks } from "./personal-shield-vfx.js";
+import { registerWearableLight } from "./wearable-light.js";
 import { registerGearDamageCardButton, registerGearRepairRequests, registerGearDamageTraits, registerGrenadeTools } from "./gear-damage-ui.js";
 import { registerComplicationCards } from "./complication-card.js";
 import { playTorpedoTravelLocal } from "./torpedo-travel-vfx.js";
@@ -585,6 +586,7 @@ Hooks.once("init", () => {
   registerShieldBubbleVfxHooks();
   registerShieldIdleVfxHooks();
   registerPersonalShieldVfxHooks();
+  registerWearableLight();
   registerGearDamageCardButton();
   registerGearRepairRequests();
   registerGearDamageTraits();

@@ -1221,6 +1221,49 @@ export function registerSettings() {
     default: "Personal Forcefield, Personal Shield",
   });
 
+  // A worn flashlight or beacon lights its wearer's token in a cone the way it faces.
+  game.settings.register("sta2e-toolkit", "flashlightItems", {
+    name:    "Flashlight Items",
+    hint:    "Comma-separated item names that light the wearer's token when marked Worn (case doesn't matter).",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "Flashlight, Beacon, Wrist Beacon, Palm Beacon, Torch",
+  });
+  game.settings.register("sta2e-toolkit", "flashlightBright", {
+    name:    "Flashlight Bright Range",
+    hint:    "Bright light radius of a worn flashlight, in grid units.",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    default: 3,
+  });
+  game.settings.register("sta2e-toolkit", "flashlightDim", {
+    name:    "Flashlight Dim Range",
+    hint:    "Dim light radius of a worn flashlight, in grid units.",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    default: 6,
+  });
+  game.settings.register("sta2e-toolkit", "flashlightAngle", {
+    name:    "Flashlight Beam Arc",
+    hint:    "Width of the flashlight's cone in degrees, centred on the way the token faces.",
+    scope:   "world",
+    config:  true,
+    type:    Number,
+    range:   { min: 10, max: 360, step: 5 },
+    default: 120,
+  });
+  game.settings.register("sta2e-toolkit", "flashlightColor", {
+    name:    "Flashlight Colour",
+    hint:    "Tint of a worn flashlight's light.",
+    scope:   "world",
+    config:  true,
+    type:    new foundry.data.fields.ColorField({ nullable: false, initial: "#fff1d0" }),
+    default: "#fff1d0",
+  });
+
   game.settings.register("sta2e-toolkit", "shieldBubbleStandoff", {
     name:    "STA2E.Settings.ShieldBubbleStandoff.Name",
     hint:    "STA2E.Settings.ShieldBubbleStandoff.Hint",

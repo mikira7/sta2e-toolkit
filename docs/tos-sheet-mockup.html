@@ -1,0 +1,1008 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TOS Actor Sheets</title>
+<style>
+/* ── Page chrome (not part of the design) ─────────────────────────────── */
+* { box-sizing: border-box; }
+body { margin: 0; background: #15151a; color: #d8d8dc; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 960px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.lede { color: #8a8a94; margin: 0 0 22px; max-width: 800px; }
+.state { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #8a8a94; margin: 26px 0 8px; }
+.scroller { overflow-x: auto; padding-bottom: 6px; }
+.notes { margin-top: 36px; border-top: 1px solid #2c2c34; padding-top: 16px; color: #8a8a94; font-size: 13px; }
+.notes h3 { color: #d8d8dc; font-size: 15px; margin: 0 0 6px; }
+.notes code { color: #e8c860; }
+/* A stand-in for Foundry's window chrome around the sheet */
+.fwin { width: 880px; background: #111; border: 1px solid #000; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.7); overflow: hidden; }
+.fwin-bar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: #1d1d22; color: #ccc; font-size: 13px; border-bottom: 1px solid #000; }
+.fwin-bar span { flex: 1; }
+.fwin-bar i { font-style: normal; color: #888; font-size: 12px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   TOS CONSOLE SHEET
+   Everything below is scoped to .sta2e-tos-sheet, the class a render hook
+   would add to the sheet's root under the tos-panel theme. Selectors use the
+   sta system's own class names, so this is a prototype of the real overlay.
+   ══════════════════════════════════════════════════════════════════════ */
+.sta2e-tos-sheet {
+  --ph: #9ee26a; --ph-glow: rgba(136,204,68,.55);
+  --amber: #e8c860; --dim: #9a9a9a;
+  background: linear-gradient(180deg, #343434 0%, #292929 40%, #222 100%);
+  padding: 8px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  color: var(--amber);
+}
+
+/* Housing panel: the gunmetal module every block sits in */
+.sta2e-tos-sheet .panel {
+  background: linear-gradient(180deg, #383838 0%, #2a2a2a 45%, #212121 100%);
+  border: 2px solid #111; border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.09), inset 0 -2px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.5);
+}
+.sta2e-tos-sheet .panel-head {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px 4px;
+  border-bottom: 3px solid #111; background: linear-gradient(180deg,#444 0%,#2e2e2e 100%);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #f2f2f2; text-shadow: 0 1px 0 #000;
+}
+.sta2e-tos-sheet .panel-head > span { flex: 1; }
+.sta2e-tos-sheet .lamps { display: flex; gap: 3px; }
+.sta2e-tos-sheet .lamps i { width: 8px; height: 8px; border-radius: 1px; background: #333; box-shadow: inset 0 1px 2px #000; }
+.sta2e-tos-sheet .lamps i.a { background:#e8c030; box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 5px #e8c030; }
+.sta2e-tos-sheet .lamps i.g { background:#40cc30; box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 5px #40cc30; }
+.sta2e-tos-sheet .lamps i.r { background:#e83020; box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 5px #e83020; }
+
+/* CRT screen: same construction as the task card's */
+.sta2e-tos-sheet .crt {
+  position: relative; margin: 7px; padding: 8px 10px; overflow: hidden;
+  border-radius: 16px / 11px; border: 3px solid #141414;
+  background: radial-gradient(ellipse at 50% 40%, #0d1408 0%, #050805 70%, #020302 100%);
+  box-shadow: inset 0 0 14px rgba(0,0,0,.95), inset 0 0 2px var(--ph-glow), 0 1px 0 rgba(255,255,255,.07);
+  font: 12px/1.4 "Courier New", Courier, monospace; color: var(--ph); text-shadow: 0 0 4px var(--ph-glow);
+}
+.sta2e-tos-sheet .crt.amber { --ph:#f0c860; --ph-glow: rgba(240,200,96,.5);
+  background: radial-gradient(ellipse at 50% 40%, #171004 0%, #080502 70%, #030201 100%); }
+.sta2e-tos-sheet .crt::after { content:""; position:absolute; inset:0; pointer-events:none; border-radius: inherit;
+  background: repeating-linear-gradient(180deg, rgba(0,0,0,.26) 0 1px, transparent 1px 3px); }
+.sta2e-tos-sheet .crt > * { position: relative; z-index: 1; }
+
+/* Raised backlit keys */
+.sta2e-tos-sheet .key, .sta2e-tos-sheet .check-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: 0; border-radius: 2px; cursor: pointer; padding: 6px 10px;
+  font: 700 10px "Helvetica Neue", Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6);
+}
+.sta2e-tos-sheet .key:hover, .sta2e-tos-sheet .check-button:hover { filter: brightness(1.2); }
+.sta2e-tos-sheet .amber-key { background: linear-gradient(180deg,#e8c030,#c8a010 60%,#aa8808); color:#1a1200; }
+.sta2e-tos-sheet .red-key   { background: linear-gradient(180deg,#e83020,#c81808 60%,#a81000); color:#fff0ee; }
+.sta2e-tos-sheet .green-key { background: linear-gradient(180deg,#40cc30,#28aa18 60%,#188808); color:#001a00; }
+.sta2e-tos-sheet .grey-key  { background: linear-gradient(180deg,#666,#4a4a4a 60%,#3a3a3a); color:#eee; }
+
+/* ── Top: portrait viewscreen + name + tracks ───────────────────────── */
+.sta2e-tos-sheet .split-section { display: flex; gap: 8px; }
+.sta2e-tos-sheet .split-section + .split-section { margin-top: 8px; }
+.sta2e-tos-sheet .top-left-column { flex: 0 0 196px; }
+.sta2e-tos-sheet .top-right-column { flex: 1; min-width: 0; }
+.sta2e-tos-sheet .image-field { margin: 7px; padding: 6px; border-radius: 18px / 14px; background: #141414;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px #000; }
+.sta2e-tos-sheet .profile-img { display:block; width: 100%; aspect-ratio: 1; border-radius: 14px / 10px; object-fit: cover;
+  background: radial-gradient(circle at 50% 38%, #3a5068 0 24%, transparent 25%), radial-gradient(ellipse at 50% 100%, #2e4458 0 42%, transparent 43%), radial-gradient(ellipse at 50% 40%, #0d1418, #020304);
+  box-shadow: inset 0 0 16px rgba(0,0,0,.9); }
+.sta2e-tos-sheet .viewer-cap { display:flex; justify-content: space-between; margin: 0 9px 7px; font-size: 8px; letter-spacing: .14em; color: var(--dim); font-weight: 700; text-transform: uppercase; }
+
+.sta2e-tos-sheet .name-field { display: flex; align-items: stretch; gap: 8px; margin: 7px 7px 4px; }
+.sta2e-tos-sheet .name-field-left { flex: 1; min-width: 0; }
+.sta2e-tos-sheet .title, .sta2e-tos-sheet .tracktitle {
+  font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); font-weight: 700; margin-bottom: 3px; }
+.sta2e-tos-sheet .name-field input {
+  width: 100%; background: #070707; border: 2px solid #111; border-radius: 2px; box-shadow: inset 0 2px 5px #000;
+  padding: 5px 9px; font: 700 20px "Helvetica Neue", Arial, sans-serif; letter-spacing: .06em; text-transform: uppercase;
+  color: #f0c860; text-shadow: 0 0 8px rgba(240,200,96,.5); }
+.sta2e-tos-sheet .icon-column { display:flex; flex-direction: column; gap: 3px; justify-content: flex-end; }
+.sta2e-tos-sheet .icon-column .key { width: 30px; height: 20px; padding: 0; font-size: 11px; }
+
+.sta2e-tos-sheet .tracks { margin: 0 7px 7px; display: grid; gap: 5px; }
+.sta2e-tos-sheet .track-row { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 8px; }
+.sta2e-tos-sheet .tracktitle { margin: 0; text-align: right; }
+.sta2e-tos-sheet .bar { display: flex; gap: 3px; }
+/* The system renders each step as div.box.<kind>[.selected], numbered, with an
+   inline width. Unlit: a dark recessed key. Lit: a backlit key in the track's colour. */
+.sta2e-tos-sheet .box {
+  flex: 1 1 0; height: 22px; display: grid; place-items: center; border-radius: 2px; cursor: pointer;
+  font: 700 10px "Courier New", monospace; color: #555; background: #1b1b1b; box-shadow: inset 0 1px 3px #000, 0 1px 0 rgba(255,255,255,.05); }
+.sta2e-tos-sheet .box.selected { box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 -1px 0 rgba(0,0,0,.4), 0 0 6px var(--lit-glow); }
+.sta2e-tos-sheet .box.rep.selected { background: linear-gradient(180deg,#f0d040,#aa8808); color:#1a1200; --lit-glow: rgba(232,192,48,.45); }
+.sta2e-tos-sheet .box.determination.selected { background: linear-gradient(180deg,#5ab8ff,#1d6fc0); color:#001022; --lit-glow: rgba(80,170,255,.5); }
+.sta2e-tos-sheet .box.stress.selected { background: linear-gradient(180deg,#e83020,#a81000); color:#fff0ee; --lit-glow: rgba(232,48,32,.5); }
+
+/* ── Bottom left: attributes / disciplines ──────────────────────────── */
+/* min-width:0 is load-bearing: the dot leaders cannot wrap, and a flex item
+   defaults to min-width:auto, so without it they prop the column open. */
+.sta2e-tos-sheet .bottom-left-column { flex: 0 0 176px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.sta2e-tos-sheet .bottom-right-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sta2e-tos-sheet .row-right { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.sta2e-tos-sheet .row-right .list-entry { flex: 1; min-width: 0; overflow: hidden; text-transform: uppercase; display: flex; gap: 4px; white-space: nowrap; }
+.sta2e-tos-sheet .row-right .list-entry::after { content: "..................................."; flex: 1; overflow: hidden; opacity: .3; }
+/* The selector checkbox becomes an indicator lamp */
+.sta2e-tos-sheet .selector { appearance: none; margin: 0; width: 12px; height: 12px; border-radius: 2px; cursor: pointer;
+  background: #1c1c1c; box-shadow: inset 0 1px 2px #000, 0 0 0 1px #2a2a2a; }
+.sta2e-tos-sheet .selector:checked { background: radial-gradient(circle at 40% 35%, #fff6b0, #ffd23a 45%, #c89010);
+  box-shadow: 0 0 7px rgba(255,210,58,.85), 0 0 0 1px #000; }
+.sta2e-tos-sheet .numeric-entry { width: 30px; background: transparent; border: 0; border-bottom: 1px dashed rgba(158,226,106,.35);
+  font: 700 15px "Courier New", monospace; color: inherit; text-shadow: inherit; text-align: right; padding: 0; }
+.sta2e-tos-sheet .row-right.is-selected { color: #ffe680; text-shadow: 0 0 6px rgba(255,230,128,.7); }
+.sta2e-tos-sheet .side-controls { padding: 0 6px 7px; display: grid; gap: 6px; }
+/* The narrow column: a tighter screen and smaller readout type. */
+.sta2e-tos-sheet .bottom-left-column .crt { margin: 6px; padding: 6px 8px; font-size: 11px; }
+.sta2e-tos-sheet .bottom-left-column .numeric-entry { width: 24px; font-size: 14px; }
+.sta2e-tos-sheet .bottom-left-column .row-right { gap: 5px; }
+.sta2e-tos-sheet .lamp-check { display: flex; align-items: center; gap: 7px; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+.sta2e-tos-sheet .buttons { display: grid; grid-template-columns: 1.3fr 1fr; gap: 4px; }
+.sta2e-tos-sheet .buttons .check-button { padding: 9px 4px; font-size: 10px; }
+.sta2e-tos-sheet .stressmod { display: flex; align-items: center; justify-content: space-between; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+.sta2e-tos-sheet .inset-num { width: 44px; background:#070707; border: 2px solid #111; box-shadow: inset 0 2px 5px #000; border-radius: 2px;
+  font: 700 13px "Courier New", monospace; color: #f0c860; text-align: center; padding: 2px; }
+
+/* ── Tabs: a row of console keys ────────────────────────────────────── */
+.sta2e-tos-sheet .sheet-tabs { display: flex; gap: 4px; padding: 6px 7px; border-bottom: 3px solid #111; background: linear-gradient(180deg,#3c3c3c,#2c2c2c); }
+.sta2e-tos-sheet .sheet-tabs .item { flex: 1; text-align: center; padding: 6px 4px; border-radius: 2px; cursor: pointer; text-decoration: none;
+  font: 700 10px "Helvetica Neue", Arial, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  background: linear-gradient(180deg,#5a5a5a,#404040 60%,#333); color: #cfcfcf;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6); }
+.sta2e-tos-sheet .sheet-tabs .item.active { background: linear-gradient(180deg,#e8c030,#c8a010 60%,#aa8808); color: #1a1200;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 8px rgba(232,192,48,.45); }
+.sta2e-tos-sheet .sheet-body { padding: 0 0 4px; }
+
+/* ── Item sections ──────────────────────────────────────────────────── */
+.sta2e-tos-sheet .items-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.sta2e-tos-sheet .items-split > div { min-width: 0; }
+.sta2e-tos-sheet .section { margin: 7px; }
+.sta2e-tos-sheet .section > .title { display:flex; align-items:center; gap: 6px; margin: 0 0 4px; color: #f2f2f2; font-size: 9.5px; }
+.sta2e-tos-sheet .section > .title::after { content:""; flex:1; height: 2px; background: linear-gradient(90deg,#c8a010,transparent); }
+.sta2e-tos-sheet .list { background:#070707; border: 2px solid #111; border-radius: 2px; box-shadow: inset 0 2px 6px #000; }
+.sta2e-tos-sheet .header.row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; background: #1a1a1a;
+  font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: #8a8a8a; font-weight: 700; border-bottom: 1px solid #000; }
+.sta2e-tos-sheet .header.row .grow { flex: 1; }
+.sta2e-tos-sheet .row.entry { list-style: none; display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-bottom: 1px solid #141414; }
+.sta2e-tos-sheet .row.entry:last-child { border-bottom: 0; }
+.sta2e-tos-sheet .row.entry:hover { background: rgba(232,192,48,.05); }
+.sta2e-tos-sheet .row.entry .image { width: 20px; height: 20px; border-radius: 2px; flex: 0 0 auto;
+  background: linear-gradient(135deg,#3a3a3a,#1c1c1c); box-shadow: inset 0 0 0 1px #000; display:grid; place-items:center; font-size: 10px; color:#c8a010; }
+.sta2e-tos-sheet .item-name { flex: 1; min-width: 0; background: transparent; border: 0; padding: 1px 0;
+  font: 12px "Courier New", monospace; color: #f0c860; text-shadow: 0 0 4px rgba(240,200,96,.35); }
+.sta2e-tos-sheet .item-name.strike-through { text-decoration: line-through; opacity: .5; }
+.sta2e-tos-sheet .item-quantity, .sta2e-tos-sheet .list-entry.damage {
+  width: 34px; text-align: center; background: #141414; border: 0; border-radius: 2px; box-shadow: inset 0 1px 2px #000;
+  font: 700 12px "Courier New", monospace; color: #9ee26a; padding: 1px 0; }
+/* Edit / delete keys surface on hover or keyboard focus, laid over the row
+   end, so names get the full width of a narrow column. */
+.sta2e-tos-sheet .row.entry { position: relative; }
+.sta2e-tos-sheet .row.entry .control { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 2px; padding: 2px 2px 2px 8px; opacity: 0; pointer-events: none; transition: opacity .12s;
+  background: linear-gradient(90deg, transparent, #0d0d0d 30%); }
+.sta2e-tos-sheet .row.entry:hover .control, .sta2e-tos-sheet .row.entry:focus-within .control { opacity: 1; pointer-events: auto; }
+.sta2e-tos-sheet .mini { width: 18px; height: 16px; display: grid; place-items: center; border-radius: 2px; cursor: pointer; font-size: 9px; line-height: 1;
+  background: linear-gradient(180deg,#555,#3a3a3a); color: #ddd; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 1px 2px rgba(0,0,0,.6); }
+.sta2e-tos-sheet .mini.add { background: linear-gradient(180deg,#40cc30,#188808); color:#001a00; }
+.sta2e-tos-sheet .mini.del:hover { background: linear-gradient(180deg,#e83020,#a81000); color:#fff; }
+/* "Used" toggle on Values: a lamp, not a slider icon */
+.sta2e-tos-sheet .value-used { width: 34px; display:grid; place-items:center; }
+.sta2e-tos-sheet .used-lamp { width: 22px; height: 10px; border-radius: 2px; background:#1c1c1c; box-shadow: inset 0 1px 2px #000; }
+.sta2e-tos-sheet .used-lamp.on { background: linear-gradient(180deg,#e83020,#a81000); box-shadow: 0 0 6px rgba(232,48,32,.6); }
+
+/* Toolkit additions on belongings rows */
+.sta2e-tos-sheet .sta2e-wear { padding: 2px 5px; font-size: 7.5px; }
+.sta2e-tos-sheet .sta2e-wear:not(.is-worn) { background: #1c1c1c; color: #666; box-shadow: inset 0 1px 2px #000; }
+.sta2e-tos-sheet .sta2e-grenade-count { font: 700 10px "Courier New", monospace; color: #9ee26a; padding: 0 4px; border: 1px solid #2c4a1c; border-radius: 2px; }
+.sta2e-tos-sheet .sta2e-gear-row-damaged .item-name { color: #ff6a4a; text-shadow: 0 0 4px rgba(255,80,60,.5); }
+.sta2e-tos-sheet .sta2e-gear-dmg { padding: 2px 5px; font-size: 7.5px; }
+
+/* ── Character tab: fields as inset plates ──────────────────────────── */
+.sta2e-tos-sheet .bio { padding: 7px; display: grid; gap: 6px; }
+.sta2e-tos-sheet .bio .row { display: grid; gap: 6px; }
+.sta2e-tos-sheet .bio .row.c4 { grid-template-columns: repeat(4,1fr); }
+.sta2e-tos-sheet .bio .row.c3 { grid-template-columns: repeat(3,1fr); }
+.sta2e-tos-sheet .bio .row.c2 { grid-template-columns: repeat(2,1fr); }
+.sta2e-tos-sheet .bio .column .text-entry { width: 100%; background:#070707; border: 2px solid #111; border-radius: 2px; box-shadow: inset 0 2px 5px #000;
+  padding: 4px 7px; font: 12px "Courier New", monospace; color: #f0c860; text-shadow: 0 0 4px rgba(240,200,96,.35); }
+/* ── NPC / supporting: type selector ─────────────────────────────────
+   The system writes these as radios. NPC wraps each in a .column, so the
+   whole column becomes a key that lights when its radio is checked
+   (:has). Supporting writes bare text + radios in one .row, so there the
+   radio itself is the lamp. */
+.sta2e-tos-sheet .npc-block { margin: 0 7px 6px; }
+.sta2e-tos-sheet .npc-block .row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.sta2e-tos-sheet .npc-block input[type=radio] { appearance: none; margin: 0 10px 0 4px; width: 12px; height: 12px; border-radius: 50%; cursor: pointer;
+  background: #1c1c1c; box-shadow: inset 0 1px 2px #000, 0 0 0 1px #2a2a2a; }
+.sta2e-tos-sheet .npc-block input[type=radio]:checked { background: radial-gradient(circle at 40% 35%, #fff6b0, #ffd23a 45%, #c89010);
+  box-shadow: 0 0 7px rgba(255,210,58,.85), 0 0 0 1px #000; }
+.sta2e-tos-sheet .npc-block .column { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; gap: 0; padding: 5px 4px; border-radius: 2px; cursor: pointer;
+  background: linear-gradient(180deg,#5a5a5a,#404040 60%,#333); color: #cfcfcf;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6); }
+/* In the system template each .column is a div, not a label, so the radio
+   is laid invisibly over the whole key to keep all of it clickable. */
+.sta2e-tos-sheet .npc-block .column input[type=radio] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; border-radius: 2px; cursor: pointer; }
+.sta2e-tos-sheet .npc-block .column:has(input:checked) { background: linear-gradient(180deg,#e83020,#c81808 60%,#a81000); color: #fff0ee;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 8px rgba(232,48,32,.45); }
+.sta2e-tos-sheet .npc-block .column:has(input:focus-visible) { outline: 1px solid #ffd23a; outline-offset: 1px; }
+
+/* ── NPC: Personal Threat ─────────────────────────────────────────────
+   Same box.stress class as a character's Stress, so the hook's
+   data-sheet stamp is what tells them apart. */
+.sta2e-tos-sheet[data-sheet="npc"] .box.stress.selected { background: linear-gradient(180deg,#ff8a30,#c84400); color: #1a0800; --lit-glow: rgba(255,110,40,.55); }
+.sta2e-tos-sheet .buttons.one { grid-template-columns: 1fr; }
+
+/* ── Supporting: milestone grid and arc lamp ──────────────────────── */
+.sta2e-tos-sheet .supporting-char-grid { padding: 2px 0; }
+.sta2e-tos-sheet .supporting-char-grid .row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid #141414; }
+.sta2e-tos-sheet .supporting-char-grid .row:last-child { border-bottom: 0; }
+.sta2e-tos-sheet .supporting-char-grid .label { flex: 1; font: 12px "Courier New", monospace; color: #f0c860; text-shadow: 0 0 4px rgba(240,200,96,.35); }
+.sta2e-tos-sheet .supporting-char-grid .inputs { display: flex; gap: 4px; }
+.sta2e-tos-sheet .supporting-char-grid input[type=checkbox], .sta2e-tos-sheet .arc-lamp {
+  appearance: none; margin: 0; width: 22px; height: 14px; border-radius: 2px; cursor: pointer;
+  background: #1c1c1c; box-shadow: inset 0 1px 2px #000, 0 0 0 1px #2a2a2a; }
+.sta2e-tos-sheet .supporting-char-grid input[type=checkbox]:checked, .sta2e-tos-sheet .arc-lamp:checked {
+  background: linear-gradient(180deg,#40cc30,#188808); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 6px rgba(64,204,48,.55); }
+.sta2e-tos-sheet .arc-lamp { width: 34px; cursor: default; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   STARSHIP / SMALL CRAFT (.starship-sheet — both templates share it)
+   ══════════════════════════════════════════════════════════════════════ */
+.starship-sheet.sta2e-tos-sheet > .split-section { align-items: flex-start; }
+.starship-sheet.sta2e-tos-sheet .left-column { flex: 0 0 226px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.starship-sheet.sta2e-tos-sheet .right-column { flex: 1; min-width: 0; }
+.starship-sheet.sta2e-tos-sheet .profile-img {
+  background: radial-gradient(ellipse at 50% 52%, #4a5a6a 0 9%, transparent 10%), radial-gradient(ellipse at 50% 46%, #6a7a8a 0 26%, transparent 27%) 0 -8px / 100% 100% no-repeat,
+    radial-gradient(1px 1px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 20%, #ccd, transparent), radial-gradient(1px 1px at 80% 70%, #fff, transparent),
+    radial-gradient(1px 1px at 35% 80%, #aab, transparent), radial-gradient(ellipse at 50% 40%, #0a0d14, #010203); }
+
+/* Systems: name · selector lamp · modifier · breaches */
+.starship-sheet.sta2e-tos-sheet .stat.row { display: grid; grid-template-columns: minmax(0,1fr) 12px 28px 28px; align-items: center; gap: 6px; padding: 2px 0; }
+.starship-sheet.sta2e-tos-sheet .stat.row .list-entry { min-width: 0; overflow: hidden; white-space: nowrap; text-transform: uppercase; display: flex; gap: 4px; }
+.starship-sheet.sta2e-tos-sheet .stat.row .list-entry::after { content: "..................................."; flex: 1; overflow: hidden; opacity: .3; }
+.starship-sheet.sta2e-tos-sheet .stat.header.row { font-size: 8.5px; letter-spacing: .1em; opacity: .65; padding-bottom: 3px; border-bottom: 1px dashed rgba(158,226,106,.3); margin-bottom: 2px; }
+.starship-sheet.sta2e-tos-sheet .stat.header.row .text { grid-column: 1 / 3; }
+.starship-sheet.sta2e-tos-sheet .stat.header.row .field { text-align: right; }
+.starship-sheet.sta2e-tos-sheet .departments .stat.row { grid-template-columns: minmax(0,1fr) 12px 28px; }
+.starship-sheet.sta2e-tos-sheet .stat.row .numeric-entry { width: 100%; font-size: 14px; }
+/* Number inputs reserve room for spinner arrows, which clipped "10" to "1". */
+.sta2e-tos-sheet input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+.sta2e-tos-sheet input[type=number]::-webkit-inner-spin-button,
+.sta2e-tos-sheet input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.starship-sheet.sta2e-tos-sheet .systems-block { font-size: 11px; padding: 6px 8px; margin: 6px; }
+.starship-sheet.sta2e-tos-sheet .departments-block { margin: 6px; padding: 6px 8px; }
+.starship-sheet.sta2e-tos-sheet .systems-block .stat.row { grid-template-columns: minmax(0,1fr) 12px 22px 22px; gap: 5px; }
+/* Breaches read red when non-zero. The template writes value="{{breaches}}",
+   so the attribute selector works on every render with no JS. */
+.starship-sheet.sta2e-tos-sheet .numeric-entry.breaches { color: #4a6a38; text-shadow: none; }
+.starship-sheet.sta2e-tos-sheet .numeric-entry.breaches:not([value="0"]) { color: #ff4a30; text-shadow: 0 0 6px rgba(255,80,50,.8); border-bottom-color: rgba(255,80,50,.5); }
+.starship-sheet.sta2e-tos-sheet .stat.row.is-selected { color: #ffe680; text-shadow: 0 0 6px rgba(255,230,128,.7); }
+.starship-sheet.sta2e-tos-sheet .modrow { display: flex; align-items: center; justify-content: space-between; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+
+/* Crew Support and Shields tracks */
+.sta2e-tos-sheet .box.crew.selected { background: linear-gradient(180deg,#f0d040,#aa8808); color:#1a1200; --lit-glow: rgba(232,192,48,.45); }
+.sta2e-tos-sheet .box.shields.selected { background: linear-gradient(180deg,#7ad0ff,#1f78c8); color:#00121f; --lit-glow: rgba(90,180,255,.6); }
+
+/* The four ship stats: two indicator lamps and two readouts */
+.starship-sheet.sta2e-tos-sheet .big-row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 5px; margin: 0 7px 7px; }
+.starship-sheet.sta2e-tos-sheet .big-row-column { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 4px;
+  background: #1a1a1a; border: 1px solid #0c0c0c; border-radius: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+.starship-sheet.sta2e-tos-sheet .big-row-column .tracktitle { text-align: center; margin: 0; }
+.starship-sheet.sta2e-tos-sheet .big-row-column .checkbox { appearance: none; margin: 0; width: 30px; height: 16px; border-radius: 2px; cursor: pointer; background: #262626; box-shadow: inset 0 1px 3px #000; }
+.starship-sheet.sta2e-tos-sheet .big-row-column .checkbox.power:checked { background: linear-gradient(180deg,#40cc30,#188808); box-shadow: 0 0 7px rgba(64,204,48,.6); }
+.starship-sheet.sta2e-tos-sheet .big-row-column .checkbox.shaken:checked { background: linear-gradient(180deg,#e83020,#a81000); box-shadow: 0 0 7px rgba(232,48,32,.6); }
+.starship-sheet.sta2e-tos-sheet .big-row-column .numeric-entry { width: 44px; text-align: center; font-size: 16px; color: #f0c860; text-shadow: 0 0 6px rgba(240,200,96,.5);
+  background: #070707; border: 2px solid #111; border-radius: 2px; box-shadow: inset 0 2px 5px #000; padding: 1px 0; }
+
+/* Toolkit: NPC Ship block (its inputs carry inline margin / accent-color only) */
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 7px 6px; padding: 5px 7px;
+  background: #1a1a1a; border: 1px solid #0c0c0c; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block input[type=checkbox],
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block input[type=radio] { appearance: none; margin: 0; width: 12px; height: 12px; cursor: pointer;
+  background: #262626; box-shadow: inset 0 1px 2px #000, 0 0 0 1px #2a2a2a; }
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block input[type=checkbox] { border-radius: 2px; }
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block input[type=radio] { border-radius: 50%; }
+.starship-sheet.sta2e-tos-sheet .sta2e-npc-ship-block input:checked { background: radial-gradient(circle at 40% 35%, #fff6b0, #ffd23a 45%, #c89010); box-shadow: 0 0 7px rgba(255,210,58,.85), 0 0 0 1px #000; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-quality { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-basis: 100%; }
+.starship-sheet.sta2e-tos-sheet .sta2e-cq-title { color: #f2f2f2; }
+
+/* Toolkit: Ship / Crew tab strip, as console keys like .sheet-tabs */
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-tabs { display: flex; gap: 4px; padding: 6px 7px; margin: 0 0 6px; border-top: 3px solid #111; border-bottom: 3px solid #111; background: linear-gradient(180deg,#3c3c3c,#2c2c2c); }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-tab { flex: 1; border: 0; padding: 6px 4px; border-radius: 2px; cursor: pointer;
+  font: 700 10px "Helvetica Neue", Arial, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  background: linear-gradient(180deg,#5a5a5a,#404040 60%,#333); color: #cfcfcf; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.6); }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-tab.is-active { background: linear-gradient(180deg,#e8c030,#c8a010 60%,#aa8808); color: #1a1200; box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 8px rgba(232,192,48,.45); }
+
+/* Service record fields and the two item columns */
+.starship-sheet.sta2e-tos-sheet .svc { margin: 0 7px 4px; display: grid; gap: 6px; }
+.starship-sheet.sta2e-tos-sheet .svc .row { display: grid; gap: 6px; }
+.starship-sheet.sta2e-tos-sheet .svc .row.c3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.starship-sheet.sta2e-tos-sheet .svc .row.c2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.starship-sheet.sta2e-tos-sheet .svc .text-entry { width: 100%; background:#070707; border: 2px solid #111; border-radius: 2px; box-shadow: inset 0 2px 5px #000;
+  padding: 4px 7px; font: 12px "Courier New", monospace; color: #f0c860; text-shadow: 0 0 4px rgba(240,200,96,.35); }
+.starship-sheet.sta2e-tos-sheet .note { min-height: 64px; padding: 6px 8px; font: 12px "Courier New", monospace; color: #9ee26a; text-shadow: 0 0 4px rgba(136,204,68,.4); }
+
+/* Toolkit: Crew tab panel */
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-section { margin: 7px; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-heading { display:flex; align-items:center; gap: 6px; margin: 0 0 4px; color: #f2f2f2; font-size: 9.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-heading::after { content:""; flex:1; height: 2px; background: linear-gradient(90deg,#c8a010,transparent); }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-station { display: grid; grid-template-columns: 120px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 4px 6px; border-bottom: 1px solid #141414; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-station-name { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #cfcfcf; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-select { width: 100%; background: #141414; border: 1px solid #000; border-radius: 2px; box-shadow: inset 0 1px 2px #000;
+  font: 12px "Courier New", monospace; color: #f0c860; padding: 2px 4px; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-station.is-vacant .sta2e-crew-select { color: #666; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-stat { font: 11px "Courier New", monospace; color: #9ee26a; text-shadow: 0 0 4px rgba(136,204,68,.4); white-space: nowrap; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-dept-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 4px; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-dept-tab { border: 0; border-radius: 2px; padding: 3px 7px; cursor: pointer; font: 700 8.5px "Helvetica Neue", Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase;
+  background: linear-gradient(180deg,#555,#3a3a3a); color: #ddd; box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 1px 2px rgba(0,0,0,.6); }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-dept-tab.is-active { background: linear-gradient(180deg,#e8c030,#aa8808); color: #1a1200; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-dept-tab.is-empty { opacity: .45; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-dept-n { font-family: "Courier New", monospace; margin-left: 3px; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-member { display: grid; grid-template-columns: 24px minmax(0,1fr) auto auto 18px; align-items: center; gap: 8px; padding: 4px 6px; border-bottom: 1px solid #141414; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-portrait { width: 24px; height: 24px; border-radius: 2px; background: linear-gradient(135deg,#3a5068,#16202a); box-shadow: inset 0 0 0 1px #000; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-member-name { font: 12px "Courier New", monospace; color: #f0c860; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-member-post { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: #9ee26a; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-badge { font: 700 8px "Helvetica Neue", Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; padding: 1px 4px; border-radius: 2px; background: #2a2a2a; color: #aaa; }
+.starship-sheet.sta2e-tos-sheet .sta2e-crew-drop { margin-top: 6px; padding: 8px; text-align: center; border: 1px dashed #4a4a4a; border-radius: 2px; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: #777; }
+
+.sta2e-tos-sheet .bio .column.num .text-entry { color: #9ee26a; text-shadow: 0 0 4px rgba(158,226,106,.4); font-weight: 700; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>TOS actor sheets</h1>
+  <p class="lede">A redesign of the 2e character sheet in the style of the TOS task and chat cards: gunmetal housing panels, curved CRT screens with phosphor type, and raised backlit keys. The tracks are rows of lit keys, the attribute and discipline selectors are indicator lamps, and the tabs are console keys. Below the character sheet's Traits and Character tabs are the NPC, supporting character, starship (Ship and Crew tabs) and small craft sheets, all with sample data.</p>
+
+  <div class="state">Traits tab · Reason + Science selected</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Lt. Cmdr. T'Rena</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-tos-sheet">
+
+      <div class="split-section">
+        <div class="top-left-column panel">
+          <div class="image-field"><div class="profile-img" title="Portrait"></div></div>
+          <div class="viewer-cap"><span>Personnel File</span><span>SC 937-215</span></div>
+        </div>
+        <div class="top-right-column panel">
+          <div class="panel-head"><span>Starfleet Personnel Record</span><div class="lamps"><i class="g"></i><i class="a"></i><i></i></div></div>
+          <div class="name-field">
+            <div class="name-field-left">
+              <div class="title">Name</div>
+              <input name="name" type="text" value="Lt. Cmdr. T'Rena">
+            </div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key amber-key" title="Linked">⛓</button>
+            </div>
+          </div>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Reputation</div>
+              <div class="bar" data-track="rep"></div></div>
+            <div class="track-row"><div class="tracktitle">Determination</div>
+              <div class="bar" data-track="determination"></div></div>
+            <div class="track-row"><div class="tracktitle">Stress</div>
+              <div class="bar" data-track="stress"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="split-section">
+        <div class="bottom-left-column">
+          <div class="panel">
+            <div class="panel-head"><span>Attributes</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt attribute-block" data-list="attributes"></div>
+            <div class="panel-head" style="border-top:3px solid #111"><span>Disciplines</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt discipline-block" data-list="disciplines"></div>
+            <div class="side-controls">
+              <label class="lamp-check rollrepnotdis"><input class="selector" type="checkbox"> Roll Reputation, not Discipline</label>
+              <div class="buttons">
+                <div class="check-button btn attribute red-key">Task Roll</div>
+                <div class="check-button btn3 acclaim amber-key">Acclaim</div>
+              </div>
+              <div class="stressmod">Stress Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item">Character</a><a class="item active">Traits</a><a class="item">Development</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body">
+            <div class="section values">
+              <div class="title">Values</div>
+              <div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span class="value-used">Used</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">◆</div><input class="item-name" value="Logic Is the Beginning of Wisdom, Not the End"><a class="value-used"><i class="used-lamp"></i></a><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">◆</div><input class="item-name strike-through" value="I Owe My Life to the Captain"><a class="value-used"><i class="used-lamp on"></i></a><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">◆</div><input class="item-name" value="The Unknown Is Not to Be Feared"><a class="value-used"><i class="used-lamp"></i></a><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div>
+            </div>
+            <div class="items-split">
+              <div>
+                <div class="section talents">
+                  <div class="title">Talents</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Role Ability: Science Officer"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Cautious (Science)"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Technical Expertise"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section focuses">
+                  <div class="title">Focuses</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Astrophysics"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Sensor Operations"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Vulcan Philosophy"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="section traits">
+                  <div class="title">Traits</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">▲</div><input class="item-name" value="Vulcan"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry sta2e-gear-row-damaged"><div class="image">▲</div><input class="item-name" value="Phaser Type-1 (Broken)"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section belongings">
+                  <div class="title">Belongings</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                    <li class="row entry sta2e-gear-row-damaged"><div class="image">⌁</div><input class="item-name" value="Phaser Type-1"><button class="key amber-key sta2e-gear-dmg" title="Repair">Repair</button><div class="list-entry damage">2</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Pulse Grenade"><span class="sta2e-grenade-count">×3</span><div class="list-entry damage">4</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Armour</span><span style="width:34px;text-align:center">Prot</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">⛨</div><input class="item-name" value="EV Suit"><button class="key amber-key sta2e-wear is-worn">Worn</button><div class="list-entry damage">1</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Other</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">▣</div><input class="item-name" value="Tricorder"><button class="key sta2e-wear">Wear</button><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">▣</div><input class="item-name" value="Medkit"><input class="item-quantity" type="number" value="2"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section injuries">
+                  <div class="title">Injuries</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Pot</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image" style="color:#ff5a3a">✚</div><input class="item-name" value="Plasma Burn" style="color:#ff7a5a"><input class="item-quantity" type="number" value="2" style="color:#ff7a5a"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="state">Character tab</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Lt. Cmdr. T'Rena</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-tos-sheet">
+      <div class="split-section">
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item active">Character</a><a class="item">Traits</a><a class="item">Development</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body bio">
+            <div class="row c4">
+              <div class="column"><div class="title">Pronouns</div><input class="text-entry" value="She / Her"></div>
+              <div class="column"><div class="title">Species</div><input class="text-entry" value="Vulcan"></div>
+              <div class="column"><div class="title">Rank</div><input class="text-entry" value="Lieutenant Commander"></div>
+              <div class="column"><div class="title">Assignment</div><input class="text-entry" value="USS Endeavour"></div>
+            </div>
+            <div class="row c3">
+              <div class="column"><div class="title">Career Path</div><input class="text-entry" value="Starfleet Academy"></div>
+              <div class="column"><div class="title">Character Role</div><input class="text-entry" value="Science Officer"></div>
+              <div class="column"><div class="title">Experience</div><input class="text-entry" value="Experienced"></div>
+            </div>
+            <div class="row c2">
+              <div class="column"><div class="title">Environment</div><input class="text-entry" value="Homeworld"></div>
+              <div class="column"><div class="title">Upbringing</div><input class="text-entry" value="Academic"></div>
+            </div>
+            <div class="row c2">
+              <div class="column"><div class="title">Pastimes</div><input class="text-entry" value="Kal-toh, stellar cartography"></div>
+              <div class="column"><div class="title">Career Events</div><input class="text-entry" value="First Contact, Lost on the Frontier"></div>
+            </div>
+            <div class="row c4">
+              <div class="column num"><div class="title">Acclaim</div><input class="text-entry" value="3"></div>
+              <div class="column num"><div class="title">Reprimand</div><input class="text-entry" value="1"></div>
+              <div class="column" style="grid-column: span 2; align-self: end"><label class="lamp-check"><input class="selector" type="checkbox"> Klingon character (shows House, Caste, Glory…)</label></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════════ NPC ═══════════════════════════ -->
+  <div class="state">NPC sheet · Notable · Traits tab</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Klingon Officer</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-tos-sheet" data-sheet="npc">
+      <div class="split-section">
+        <div class="top-left-column panel">
+          <div class="image-field"><div class="profile-img" title="Portrait"></div></div>
+          <div class="viewer-cap"><span>Contact File</span><span>NPC</span></div>
+        </div>
+        <div class="top-right-column panel">
+          <div class="panel-head"><span>Non-Player Character</span><div class="lamps"><i class="r"></i><i class="a"></i><i></i></div></div>
+          <div class="name-field">
+            <div class="name-field-left">
+              <div class="title">Name</div>
+              <input name="name" type="text" value="Klingon Officer">
+            </div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key grey-key" title="Unlinked">⛓</button>
+            </div>
+          </div>
+          <div class="npc-block">
+            <div class="title">NPC Category</div>
+            <div class="row">
+              <div class="column">Minor <input type="radio" name="npcType-a" value="minor"></div>
+              <div class="column">Notable <input type="radio" name="npcType-a" value="notable" checked></div>
+              <div class="column">Major <input type="radio" name="npcType-a" value="major"></div>
+            </div>
+          </div>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Personal Threat</div>
+              <div class="bar" data-track="stress" data-max="6" data-lit="3"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="split-section">
+        <div class="bottom-left-column">
+          <div class="panel">
+            <div class="panel-head"><span>Attributes</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt attribute-block" data-list="npc-attributes"></div>
+            <div class="panel-head" style="border-top:3px solid #111"><span>Disciplines</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt discipline-block" data-list="npc-disciplines"></div>
+            <div class="side-controls">
+              <div class="buttons one">
+                <div class="check-button btn attribute red-key">Task Roll</div>
+              </div>
+              <div class="stressmod">Stress Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item">Character</a><a class="item active">Traits</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body">
+            <div class="items-split">
+              <div>
+                <div class="section talents">
+                  <div class="title">Talents</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Bold (Security)"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">✦</div><input class="item-name" value="Warrior's Spirit"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section focuses">
+                  <div class="title">Focuses</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Hand-to-Hand Combat"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">◎</div><input class="item-name" value="Intimidation"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="section traits">
+                  <div class="title">Traits</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">▲</div><input class="item-name" value="Klingon"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+                <div class="section belongings">
+                  <div class="title">Belongings</div>
+                  <div class="list">
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Disruptor Pistol"><div class="list-entry damage">3</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <li class="row entry"><div class="image">⌁</div><input class="item-name" value="d'k tahg Dagger"><div class="list-entry damage">2</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                    <div class="header row item"><span style="width:20px"></span><span class="grow">Armour</span><span style="width:34px;text-align:center">Prot</span><a class="mini add">+</a></div>
+                    <li class="row entry"><div class="image">⛨</div><input class="item-name" value="Klingon Armour"><button class="key amber-key sta2e-wear is-worn">Worn</button><div class="list-entry damage">1</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════ SUPPORTING ═══════════════════════ -->
+  <div class="state">Supporting character sheet · Development tab</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Ens. Rhys Calder</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="character-sheet sta2e-tos-sheet" data-sheet="supporting">
+      <div class="split-section">
+        <div class="top-left-column panel">
+          <div class="image-field"><div class="profile-img" title="Portrait"></div></div>
+          <div class="viewer-cap"><span>Personnel File</span><span>SC 412-880</span></div>
+        </div>
+        <div class="top-right-column panel">
+          <div class="panel-head"><span>Supporting Character</span><div class="lamps"><i class="g"></i><i class="a"></i><i></i></div></div>
+          <div class="name-field">
+            <div class="name-field-left">
+              <div class="title">Name</div>
+              <input name="name" type="text" value="Ens. Rhys Calder">
+            </div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key amber-key" title="Linked">⛓</button>
+            </div>
+          </div>
+          <!-- Supporting's selector is text + radios with no column wrappers,
+               exactly as the system template writes it. -->
+          <div class="npc-block">
+            <div class="row">Supporting Characters<input type="radio" name="npcType-b" value="supporting" checked>Supervisory Characters<input type="radio" name="npcType-b" value="supervising"></div>
+          </div>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Determination</div>
+              <div class="bar" data-track="determination" data-max="3" data-lit="1"></div></div>
+            <div class="track-row"><div class="tracktitle">Stress</div>
+              <div class="bar" data-track="stress" data-max="10" data-lit="2"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="split-section">
+        <div class="bottom-left-column">
+          <div class="panel">
+            <div class="panel-head"><span>Attributes</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt attribute-block" data-list="sup-attributes"></div>
+            <div class="panel-head" style="border-top:3px solid #111"><span>Disciplines</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt discipline-block" data-list="sup-disciplines"></div>
+            <div class="side-controls">
+              <div class="buttons one">
+                <div class="check-button btn attribute red-key">Task Roll</div>
+              </div>
+              <div class="stressmod">Stress Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-right-column panel">
+          <nav class="sheet-tabs tabs">
+            <a class="item">Character</a><a class="item">Traits</a><a class="item active">Development</a><a class="item">Notes</a>
+          </nav>
+          <section class="sheet-body">
+            <div class="section milestones">
+              <div class="title">Milestones / Arcs</div>
+              <div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Arc</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">✧</div><input class="item-name" value="Repaired the warp coil under fire"><input type="checkbox" class="arc-lamp" disabled><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">✧</div><input class="item-name" value="The Away Team Arc"><input type="checkbox" class="arc-lamp" checked disabled><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div>
+            </div>
+            <div class="section">
+              <div class="title">Supporting Character Improvements</div>
+              <div class="supporting-char-grid list">
+                <div class="row"><div class="label">New value</div><div class="inputs">
+                  <input type="checkbox" checked><input type="checkbox" checked><input type="checkbox"><input type="checkbox"></div></div>
+                <div class="row"><div class="label">Improve an Attribute</div><div class="inputs"><input type="checkbox" checked></div></div>
+                <div class="row"><div class="label">Improve a Department</div><div class="inputs"><input type="checkbox"></div></div>
+                <div class="row"><div class="label">New Focus</div><div class="inputs">
+                  <input type="checkbox" checked><input type="checkbox"><input type="checkbox"></div></div>
+                <div class="row"><div class="label">New Talent</div><div class="inputs">
+                  <input type="checkbox"><input type="checkbox"><input type="checkbox"><input type="checkbox"></div></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════════ STARSHIP ═══════════════════════════ -->
+  <div class="state">Starship sheet · NPC ship · Ship tab · Sensors + Science selected, one Weapons breach</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>I.K.S. Gorkon</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="starship-sheet sta2e-tos-sheet" data-sheet="starship">
+      <div class="split-section">
+        <div class="left-column">
+          <div class="panel">
+            <div class="image-field"><div class="profile-img" title="Ship image"></div></div>
+            <div class="viewer-cap"><span>Registry</span><span>IKS-7120</span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span>Systems</span><div class="lamps"><i class="a"></i><i class="r"></i></div></div>
+            <div class="crt systems-block" data-systems="ship"></div>
+            <div class="panel-head" style="border-top:3px solid #111"><span>Departments</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt departments-block departments" data-depts="ship"></div>
+            <div class="side-controls">
+              <div class="buttons one"><div class="check-button btn attribute red-key">Task Roll</div></div>
+              <div class="modrow shieldmod">Shield Modifier <input class="inset-num" type="number" value="0"></div>
+              <div class="modrow crwmod">Crew Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="right-column panel">
+          <div class="panel-head"><span>Vessel Record</span><div class="lamps"><i class="r"></i><i class="a"></i><i></i></div></div>
+          <div class="name-field">
+            <div class="name-field-left"><div class="title">Ship Name</div><input name="name" type="text" value="I.K.S. Gorkon"></div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key grey-key" title="Unlinked">⛓</button>
+            </div>
+          </div>
+          <div class="sta2e-npc-ship-block">
+            <label class="sta2e-npc-toggle"><input type="checkbox" class="sta2e-npc-cb" checked><span>NPC Ship</span></label>
+            <label class="sta2e-allied-npc-toggle"><input type="checkbox" class="sta2e-allied-npc-cb"><span>Allied NPC</span></label>
+            <div class="sta2e-crew-quality"><span class="sta2e-cq-title">Crew Quality</span>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Poor</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Basic</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a" checked><span>Proficient</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Talented</span></label>
+              <label class="sta2e-cq-option"><input type="radio" name="cq-a"><span>Exceptional</span></label>
+            </div>
+          </div>
+          <nav class="sta2e-crew-tabs"><button type="button" class="sta2e-crew-tab is-active">Ship</button><button type="button" class="sta2e-crew-tab">Crew</button></nav>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Crew Support</div><div class="bar" data-track="crew" data-max="4" data-lit="3"></div></div>
+            <div class="track-row"><div class="tracktitle">Shields</div><div class="bar" data-track="shields" data-max="12" data-lit="8"></div></div>
+          </div>
+          <div class="big-row">
+            <div class="big-row-column"><div class="tracktitle">Reserve Power</div><input class="checkbox power" type="checkbox" checked></div>
+            <div class="big-row-column"><div class="tracktitle">Shaken</div><input class="checkbox shaken" type="checkbox"></div>
+            <div class="big-row-column"><div class="tracktitle">Scale</div><input class="field numeric-entry" type="number" value="4"></div>
+            <div class="big-row-column"><div class="tracktitle">Resistance</div><input class="field numeric-entry" type="number" value="4"></div>
+          </div>
+          <div class="svc">
+            <div class="row c3">
+              <div class="column"><div class="title">Designation</div><input class="text-entry" value="IKS-7120"></div>
+              <div class="column"><div class="title">Space Frame</div><input class="text-entry" value="D7 Battle Cruiser"></div>
+              <div class="column"><div class="title">Service Date</div><input class="text-entry" value="2254"></div>
+            </div>
+            <div class="row c2">
+              <div class="column"><div class="title">Mission Profile</div><input class="text-entry" value="Strategic Operations"></div>
+              <div class="column"><div class="title">Refit</div><input class="text-entry" value="Disruptor upgrade"></div>
+            </div>
+          </div>
+          <div class="section values">
+            <div class="title">Mission Directives</div>
+            <div class="list">
+              <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+              <li class="row entry"><div class="image">◆</div><input class="item-name" value="Hold the border at the Klach D'Kel Brakt"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+            </div>
+          </div>
+          <div class="items-split">
+            <div>
+              <div class="section talents"><div class="title">Talents</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">✦</div><input class="item-name" value="Rugged Design"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">✦</div><input class="item-name" value="Fast Targeting Systems"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section traits"><div class="title">Traits</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">▲</div><input class="item-name" value="Klingon Starship"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section"><div class="title">Notes</div><div class="list note">Last reported near the Neutral Zone.</div></div>
+            </div>
+            <div>
+              <div class="section belongings"><div class="title">Equipment</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Disruptor Banks"><div class="list-entry damage">5</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Photon Torpedoes"><div class="list-entry damage">4</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Other</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">▣</div><input class="item-name" value="Cloaking Device"><input class="item-quantity" type="number" value="1"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section launchbay"><div class="title">Launch Bay</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Qty</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">➤</div><input class="item-name" value="Assault Shuttle"><input class="item-quantity" type="number" value="2"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section injuries"><div class="title">Damage Report</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Pot</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image" style="color:#ff5a3a">✚</div><input class="item-name" value="Weapons Breach" style="color:#ff7a5a"><input class="item-quantity" type="number" value="1" style="color:#ff7a5a"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="state">Starship sheet · Crew tab (toolkit)</div>
+  <div class="scroller"><div class="fwin" style="width:640px">
+    <div class="fwin-bar"><span>USS Lexington</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="starship-sheet sta2e-tos-sheet" data-sheet="starship">
+      <div class="right-column panel">
+        <div class="panel-head"><span>Vessel Record</span><div class="lamps"><i class="g"></i><i class="a"></i><i></i></div></div>
+        <div class="name-field"><div class="name-field-left"><div class="title">Ship Name</div><input name="name" type="text" value="USS Lexington"></div></div>
+        <nav class="sta2e-crew-tabs"><button type="button" class="sta2e-crew-tab">Ship</button><button type="button" class="sta2e-crew-tab is-active">Crew</button></nav>
+        <section class="sta2e-crew-section">
+          <div class="sta2e-crew-heading">Bridge Stations</div>
+          <div class="list">
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Captain</span><select class="sta2e-crew-select"><option>Capt. R. Halvorsen</option></select><span class="sta2e-crew-stat">PRE 11 · CMD 5</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">First Officer</span><select class="sta2e-crew-select"><option>Lt. Cmdr. T'Rena</option></select><span class="sta2e-crew-stat">REA 12 · SCI 5</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Helm</span><select class="sta2e-crew-select"><option>Lt. M. Okafor</option></select><span class="sta2e-crew-stat">CTL 11 · CON 4</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Tactical</span><select class="sta2e-crew-select"><option>Lt. J. Varga</option></select><span class="sta2e-crew-stat">DAR 10 · SEC 4</span></div>
+            <div class="sta2e-crew-station is-vacant"><span class="sta2e-crew-station-name">Communications</span><select class="sta2e-crew-select"><option>— Vacant —</option></select><span class="sta2e-crew-stat">—</span></div>
+            <div class="sta2e-crew-station"><span class="sta2e-crew-station-name">Engineering</span><select class="sta2e-crew-select"><option>Ens. Rhys Calder</option></select><span class="sta2e-crew-stat">CTL 10 · ENG 4</span></div>
+          </div>
+        </section>
+        <section class="sta2e-crew-section">
+          <div class="sta2e-crew-heading">Ship's Company <span class="sta2e-crew-count" style="color:#9ee26a;font-family:'Courier New',monospace">6</span></div>
+          <div class="sta2e-crew-dept-tabs">
+            <button class="sta2e-crew-dept-tab is-active">All <span class="sta2e-crew-dept-n">6</span></button><button class="sta2e-crew-dept-tab">Command <span class="sta2e-crew-dept-n">2</span></button><button class="sta2e-crew-dept-tab">Conn <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab">Engineering <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab">Security <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab">Science <span class="sta2e-crew-dept-n">1</span></button><button class="sta2e-crew-dept-tab is-empty">Medical <span class="sta2e-crew-dept-n">0</span></button>
+          </div>
+          <div class="list">
+            <div class="sta2e-crew-member"><span class="sta2e-crew-portrait"></span><span class="sta2e-crew-member-name">Capt. R. Halvorsen</span><span class="sta2e-crew-member-post">Captain</span><span class="sta2e-crew-badges"><span class="sta2e-crew-badge">Station</span></span><a class="mini del">✕</a></div>
+            <div class="sta2e-crew-member"><span class="sta2e-crew-portrait"></span><span class="sta2e-crew-member-name">Lt. Cmdr. T'Rena</span><span class="sta2e-crew-member-post">First Officer</span><span class="sta2e-crew-badges"><span class="sta2e-crew-badge">Assigned</span></span><a class="mini del">✕</a></div>
+            <div class="sta2e-crew-member"><span class="sta2e-crew-portrait"></span><span class="sta2e-crew-member-name">Ens. Rhys Calder</span><span class="sta2e-crew-member-post">Engineering</span><span class="sta2e-crew-badges"><span class="sta2e-crew-badge">Roster</span></span><a class="mini del">✕</a></div>
+          </div>
+          <div class="sta2e-crew-drop">Drop a character here to add them to the ship's company</div>
+        </section>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ═══════════════════════════ SMALL CRAFT ═══════════════════════════ -->
+  <div class="state">Small craft sheet · no Crew Support, Crew Modifier or Launch Bay</div>
+  <div class="scroller"><div class="fwin">
+    <div class="fwin-bar"><span>Shuttlecraft Copernicus</span><i>☰ Appearance</i><i>✕ Close</i></div>
+    <div class="starship-sheet sta2e-tos-sheet" data-sheet="smallcraft">
+      <div class="split-section">
+        <div class="left-column">
+          <div class="panel">
+            <div class="image-field"><div class="profile-img" title="Craft image"></div></div>
+            <div class="viewer-cap"><span>Auxiliary Craft</span><span>NCC-1709/4</span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span>Systems</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt systems-block" data-systems="craft"></div>
+            <div class="panel-head" style="border-top:3px solid #111"><span>Departments</span><div class="lamps"><i class="a"></i></div></div>
+            <div class="crt departments-block departments" data-depts="craft"></div>
+            <div class="side-controls">
+              <div class="buttons one"><div class="check-button btn attribute red-key">Task Roll</div></div>
+              <div class="modrow shieldmod">Shield Modifier <input class="inset-num" type="number" value="0"></div>
+            </div>
+          </div>
+        </div>
+        <div class="right-column panel">
+          <div class="panel-head"><span>Auxiliary Craft Record</span><div class="lamps"><i class="g"></i><i></i><i></i></div></div>
+          <div class="name-field">
+            <div class="name-field-left"><div class="title">Ship Name</div><input name="name" type="text" value="Shuttlecraft Copernicus"></div>
+            <div class="icon-column">
+              <button class="key grey-key" title="Palette">◐</button>
+              <button class="key grey-key" title="Crew type">★</button>
+              <button class="key amber-key" title="Linked">⛓</button>
+            </div>
+          </div>
+          <div class="sta2e-npc-ship-block"><label class="sta2e-npc-toggle"><input type="checkbox" class="sta2e-npc-cb"><span>NPC Ship</span></label></div>
+          <nav class="sta2e-crew-tabs"><button type="button" class="sta2e-crew-tab is-active">Ship</button><button type="button" class="sta2e-crew-tab">Crew</button></nav>
+          <div class="tracks">
+            <div class="track-row"><div class="tracktitle">Shields</div><div class="bar" data-track="shields" data-max="6" data-lit="6"></div></div>
+          </div>
+          <div class="big-row">
+            <div class="big-row-column"><div class="tracktitle">Reserve Power</div><input class="checkbox power" type="checkbox"></div>
+            <div class="big-row-column"><div class="tracktitle">Shaken</div><input class="checkbox shaken" type="checkbox"></div>
+            <div class="big-row-column"><div class="tracktitle">Scale</div><input class="field numeric-entry" type="number" value="1"></div>
+            <div class="big-row-column"><div class="tracktitle">Resistance</div><input class="field numeric-entry" type="number" value="1"></div>
+          </div>
+          <div class="svc">
+            <div class="row c3">
+              <div class="column"><div class="title">Designation</div><input class="text-entry" value="NCC-1709/4"></div>
+              <div class="column"><div class="title">Space Frame</div><input class="text-entry" value="Class F Shuttlecraft"></div>
+              <div class="column"><div class="title">Service Date</div><input class="text-entry" value="2258"></div>
+            </div>
+          </div>
+          <div class="items-split">
+            <div>
+              <div class="section talents"><div class="title">Talents</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">✦</div><input class="item-name" value="Atmospheric Flight"><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+            </div>
+            <div>
+              <div class="section belongings"><div class="title">Equipment</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Weapon</span><span style="width:34px;text-align:center">Dmg</span><a class="mini add">+</a></div>
+                <li class="row entry"><div class="image">⌁</div><input class="item-name" value="Phaser Emitter"><div class="list-entry damage">2</div><div class="control"><a class="mini">✎</a><a class="mini del">✕</a></div></li>
+              </div></div>
+              <div class="section injuries"><div class="title">Damage Report</div><div class="list">
+                <div class="header row item"><span style="width:20px"></span><span class="grow">Name</span><span style="width:34px;text-align:center">Pot</span><a class="mini add">+</a></div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <div class="notes">
+    <h3>How this would be built</h3>
+    <p>This would be a CSS overlay, not a new template. The <code>renderCharacterSheet</code> hook would add a <code>sta2e-tos-sheet</code> class to the sheet root under the TOS theme, and every rule would hang off that class, as the mockup's do. Every <code>data-action</code>, input name and system script keeps working, because nothing in the system's markup moves. That includes the track renderer, which rebuilds <code>div.box.stress.selected</code> on each render.</p>
+    <p>The parts that can't be done in CSS alone are a few small hook additions: the panel header strips and lamps, the "Personnel File" plate under the portrait, the wrapper that draws the CRT bezel, and lamp toggles for Values in place of the system's slider icons. The system's own colour palette variables (<code>--sta-*</code>, which the Crew tab also reads) would be set to the TOS colours, so anything the system adds later picks up the theme.</p>
+    <p><b>NPC and supporting character sheets.</b> They use the same template skeleton, so one overlay covers all three. Three extra pieces are styled here: the type selector (<code>.npc-block</code> radios), the NPC's Personal Threat track and the supporting character's milestone grid (<code>.supporting-char-grid</code>). The NPC sheet's Personal Threat track reuses the system's <code>#bar-stress-renderer</code>, so its keys carry the class <code>box stress</code>, exactly like a character's Stress track. CSS can't tell them apart, so the hook also stamps the actor type on the root (<code>data-sheet="npc"</code>), and that's what turns the Threat keys orange. Neither sheet has Acclaim or the reputation toggle, and the NPC sheet has no Development tab. Their panels are simply shorter, and nothing else needs its own rules.</p>
+    <p><b>Starship and small craft sheets.</b> These two templates are different from the character sheets but identical to each other: both use <code>.starship-sheet</code>, and the small craft one leaves out Crew Support, the Crew Modifier and the Launch Bay. They have no tabs of their own, so the toolkit's Ship/Crew strip and the NPC Ship block are styled as part of the same console. A system's breach count turns red when it's above zero. That needs no script: the template writes the count as the input's <code>value</code> attribute, so <code>.breaches:not([value="0"])</code> works on every render. The Crew Support and Shields tracks are drawn by the same renderer as the character tracks, as <code>box crew</code> and <code>box shields</code>, and get gold and blue keys.</p>
+    <p><b>The toolkit's Allied NPC block.</b> On ground NPC sheets the toolkit also adds an Allied NPC block, with the same lamp checkbox as the NPC Ship block. It isn't shown here, but it takes the same rules.</p>
+  </div>
+</div>
+
+<script>
+// Fill the parts the system generates in JS: track boxes and the attribute /
+// discipline rows (both rendered by the sheet itself in Foundry).
+document.querySelectorAll('.bar[data-track]').forEach(bar => {
+  const kind = bar.dataset.track;
+  const [max, lit] = bar.dataset.max
+    ? [Number(bar.dataset.max), Number(bar.dataset.lit)]
+    : { rep: [20, 10], determination: [3, 2], stress: [13, 4] }[kind];
+  for (let i = 1; i <= max; i++) {
+    const d = document.createElement('div');
+    d.className = `box ${kind}${i <= lit ? ' selected' : ''}`;
+    d.textContent = i;
+    d.addEventListener('click', () => {
+      bar.querySelectorAll('.box').forEach((b, j) => b.classList.toggle('selected', j < i));
+    });
+    bar.appendChild(d);
+  }
+});
+const lists = {
+  attributes: [['Control', 9], ['Daring', 10], ['Fitness', 8], ['Insight', 11], ['Presence', 9], ['Reason', 12, true]],
+  disciplines: [['Command', 2], ['Conn', 1], ['Engineering', 3], ['Security', 1], ['Medicine', 2], ['Science', 5, true]],
+  'npc-attributes': [['Control', 9], ['Daring', 11, true], ['Fitness', 10], ['Insight', 8], ['Presence', 9], ['Reason', 7]],
+  'npc-disciplines': [['Command', 3], ['Conn', 2], ['Engineering', 1], ['Security', 4, true], ['Medicine', 1], ['Science', 1]],
+  'sup-attributes': [['Control', 10, true], ['Daring', 8], ['Fitness', 9], ['Insight', 9], ['Presence', 8], ['Reason', 10]],
+  'sup-disciplines': [['Command', 1], ['Conn', 2], ['Engineering', 4, true], ['Security', 1], ['Medicine', 1], ['Science', 3]],
+};
+// Ship systems: [name, modifier, breaches, selected]
+const systems = {
+  ship:  [['Communications', 9, 0], ['Computers', 10, 0], ['Engines', 10, 0], ['Sensors', 9, 0, true], ['Structure', 10, 0], ['Weapons', 11, 1]],
+  craft: [['Communications', 6, 0], ['Computers', 7, 0], ['Engines', 8, 0, true], ['Sensors', 7, 0], ['Structure', 6, 0], ['Weapons', 5, 0]],
+};
+const depts = {
+  ship:  [['Command', 2], ['Conn', 2], ['Engineering', 1], ['Security', 3], ['Medicine', 0], ['Science', 2, true]],
+  craft: [['Command', 0], ['Conn', 2, true], ['Engineering', 1], ['Security', 0], ['Medicine', 0], ['Science', 1]],
+};
+const pickOne = (el, row, cls) => row.querySelector('.selector').addEventListener('change', e => {
+  el.querySelectorAll('.stat.row:not(.header)').forEach(r => { r.classList.remove('is-selected'); r.querySelector('.selector').checked = false; });
+  e.target.checked = true; row.classList.add('is-selected');
+});
+document.querySelectorAll('[data-systems]').forEach(el => {
+  el.innerHTML = '<div class="stat header row"><div class="text">System</div><div class="field">Mod</div><div class="field">Brch</div></div>';
+  for (const [name, mod, br, sel] of systems[el.dataset.systems]) {
+    const row = document.createElement('div');
+    row.className = `stat row${sel ? ' is-selected' : ''}`;
+    row.innerHTML = `<div class="text list-entry">${name}</div><input class="selector system" type="checkbox"${sel ? ' checked' : ''}><input class="field numeric-entry" type="number" value="${mod}"><input class="field numeric-entry breaches" type="number" value="${br}">`;
+    pickOne(el, row); el.appendChild(row);
+  }
+});
+document.querySelectorAll('[data-depts]').forEach(el => {
+  for (const [name, val, sel] of depts[el.dataset.depts]) {
+    const row = document.createElement('div');
+    row.className = `stat row${sel ? ' is-selected' : ''}`;
+    row.innerHTML = `<div class="text list-entry">${name}</div><input class="selector department" type="checkbox"${sel ? ' checked' : ''}><input class="field numeric-entry" type="text" value="${val}">`;
+    pickOne(el, row); el.appendChild(row);
+  }
+});
+document.querySelectorAll('[data-list]').forEach(el => {
+  for (const [name, val, sel] of lists[el.dataset.list]) {
+    const row = document.createElement('div');
+    row.className = `row-right${sel ? ' is-selected' : ''}`;
+    row.innerHTML = `<div class="list-entry">${name}</div><input class="selector" type="checkbox"${sel ? ' checked' : ''}><input class="numeric-entry" type="text" value="${val}">`;
+    const box = row.querySelector('.selector');
+    box.addEventListener('change', () => {
+      el.querySelectorAll('.row-right').forEach(r => { r.classList.remove('is-selected'); r.querySelector('.selector').checked = false; });
+      box.checked = true; row.classList.add('is-selected');
+    });
+    el.appendChild(row);
+  }
+});
+</script>
+</body>
+</html>
