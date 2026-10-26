@@ -18,6 +18,8 @@ import {
   tokensSharingZone as _tokensSharingZone,
 } from "./zone-dynamic.js";
 import { TransporterVFX } from "./transporter-vfx.js";
+import { setDoorLightState as _setDoorLightState, resetDoorLightUses as _resetDoorLightUses } from "./door-light-behavior.js";
+import { resetRandomTeleport as _resetRandomTeleport } from "./random-teleport-behavior.js";
 import { getLcTokens } from "./lcars-theme.js";
 import { isChatCardFrame, lcarsChatCard } from "./chat-card-frame.js";
 import { openInteriorGenerator as _openInteriorGenerator } from "./interior-generator.js";
@@ -115,6 +117,21 @@ export class ToolkitAPI {
 
   /** GM only. Render and save an automatically assembled habitation scene. */
   createAssembledInteriorScene(recipe = {}, options = {}) { return createPuzzleScene(recipe, options); }
+
+  /**
+   * GM only. Switch a Door & Light Control Region behavior: `true` on, `false`
+   * off, `"toggle"` to the other state. Takes the behavior or its UUID.
+   */
+  setDoorLightState(behaviorOrUuid, want = "toggle") { return _setDoorLightState(behaviorOrUuid, want); }
+
+  /**
+   * GM only. Let tokens trigger a Once Per Token Random Teleport again — one
+   * token (document or UUID), or every token that has used it when omitted.
+   */
+  resetRandomTeleport(behaviorOrUuid, tokenOrUuid = null) { return _resetRandomTeleport(behaviorOrUuid, tokenOrUuid); }
+
+  /** GM only. The same reset for a Once Per Token Door & Light Control behavior. */
+  resetDoorLightUses(behaviorOrUuid, tokenOrUuid = null) { return _resetDoorLightUses(behaviorOrUuid, tokenOrUuid); }
 
   constructor({ campaignStore, hud, dateEditor, campaignManager }) {
     this.campaignStore = campaignStore;

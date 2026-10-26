@@ -22,7 +22,9 @@
       "warpViewscreen": {},
       "difficultTerrain": {},
       "terrainHazard": {},
-      "sensorShroud": {}
+      "sensorShroud": {},
+      "randomTeleport": {},
+      "doorLightControl": {}
     }
   },
   "styles": [

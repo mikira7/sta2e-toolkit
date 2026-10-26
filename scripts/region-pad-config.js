@@ -26,6 +26,9 @@ export const EMITTER_FLAG = "transporterEmitterType";
 const PAD_FORM_PATH   = `flags.${FLAG_SCOPE}.${PAD_FLAG}`;
 const GROUP_FORM_PATH = `flags.${FLAG_SCOPE}.${GROUP_FLAG}`;
 const EMITTER_FORM_PATH = `flags.${FLAG_SCOPE}.${EMITTER_FLAG}`;
+// Read by random-teleport-behavior.js; kept as a literal so this file does not
+// import that one (it extends a Foundry class at load).
+const WEIGHT_FORM_PATH = `flags.${FLAG_SCOPE}.teleportWeight`;
 
 /** The group name is user text going back into an attribute. */
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
@@ -99,6 +102,16 @@ function _injectPadFields(app, html) {
         Overrides the arrival effect and sound, including patterns restored from
         the buffer. Beam-out uses the spawner's selected emitter. Set this on
         each pad in the room; leave blank to keep the buffer or selected emitter.`,
+    }));
+  }
+  if (!root.querySelector(`input[name="${WEIGHT_FORM_PATH}"]`)) {
+    const value = foundry.utils.getProperty(doc ?? {}, WEIGHT_FORM_PATH) ?? "";
+    target.appendChild(_buildFormGroup({
+      label: "Teleport Weight",
+      field: `<input type="number" name="${WEIGHT_FORM_PATH}" value="${esc(value)}" min="1" max="10" step="1" placeholder="1">`,
+      hint: `Only read when this Region is a destination of a Random Teleport
+        behavior. A weight-3 destination is picked three times as often as a
+        weight-1 one. Blank is 1.`,
     }));
   }
 }
