@@ -27,6 +27,8 @@ const reg = new Map(Object.entries({
   regionEmpty: { inputs: ['in'], outputs: ['yes', 'no'] },
   oncePerToken: { inputs: ['in'], outputs: ['first', 'again'] },
   cooldown: { inputs: ['in'], outputs: ['ready', 'blocked'] },
+  firstOnly: { inputs: ['in', 'reset'], outputs: ['first', 'blocked'] },
+  stateIs: { inputs: ['in'], outputs: ['yes', 'no'] },
   chance: { inputs: ['in'], outputs: ['yes', 'no'] },
   switch: { inputs: ['on', 'off', 'toggle'], outputs: ['out'] },
   doors: { inputs: ['on', 'off', 'toggle'], outputs: ['out'] },

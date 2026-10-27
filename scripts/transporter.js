@@ -20,7 +20,7 @@ import {
   formatKlingonDate, formatRomulanDate,
 } from "./stardate-calc.js";
 import { TransporterVFX } from "./transporter-vfx.js";
-import { runTransporterShader, isTransporterShaderRunning } from "./transporter-shader-playback.js";
+import { runTransporterShader, isTransporterShaderRunning, playTransporterShaderFx } from "./transporter-shader-playback.js";
 import { TRANSPORTER_SHADER_SETTING } from "./transporter-shader-config.js";
 import { SPAWN_PATTERNS } from "./spawn-patterns.js";
 import { getWildcardImage, buildSpawnTokenData, protoHalfSize, captureAppearance, usesAppearances } from "./token-spawn-utils.js";
@@ -485,6 +485,54 @@ async function _beamOutSelected(transporterType, effects) {
       } catch (e) { console.error("Transporter beam-out error:", e); }
     }, 3200);
   }
+}
+
+// ── Effect only (Region Logic) ────────────────────────────────────────────────
+//
+// Region Logic's Transport node keeps the token: no buffer and no delete, just
+// the look of the beam while it is moved. "out" leaves it at alpha 0, "in"
+// brings it back to 1. Whichever VFX engine is chosen plays, and every client
+// sees it: the shader packet and Sequencer broadcast themselves, and the native
+// engine is sent as `transporterNativeFx` (handled in main.js).
+
+/** {type: name} for every transporter look, for a select. */
+export function transporterTypeChoices() {
+  return Object.fromEntries(Object.entries(_effects()).map(([k, v]) => [k, v?.name ?? k]));
+}
+
+/** Play one transporter phase on a token that stays a token. GM; resolves when it is done. */
+export async function playTransporterFx(tokenDoc, type = "tngFed", phase = "out") {
+  const doc = tokenDoc?.document ?? tokenDoc;
+  if (!doc?.parent) return;
+  const effects = _effects();
+  if (!effects[type]) type = "tngFed";
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  _playSound(effects[type]?.sound);
+
+  if (_isShaderVFX()) return playTransporterShaderFx(doc, type, phase);
+
+  const tk = doc.parent === canvas.scene ? canvas.tokens?.get(doc.id) : null;
+  if (_isNativeVFX()) {
+    game.socket.emit("module.sta2e-toolkit", {
+      action: "transporterNativeFx", sceneId: doc.parent.id, tokenId: doc.id, type, phase,
+    });
+    if (tk) (phase === "out" ? TransporterVFX.beamOut : TransporterVFX.beamIn).call(TransporterVFX, tk, type);
+  } else if (tk) {
+    _playEffect(tk, type, effects);
+    _applyTransporterMagic(tk, type);
+  }
+
+  if (phase === "out") {
+    await wait(3200);
+    await doc.update({ alpha: 0 }, { animate: true, animation: { duration: 1800 } }).catch(() => null);
+    await wait(1900);
+  } else {
+    await wait(_isNativeVFX() ? 3200 : 2000);
+    await doc.update({ alpha: 1 }, { animate: !_isNativeVFX(), animation: { duration: 800 } }).catch(() => null);
+    if (!_isNativeVFX()) await wait(1800);
+  }
+  const after = canvas.tokens?.get(doc.id);
+  if (after && !_isNativeVFX()) _removeTransporterMagic(after);
 }
 
 // ── Beam in ───────────────────────────────────────────────────────────────────

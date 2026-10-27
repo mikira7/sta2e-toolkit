@@ -33,12 +33,14 @@ export const PORT_LABELS = {
   in: "", out: "", yes: "yes", no: "no", first: "first time", again: "again",
   ready: "ready", blocked: "blocked", on: "on", off: "off", toggle: "toggle",
   each: "each token", none: "nobody", check: "check", set: "after set", done: "after all",
-  disable: "disable", enable: "enable", pass: "pass", fail: "fail",
+  disable: "disable", enable: "enable", pass: "pass", fail: "fail", reset: "reset",
+  add: "add", remove: "remove", enter: "enter warp", exit: "drop out", reached: "reached", below: "not yet",
+  timeout: "timed out", show: "show", hide: "hide", 1: "1", 2: "2", 3: "3", 4: "4",
 };
 
 /** Ports that mean "it passed" draw green wires, the others red. */
-export const PORT_TONE = { yes: "pos", first: "pos", ready: "pos", pass: "pos",
-  no: "neg", again: "neg", blocked: "neg", fail: "neg" };
+export const PORT_TONE = { yes: "pos", first: "pos", ready: "pos", pass: "pos", reached: "pos",
+  no: "neg", again: "neg", blocked: "neg", fail: "neg", below: "neg", timeout: "neg" };
 
 export const CATEGORIES = [
   { id: "trigger",   label: "Triggers" },
@@ -314,6 +316,25 @@ export const TEMPLATES = [
         node("teleport", "teleport", C[2], 0),
       ],
       wires: [wire("door", "each"), wire("each", "teleport", "each")],
+    }),
+  },
+  {
+    id: "rollToUnlock", label: "Roll to unlock a locked door",
+    hint: "A token walking in while the door is locked gets a Task Roll card; passing unlocks it. "
+      + "Once the door is unlocked nobody is asked again, and a group arriving together gets one card. "
+      + "Pick the door in both Check State and Doors.",
+    build: () => ({
+      nodes: [
+        node("enter", "tokenEnter", C[0], 0, { who: "players" }),
+        node("locked", "stateIs", C[1], 0, { kind: "doors", doorState: "locked" }),
+        node("first", "firstOnly", C[2], 0, { rearm: "empty", who: "players" }),
+        node("roll", "taskRoll", C[3], 0),
+        node("doors", "doors", C[3] + 260, 0, { on: { door: "closed" }, off: { door: "" } }),
+      ],
+      wires: [
+        wire("enter", "locked"), wire("locked", "first", "yes"), wire("first", "roll", "first"),
+        wire("roll", "doors", "pass", "on"),
+      ],
     }),
   },
   {

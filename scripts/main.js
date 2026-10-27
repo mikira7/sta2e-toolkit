@@ -55,6 +55,7 @@ import { registerShipTurnMarker } from "./combat/initiative-turn-marker.js";
 // order — transporter, ships, Q.
 import { openTransporter, registerTransporterSettings } from "./transporter.js";
 import { receiveTransporterShader, teardownTransporterShaderPlayback } from "./transporter-shader-playback.js";
+import { TransporterVFX } from "./transporter-vfx.js";
 import { TRANSPORTER_SHADER_ACTION } from "./transporter-shader-config.js";
 import { openShipSpawner } from "./ship-spawner.js";
 import { openQSpawner } from "./q-spawner.js";
@@ -1565,6 +1566,17 @@ Hooks.once("ready", async () => {
     // Cosmetic playback only; the initiating GM owns transporter documents.
     if (msg.action === TRANSPORTER_SHADER_ACTION) {
       if (_vfxSceneOk(msg)) await receiveTransporterShader(msg);
+      return;
+    }
+
+    // Region Logic's Transport node on the native engine — cosmetic only; the
+    // GM that sent it owns the token's alpha.
+    if (msg.action === "transporterNativeFx") {
+      if (!_vfxSceneOk(msg)) return;
+      const tk = canvas.tokens?.get(msg.tokenId);
+      if (!tk) { vfxDrop(msg.action, "no-token", { tokenId: msg.tokenId }); return; }
+      if (msg.phase === "in") TransporterVFX.beamIn(tk, msg.type);
+      else TransporterVFX.beamOut(tk, msg.type);
       return;
     }
 

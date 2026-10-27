@@ -28,6 +28,7 @@ import { getLcCssVars, withBaseLcTheme } from "./lcars-theme.js";
 import { normalizeGraph, nodeConfig } from "./region-logic-graph.js";
 import {
   REGION_LOGIC_NODES, isLogicSwitchOn, setLogicSwitch, isNodeDisabled, nodeDisabledUntil, setNodesDisabled,
+  switchStateWord, setLogicCounter,
 } from "./region-logic-nodes.js";
 import {
   NODE_W, HEAD_H, ROW_H, PAD, FOOT_H, GRID, PORT_LABELS, PORT_TONE, CATEGORIES, TEMPLATES,
@@ -51,7 +52,7 @@ const CATEGORY_COLOUR = {
 
 const LAYERS = {
   walls: () => canvas.walls, lighting: () => canvas.lighting, sounds: () => canvas.sounds,
-  regions: () => canvas.regions,
+  regions: () => canvas.regions, tiles: () => canvas.tiles,
 };
 
 /** Open editors, by behavior UUID — opening one again brings it forward. */
@@ -70,7 +71,7 @@ function _summary(node, behavior) {
   if (!desc) return "This node type is not loaded.";
   let s = "";
   try { s = desc.summary?.(nodeConfig(node, desc)) ?? ""; } catch { /* never break the canvas */ }
-  if (desc.switchState) s += isLogicSwitchOn(behavior, node.id) ? " · ON" : " · OFF";
+  if (desc.switchState) s += ` · ${switchStateWord(desc, isLogicSwitchOn(behavior, node.id))}`;
   return s;
 }
 
@@ -253,10 +254,11 @@ export class RegionLogicEditor extends foundry.applications.api.ApplicationV2 {
     }
     const sw = desc?.switchState
       ? `<span class="rle-badge${isLogicSwitchOn(this.behavior, node.id) ? " is-on" : ""}">`
-        + `${isLogicSwitchOn(this.behavior, node.id) ? "ON" : "OFF"}</span>` : "";
+        + `${switchStateWord(desc, isLogicSwitchOn(this.behavior, node.id))}</span>` : "";
     const disabled = isNodeDisabled(this.behavior, node.id);
     const off = disabled ? `<span class="rle-badge rle-badge--disabled">DISABLED</span>` : "";
-    const summary = _summary(node, this.behavior).replace(/ · (ON|OFF)$/, "");
+    const summary = desc?.switchState ? _summary(node, this.behavior).replace(/ · [A-Z]+$/, "")
+      : _summary(node, this.behavior);
     const cls = ["rle-node", this.selected.has(node.id) && "is-selected", !desc && "is-unknown",
       disabled && "is-disabled", this._controlledIds().has(node.id) && "is-controlled"]
       .filter(Boolean).join(" ");
@@ -401,9 +403,21 @@ export class RegionLogicEditor extends foundry.applications.api.ApplicationV2 {
         : `<button type="button" data-act="nodeDisable" data-tooltip="A disabled node is skipped until enabled">
           <i class="fa-solid fa-power-off"></i> Disable</button>`);
     }
+    if (desc.describeState) {
+      let text = "";
+      try { text = desc.describeState(this.behavior, node, config) ?? ""; } catch { /* never break the panel */ }
+      if (text) extra.push(`<span class="rle-insp-state">${esc(text)}</span>`);
+      if (node.type === "counter") {
+        extra.push(`<button type="button" data-act="counterReset"><i class="fa-solid fa-rotate-left"></i> Reset Count</button>`);
+      }
+    }
     if (desc.switchState) {
       const on = isLogicSwitchOn(this.behavior, node.id);
-      extra.push(`<span class="rle-insp-state">Now <b>${on ? "ON" : "OFF"}</b></span>`);
+      extra.push(`<span class="rle-insp-state">Now <b>${switchStateWord(desc, on)}</b></span>`);
+      if (node.type === "firstOnly") {
+        extra.push(`<button type="button" data-act="latchOff" ${on ? "" : "disabled"}>
+          <i class="fa-solid fa-rotate-left"></i> Re-arm</button>`);
+      }
       // A Switch's state is only a flag, so it can be set by hand; a door or
       // light switch would also have to move its targets, which is the sheet's job.
       if (node.type === "latch") {
@@ -454,10 +468,15 @@ export class RegionLogicEditor extends foundry.applications.api.ApplicationV2 {
           <input type="text" data-path="${path}" data-type="color" value="${esc(value ?? "")}" placeholder="blank">
           <input type="color" data-swatch="${path}" value="${esc(value || "#ffffff")}"></span>${hint}</label>`;
       case "audio":
+      case "image": {
+        const audio = field.type === "audio";
         return `<label class="rle-field"><span>${esc(field.label)}</span><span class="rle-inline">
-          <input type="text" data-path="${path}" data-type="text" value="${esc(value ?? "")}" placeholder="No sound">
-          <button type="button" data-browse="${path}" data-tooltip="Browse"><i class="fa-solid fa-file-audio"></i></button>
+          <input type="text" data-path="${path}" data-type="text" value="${esc(value ?? "")}"
+            placeholder="${audio ? "No sound" : "No file"}">
+          <button type="button" data-browse="${path}" data-browse-type="${audio ? "audio" : "imagevideo"}"
+            data-tooltip="Browse"><i class="fa-solid ${audio ? "fa-file-audio" : "fa-file-image"}"></i></button>
           </span>${hint}</label>`;
+      }
       case "nodes": {
         const self = this._selectedNode();
         const picked = new Set(Array.isArray(value) ? value : []);
@@ -575,7 +594,7 @@ export class RegionLogicEditor extends foundry.applications.api.ApplicationV2 {
     if (btn.dataset.browse) {
       const path = btn.dataset.browse;
       const FP = foundry.applications.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
-      new FP({ type: "audio", current: getPath(config, path) || "",
+      new FP({ type: btn.dataset.browseType || "audio", current: getPath(config, path) || "",
         callback: src => this._setConfig(node, path, src) }).render(true);
       return;
     }
@@ -772,7 +791,15 @@ export class RegionLogicEditor extends foundry.applications.api.ApplicationV2 {
       case "latchOn":
       case "latchOff": {
         const node = this._selectedNode();
-        if (node?.type === "latch") await setLogicSwitch(this.behavior, node.id, act === "latchOn");
+        if (node?.type === "latch" || node?.type === "firstOnly") {
+          await setLogicSwitch(this.behavior, node.id, act === "latchOn");
+        }
+        return;
+      }
+      case "counterReset": {
+        const node = this._selectedNode();
+        if (node?.type === "counter") await setLogicCounter(this.behavior, node.id, 0);
+        this._drawInspector();
         return;
       }
       case "press": {

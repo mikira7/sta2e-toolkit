@@ -31,7 +31,9 @@ import { isActiveGM } from "./gm-authority.js";
 import { normalizeGraph, triggerNodes, runGraph, flowOrder, nodeConfig } from "./region-logic-graph.js";
 import {
   REGION_LOGIC_NODES, LOGIC_STATE_FLAG, LOGIC_USED_FLAG, nodeKey, isLogicSwitchOn, isNodeDisabled, setNodesDisabled,
+  setLogicSwitch, rearmFirstOnlyOnExit, switchStateWord, setLogicCounter, whoMatches,
 } from "./region-logic-nodes.js";
+import { handleRegionLogicSocket } from "./region-logic-nodes-toolkit.js";
 import { graphFromDoorLight, graphFromRandomTeleport } from "./region-logic-convert.js";
 import { DOOR_LIGHT_BEHAVIOR } from "./door-light-behavior.js";
 import { RANDOM_TELEPORT_BEHAVIOR } from "./random-teleport-behavior.js";
@@ -67,8 +69,13 @@ export class RegionLogicBehaviorType extends Base {
 
 async function _onEvent(system, eventName, event) {
   if (!isActiveGM()) return;
+  const token = event.data?.token ?? null;
+  if (eventName === "tokenExit") {
+    try { await rearmFirstOnlyOnExit(system.parent, normalizeGraph(system.graph), token); }
+    catch (err) { console.warn("STA2e Toolkit | Region Logic: could not re-arm First Token Only", err); }
+  }
   return _run(system.parent, eventName, {
-    token: event.data?.token ?? null, movement: event.data?.movement ?? null, user: event.user ?? null,
+    token, movement: event.data?.movement ?? null, user: event.user ?? null,
   });
 }
 
@@ -134,6 +141,8 @@ export async function resetRegionLogic(behaviorOrUuid) {
   for (const node of graph.nodes) {
     if (node.type === "oncePerToken") count += await resetUses({ id: nodeKey(behavior, node) }, LOGIC_USED_FLAG);
     if (node.type === "cooldown") await clearCooldown(behavior, node.id);
+    if (node.type === "firstOnly" && isLogicSwitchOn(behavior, node.id)) await setLogicSwitch(behavior, node.id, false);
+    if (node.type === "counter") await setLogicCounter(behavior, node.id, 0);
   }
   const disabled = graph.nodes.filter(n => isNodeDisabled(behavior, n.id)).map(n => n.id);
   await setNodesDisabled(behavior, disabled, false);
@@ -199,18 +208,90 @@ async function _onTaskConfirmed(message, changes) {
 
 // ── Door triggers ────────────────────────────────────────────────────────────
 
-/** Every enabled Region Logic behavior, on any scene, that has a Door Changes node. */
-function _doorWatchers() {
+/** Every enabled Region Logic behavior (on one scene, or any) that holds a node of this type. */
+function _watchers(nodeType, scene = null) {
   const out = [];
-  for (const scene of game.scenes ?? []) {
-    for (const region of scene.regions ?? []) {
+  for (const s of scene ? [scene] : (game.scenes ?? [])) {
+    for (const region of s.regions ?? []) {
       for (const behavior of region.behaviors ?? []) {
         if (behavior.type !== REGION_LOGIC_BEHAVIOR || behavior.disabled) continue;
-        if (normalizeGraph(behavior.system.graph).nodes.some(n => n.type === "doorChange")) out.push(behavior);
+        if (normalizeGraph(behavior.system.graph).nodes.some(n => n.type === nodeType)) out.push(behavior);
       }
     }
   }
   return out;
+}
+
+const _doorWatchers = () => _watchers("doorChange");
+
+function _runAll(behaviors, eventName, extra, what) {
+  for (const behavior of behaviors) {
+    _run(behavior, eventName, { token: null, movement: null, user: game.user, ...extra })
+      .catch(err => console.error(`STA2e Toolkit | Region Logic "${behavior.name}": ${what} trigger failed`, err));
+  }
+}
+
+// ── Combat, alert and timer triggers ─────────────────────────────────────────
+
+/** A new round, or a new turn: run Combat Round / Turn on the combat's scene. */
+function _onUpdateCombat(combat, changes) {
+  if (!isActiveGM() || !combat.started) return;
+  const round = "round" in changes;
+  if (!round && !("turn" in changes)) return;
+  const scene = combat.scene ?? canvas?.scene;
+  if (!scene) return;
+  // Under the toolkit's round-robin initiative a new round parks on turns[0]
+  // only until initiative-order.js clears it (nobody has acted yet), so that
+  // first combatant has not started a turn. Its real turn arrives as a later
+  // `turn` update, when someone is picked.
+  let roundRobin = false;
+  try { roundRobin = game.settings.get(MODULE, "initiativeRoundRobin") !== false; } catch { /* unset */ }
+  const token = round && roundRobin ? null : (combat.combatant?.token ?? null);
+  _runAll(_watchers("combatTurn", scene), "combat",
+    { combat, combatEvent: round ? "round" : "turn", token }, "combat");
+}
+
+// The alert setting is written by whichever GM changes it, and only a real
+// change counts (a second GM echoing the same value is not one). The first
+// write in a world CREATES the Setting, so both hooks are watched.
+let _lastAlert = null;
+
+function _onAlertSetting(setting) {
+  if (setting?.key !== "sta2e-toolkit.alertCondition") return;
+  let level;
+  try { level = game.settings.get(MODULE, "alertCondition"); } catch { return; }
+  const prev = _lastAlert;
+  _lastAlert = level;
+  if (prev === level || !isActiveGM()) return;
+  _runAll(_watchers("alertChange"), "alert", { alert: level, alertFrom: prev }, "alert");
+}
+
+// One clock for every Timer node, on the active GM. `_timerStart` holds when
+// each node's current interval began; a "while occupied" timer is dropped from
+// it when its Region empties, so it starts afresh on the next arrival.
+const _timerStart = new Map();
+
+function _tickTimers() {
+  if (!isActiveGM()) { _timerStart.clear(); return; }
+  const now = Date.now();
+  const seen = new Set();
+  for (const behavior of _watchers("timer")) {
+    for (const node of normalizeGraph(behavior.system.graph).nodes) {
+      if (node.type !== "timer" || isNodeDisabled(behavior, node.id)) continue;
+      const config = nodeConfig(node, REGION_LOGIC_NODES.get("timer"));
+      const key = `${behavior.uuid}#${node.id}`;
+      if (config.whileOccupied
+        && ![...(behavior.parent?.tokens ?? [])].some(t => whoMatches(t, config.who))) continue;
+      seen.add(key);
+      const start = _timerStart.get(key);
+      if (start == null) { _timerStart.set(key, now); continue; }
+      if (now - start < Math.max(1, Number(config.seconds) || 1) * 1000) continue;
+      _timerStart.set(key, now);
+      _run(behavior, "timer", { token: null, movement: null, user: game.user, nodeId: node.id })
+        .catch(err => console.error(`STA2e Toolkit | Region Logic "${behavior.name}": timer failed`, err));
+    }
+  }
+  for (const key of _timerStart.keys()) if (!seen.has(key)) _timerStart.delete(key);
 }
 
 function _seedDoorStates() {
@@ -294,7 +375,7 @@ function _flowHtml(behavior, graph) {
     const config = nodeConfig(node, desc);
     let summary = "";
     try { summary = desc?.summary?.(config) ?? ""; } catch { /* a summary must never break the sheet */ }
-    if (desc?.switchState) summary += isLogicSwitchOn(behavior, node.id) ? " · ON" : " · OFF";
+    if (desc?.switchState) summary += ` · ${switchStateWord(desc, isLogicSwitchOn(behavior, node.id))}`;
     if (isNodeDisabled(behavior, node.id)) summary += " · DISABLED";
     const trigger = desc?.category === "trigger";
     const links = wires.map(w => {
@@ -421,6 +502,18 @@ export function registerRegionLogicBehavior() {
   } catch { /* diagnostic only */ }
 
   Hooks.once("ready", _seedDoorStates);
+  Hooks.once("ready", () => {
+    try { _lastAlert = game.settings.get(MODULE, "alertCondition"); } catch { /* not registered */ }
+    setInterval(_tickTimers, 1000);
+  });
+  Hooks.on("updateSetting", _onAlertSetting);
+  Hooks.on("createSetting", _onAlertSetting);
+  Hooks.on("updateCombat", _onUpdateCombat);
+  // The camera pan for chosen players. A listener of its own on the module
+  // channel, as destructible-objects.js has; registered here, in init.
+  game.socket?.on(`module.${MODULE}`, msg => {
+    try { handleRegionLogicSocket(msg); } catch (err) { console.warn("STA2e Toolkit | Region Logic socket", err); }
+  });
   Hooks.on("createWall", wall => { if ((wall.door ?? 0) > 0) rememberDoorState(wall.uuid, wall.ds); });
   Hooks.on("deleteWall", wall => rememberDoorState(wall.uuid, undefined));
   Hooks.on("updateWall", _onUpdateWall);

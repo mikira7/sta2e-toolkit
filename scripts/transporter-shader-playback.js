@@ -108,6 +108,30 @@ export async function runTransporterShader(tokenOrDocument, type, phase) {
   finally { if (running.get(key) === task) running.delete(key); }
 }
 
+/**
+ * The shader look alone, on a token that stays a token (Region Logic's
+ * Transport node): no delete on "out", the token is left at alpha 0 instead,
+ * and "in" brings it back to 1.
+ */
+export async function playTransporterShaderFx(doc, type, phase) {
+  if (!game.user.isGM) return;
+  const settings = getTransporterShaderSettings(type);
+  const msg = {
+    action: TRANSPORTER_SHADER_ACTION, operationId: foundry.utils.randomID(),
+    userId: game.user.id, sceneId: doc.parent.id, tokenId: doc.id,
+    type: normalizeTransporterType(type), phase,
+    settings, startTime: transporterNow() + 100, seed: Math.floor(Math.random() * 10000),
+    targetAlpha: phase === "in" ? 1 : doc.alpha || 1,
+  };
+  receiveTransporterShader(msg).catch(error => console.warn("STA2e Toolkit | Transporter playback failed", error));
+  broadcast(msg);
+  await waitUntil(msg.startTime + settings.duration * .8);
+  if (doc.parent.tokens.has(doc.id)) {
+    await doc.update({ alpha: phase === "in" ? 1 : 0 }, { animate: false }).catch(() => null);
+  }
+  await waitUntil(msg.startTime + settings.duration);
+}
+
 export function teardownTransporterShaderPlayback() {
   for (const entry of pending.values()) entry.canceled = true;
   pending.clear();
