@@ -334,6 +334,22 @@ export function lookStateFor(tokenDoc) {
 }
 
 /**
+ * The name a disguised figure goes by — the token name its look or mimic put
+ * on — or null when it is not dressed, or its token still shows its own name.
+ * Task cards use it so a roll made in disguise does not give the actor away.
+ * Takes a token (document or placeable) or an actor; an unlinked token must
+ * be passed as the token, since its state lives there.
+ */
+export function disguisedNameFor(target) {
+  const fig = _figure(target?.document ?? target);
+  if (!fig) return null;
+  if (!stateIsDressed(_stateDoc(fig)?.getFlag(MODULE, STATE_FLAG))) return null;
+  const shown = fig.ref?.name ?? (fig.linked ? fig.actor.prototypeToken?.name : null);
+  const real = (fig.base ?? fig.actor)?.name;
+  return shown && shown !== real ? shown : null;
+}
+
+/**
  * Put a look on a token (`null` = original art). A rule in force keeps showing
  * until its trigger clears; the pick is what returns afterwards.
  */

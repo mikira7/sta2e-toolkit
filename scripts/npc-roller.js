@@ -17,6 +17,7 @@
 import { getLcTokens, getLcCssVars, getActiveLcThemeKey, isBracketTheme, isEntTheme, isKlingonTheme, isRomulanTheme, pushLcThemeOverride, withLcTheme } from "./lcars-theme.js";
 import { actorSkinTheme } from "./tos-sheet-theme.js";
 import { getCrewManifest, readOfficerStats } from "./crew-manifest.js";
+import { disguisedNameFor } from "./appearance.js";
 import { speciesExtraDieBonusMomentum } from "./momentum-spend.js";
 import { createTracker } from "./momentum-tracker.js";
 import { adjustPool, readPool } from "./pool-service.js";
@@ -4544,7 +4545,18 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   // Assisting officers (from combat HUD assist command) are kept SEPARATE in
   // state.assistOfficers and shown in the assist section, never replacing the
   // crew quality block or the officer mode of the station's own officer.
-  const officerStats = officer ?? null;
+  // A disguised figure (a look's token name, or a mimic) rolls under the name
+  // its token shows, so the card does not give the real character away.
+  const _disguiseOf = (id) => {
+    if (!id) return null;
+    const same = id === actor?.id && tokenDoc;
+    return disguisedNameFor(same ? tokenDoc : game.actors.get(id));
+  };
+  const _officerDisguise = officer ? _disguiseOf(officer.id) : null;
+  const officerStats = officer
+    ? (_officerDisguise ? { ...officer, name: _officerDisguise } : officer)
+    : null;
+  const _actorDisplayName = _disguiseOf(actor?.id) ?? actor?.name;
 
   // Detect whether an actor is assigned to this station even if readOfficerStats returned null
   // (e.g. actor lacks STA2e system.attributes/disciplines data). When true the actor provides
@@ -4769,7 +4781,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
   }, actor);
 
   const state = {
-    actorName: actor.name,
+    actorName: _actorDisplayName,
     actorId: actor.id,
     // Interactive Extra Dice Payment
     paymentSlots: [null, null, null, null, null, null],
@@ -5101,7 +5113,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
       opposedTaskRef: state.opposedTaskRef ?? null,
       actorId: actor.id,
       tokenId: token?.id ?? null,
-      actorName: actor.name,
+      actorName: state.actorName,
       stationId: state.stationId,
       selectedTaskKey: state.selectedTaskKey ?? null,
       selectedTaskStationId: state.selectedTaskStationId ?? null,
@@ -5505,7 +5517,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
               // Post the roller summary to chat
               ChatMessage.create({
-                content: buildChatCard(actor.name, state),
+                content: buildChatCard(state.actorName, state),
                 speaker: ChatMessage.getSpeaker({ token }),
               }).catch(err => {
                 console.error("STA2e Toolkit | failed to post task card:", err);
@@ -5661,7 +5673,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
 
               // Always post the roller summary card
               ChatMessage.create({
-                content: buildChatCard(actor.name, state),
+                content: buildChatCard(state.actorName, state),
                 speaker: ChatMessage.getSpeaker({ token }),
               }).catch(err => {
                 console.error("STA2e Toolkit | failed to post task card:", err);
@@ -5747,7 +5759,7 @@ export async function openNpcRoller(actor, token, { hasTargetingSolution = false
             default: false,
             callback: async () => {
               ChatMessage.create({
-                content: buildChatCard(actor.name, state),
+                content: buildChatCard(state.actorName, state),
                 speaker: ChatMessage.getSpeaker({ token }),
               }).catch(err => {
                 console.error("STA2e Toolkit | failed to post task card:", err);
