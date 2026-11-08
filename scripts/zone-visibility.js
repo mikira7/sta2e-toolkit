@@ -27,7 +27,8 @@ export function registerZoneVisibilityWrap() {
 
   libWrapper.register(
     "sta2e-toolkit",
-    "CanvasVisibility.prototype.testVisibility",
+    // Namespaced path: the global `CanvasVisibility` is deprecated since v13.
+    "foundry.canvas.groups.CanvasVisibility.prototype.testVisibility",
     function(wrapped, point, options = {}) {
       const result = wrapped(point, options);
       if (!result || isActiveGM()) return result;

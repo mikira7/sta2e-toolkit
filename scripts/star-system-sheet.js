@@ -2176,8 +2176,10 @@ function defaultActorType() {
 }
 
 export function registerStarSystemActorSheet() {
-  if (globalThis.Actors?.registerSheet) {
-    Actors.registerSheet(MODULE_ID, StarSystemActorSheet, {
+  // The global `Actors` is deprecated since v13 (removed in v15).
+  const ActorsCollection = foundry.documents?.collections?.Actors;
+  if (ActorsCollection?.registerSheet) {
+    ActorsCollection.registerSheet(MODULE_ID, StarSystemActorSheet, {
       types: actorTypes(),
       makeDefault: false,
       // Keeps this sheet out of DocumentSheetConfig's `defaultClasses`, so it
@@ -2418,7 +2420,8 @@ export function openStarSystemSheet(actor) {
   new StarSystemActorSheet(actor).render(true);
 }
 
-export class StarSystemActorSheet extends ActorSheet {
+// The global `ActorSheet` is deprecated since v13 (removed in v15).
+export class StarSystemActorSheet extends foundry.appv1.sheets.ActorSheet {
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       classes: ["sta2e-toolkit", "sta2e-star-system-window"],

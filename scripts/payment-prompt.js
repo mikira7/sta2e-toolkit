@@ -7,7 +7,8 @@ import { getLcTokens } from "./lcars-theme.js";
 
 const MODULE_DIR = "modules/sta2e-toolkit";
 
-export class PaymentPrompt extends Application {
+// The global `Application` is deprecated since v13 (removed in v15).
+export class PaymentPrompt extends foundry.appv1.api.Application {
   constructor(totalCost, options = {}) {
     super(options);
     this.totalCost = totalCost;
