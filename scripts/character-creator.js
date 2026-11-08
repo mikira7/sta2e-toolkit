@@ -1954,6 +1954,21 @@ function sharedActorOwnership() {
   };
 }
 
+// NPCs are the GM's: no player owns them by default.
+function gmOnlyActorOwnership() {
+  return {
+    default: CONST?.DOCUMENT_OWNERSHIP_LEVELS?.NONE ?? 0,
+  };
+}
+
+// Supporting characters are shared by every player; NPCs are GM-only;
+// player characters belong to the player who made them.
+function creatorOwnershipModeFor(characterKind) {
+  if (characterKind === "npc") return "gm";
+  if (characterKind === "supporting") return "shared";
+  return "player";
+}
+
 function sanitizeCreatorActorDataForCreation(actorData, { requesterUserId, ownershipMode } = {}) {
   const data = foundry.utils.deepClone(actorData ?? {});
 
@@ -1962,7 +1977,9 @@ function sanitizeCreatorActorDataForCreation(actorData, { requesterUserId, owner
 
   data.ownership = ownershipMode === "shared"
     ? sharedActorOwnership()
-    : actorOwnershipForUser(requesterUserId);
+    : ownershipMode === "gm"
+      ? gmOnlyActorOwnership()
+      : actorOwnershipForUser(requesterUserId);
 
   return data;
 }
@@ -2056,7 +2073,7 @@ export async function createCharacterCreatorActorAsGM({ actorData, requesterUser
     throw new Error("Only GMs can create NPCs.");
   }
 
-  const effectiveOwnershipMode = characterKind === "supporting" || characterKind === "npc" ? "shared" : "player";
+  const effectiveOwnershipMode = creatorOwnershipModeFor(characterKind);
   const data = sanitizeCreatorActorDataForCreation(actorData, {
     requesterUserId,
     ownershipMode: effectiveOwnershipMode,
@@ -8442,7 +8459,7 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
           npcType,
         },
       },
-      ownership: sharedActorOwnership(),
+      ownership: gmOnlyActorOwnership(),
       items,
     };
   }
@@ -8474,7 +8491,7 @@ export class CharacterCreator extends HandlebarsApplicationMixin(ApplicationV2) 
     try {
       const items = await this._buildFinalActorItems(context);
       const characterKind = context.isNpcCharacter ? "npc" : context.isSupportingCharacter ? "supporting" : "player";
-      const ownershipMode = context.isSupportingCharacter || context.isNpcCharacter ? "shared" : "player";
+      const ownershipMode = creatorOwnershipModeFor(characterKind);
       const actor = await createCharacterCreatorActor(this._buildFinalActorData(context, items), {
         characterKind,
         ownershipMode,
