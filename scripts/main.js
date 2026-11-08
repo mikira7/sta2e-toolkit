@@ -18,6 +18,8 @@ import { registerCoolantLeakHooks, syncCoolantLeak, startCoolantLeak, stopCoolan
 import { SHIP_EXPLOSION_ACTION, playShipExplosionFromSocket, previewShipExplosion } from "./ship-explosion-vfx.js";
 import { SHIP_MELTDOWN_ACTION, SHIP_MELTDOWN_STOP_ACTION, playShipMeltdownFromSocket, stopShipMeltdownFromSocket, previewShipMeltdown, playShipMeltdown } from "./ship-meltdown-vfx.js";
 import { NativeTractorBeamVFX, registerTractorBeamVfxHooks } from "./tractor-beam-vfx.js";
+import { captureTowOffset, towPose, towBox, resolveTowOffset } from "./tractor-tow.js";
+import { registerTractorTowPin } from "./tractor-tow-pin.js";
 import { openShipVfxAnchorEditor } from "./ship-vfx-anchors.js";
 import { registerDestructibleObjects, isDestructible, requestObjectOperation } from "./destructible-objects.js";
 import { registerDestructibleCombat } from "./destructible-combat.js";
@@ -2884,6 +2886,11 @@ Hooks.once("setup", () => {
   // Patch Token._refreshBorder and wire the silhouette selection glow.
   registerTokenSelectGlow();
 
+  // Draw a towed ship off its host's animated pose, so it keeps station instead
+  // of trailing a GM round trip behind. Before registerWarpStretch, so the
+  // stretch wraps outermost and captures the pinned position as its base.
+  registerTractorTowPin();
+
   // Patch Token._refreshSize/_refreshMesh so the warp hull smear survives core's
   // own rewrites of mesh.scale.
   registerWarpStretch();
@@ -2891,9 +2898,37 @@ Hooks.once("setup", () => {
   // Planetary ring dust wake — each client follows replicated moves itself.
   registerRingDustWake();
 
-  // Patch Token._onDragLeftStart and _onDragLeftDrop to feed the ZoneDragRuler
-  const TokenClass = foundry.canvas?.placeables?.Token ?? Token;
+  // Patch Token._onDragLeftStart / _onDragLeftDrop / _onDragLeftCancel to feed
+  // the ZoneDragRuler. Through libWrapper when it is present, so other modules
+  // wrapping the same methods (Baileywiki Mass Edit wraps _onDragLeftDrop) chain
+  // with ours instead of libWrapper flagging a raw prototype overwrite.
+  const TokenClass = foundry.canvas?.placeables?.Token;
   if (!TokenClass?.prototype) return;
+
+  const startDrag = (token) => {
+    try { game.sta2eToolkit?.zoneDragRuler?.startDrag(token); } catch { /* ignore */ }
+  };
+  const endDrag = () => {
+    try { game.sta2eToolkit?.zoneDragRuler?.endDrag(); } catch { /* ignore */ }
+  };
+
+  if (typeof libWrapper !== "undefined") {
+    const path = "foundry.canvas.placeables.Token.prototype";
+    libWrapper.register("sta2e-toolkit", `${path}._onDragLeftStart`, function (wrapped, ...args) {
+      const result = wrapped(...args);
+      startDrag(this);
+      return result;
+    }, "WRAPPER");
+    libWrapper.register("sta2e-toolkit", `${path}._onDragLeftDrop`, function (wrapped, ...args) {
+      endDrag();
+      return wrapped(...args);
+    }, "WRAPPER");
+    libWrapper.register("sta2e-toolkit", `${path}._onDragLeftCancel`, function (wrapped, ...args) {
+      endDrag();
+      return wrapped(...args);
+    }, "WRAPPER");
+    return;
+  }
 
   const origStart = TokenClass.prototype._onDragLeftStart;
   const origDrop  = TokenClass.prototype._onDragLeftDrop;
@@ -2901,23 +2936,17 @@ Hooks.once("setup", () => {
 
   TokenClass.prototype._onDragLeftStart = function (event) {
     const result = origStart?.call(this, event);
-    try {
-      game.sta2eToolkit?.zoneDragRuler?.startDrag(this);
-    } catch { /* ignore */ }
+    startDrag(this);
     return result;
   };
 
   TokenClass.prototype._onDragLeftDrop = function (event) {
-    try {
-      game.sta2eToolkit?.zoneDragRuler?.endDrag();
-    } catch { /* ignore */ }
+    endDrag();
     return origDrop?.call(this, event);
   };
 
   TokenClass.prototype._onDragLeftCancel = function (event) {
-    try {
-      game.sta2eToolkit?.zoneDragRuler?.endDrag();
-    } catch { /* ignore */ }
+    endDrag();
     return origCancel?.call(this, event);
   };
 });
@@ -3066,113 +3095,114 @@ Hooks.on("updateCombat", async (combat, changes) => {
   }
 });
 
-// Tractor beam follow — track last known position of each source token.
+// Tractor beam towing — the active GM holds a towed ship at a rigid offset in
+// the host's local frame (flag `tractorBeam.tow`, geometry in tractor-tow.js).
+// The target's pose is computed from the host's NEW pose alone, so it is
+// idempotent: the ~44 overlapping steps of an impulse arc cannot drift it, and
+// it swings behind the host through every turn. Never reintroduce delta
+// tracking (last-position maps) — that is what drifted.
 //
-// By the time updateToken fires, tokenDoc.x/y are already the new values, so
-// we cannot compute a delta from the document alone. Two hooks work together:
-//
-//  preUpdateToken  — fires BEFORE the document is mutated; stores the old x/y.
-//  updateToken     — fires AFTER the mutation; reads the stored old x/y to get
-//                    the true delta, then immediately writes the NEW x/y back
-//                    so the NEXT updateToken call always has a valid baseline.
-//
-// Writing back in updateToken means multi-step / long-distance moves work
-// even when preUpdateToken does not fire for every intermediate step.
-//
-// _tractorTargetExpected tracks where we last told the target to go instead of
-// reading targetTok.document.x, which lags behind when multiple target updates
-// are in-flight simultaneously (e.g. the ~44 rapid steps of an impulse arc).
-const _tractorLastPos        = new Map();
-const _tractorTargetExpected = new Map();
+// The follow copies the host update's animation options, so the target glides
+// in step with scripted moves and carries `sta2eScriptedMove` (zone logic runs
+// once, on the final step). `sta2eTractorFollow` marks the follow's own writes;
+// any OTHER move of the target re-anchors the offset, so a GM can reposition a
+// towed ship and it stays where it was put.
+// Not `teleport`: v13+ deprecates it — reading it off the options logs a
+// warning, and passing it on logs another. A teleporting host's update also
+// carries `animate: false`, which is what keeps the target's jump instant.
+const TOW_COPY_OPTIONS = ["animate", "animation", "sta2eScriptedMove"];
 
-Hooks.on("preUpdateToken", (tokenDoc, changes) => {
-  if (!game.user.isGM) return;
-  const tractorState = tokenDoc.getFlag("sta2e-toolkit", "tractorBeam");
-  if (!tractorState?.targetTokenId) return;
-  // Tractor locks created before behavior was recorded were towing locks.
-  if (tractorState.behavior === "beamOnly") return;
-  if ("x" in changes || "y" in changes) {
-    _tractorLastPos.set(tokenDoc.id, { x: tokenDoc.x, y: tokenDoc.y });
-  }
-});
+
+function _isTowMove(changes) {
+  return "x" in changes || "y" in changes || "rotation" in changes || "elevation" in changes;
+}
 
 // Refresh HUD if the same token's flags change (condition applied/removed)
-Hooks.on("updateToken", async (tokenDoc, changes) => {
+Hooks.on("updateToken", (tokenDoc, changes, options) => {
   const combatHud = game.sta2eToolkit?.combatHud;
   if (combatHud?._token && tokenDoc.id === combatHud._token.id) {
     if (changes.flags?.["sta2e-toolkit"]) combatHud.refresh();
   }
 
-  // Tractor beam follow — move target by the SAME DELTA as source moved.
-  if (!game.user.isGM) return;
-
-  const tractorState = tokenDoc.getFlag("sta2e-toolkit", "tractorBeam");
-  if (!tractorState?.targetTokenId) return;  // not a source token
+  if (!isActiveGM() || !_isTowMove(changes)) return;
+  const state = tokenDoc.getFlag("sta2e-toolkit", "tractorBeam");
   // Beam-only locks remain visual; legacy locks without a behavior keep towing.
-  if (tractorState.behavior === "beamOnly") return;
+  if (!state || state.behavior === "beamOnly") return;
+  const scene    = tokenDoc.parent;
+  const gridSize = scene?.grid?.size ?? canvas.grid?.size ?? 100;
 
-  const targetTok = canvas.tokens?.get(tractorState.targetTokenId);
-  if (!targetTok) return;
-
-  // Token Attacher is handling movement for this pair — nothing to do here.
-  if (tractorState.usesTA) return;
-
-  const rotChanged = "rotation" in changes;
-  const posChanged = "x" in changes || "y" in changes;
-  if (!posChanged && !rotChanged) return;
-
-  const newSrcRot = changes.rotation ?? tokenDoc.rotation ?? 0;
-
-  if (posChanged) {
-    const oldPos = _tractorLastPos.get(tokenDoc.id);
-    // Always refresh so the next call has a correct baseline even when
-    // preUpdateToken does not fire for every step (long-distance moves).
-    _tractorLastPos.set(tokenDoc.id, { x: tokenDoc.x, y: tokenDoc.y });
-
-    const dx = oldPos ? tokenDoc.x - oldPos.x : 0;
-    const dy = oldPos ? tokenDoc.y - oldPos.y : 0;
-
-    if (dx !== 0 || dy !== 0) {
-      // Use our own tracked expected position rather than targetTok.document.x/y.
-      // During rapid-fire animations (impulse bezier ~44 steps in 700ms) several
-      // target updates may be in-flight at once; document.x would be stale and
-      // each step would re-base from the same old value, producing wrong deltas.
-      const expected = _tractorTargetExpected.get(targetTok.id)
-        ?? { x: targetTok.document.x, y: targetTok.document.y };
-      const newX = expected.x + dx;
-      const newY = expected.y + dy;
-      _tractorTargetExpected.set(targetTok.id, { x: newX, y: newY });
-      await targetTok.document.update({
-        x: newX, y: newY, rotation: newSrcRot,
-      }, { animate: true }).catch(() => {});
-    }
-
-    // Always return here — never fall through to the rotation branch while the
-    // source is also moving.  The rotation branch is for pure heading changes
-    // only (no position change).  Letting it run during movement (e.g. every
-    // step of an impulse arc) snaps the target to a "behind" position computed
-    // from the momentary tangent angle, causing wild back-and-forth oscillation.
+  if (state.targetTokenId) {
+    // Host moved — put the target at its offset from the host's new pose.
+    const targetDoc = scene?.tokens?.get(state.targetTokenId);
+    if (!targetDoc) return;
+    // Final (_source) poses, never the document's own x/y: core has already run
+    // the first animation frame, so those hold where the host STARTED.
+    const hostBox = towBox(tokenDoc, { gridSize });
+    const tgtBox  = towBox(targetDoc, { gridSize });
+    const pose = towPose(hostBox, resolveTowOffset(state, hostBox, tgtBox, gridSize), tgtBox);
+    const opts = { sta2eTractorFollow: true };
+    for (const k of TOW_COPY_OPTIONS) if (options && k in options) opts[k] = options[k];
+    // Fire and forget: updates from one client reach the server in order, so
+    // the steps of a scripted move stay in sequence without blocking the hook.
+    targetDoc.update({ x: pose.x, y: pose.y, rotation: pose.rotation, elevation: pose.elevation }, opts)
+      .catch(() => {});
     return;
   }
 
-  if (rotChanged) {
-    // Pure rotation-only change — recompute behind position for new heading.
-    _tractorLastPos.set(tokenDoc.id, { x: tokenDoc.x, y: tokenDoc.y });
-    const gridSize = canvas.grid?.size ?? 100;
-    const srcW     = (tokenDoc.width            ?? 1) * gridSize;
-    const srcH     = (tokenDoc.height           ?? 1) * gridSize;
-    const tgtW     = (targetTok.document.width  ?? 1) * gridSize;
-    const tgtH     = (targetTok.document.height ?? 1) * gridSize;
-    const srcCX    = tokenDoc.x + srcW / 2;
-    const srcCY    = tokenDoc.y + srcH / 2;
-    const towDist  = tractorState.towDist ?? (srcW * 0.5 + tgtW * 0.5 + gridSize * 0.2);
-    const rotRad   = (newSrcRot * Math.PI) / 180;
-    const behindX  = srcCX + Math.sin(rotRad) * towDist - tgtW / 2;
-    const behindY  = srcCY - Math.cos(rotRad) * towDist - tgtH / 2;
-    _tractorTargetExpected.set(targetTok.id, { x: behindX, y: behindY });
-    await targetTok.document.update({
-      x: behindX, y: behindY, rotation: newSrcRot,
-    }, { animate: true }).catch(() => {});
+  if (state.sourceTokenId && !options?.sta2eTractorFollow) {
+    // Target moved by something other than the follow — re-anchor to where it now is.
+    const hostDoc   = scene?.tokens?.get(state.sourceTokenId);
+    const hostState = hostDoc?.getFlag("sta2e-toolkit", "tractorBeam");
+    if (hostState?.targetTokenId !== tokenDoc.id || hostState.behavior === "beamOnly") return;
+    hostDoc.setFlag("sta2e-toolkit", "tractorBeam", {
+      ...hostState,
+      tow: captureTowOffset(towBox(hostDoc, { gridSize }), towBox(tokenDoc, { gridSize })),
+    }).catch(() => {});
+  }
+});
+
+// One of a tractor pair was deleted — clear the survivor's half of the lock.
+Hooks.on("deleteToken", (tokenDoc) => {
+  if (!isActiveGM()) return;
+  const state = tokenDoc.getFlag("sta2e-toolkit", "tractorBeam");
+  if (!state) return;
+  const isHost  = !!state.targetTokenId;
+  const other   = tokenDoc.parent?.tokens?.get(isHost ? state.targetTokenId : state.sourceTokenId);
+  const oState  = other?.getFlag("sta2e-toolkit", "tractorBeam");
+  if (!oState || (isHost ? oState.sourceTokenId : oState.targetTokenId) !== tokenDoc.id) return;
+  other.unsetFlag("sta2e-toolkit", "tractorBeam").catch(() => {});
+  // The beam effect is keyed by the host's id; a stub carries it when the host is gone.
+  const hostId = isHost ? tokenDoc.id : other.id;
+  Promise.resolve(CombatHUD.stopTractorBeamEffect({ id: hostId })).catch(() => {});
+});
+
+// Locks made while Token Attacher handled towing carry `usesTA` and no offset.
+// Move them to the native follow once, detaching TA first if it is still on so
+// the two never both move the target.
+Hooks.once("ready", async () => {
+  if (!isActiveGM()) return;
+  const ta  = game.modules.get("token-attacher")?.active ? window.tokenAttacher : null;
+  const Del = foundry.data.operators?.ForcedDeletion;
+  for (const scene of game.scenes ?? []) {
+    for (const doc of scene.tokens ?? []) {
+      const state = doc.getFlag("sta2e-toolkit", "tractorBeam");
+      if (!state?.usesTA) continue;
+      const targetDoc = state.targetTokenId ? scene.tokens.get(state.targetTokenId) : null;
+      if (ta?.detachElementFromToken && targetDoc) {
+        if (scene.id === canvas.scene?.id && targetDoc.object && doc.object) {
+          try { await ta.detachElementFromToken(targetDoc.object, doc.object, true); } catch { /* best effort */ }
+        } else {
+          console.warn(`STA2e Toolkit | Tractor lock on "${doc.name}" (scene "${scene.name}") is still attached in Token Attacher; view that scene and release/re-engage it, or disable Token Attacher.`);
+        }
+      }
+      const update = Del
+        ? { "flags.sta2e-toolkit.tractorBeam.usesTA": new Del() }
+        : { "flags.sta2e-toolkit.tractorBeam.-=usesTA": null };
+      if (targetDoc) {
+        update["flags.sta2e-toolkit.tractorBeam.tow"] = captureTowOffset(towBox(doc, { gridSize: scene.grid?.size ?? 100 }), towBox(targetDoc, { gridSize: scene.grid?.size ?? 100 }));
+      }
+      await doc.update(update).catch(e => console.warn("STA2e Toolkit | Tractor lock migration failed:", e));
+    }
   }
 });
 

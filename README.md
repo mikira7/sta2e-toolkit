@@ -114,7 +114,6 @@ Under **Solar flares and glow**, set **Solar flares**, **Corona / glow**, and **
 
 ## Required Dependencies
 
-- [Token Attacher](https://github.com/KayelGee/token-attacher)
 - [Sequencer](https://github.com/fantasycalendar/FoundryVTT-Sequencer)
 - [JB2A Animations](https://github.com/Jules-Bens-Aa/JB2A_DnD5e)
 - [Token Magic FX](https://github.com/Feu-Secret/Tokenmagic)

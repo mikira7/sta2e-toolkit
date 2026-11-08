@@ -112,13 +112,13 @@ import {
   getTractorBeamAnimationRenderer,
   refreshPersistentTractorBeamVfx,
 } from "../tractor-beam-vfx.js";
+import { captureTowOffset, towBox, towPose, legacyTowOffset, defaultTowDist } from "../tractor-tow.js";
 
 import {
   BRIDGE_STATIONS,
   GROUND_ACTIONS,
   STATION_SVG,
   TASK_PARAMS,
-  _taAvailable,
   hasAttackRun,
   hasCloakingDevice,
   findChiefOfSecurityTalent,
@@ -13753,11 +13753,7 @@ export class CombatHUD {
   }
 
   static async releaseTractorBeam(sourceToken, targetToken) {
-    // If Token Attacher was managing movement, detach before clearing flags.
-    const tractorState = CombatHUD.getTractorBeamState(sourceToken);
-    if (tractorState?.usesTA && targetToken && _taAvailable()) {
-      try { await window.tokenAttacher.detachElementFromToken(targetToken, sourceToken, true); } catch(e) {}
-    }
+    // Clearing the flag is what stops the tow: main.js's follow hook reads it.
     await sourceToken.document.unsetFlag("sta2e-toolkit", "tractorBeam").catch(() => {});
     if (targetToken) {
       await targetToken.document.unsetFlag("sta2e-toolkit", "tractorBeam").catch(() => {});
@@ -18305,8 +18301,8 @@ export async function lockTractorBeam(sourceToken, targetToken) {
 
 /**
  * Establish a tractor lock: flag both tokens, start the persistent beam effect,
- * and — when towing — snap the target behind the host and hand movement to Token
- * Attacher.
+ * and — when towing — snap the target behind the host and record the rigid tow
+ * offset that main.js's follow hook holds it at.
  *
  * Shared by the ENGAGE button on the TRACTOR BEAM LOCKED chat card and the GM
  * Ship Command palette on the Token HUD. The tow/attach sequence is fiddly
@@ -18336,35 +18332,28 @@ export async function applyTractorBeamLock(sourceTok, targetTok, { towTarget = f
   if (towTarget) {
     // Snap target to behind the source immediately. Call it again after a
     // short delay because Foundry may grid-snap the first update.
+    const gridSize = canvas.grid?.size ?? 100;
     const snapBehind = async (animate = true) => {
-      const gridSize = canvas.grid?.size ?? 100;
-      const srcW     = (sourceTok.document.width  ?? 1) * gridSize;
-      const srcH     = (sourceTok.document.height ?? 1) * gridSize;
-      const tgtW     = (targetTok.document.width  ?? 1) * gridSize;
-      const tgtH     = (targetTok.document.height ?? 1) * gridSize;
-      const srcRot   = sourceTok.document.rotation ?? 0;
-      const towDist  = srcW * 0.5 + tgtW * 0.5 + gridSize * 0.2;
-      const rotRad   = (srcRot * Math.PI) / 180;
-      const behindX  = (sourceTok.x + srcW / 2) + Math.sin(rotRad) * towDist - tgtW / 2;
-      const behindY  = (sourceTok.y + srcH / 2) - Math.cos(rotRad) * towDist - tgtH / 2;
-      await targetTok.document.update({ x: behindX, y: behindY, rotation: srcRot },
+      const hostBox = towBox(sourceTok.document, { gridSize });
+      const tgtBox  = towBox(targetTok.document, { gridSize });
+      const pose = towPose(hostBox, legacyTowOffset(defaultTowDist(hostBox, tgtBox, gridSize)), tgtBox);
+      await targetTok.document.update({ x: pose.x, y: pose.y, rotation: pose.rotation },
         { animate }).catch(() => {});
     };
     await snapBehind(false);
-    // Attach after the second snap so Token Attacher captures the final
-    // behind-host offset and handles subsequent movement natively.
+    // Capture the rigid tow offset after the second snap, so it records the
+    // final behind-host pose. main.js's follow hook holds the target there,
+    // swinging it with the host's heading.
     setTimeout(async () => {
       await snapBehind(false);
-      if (_taAvailable()) {
-        try {
-          await window.tokenAttacher.attachElementToToken(targetTok, sourceTok, true);
-          // Record that TA is managing movement so the hook fallback skips this pair.
-          await sourceTok.document.setFlag("sta2e-toolkit", "tractorBeam", {
-            ...sourceTok.document.getFlag("sta2e-toolkit", "tractorBeam"),
-            usesTA: true,
-          });
-        } catch(e) { console.warn("STA2e | TA attach failed:", e); }
-      }
+      const state = sourceTok.document.getFlag("sta2e-toolkit", "tractorBeam");
+      if (!state?.targetTokenId) return;   // released during the delay
+      try {
+        await sourceTok.document.setFlag("sta2e-toolkit", "tractorBeam", {
+          ...state,
+          tow: captureTowOffset(towBox(sourceTok.document, { gridSize }), towBox(targetTok.document, { gridSize })),
+        });
+      } catch(e) { console.warn("STA2e | Tractor tow offset capture failed:", e); }
     }, 300);
   }
 

@@ -782,6 +782,16 @@ There are three ways to cloak: the Combat HUD button (`_handleCloakToggle`), the
 - Socket action `cloakHitShimmerVfx` is scene-guarded, with the source token's scene id.
 - Teardown destroys the sprites but **never their textures**: the noise map is shared and the hull texture is the token's own.
 
+### Tractor Beam Towing
+
+A towing lock holds the target at a **rigid offset in the host's local frame**: the flag `tractorBeam.tow` (`{lx, ly, drot, delev}`), with the geometry in [tractor-tow.js](scripts/tractor-tow.js), a leaf with **no imports** covered by [tests/tractor-tow.mjs](tests/tractor-tow.mjs). It replaced Token Attacher, which the module no longer uses. `applyTractorBeamLock` captures the offset after its second snap behind the host. The follow is one `updateToken` hook in main.js, run on the active GM only. Three rules:
+
+- **Read final poses from `_source` (`towBox`), never `doc.x`.** Core merges each animation frame into the document's own properties and runs the FIRST frame synchronously inside `_onUpdate`, before the `updateToken` hook — so in that hook `doc.x` is where the host started. Reading it put the target a move behind and made re-anchoring capture a garbage offset; it is also why sizes come from `getSize` (hex grids are not `width × grid.size`). Anything aiming at a towed ship (the beam) uses `towDrawnPose`, since its own document can lag the drawing.
+- **The target's pose is computed from the host's new pose alone**, never from deltas. The old follow tracked last positions and drifted under the overlapping steps of an impulse arc; an absolute pose can't. It also swings the target behind the host through every turn.
+- **The follow copies the host update's options** (`animate`, `animation`, `teleport`, `sta2eScriptedMove`), so the target glides in step and zone logic still runs once. Its own writes carry `sta2eTractorFollow`; any other move of the target re-anchors the offset.
+- Locks without `tow` (made before it existed) fall back to straight behind at `towDist`. Old `usesTA` locks are migrated on `ready`.
+- **What you see is a render pin, not the document follow.** The follow lands a GM round trip after the host starts moving, so on its own the target trails behind. [tractor-tow-pin.js](scripts/tractor-tow-pin.js) chains `Token#_refreshPosition` / `_refreshRotation` (like the warp stretch) and draws the target at `towPose` of the host's *animated* document — core merges each animation frame into `token.document`. A host `refreshToken` sets the target's refresh flags. Preview clones are never pinned, so dragging the towed ship still re-anchors it. It is registered before `registerWarpStretch` so the stretch wraps outermost. Covered by [tests/tractor-tow-pin.mjs](tests/tractor-tow-pin.mjs).
+
 ### Active GM (assistant GMs)
 
 Some tables seat players on GM-role accounts. [gm-authority.js](scripts/gm-authority.js) (a leaf with no imports) names **the** GM through the world setting `activeGmUserId`, chosen from the badge under the Stardate HUD. Any GM can claim the role or hand it on. When the designated user is offline, authority falls back to the lowest-id connected GM (the old `_isResponsibleGM` rule), so the table never stalls. `_isResponsibleGM()` now delegates to `isActiveGM()`, which re-points every socket gate; `destructible-objects.js` `authority()` follows too.

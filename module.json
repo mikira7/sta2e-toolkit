@@ -83,7 +83,6 @@
   ],
   "relationships": {
     "optional": [
-      { "id": "token-attacher", "type": "module" },
       { "id": "sequencer", "type": "module" },
       { "id": "JB2A_DnD5e", "type": "module" },
       { "id": "jb2a_patreon", "type": "module" },

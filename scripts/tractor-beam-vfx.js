@@ -5,6 +5,7 @@
  */
 
 import { createFanField } from "./fan-field-shader.js";
+import { towDrawnPose } from "./tractor-tow-pin.js";
 import { createWeaponEnergyOrb } from "./weapon-energy-shader.js";
 import { createTractorHullLock } from "./tractor-hull-shader.js";
 import { sampleTractorHullContact } from "./tractor-contact-geometry.js";
@@ -126,11 +127,21 @@ function _strokePath(g, points, width, color, alpha, cap = null) {
   }
 }
 
+// A towed ship is drawn off its host (tractor-tow-pin.js), and its document can
+// lag that drawing, so aim at where it is drawn.
 function _tokenCenter(token) {
+  const pinned = towDrawnPose(token);
+  if (pinned) return { x: pinned.x, y: pinned.y };
   return token?.center ?? {
     x: (token?.x ?? 0) + (token?.w ?? 0) / 2,
     y: (token?.y ?? 0) + (token?.h ?? 0) / 2,
   };
+}
+
+function _tokenRotationDeg(token) {
+  const pinned = towDrawnPose(token);
+  if (pinned) return pinned.rotation;
+  return Number(token?.document?.rotation ?? token?.rotation ?? 0);
 }
 
 function _isLiveToken(token) {
@@ -165,7 +176,7 @@ function _maskPixelToCanvas(token, mask, pixel) {
   const anchorY = Number(texture.anchorY ?? 0.5);
   const scaleX = Number(texture.scaleX ?? 1) || 1;
   const scaleY = Number(texture.scaleY ?? 1) || 1;
-  const rotation = Number(token?.document?.rotation ?? token?.rotation ?? 0) * (Math.PI / 180);
+  const rotation = _tokenRotationDeg(token) * (Math.PI / 180);
   const localX = (pixel.x + 0.5 - anchorX * mask.width) * fx * scaleX;
   const localY = (pixel.y + 0.5 - anchorY * mask.height) * fy * scaleY;
   const cos = Math.cos(rotation);
@@ -211,7 +222,7 @@ function _alphaEdgePoint(token, mask, ux, uy, mode = "min") {
   const signY = scaleY < 0 ? -1 : 1;
   const width = token?.w ?? ((doc?.width ?? 1) * (canvas?.grid?.size ?? 100));
   const height = token?.h ?? ((doc?.height ?? 1) * (canvas?.grid?.size ?? 100));
-  const rotation = Number(doc?.rotation ?? token?.rotation ?? 0) * (Math.PI / 180);
+  const rotation = (token?.document ? _tokenRotationDeg(token) : Number(doc?.rotation ?? 0)) * (Math.PI / 180);
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
 
@@ -482,7 +493,7 @@ function _targetRectFacingContour(sourcePoint, targetToken) {
   if (length < 1) return null;
   const ux = dx / length, uy = dy / length;
   const px = -uy, py = ux;
-  const rotation = Number(targetToken?.document?.rotation ?? targetToken?.rotation ?? 0) * (Math.PI / 180);
+  const rotation = _tokenRotationDeg(targetToken) * (Math.PI / 180);
   const cos = Math.cos(rotation), sin = Math.sin(rotation);
   const halfW = Math.max(1, (targetToken?.w ?? 1) / 2);
   const halfH = Math.max(1, (targetToken?.h ?? 1) / 2);
@@ -773,8 +784,9 @@ export class NativeTractorBeamVFX {
       }
       if (softGrab && targetContour && targetAlphaMask) {
         const now = performance.now(), texture = targetToken.document?.texture ?? {};
-        const key = [sourcePoint.x, sourcePoint.y, targetToken.center?.x, targetToken.center?.y,
-          targetToken.w, targetToken.h, targetToken.document?.rotation, texture.fit,
+        const tc = _tokenCenter(targetToken);
+        const key = [sourcePoint.x, sourcePoint.y, tc.x, tc.y,
+          targetToken.w, targetToken.h, _tokenRotationDeg(targetToken), texture.fit,
           texture.scaleX, texture.scaleY, texture.anchorX, texture.anchorY].join('|');
         if ((key !== adaptive.key || adaptive.mask !== targetAlphaMask) && now >= adaptive.nextSample) {
           const contact = sampleTractorHullContact(targetAlphaMask, sourcePoint,

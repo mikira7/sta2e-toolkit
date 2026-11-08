@@ -629,14 +629,6 @@ export const GROUND_ACTIONS = {
   ],
 };
 
-// Returns true when the Token Attacher module is active and its API is loaded.
-// Used to choose between the TA-native follow and the hook-based fallback.
-export function _taAvailable() {
-  // Token Attacher exposes its public API as window.tokenAttacher (lowercase),
-  // not window.TokenAttacher.  The class itself is module-scoped and not global.
-  return !!(game.modules.get("token-attacher")?.active && window.tokenAttacher?.attachElementToToken);
-}
-
 // ── Task-specific roller pre-configuration (module scope for export) ──────────
 // Keyed by the action key used in BRIDGE_STATIONS.
 // charAttr / charDisc: the character's Attribute + Discipline for this task.
