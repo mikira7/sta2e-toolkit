@@ -312,7 +312,8 @@ export const TRAVEL_ENVIRONMENTS = Object.freeze({
       streakMul: 110, thickness: 110, backdrop: "#04080a", backdropAlpha: 88,
       spread: 40, intensity: 100, starMix: 70, nebula: true,
     },
-    haze: { count: 3, alpha: 0.12, scale: 0.55, offset: 0.28, driftRate: 1.1 },
+    // Broad, textured gas banks behind the charged cells and lightning.
+    haze: { texture: "cloud", count: 6, alpha: 0.32, scale: 0.95, offset: 0.28, driftRate: 0.18, churn: 0.12 },
     wash: { alpha: 0.14, pulseMs: 2600 },
     // A strike is two things: a soft discharge glow and the bolt itself, drawn
     // through the same point so the two agree. Shared with the Lightning field —

@@ -129,6 +129,7 @@ async function _applyHazardDamage(actor, tokenDoc, token, damage, damageType, ef
 const HAZARD_JB2A = {
   "radiation":      null,
   "plasma-storm":   "jb2a.energy_strands.complete.orange.01",
+  "ion-storm":      null,
   "asteroid-field": null,
   "nebula-gas":     null,
   "fire":           "jb2a.fire_eruption.15ft.orange",
@@ -145,6 +146,7 @@ const HAZARD_JB2A = {
 const HAZARD_COLORS = {
   "radiation":      0x00cc44,
   "plasma-storm":   0xff6600,
+  "ion-storm":      0x79dfc4,
   "asteroid-field": 0xaa7733,
   "nebula-gas":     0x9966ff,
   "fire":           0xff4400,
@@ -302,7 +304,9 @@ export function resolveHazardSource(ref) {
           update["system.visualMode"] = patch.vfx.mode;
           update["system.visualIntensity"] = patch.vfx.intensity;
           update["system.visualColor"] = patch.vfx.color;
+          update["system.visualAccentColor"] = patch.vfx.accentColor ?? "";
           update["system.visualSound"] = patch.vfx.sound;
+          update["system.visualTemperature"] = patch.vfx.temperature ?? "heat";
         }
         await behavior.update(update);
       },
@@ -1596,6 +1600,7 @@ export class ZoneHazard {
     const map = {
       "radiation":      "sndHazardRadiation",
       "plasma-storm":   "sndHazardPlasmaStorm",
+      "ion-storm":      "sndHazardIonStorm",
       "asteroid-field": "sndHazardAsteroid",
       "fire":           "sndHazardFire",
       "nebula-gas":     "sndHazardNebula",

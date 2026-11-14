@@ -21,12 +21,27 @@
 
 import { getTokenAlphaMask } from "./ship-vfx-anchors.js";
 import { isActiveGM } from "./gm-authority.js";
+import {
+  paintHullDamage, syncHullDamagePaint, destroyHullDamagePaint, hullDamagePaintIsWarm,
+} from "./hull-damage-paint.js";
 
 const MODULE = "sta2e-toolkit";
 const FLAG = "hullDecals";
 
-// Cap so a long battle can't bloat a token flag without bound.
+// Cap so a long battle can't bloat a token flag without bound. Painted damage
+// reads the whole list (a hit is a few numbers); scorch decals draw only the
+// newest MAX_DECALS so the sprite count stays as it was.
+const MAX_HITS = 32;
 const MAX_DECALS = 14;
+
+// A shot measured on a client that is not the active GM is relayed to it.
+const SOCKET = `module.${MODULE}`;
+const STAMP_ACTION = "hullDecalStamp";
+
+// Shots at one target this close together are one attack's volley.
+const VOLLEY_MS = 2500;
+const _volleys = new Map();        // target uuid -> time of its last stamp (this client)
+const _writeQueues = new Map();    // storage doc uuid -> tail of its write chain
 
 // Decal art directory (Foundry-relative path, served from the module folder).
 const DECAL_DIR = `modules/${MODULE}/assets/decals`;
@@ -58,9 +73,18 @@ const _containers = new Map();
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Both "decal" and "painted" record hits in the same flag; they differ only in
+// how a client draws them, so switching style redraws existing damage.
+function _style() {
+  try { return game.settings.get(MODULE, "hullDamageStyle"); }
+  catch { return "decal"; }
+}
 function _enabled() {
-  try { return game.settings.get(MODULE, "hullDamageStyle") === "decal"; }
-  catch { return true; }
+  const s = _style();
+  return s === "decal" || s === "painted";
+}
+function _painted() {
+  return _style() === "painted";
 }
 
 // Global size multiplier (world setting) so decals can be tuned without code.
@@ -273,11 +297,13 @@ async function _tierTexture(sev) {
  */
 export async function stampHullDecal(targetToken, impactPoint, options = {}) {
   if (!_enabled()) return;
-  if (!_isWriter()) return;
 
+  // The hit is measured HERE, on the client that drew the shot — the one that
+  // knows where it landed — and written by the active GM. Any other client
+  // (a second GM, a player confirming their own roll) used to return at this
+  // point, which silently dropped every hit not fired from the active GM.
   const token = targetToken?.object ?? targetToken;
-  const store = _storageFor(targetToken);
-  if (!token?.center || !store?.doc?.setFlag) return;
+  if (!token?.center) return;
 
   const c = token.center;
   const w = token.w || 1;
@@ -298,18 +324,73 @@ export async function stampHullDecal(targetToken, impactPoint, options = {}) {
   const nx = Math.max(-0.6, Math.min(0.6, lx / w));
   const ny = Math.max(-0.6, Math.min(0.6, ly / h));
 
+  // Direction of travel in the same local frame, for brushes that follow the
+  // shot (a phaser gouge lies along the beam). Falls back to random.
+  let dir = Math.random() * Math.PI * 2;
+  const from = options.from;
+  if (from && Number.isFinite(from.x) && Number.isFinite(from.y)) {
+    const tx = p.x - from.x, ty = p.y - from.y;
+    if (Math.hypot(tx, ty) > 1) dir = Math.atan2(-tx * sin + ty * cos, tx * cos + ty * sin);
+  }
+  const combat = game.combat?.started ? game.combat : null;
+  // One attack draws several shots, and each arrives here with the whole
+  // attack's damage. The first shot of a volley takes that severity; the rest
+  // land as light hits, or a single 10-damage burst would carve three or four
+  // heavy wounds (painted damage sums them).
+  const volleyKey = token.document?.uuid ?? token.id;
+  const now = Date.now();
+  const inVolley = now - (_volleys.get(volleyKey) ?? 0) < VOLLEY_MS;
+  _volleys.set(volleyKey, now);
   const decal = {
     nx, ny,
-    sev: _severityFor(options.finalDamage),
-    rot: Math.random() * Math.PI * 2,   // decorative per-mark spin
+    sev: inVolley ? "light" : _severityFor(options.finalDamage),
+    rot: Math.random() * Math.PI * 2,   // decorative per-mark spin (scorch decals)
+    // Painted damage: brush, direction, deterministic seed, and when it landed
+    // (the glow cools 0.3 a round in this combat, else over a few minutes).
+    kind: ["beam", "bolt", "torpedo"].includes(options.kind) ? options.kind : "torpedo",
+    dir,
+    seed: Math.floor(Math.random() * 0xffffffff),
+    at: Date.now(),
+    ...(combat ? { cid: combat.id, round: combat.round } : {}),
   };
 
-  const list = (await _decalListFor(targetToken, { migrate: true })).slice();
-  list.push(decal);
-  while (list.length > MAX_DECALS) list.shift();
+  if (_isWriter()) return _appendHit(targetToken, decal);
+  const tokenDoc = _tokenDocFor(targetToken);
+  const sceneId = tokenDoc?.parent?.id ?? canvas?.scene?.id ?? null;
+  if (!tokenDoc?.id || !sceneId) return;
+  game.socket.emit(SOCKET, { action: STAMP_ACTION, sceneId, tokenId: tokenDoc.id, decal });
+}
 
-  try { await store.doc.setFlag(MODULE, FLAG, list); }
-  catch (err) { console.warn("STA2e Toolkit | Hull decal stamp failed:", err); }
+/**
+ * Append one measured hit to the target's list. Active GM only. Writes are
+ * queued per storage document: a volley's shots land a few hundred ms apart,
+ * and each write reads the list it extends, so two in flight at once would
+ * each drop the other's hit.
+ */
+function _appendHit(target, decal) {
+  const store = _storageFor(target);
+  if (!store?.doc?.setFlag) return Promise.resolve();
+  const key = store.doc.uuid ?? store.doc.id;
+  const run = async () => {
+    const list = (await _decalListFor(target, { migrate: true })).slice();
+    list.push(decal);
+    while (list.length > MAX_HITS) list.shift();
+    try { await store.doc.setFlag(MODULE, FLAG, list); }
+    catch (err) { console.warn("STA2e Toolkit | Hull decal stamp failed:", err); }
+  };
+  const next = (_writeQueues.get(key) ?? Promise.resolve()).then(run, run);
+  _writeQueues.set(key, next);
+  next.finally(() => { if (_writeQueues.get(key) === next) _writeQueues.delete(key); });
+  return next;
+}
+
+/** Active GM: a hit measured on another client. */
+function _onRelayedStamp(msg) {
+  if (msg?.action !== STAMP_ACTION || !_isWriter() || !_enabled()) return;
+  const tokenDoc = game.scenes?.get(msg.sceneId)?.tokens?.get(msg.tokenId);
+  const d = msg.decal;
+  if (!tokenDoc || !d || !Number.isFinite(d.nx) || !Number.isFinite(d.ny)) return;
+  void _appendHit(tokenDoc, d);
 }
 
 export function hasHullDecals(targetToken) {
@@ -450,6 +531,7 @@ async function _updateMaskAndExtent(token, cont) {
 function _destroyContainer(tokenId) {
   const cont = _containers.get(tokenId);
   if (cont) {
+    destroyHullDamagePaint(cont);
     try { cont.destroy({ children: true }); } catch { /* */ }
     _containers.delete(tokenId);
   }
@@ -467,6 +549,8 @@ function _syncContainer(token) {
   cont.position.set(token.center.x, token.center.y);
   cont.rotation = _tokenRotation(token);
   cont.visible = token.visible !== false;   // hide with a hidden/unseen token
+
+  if (cont._paint) { syncHullDamagePaint(token, cont); return; }
 
   // Align the geometry silhouette mask onto the displayed ship art, matching
   // Foundry's texture fit so the mask overlaps the hull exactly.
@@ -540,6 +624,12 @@ async function _rebuildContainer(token) {
   let cont = _containers.get(token.id);
   if (!cont) {
     cont = new PIXI.Container();
+    // Never hit-tested. It sits above every token on the (interactive) token
+    // layer, and under PIXI's default eventMode "auto" its sprites were
+    // hit-tested and won the pointer — so a click on a damaged hull went to
+    // the layer, not the ship, which could no longer be selected or targeted.
+    cont.eventMode = "none";
+    cont.interactiveChildren = false;
     const tokenZ = typeof token.zIndex === "number" ? token.zIndex : 0;
     cont.zIndex = Math.max(900_000, tokenZ + 10_000);
     // Inner layer holds the decals and is what gets masked (sibling of mask).
@@ -551,16 +641,32 @@ async function _rebuildContainer(token) {
     _containers.set(token.id, cont);
   }
 
+  // Painted damage replaces the decal sprites and needs no geometry mask (the
+  // hull's alpha is baked into its textures). If the art can't be read, fall
+  // through to scorch decals.
+  if (_painted()) {
+    const layer = cont._decalLayer;
+    cont._sig = null;
+    for (const ch of layer.removeChildren()) { try { ch.destroy(); } catch { /* */ } }
+    _removeMask(cont);
+    let ok = false;
+    try { ok = await paintHullDamage(token, cont, list); }
+    catch (err) { console.warn("STA2e Toolkit | Painted hull damage failed, using decals:", err); }
+    if (ok) { _syncContainer(token); return; }
+  }
+  destroyHullDamagePaint(cont);
+
   // Measure the ship silhouette (for sizing) and clip the decal layer to it.
   await _updateMaskAndExtent(token, cont);
 
   // Skip rebuilding sprites when the decal data is unchanged.
   const layer = cont._decalLayer;
-  const sig = JSON.stringify(list);
+  const shown = list.slice(-MAX_DECALS);
+  const sig = JSON.stringify(shown);
   if (cont._sig !== sig) {
     cont._sig = sig;
     for (const ch of layer.removeChildren()) { try { ch.destroy(); } catch { /* */ } }
-    for (const d of list) {
+    for (const d of shown) {
       const tex = await _tierTexture(d.sev);
       if (!tex) continue;
       const sp = new PIXI.Sprite(tex);
@@ -584,9 +690,11 @@ async function _rebuildContainer(token) {
 // changes so the sliders update the canvas immediately.
 export function resyncAllHullDecals() {
   for (const token of canvas?.tokens?.placeables ?? []) {
-    if (_containers.has(token.id)) {
-      try { _syncContainer(token); } catch { /* */ }
-    }
+    const cont = _containers.get(token.id);
+    if (!cont) continue;
+    // Painted damage bakes its size into the textures, so it needs a rebuild.
+    if (cont._paint) { _rebuildContainer(token).catch(() => {}); continue; }
+    try { _syncContainer(token); } catch { /* */ }
   }
 }
 
@@ -599,6 +707,9 @@ export function refreshAllHullDecals() {
 }
 
 export function registerHullDecals() {
+  // Its own listener on the module channel, as destructible-objects.js has.
+  Hooks.once("ready", () => game.socket.on(SOCKET, _onRelayedStamp));
+
   // Smoothly follow position/rotation/scale during animation.
   Hooks.on("refreshToken", (token) => {
     if (_containers.has(token?.id)) {
@@ -626,6 +737,23 @@ export function registerHullDecals() {
   });
 
   Hooks.on("deleteToken", (doc) => _destroyContainer(doc.id));
+
+  // Painted damage cools: 0.3 a round in the combat a hit landed in, else over
+  // a few minutes of wall clock. A round change, or a slow timer for the
+  // out-of-combat case, rebuilds the containers that are still warm (the
+  // rebuild is skipped when the quantised heat has not actually changed).
+  const _rebuildWarm = () => {
+    if (!_painted()) return;
+    for (const token of canvas?.tokens?.placeables ?? []) {
+      const cont = _containers.get(token.id);
+      if (cont && hullDamagePaintIsWarm(cont)) _rebuildContainer(token).catch(() => {});
+    }
+  };
+  Hooks.on("updateCombat", (combat, changes) => {
+    if ("round" in (changes ?? {}) || "started" in (changes ?? {})) _rebuildWarm();
+  });
+  Hooks.on("deleteCombat", () => _rebuildWarm());
+  setInterval(_rebuildWarm, 20000);
 
   // Scene change / reload — tear down and rebuild for the new canvas.
   Hooks.on("canvasReady", () => {

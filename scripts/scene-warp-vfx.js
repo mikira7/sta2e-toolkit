@@ -572,11 +572,16 @@ function _syncHaze(inst, cfg, env) {
   }
   if (!spec) return;
 
+  if (spec.texture === "cloud" && !inst.hazeTextures) {
+    inst.hazeTextures = Array.from({ length: 3 }, () => buildCloudTexture({ contrast: 1.1, floor: 0.2, warp: 0.45 }));
+  }
   const r    = inst.frame.rect;
   const long = Math.max(r.width, r.height);
   for (let i = 0; i < inst.hazeSprites.length; i++) {
     const sp = inst.hazeSprites[i];
     const st = inst.hazeState[i];
+    sp.texture = spec.texture === "cloud" ? inst.hazeTextures[i % inst.hazeTextures.length] : inst.radialTex;
+    sp.rotation = spec.texture === "cloud" ? st.phase * 0.15 : 0;
     st.baseX = r.x + st.fx * r.width;
     st.baseY = r.y + st.fy * r.height;
     st.size  = long * spec.scale * (0.35 + st.sizeVar * 0.5);
@@ -585,6 +590,7 @@ function _syncHaze(inst, cfg, env) {
     sp.height = st.size;
     sp.tint   = inst.accentTint;
     sp.alpha  = spec.alpha * cfg.intensity * (0.55 + st.alphaVar * 0.9);
+    st.baseAlpha = sp.alpha;
   }
 }
 
@@ -955,6 +961,9 @@ function _destroy(inst) {
   // The generated textures are this instance's own; nothing else shares them.
   try { inst.texture?.destroy(true); } catch { /* already gone */ }
   try { inst.radialTex?.destroy(true); } catch { /* already gone */ }
+  for (const tex of inst.hazeTextures ?? []) {
+    try { tex.destroy(true); } catch { /* already gone */ }
+  }
   for (const t of inst.envTextures ?? []) {
     try { t?.destroy(true); } catch { /* already gone */ }
   }
@@ -1031,6 +1040,12 @@ function _tickHaze(inst, cfg, env, dt) {
     const sp = inst.hazeSprites[i];
     const st = inst.hazeState[i];
     st.phase += (dt / 1000) * spec.driftRate * st.rate;
+    if (spec.churn) {
+      sp.width = st.size * (1 + Math.sin(st.phase * 0.83) * spec.churn);
+      sp.height = st.size * (1 + Math.cos(st.phase * 0.67) * spec.churn);
+      sp.rotation = st.phase * 0.15;
+      sp.alpha = st.baseAlpha * (0.85 + 0.15 * Math.sin(st.phase * 1.3));
+    }
     const amp = st.size * 0.12;
     sp.position.set(
       st.baseX + Math.cos(st.phase) * amp,

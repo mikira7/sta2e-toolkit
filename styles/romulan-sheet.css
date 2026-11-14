@@ -842,6 +842,9 @@
       margin: 0;
       color: var(--rom-faint);
       &:not([value="0"]) { color: var(--rom-alarm); text-shadow: 0 0 6px rgba(255,74,90,.7); }
+      /* sta.css fills these (set by the system's _updateBreachValues) orange /
+         red with !important; a red number disappears into the fill. */
+      &.highlight-damaged, &.highlight-destroyed { color: #0a0204; text-shadow: none; font-weight: 700; }
     }
     .buttons { grid-template-columns: 1fr; }
 

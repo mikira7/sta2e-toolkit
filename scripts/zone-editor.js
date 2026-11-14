@@ -1965,7 +1965,10 @@ function _wireHazardEditor(html) {
   list.addEventListener('change', event => {
     if (!event.target.matches('.sta2e-hazard-type')) return;
     const color = event.target.closest('.sta2e-hazard-row')?.querySelector('input[type="color"]');
-    if (color && HAZARD_VFX_TYPES[event.target.value]) color.value = HAZARD_VFX_TYPES[event.target.value];
+    if (color && HAZARD_VFX_TYPES[event.target.value]) {
+      color.value = HAZARD_VFX_TYPES[event.target.value];
+      color.dispatchEvent(new Event('input', { bubbles: true }));
+    }
   });
 
   // Delegate remove button clicks

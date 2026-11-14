@@ -2539,7 +2539,7 @@ function addBeamImpactReactions(s, config, token, target, locations, { shieldImp
     s, token, target, locations.target?.location, shieldImpact, shotIndex, shotCount,
     locations.source?.point, locations.hullPoint, locations.capT, BEAM_STRIKE_LEAD_MS,
   );
-  _stampHullDecalAt(s, target, decalPoint ?? locations.target, hullImpact, BEAM_STRIKE_LEAD_MS);
+  _stampHullDecalAt(s, target, decalPoint ?? locations.target, hullImpact, BEAM_STRIKE_LEAD_MS, { shieldImpact, kind: "beam", from: locations.source?.point });
   shipImpactEffectFor(
     s.effect(), shipImpactVisual(config, "impact", hullImpact),
     impactLocation ?? locations.impact, target, impactScale, maxTokenRatio,
@@ -2840,7 +2840,7 @@ async function fireBeamSpread(config, isHit, token, targets, repeatCount = 1, we
           let shot = seq();
           shot = withSound(shot, i === 0 ? soundPath : repeatSound).wait(50);
           addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, i, repeats, locations.source?.point, locations.hullPoint, locations.capT, BEAM_STRIKE_LEAD_MS);
-          _stampHullDecalAt(shot, target, locations.target, hullImpact, BEAM_STRIKE_LEAD_MS);
+          _stampHullDecalAt(shot, target, locations.target, hullImpact, BEAM_STRIKE_LEAD_MS, { shieldImpact, kind: "beam", from: locations.source?.point });
           // Only the closing strike carries the impact flash; the shield reacts
           // to every one of them.
           if (i === repeats - 1) {
@@ -2937,7 +2937,7 @@ async function fireCannons(config, isHit, token, targets, repeatCount = 1, weapo
       }
       addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, shots - 1, shots, sourcePoint, hullPoint, capT);
       shipImpactEffectFor(s.effect(), shipImpactVisual(config, "impact", hullImpact), impactLocation, target, 1.5);
-      _stampHullDecalAt(s, target, impactPoint, hullImpact);
+      _stampHullDecalAt(s, target, impactPoint, hullImpact, 0, { shieldImpact, kind: "bolt", from: sourcePoint });
     } else {
       s = withSound(s, soundPath).wait(50);
       stretchToSequenceLocation(
@@ -3001,7 +3001,7 @@ async function fireEnergyCannonBolts(config, isHit, token, targets, repeatCount 
       }
       addShieldImpactStep(s, token, target, impactLocation?.location, shieldImpact, shots - 1, shots, sourcePoint, hullPoint, capT);
       shipImpactEffectFor(s.effect(), shipImpactVisual(config, "impact", hullImpact), impactLocation, target, 1.5);
-      _stampHullDecalAt(s, target, impactPoint, hullImpact);
+      _stampHullDecalAt(s, target, impactPoint, hullImpact, 0, { shieldImpact, kind: "bolt", from: sourcePoint });
     } else {
       s = withSound(s, soundPath).wait(50);
       const flightMs = applyBoltTravel(
@@ -3102,7 +3102,7 @@ async function fireTorpedoSingle(config, isHit, token, targets, repeatCount = 1,
         applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
         s.wait(torpedoTravelMs(config));
         addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, i, repeats, locations.source?.point, locations.hullPoint, locations.capT);
-        _stampHullDecalAt(s, target, locations.target, hullImpact);
+        _stampHullDecalAt(s, target, locations.target, hullImpact, 0, { shieldImpact, kind: "torpedo", from: locations.source?.point });
         shipImpactEffectFor(s.effect(), shipImpactVisual(config, "explosion", hullImpact, shieldImpact, target), locations.impact, target, 1.5);
         if (i < repeats - 1) s.wait(250);
       }
@@ -3160,7 +3160,7 @@ async function fireToolkitTorpedoAreaSalvo(config, token, target, salvoShots, we
   const impact = seq().wait(((salvoShots - 1) * staggerMs) + travelMs);
   addShieldImpactStep(impact, token, target, explosionLocation?.location, shieldImpact, salvoShots - 1, salvoShots, sourcePoint, hullPoint, capT);
   shipImpactEffectFor(impact.effect(), shipImpactVisual(config, "explosion", hullImpact, shieldImpact, target), explosionLocation, target, 2.0, 0.9);
-  _stampHullDecalAt(impact, target, explosionPoint, hullImpact);
+  _stampHullDecalAt(impact, target, explosionPoint, hullImpact, 0, { shieldImpact, kind: "torpedo", from: sourcePoint });
   sequences.push(impact);
 
   await Promise.all(sequences.map(sequence => sequence.play()));
@@ -3183,7 +3183,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
           applyTorpedoTravel(s, config, locations.source, locations.target, { finalDamage });
           s.wait(torpedoTravelMs(config));
           addShieldImpactStep(s, token, target, locations.target?.location, shieldImpact, r, salvoCount, locations.source?.point, locations.hullPoint, locations.capT);
-          _stampHullDecalAt(s, target, locations.target, hullImpact);
+          _stampHullDecalAt(s, target, locations.target, hullImpact, 0, { shieldImpact, kind: "torpedo", from: locations.source?.point });
           shipImpactEffectFor(s.effect(), shipImpactVisual(config, "explosion", hullImpact, shieldImpact, target), locations.impact, target, 1.5);
           if (r < salvoCount - 1) s.wait(250);
         }
@@ -3245,7 +3245,7 @@ async function fireTorpedoSalvo(config, isHit, token, targets, salvoMode, repeat
         s.wait(torpedoTravelMs(config));
         addShieldImpactStep(s, token, target, explosionLocation?.location, shieldImpact, salvoShots - 1, salvoShots, sourcePoint, hullPoint, capT);
         shipImpactEffectFor(s.effect(), shipImpactVisual(config, "explosion", hullImpact, shieldImpact, target), explosionLocation, target, 2.0, 0.9);
-        _stampHullDecalAt(s, target, explosionPoint, hullImpact);
+        _stampHullDecalAt(s, target, explosionPoint, hullImpact, 0, { shieldImpact, kind: "torpedo", from: sourcePoint });
       } else {
         // One missed shot is enough visually
         if (soundPath) s.sound().file(soundPath).volume(1);
@@ -3397,7 +3397,7 @@ async function firePointDefenseTorpedoes(config, isHit, token, targets, {
         applyTorpedoTravel(shot, config, locations.source, locations.target, { finalDamage });
         shot.wait(travelMs);
         addShieldImpactStep(shot, token, target, locations.target?.location, shieldImpact, impactIndex, impactCount, locations.source?.point, locations.hullPoint, locations.capT);
-        _stampHullDecalAt(shot, target, locations.target, hullImpact);
+        _stampHullDecalAt(shot, target, locations.target, hullImpact, 0, { shieldImpact, kind: "torpedo", from: locations.source?.point });
         shipImpactEffectFor(
           shot.effect(),
           shipImpactVisual(config, "explosion", hullImpact, shieldImpact, target),
@@ -3592,13 +3592,19 @@ export async function fireTargetingSolution(attackerToken, targetToken) {
 // `location` is a sequence-location ({ location: {x,y} }) or a raw {x,y} point —
 // the same point the impact VFX is drawn at. Only fires when the hit reached the
 // hull (shields down). Severity comes from hullImpact.finalDamage.
-function _stampHullDecalAt(seq, targetToken, location, hullImpact, delayMs = 0) {
-  if (!hullImpact?.shieldsDown || !targetToken) return;
+// `shot` = { kind: "beam" | "bolt" | "torpedo", from: {x,y}, shieldImpact } — the
+// brush and the direction of travel that painted hull damage uses (scorch decals
+// ignore both), and the shield state: a hit also reaches the hull when this
+// attack BREACHED shields that were still up, not only when they were down.
+function _stampHullDecalAt(seq, targetToken, location, hullImpact, delayMs = 0, shot = {}) {
+  const fd = hullImpact?.shieldsDown ? hullImpact.finalDamage
+    : shot.shieldImpact?.breached ? shot.shieldImpact.finalDamage : null;
+  if (fd == null || !targetToken) return;
   const point = (location && typeof location.x === "number") ? location : location?.location;
   if (!point || typeof point.x !== "number") return;
-  const px = point.x, py = point.y, fd = hullImpact.finalDamage;
+  const px = point.x, py = point.y;
   const stamp = () => {
-    stampHullDecal(targetToken, { x: px, y: py }, { finalDamage: fd })
+    stampHullDecal(targetToken, { x: px, y: py }, { finalDamage: fd, kind: shot.kind, from: shot.from })
       ?.catch?.(err => console.warn("STA2e Toolkit | Hull decal stamp failed:", err));
   };
   // Run the stamp WHEN the sequence reaches the impact, so the scorch appears

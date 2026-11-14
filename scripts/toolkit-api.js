@@ -20,6 +20,7 @@ import {
 import { TransporterVFX } from "./transporter-vfx.js";
 import { setDoorLightState as _setDoorLightState, resetDoorLightUses as _resetDoorLightUses } from "./door-light-behavior.js";
 import { resetRandomTeleport as _resetRandomTeleport } from "./random-teleport-behavior.js";
+import { sendWaterSet as _sendWaterSet } from "./water-surface-behavior.js";
 import {
   fireRegionLogic as _fireRegionLogic, setRegionLogicGraph as _setRegionLogicGraph,
   resetRegionLogic as _resetRegionLogic, convertToRegionLogic as _convertToRegionLogic,
@@ -136,6 +137,12 @@ export class ToolkitAPI {
    * token (document or UUID), or every token that has used it when omitted.
    */
   resetRandomTeleport(behaviorOrUuid, tokenOrUuid = null) { return _resetRandomTeleport(behaviorOrUuid, tokenOrUuid); }
+
+  /**
+   * GM only. Roll a set of three big waves in along the whole shore of a Water
+   * Surface behavior, for every client. Takes the behavior or its UUID.
+   */
+  sendWaterSet(behaviorOrUuid) { return _sendWaterSet(behaviorOrUuid); }
 
   /** GM only. The same reset for a Once Per Token Door & Light Control behavior. */
   resetDoorLightUses(behaviorOrUuid, tokenOrUuid = null) { return _resetDoorLightUses(behaviorOrUuid, tokenOrUuid); }

@@ -720,6 +720,107 @@ The rest of its behaviour:
 - **Unknown types.** A node whose type is not registered (an extension that is off) keeps the ports its wires use, so nothing is lost.
 - **Press.** The panel's macro line and the Press key on a Button node use the saved graph, so Press is disabled while there are unsaved changes.
 
+### Water Surface
+
+`sta2e-toolkit.waterSurface` ([water-surface-behavior.js](scripts/water-surface-behavior.js)) draws animated water inside a Region: oceans, lakes, rivers, swamp, and the emissive liquids lava, acid and sludge. The water is **painted with Regions** — polygon, ellipse, or the Curve tool — and islands are holes. The Region's outline is the shoreline. Registered the same way as the Warp Viewscreen: manifest `documentTypes`, a namespaced id, i18n keys, and a **world relaunch**. Five files:
+
+| file | is |
+|---|---|
+| [water-presets.js](scripts/water-presets.js) | the style registry and field ranges — a leaf with **no imports** |
+| [water-shore-field.js](scripts/water-shore-field.js) | the shore bake — a leaf with **no imports** |
+| [water-shader.js](scripts/water-shader.js) | the `AbstractBaseShader` + `QuadMesh`, built lazily, with a probe |
+| [water-vfx.js](scripts/water-vfx.js) | per-behavior instances: attach, rebuild, refresh, sweep, ripples |
+| [water-wake-vfx.js](scripts/water-wake-vfx.js) | token wakes |
+
+Covered by [tests/water-shore-field.mjs](tests/water-shore-field.mjs) and [tests/water-presets.mjs](tests/water-presets.mjs). The look is checked in [tests/water-shader-browser.html](tests/water-shader-browser.html), served from the module root: the real GLSL and the real bake in raw WebGL 1, one canvas per preset, click to drop a ripple. Its noise is a tiling stand-in for `buildNoiseTexture`. The wave noise is sampled at two features per Wave Size; at one per Wave Size the tile repeat showed as hatching. Six things it rests on:
+
+- **The shore is baked once per shape, on the CPU.** `bakeShoreField` rasterises the Region's polygons **even-odd** (Foundry returns holes as polygons) onto a grid of a few px per cell. R is the **signed** distance to the shore, + in the water and − on the land, **square-root encoded** round 0.5 so the foam band keeps precision in eight bits. GB is the flow direction. A is coverage. `_bakeKey` names everything the bake encodes (reach, foam width, open edges, bank flow, quality); every other field is a uniform and costs nothing to change.
+- **No PIXI mask; the distance clips.** `_gFillPolys` fills polygon by polygon and cannot cut holes, so a Graphics mask would drown every island.
+  - Coverage is `smoothstep` of the interpolated signed distance over ±0.6 cell. The A channel steps once per cell, and gating on it drew a jagged one-pixel rim round the shore in Foundry, so it is no longer used.
+  - Water carried past an open map edge is cut by `uClip`, the scene rect, which is a straight line.
+  - **Near the shore the distance is exact** (`_refineNearShore`): within 3 cells of the edge it is measured to the polygon segments, not cell centre to cell centre. The grid transform's contours follow the raster's staircase, which put a zigzag on every diagonal coast. A refined value is kept only if it agrees with the grid value to within 1.5 cells, so the Region's outline past an open edge never becomes a shore.
+  - The foam's alpha uses its own coverage (`foamCov`: whole on the water, the swash falloff on the land). Multiplied by `cov`, it dipped to 0.5 on the waterline and showed the map through as a dark contour.
+  - Land measures its distance to the **Region's** water only, never to off-map water, or swash would run along the map border.
+- **Its own distance transform, with no frame.** hull-sections.js's `distanceField` frames the image in "outside", which here would put surf along every edge of the bake.
+- **Open Map Edges.** Cells off the scene rect count as water for the distance (never for coverage), so a sea running off the map has no surf at the border.
+- **Follow the Banks** flows along the perpendicular of the blurred distance gradient, signed to agree with the GM's bearing and blended back to the bearing on the centreline. A river that doubles back by more than a right angle can run backwards in the bend; the field's hint says so. The waves are carried with the classic two-phase flow-map blend, so a curving current never smears the texture.
+- **World space, premultiplied, shared noise.** The shader works in world px (`uOrigin + vUv * uSize`), so waves stay put when the camera pans. The shore texture is the instance's own; the noise texture is shared and never destroyed. **That noise must really tile**: `buildNoiseTexture` used to wrap its lattice at 64 cells while spanning only 4, and in Foundry every repeat drew a straight seam across the water and blocks in its surf. Its `_fbm` call now wraps each octave at the cells it spans; [tests/noise-tiling.mjs](tests/noise-tiling.mjs) holds the edge jump to a neighbour step. The beam shader shares that texture, so the fix applies to it too. A client the probe turns away gets a still sprite drawn from the same bake, so holes stay right there too.
+
+**The surf is one wave train, and everything on the shore is timed to it.**
+- **Waves roll in.** Phase is `d / λ + t`, so crests travel shoreward. A slow along-shore noise offsets the phase, so crests land on different stretches of coast at different moments rather than as concentric rings.
+- **How a crest looks.** Each crest has a steep shoreward face and a long trail of foam behind it. It only builds in the shallows (`shoal`). Its froth is two octaves of thresholded noise (`lace`).
+- **The run-up follows the same phase taken at the waterline (`g0`)**: it surges fast as a crest lands and drains slowly. A thin sheet of water, a foam front and faint wet sand reach as far as the run-up does.
+- **Two traps:**
+  - The wet sand is kept at 0.1. Stronger, it showed through the gaps in the lace as dark specks that read as dirt.
+  - A liquid with a current (`uFlow.w > 0`, speed > 0) gets `surge` 0.18, a calm edge with light lapping, because breakers rolling in against a river bank read as wrong.
+
+**Swell** (`swellSize`, `swellEvery`; Ocean ships with it on) adds sets of three big surfable waves.
+- **Arrival.** Time is cut into slots on two staggered clocks. A hash of each slot decides whether a set comes, with chance = slot length / mean interval, and a coarse noise patch decides which stretch of coast it hits.
+- **Life of a wave.**
+  - **It is a ridge sized in GRID SQUARES, never foam widths.** Its half-width `w` is `uGrid * (0.7 + 1.3 * size)`, about 1.4 squares at 55%. It rises up to 7 squares out, but never past 85% of the Region's deepest point (`uSwell.z`, measured from the bake in `_build`), and travels at about 0.6 squares a second.
+    - The first versions sized it off the foam width and started it about 3 foam widths out. On a 180 px grid that drew thin, faint contour lines nobody read as waves.
+    - That failure only showed in Foundry, never in the small preview. **Check swells live** (log in, find the mesh under `canvas.tokens` by `uSwell` in its uniforms, and watch it).
+  - **Shading, not foam:**
+    - a translucent turquoise face toward the shore, which narrows as the wave steepens and catches the glitter;
+    - one crisp crest line;
+    - a long shaded back.
+  - **It must not trace the shoreline.** A crest at a fixed distance is just an offset of the coast, and read as a contour line. A slow per-wave noise along the crest (`along`) does four things:
+    - shifts the crest position by up to ±0.65 squares, settling onto the shore line as the wave lands;
+    - varies its height;
+    - moves the break point, so higher sections break first and the wave **peels** along the beach;
+    - gates where white water spills down the face as the wave steepens.
+  - The face blends only half-way toward a slightly lifted shallow colour, over a dark trough. At 0.7 toward a pale colour, it milked out the whole near-shore band. The crest line is broken into glints by the lace.
+  - It feathers and spills as it shoals, then breaks in the shallows (`brkAt`, 0.8–1.7 foam widths depending on `along`) into a white wall.
+  - **Foam rides it:** a lacy cap along the crest, and old foam scattered over the back (`lace` thresholded). Both thicken as it steepens.
+  - **The crash is timed off the wave.** `tb` is the seconds since this section broke: `(k - kb) * T`, with `kb = 1 - brkAt / start`. Every client sees the same crash.
+    - **Plunge:** the lip lands ahead of the face just before the break.
+    - **Impact:** an explosion of white water that blooms out from the crest and settles over about a second.
+    - **Shore slam:** a burst on the waterline when the wave arrives (`ts = (k - 1) * T`). It works against rocks as well as sand.
+  - **Waves crash on open water too.** For 60% of waves, `hash11` of the set seed and the wave index picks a distance 40–78% of the way out. A coarse noise (`offSect`) picks the stretches that break there.
+    - The crash is the same plunge, impact and spray as the shore break, timed by `tOff`.
+    - The wave then loses 40% of its height and carries the white water on its crest for a few seconds, before breaking again at the shore.
+    - A called set takes its seed from its start stamp. Every client therefore sees the same offshore crashes.
+  - **Spray is its own term (`spray` → `mist`), composed after the foam.** It is white, broken into drifting wisps by noise, and adds alpha on its own, so it can hang over the sand. The shore slam's band is kept narrow (`landReach * 0.6`) so it fades well inside the discard bound. The churned trail behind it is kept short and inside the breaking zone, because a long one whitewashed a whole small pool behind every set.
+  - It then surges up the shore.
+- **The surge's reach is tied to the shader's discard bound** (`landReach * (1 + 1.4 * size)`). Running past that bound, the surge ended in a hard edge.
+- **Sets are hashed from `uTime`, so `uTime` is the WALL CLOCK** (`Date.now()`, wrapped daily for float precision), not a per-client counter. With a counter, every player would see different sets. **Never hash it with `fract(sin(n) * 43758)`.** At wall-clock magnitudes the slot numbers drive `sin` to arguments around 500 000, where GPU float32 `sin` has no precision left. The hash returned near-constants and no set ever came in Foundry, while the preview, on a page-load clock, looked fine. `hash11` is a sin-free hash fed `mod(slot, 4096)`, and the preview now runs on the same wall clock.
+- Flowing liquids scale the swell by `surge` too.
+- **A called set** (the sheet's **Send a Set Now**, or `game.sta2eToolkit.sendWaterSet(behavior)`, GM only) stamps the behavior flag `swellAt` with `Date.now()`.
+  - The renderer passes the stamp in the shader's clock as `uSwell.w`, and drops it after two minutes.
+  - The shader runs it as a third set covering the whole coast, at no less than 0.6 size, even with random swell off.
+  - It needs no socket, and a client that joins mid-set sees it part-way through.
+  - The discard bound takes the called set's size into account.
+
+**Sun glitter, and why it is not one big highlight.** A broad `pow(·, 70)` highlight drew white blobs across the whole surface that read as floating cotton. The broad sheen is now tight and dim (`pow 180`, 0.45).
+- **The sparkle is hashed cells, never the noise texture.** The texture is one 256 px tile, so anything thresholded out of it recurs on a fixed lattice, however it is scaled or rotated. Two drifting noise layers were tried; in Foundry they still showed a grid of identical blobs.
+  - Now each cell (0.32 of a grid square) takes its point, size and flash timing from `hash31` of its integer coordinates.
+  - The point stays clear of the cell edge, so no neighbour lookup is needed.
+  - It flashes only where the wave normal faces the sun.
+- Anything else sampled from the noise texture must break its repeat:
+  - The second wave layer is rotated as well as scaled.
+  - The foam lace tile is 3.2 foam widths, because at 0.85 it showed a checker over every breaking set.
+
+**Caustics** (`caustics` 0–100, uniform `uCaustics`; the **Swimming Pool** preset sets 75, every other preset 0) are the net of light the surface focuses onto the floor. The pool preset is clear, low-opacity water (55%, so the map's floor shows through), little surf, and no swell.
+- **The net is cellular, not noise.** `causticNet` draws walls where F2 − F1 of moving hashed points is near 0 (a 3 × 3 search). The points come from `hash31` of their integer cell, so nothing repeats, and each one circles its own home. A first version used ridges of the noise texture and drew loose squiggles that never closed into cells.
+- **Two nets.** They are at unrelated scales and angles; the brightest light is where their walls cross.
+- **The look follows the waves.** A coarse noise warp bends the walls, and the lookup is offset by the wave normal, so the net wobbles with the surface.
+- **Depth.** The net is strongest in the shallows and fades to 45% in the deep.
+- **Precision.** The clock is `mod(uTime, 6283.2)` before it reaches `cos`/`sin`. That keeps the arguments small; it is the same precision trap as the swell hash.
+
+**Sun Glitter** (`sparkles`, a boolean, on by default; uniform `uSparkle`) multiplies the hashed-cell sparkle to zero, which also takes it off a swell's face. It is not in the presets, so choosing a preset never switches it back on. The broad sheen (`spec`) stays.
+
+**Turbulence** (`turbulence` 0–100, uniform `uRough`; 0 in every preset, and every term is gated on `uRough > 0`, so a calm sea renders exactly as before) is a rough-weather overlay, not a separate style:
+- **Chop.** `waveLayer` gains a third, fast cross-chop layer, rotated about 70° and at ×4.7 scale, so its tile repeat shares no ratio with the other two. The wave clock speeds up by up to 1.8×. The normal's amplitude is floored at `0.7 × uRough` (a rough sea is rough whatever Wave Height says) and steepened.
+- **Storm light.** The colour is pulled toward a darker, desaturated slate, and the troughs (low `h0`) darken further. Glitter and sheen fade, because the sun has gone. Glow liquids are left alone.
+- **Whitecaps** sit on open water only, past the surf band (`open`, from 1.1 to 2.6 foam widths out). They are the peaks of `h0`, gated by a drifting patch noise so caps flare and fade instead of sitting on every crest, and broken up by a finer noise.
+- **Spindrift** is foam streaked down the wind, which is the **Flow Direction** bearing even when Flow is Still. It is two samples stretched about 12:1 along the wind, at unrelated scales so neither one's across-wind repeat shows as even stripes, under a coarse patch noise.
+- **Surf.** The surf runs faster and up to 1.5× heavier, and spray tears off the waterline and the caps.
+- **Foam strength.** The whitecap and spindrift foam is added *outside* the `uShoreCfg.y` multiply, so Foam Strength 0 still leaves a stormy sea white-capped.
+
+**Judge the look at map scale.** The preview's `GRID` is 30 px, so a canvas is about 16 × 10 squares, close to a real beach scene. At 50 px nearly the whole canvas sat inside the surf band, and the water looked far busier than it does in Foundry.
+
+**Wakes** follow the ring dust wake's pattern: each client's own `updateToken` hook follows the token's animated `mesh.position` and pushes a ripple into the instance under it (`addWaterRipple`). The shader draws them from `uRipples[8]`, so a wake costs uniform writes, not sprites. No socket, not gated by `sta2eScriptedMove`, and nothing for a token this client cannot see. The client setting `waterQuality` (high / low / off) is per machine; it re-syncs through `resyncWater`.
+
 ### Planetary Rings & Orbital Views
 
 [star-system-scene.js](scripts/star-system-scene.js) builds five planet layouts:
@@ -767,6 +868,76 @@ three things wherever it is placed. That includes the system map.
 - It is **not** gated by `sta2eScriptedMove`, so Impulse glides billow the whole way.
 - It emits nothing for a token this client cannot see, so it never reveals a cloaked ship.
 - Client setting `ringDustWake`.
+
+### Painted Hull Damage
+
+A second way to draw hull hits, chosen by the world setting `hullDamageStyle` = `painted`
+(prototype; `decal` stays the default). It reads **the same `hullDecals` flag** the scorch
+decals use, so switching style redraws a ship's existing damage, and the stamp, storage,
+clearing and every hook stay in [hull-decals.js](scripts/hull-decals.js). Each hit is painted
+into one scalar damage field over the token art ([hull-damage-field.js](scripts/hull-damage-field.js),
+a leaf with **no imports**); overlapping hits add, so fire on one spot burns deeper. One number
+becomes layers by threshold (`T`): soot, then the torn plating's lit edge, then the inner hull
+(procedural decks, ribs, conduits, lit rooms), then open space. A blurred copy of the field is a
+height map for wall shading and the shadow under the lip. Heat is a second, additive texture
+(glowing tear edges, embers in the decks) plus ember sprites; [hull-damage-paint.js](scripts/hull-damage-paint.js)
+builds both textures and sizes them onto the art. Six things it rests on:
+
+- **A hit stores what to paint, never pixels**: `kind` (beam gouge along the shot, bolt
+  splatter, torpedo crater with cracks — passed by `_stampHullDecalAt`'s last argument in
+  weapon-configs.js), `dir` (direction of travel in the token's local frame), `seed`, and
+  `at` / `cid` / `round` for cooling. Every client regenerates the same wound from those.
+  Old decal entries paint as torpedo craters, seeded from their position. The flag holds up to
+  32 hits; scorch decals still draw only the newest 14.
+- **A hit is capped just over its severity's strength**, because noise lifts a crater's centre
+  ~40% above it. Without the cap a light hit could hole the hull; with it only a heavy hit or
+  repeated fire does. The tests hold that line.
+- **Heat cools by round in the combat the hit landed in** (0.3 a round), otherwise over three
+  minutes of wall clock, quantised to tenths (`hitHeat`). The textures rebuild only when that
+  quantised value, the hits or the art change (`sig`), off `updateCombat` and a 20 s timer for
+  warm tokens. A build is ~15–35 ms at the 384 px `FIELD_MAX` (24–30 ms measured on real 1024 px
+  ship art in Foundry). "Warm" is the paint's own `warm` flag (any heat left), **never the ticker**:
+  a wound at heat 0.2 has no ember spots (they need > 0.25), and when warmth meant "has a ticker"
+  it was dropped from the rebuilds and kept a faint glow forever. Found in Foundry, now a test.
+- **The paint layer works in field pixels**, scaled onto the displayed art, so the textures,
+  embers and field share one frame and ride the container's rotation like the decals. It needs
+  no geometry mask: the art's own alpha (read at field size, falling back to the coarse anchor
+  grid for video or a tainted canvas) is baked in, and nothing is painted where it is zero.
+- **A mirrored token's hits are mirrored into art space** before painting, and the layer is
+  flipped back on display — hits are recorded where they landed on screen.
+- **The container is `eventMode: "none"`.** It sits above every token on the interactive token
+  layer; under PIXI's default `"auto"` its sprites were hit-tested and took the pointer, so a
+  damaged ship could not be selected or targeted. Anything else drawn over tokens there needs the same.
+- **Unreadable art falls back to scorch decals**, and the ticker runs only while something is
+  hot and is removed with the textures on destroy.
+
+**The interior follows the ship's shape** ([hull-sections.js](scripts/hull-sections.js), a leaf
+with **no imports**, run once per art image and cached on it, ~80 ms at 384 px). It makes an exact
+distance field of the hull (with each pixel's nearest edge point) and cuts the hull into sections
+where its **local thickness** jumps — the radius of the largest disc inside the hull covering a
+pixel. Each section is classed `disc` / `long` / `block` by elongation and roundness, and the
+composite lays the same vocabulary of panels, seams, ribs, conduits and lit rooms out on that
+section's own coordinates: a saucer polar (rings, spars doubling outward), a nacelle or pylon along
+its axis (frames across, stringers following the taper, a blue core conduit), anything else as
+decks running parallel to the outline with frames across its axis. A warm-grey bulkhead marks where
+sections meet, and **torpedo cracks stop at it**. Three traps it hit:
+
+- **A watershed of the plain distance field cannot find a saucer.** Seen from above, the saucer's
+  distance slides smoothly down its neck onto the secondary hull's plateau with no second peak.
+  Thickness has no such slope: every saucer pixel is under its one big disc.
+- **Compare thickness across a span (3 px), never pixel to pixel.** Every junction has a fillet
+  where thickness slides from the saucer's 83 to the neck's 43 in a few pixels, and no
+  neighbour-to-neighbour ratio ever sees that as a step. The absolute floor (`jumpAbs`) stops a
+  6 px pylon splitting on its discs' ±1 px rounding.
+- **Spars laid out from the nearest edge point break into confetti** wherever the nearest edge
+  switches sides, which is the middle of any hull, so a `block`'s frames run across its own axis.
+
+Top-down art only shows what does not overlap: a saucer drawn over its engineering hull with no
+step in width is one section. An analysis made for another field size is ignored (plain grid).
+
+Covered by [tests/hull-damage.mjs](tests/hull-damage.mjs) (`--experimental-vm-modules`); the look
+is checked in [tests/hull-damage-browser.html](tests/hull-damage-browser.html), served from the
+module root.
 
 ### Cloaking Device
 
@@ -2548,6 +2719,9 @@ through `lcarsChatCard`.
 | [scripts/complication-card.js](scripts/complication-card.js) | The working **COMPLICATIONS** card — complications settled in chat by any GM instead of in a prompt on one client (tables with several GMs). `CombatHUD._resolveComplicationDamagePenalty` (ground and ship attacks that hit) no longer prompts: it calls `requestComplicationResolution`, which posts the card and returns a promise the confirming client **awaits**, so the damage card is built only after a GM clicks Done — callers did not change. Per complication: reduce Severity/damage (anything unassigned), 2-Threat buy-off (NPC attacker), weapon malfunction / power-cell burnout (character weapon), or break other gear (potency = complications spent). State is the message flag `complicationCard`; every click is a message update, Done applies it all once, claiming the card first (`finishing`) so two GMs cannot both pay. The waiting client resolves off its own `updateChatMessage`, which is why the card is whispered to every GM **and** that user; deleting the card unsettled counts every complication against the damage. With nothing to choose (a PC with no gear to break, a player ship) no card is posted. The task kind (`postTaskComplicationCard`) waits on nothing and only breaks gear. The Break Gear dialog and the old buy-off / malfunction prompts are gone |
 | [scripts/gear-damage-ui.js](scripts/gear-damage-ui.js) | The controls: the break/repair key on each row of the toolkit arrowhead's **Gear** section ([gear-hud.js](scripts/gear-hud.js): Wear toggles plus break/repair, character weapons included — GM-only; players wear their own from the sheet), the repair key the sheet shows on a damaged row, `toggleGearDamage` (writes the flag and posts the chat card), and the task-kind working COMPLICATIONS card (complication-card.js) the active GM posts when a Working Results card is confirmed with complications — any task, or a weapon attack that MISSED (a hit settles them on its own attack card first; a missed pulse grenade gets its misfire card instead) — (`updateChatMessage` on `flags.rollData.confirmed` — **not** the bare `flags.confirmed`, which the confirm handler writes first, before the result exists, and then leaves unchanged; once per roll via `gearComplicationCardPosted`) — its Break Gear key counts complications spent and closes the card when none are left; the task card itself is not touched. A character-weapon attack's complications may also make the weapon malfunction or burn out (one complication, on the working COMPLICATIONS card). **Repairing from the sheet is a request, not a repair**: the key posts a REPAIR REQUEST card whispered to the active GM, whose render-time controls settle it — repair with no roll, **Leave Broken** (close the request, item still out of action), spend a set Threat (NPC: charged at once) or Momentum (player character, `hasPlayerOwner`: the GM's price becomes an **offer** on the card — `gearRepairRequest.offer` — that an owner of the character Accepts or Declines — a decline hands the card back to the GM's controls with a note rather than closing it; the answer relays to the active GM over `gearRepairOfferReply`, who spends the pool and repairs, and a pool too low drops the offer so the GM can choose again), or require a roll, which posts a Task Maker request card carrying `taskData.gearRepair`; its `taskCallback` (`completeGearRepairFromTask`) repairs on a pass, relaying to the active GM (socket `gearRepairComplete`) to settle the card. That callback lives only on the client that opened the roller, so the roller must confirm their own roll. The Gear section of the toolkit HUD stays an instant GM toggle **A damaged item carries a negative trait** ("Phaser Type-2 (Broken)"): a toolkit trait with a Difficulty effect scaling with its potency, kept on the owner by the active GM alone (`registerGearDamageTraits`, off `updateItem` — so any route that breaks something gets one without trait permissions). Potency lives on the item (`gearDamagePotency`, 1–5): 1 to start, breaking it from the COMPLICATIONS card spends one complication per point; against a player character the + key raises it at 2 Threat a step (`POTENCY_THREAT_COST`); the Gear section's + key adds 1 (2 Threat on a PC). The trait is found again by its `gearTraitFor` flag; editing its quantity on the sheet copies back to the item, repairing deletes it, and its potency is the repair card's starting Difficulty **Pulse grenades** (`isPulseGrenade`, by name) are a supply: `grenadeCount` (item flag, 3 until first thrown) drops by one per throw — in the roller-confirm ground path and in `_resolveWeapon`'s ground branch — and `assertWeaponUsable` refuses one at 0; the Gear section has −/+ keys and the sheet a ×N badge. A **missed** throw that rolled a complication posts a GM-only GRENADE MISFIRE card: it can go off on the thrower or on the GM's single target via `CombatHUD.triggerGrenadeMisfire`, which calls `_resolveWeapon(true, { targets, misfire: true })` — the ordinary damage card, Area spill and injury decisions, but no second Major Action and no second grenade. While that card is offered the roll's **miss animation is held back** (`misfireOffered` in the roller path) — otherwise the blast showed at the original target and again where it misfired; No Misfire plays the held miss from the card's `missTargetIds` |
 | [scripts/personal-shield-vfx.js](scripts/personal-shield-vfx.js) | A worn personal forcefield (item names in the world setting `personalShieldItems`). No standing bubble: a bloom when Wear goes on, a collapse when it goes off or the item is deleted, the full ship shield impact (`playShieldImpactVFX`: bubble cap plus tinted JB2A flash, same world toggles) when a ground weapon hits the wearer, and a particle explosion of its own (`_burst`: flash; a shock front baked as a ragged hard-edged ring with a soft wake, plus a trailing wave and haze; streak sparks; embers) when the wearer gains Stun/Dying/Dead or the field is sacrificed (or a core dead/unconscious status). Raise, collapse and break are played by every client from its own document hook, so nothing is broadcast; the hit's bubble broadcasts itself and Sequencer routes its flash, and it and is fired from `_playGroundAttackAnimation` / `_playGroundAreaConeAnimation`. Condition changes are diffed against a per-client last-seen map, since `preUpdateToken` only runs on the updating client. **Rules:** a working field (worn, not burnt out) may be **sacrificed** from the injury decision card against a Deadly injury — the injury is taken as a Stun injury of the same potency and the item gets the `forcefieldBurntOut` flag, which `_getTargetProtection` skips and every effect here ignores; a minor NPC with a working field gets the decision card instead of a straight injury. The sheet shows a battery icon on a burnt-out field, and clicking it recharges. **A hit on a working field stops ON it**: every ground renderer (native phaser, native energy except the pulse shockwave, and the Sequencer beam / bolt / JB2A bolt in weapon-configs.js) ends the shot at `personalShieldStopPoint`, and `playPersonalShieldHits` puts the flash there. The depth is a fixed `PERSONAL_CAP_T` rather than a per-shot roll because the renderer and the flash are separate calls with no payload between them — make it random and the beam and flash part company |
+| [scripts/hull-damage-field.js](scripts/hull-damage-field.js) | Painted hull damage maths — hit brushes, the damage field, the threshold composite, heat. A leaf with **no imports** |
+| [scripts/hull-sections.js](scripts/hull-sections.js) | Hull shape analysis for painted damage — exact distance field, local thickness, sections cut at thickness jumps and classed disc / long / block. A leaf with **no imports** |
+| [scripts/hull-damage-paint.js](scripts/hull-damage-paint.js) | Painted hull damage renderer — reads the art's alpha, builds the base and glow textures, embers and their ticker, sizes the layer onto the art |
 | [scripts/cloak-hit-vfx.js](scripts/cloak-hit-vfx.js) | The shimmer a cloaked ship shows when hit — local playback and the `cloakHitShimmerVfx` broadcast |
 | [scripts/sensor-contacts.js](scripts/sensor-contacts.js) | Reveal and Sensor Sweep resolution (active GM side) and the SENSOR CONTACT markers |
 | [scripts/gm-authority.js](scripts/gm-authority.js) | Active GM designation — `isActiveGM`, `getActiveGM`, `activeGmWhisperIds`. A leaf with **no imports** |

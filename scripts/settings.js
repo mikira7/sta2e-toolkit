@@ -1083,6 +1083,7 @@ export function registerSettings() {
   });
   game.settings.register("sta2e-toolkit", "sndHazardRadiation",   hSnd("Hazard Sound — Radiation",            "Sound played when a token takes Radiation hazard damage."));
   game.settings.register("sta2e-toolkit", "sndHazardPlasmaStorm", hSnd("Hazard Sound — Plasma Storm",         "Sound for Plasma Storm hazard damage."));
+  game.settings.register("sta2e-toolkit", "sndHazardIonStorm", hSnd("Hazard Sound — Ion Storm", "Sound for Ion Storm hazard damage."));
   game.settings.register("sta2e-toolkit", "sndHazardAsteroid",    hSnd("Hazard Sound — Asteroid Field",       "Sound for Asteroid Field hazard damage."));
   game.settings.register("sta2e-toolkit", "sndHazardFire",        hSnd("Hazard Sound — Fire / Plasma Fire",   "Sound for Fire hazard damage."));
   game.settings.register("sta2e-toolkit", "sndHazardNebula",      hSnd("Hazard Sound — Nebula Gas",           "Sound for Nebula Gas hazard damage."));
@@ -1290,20 +1291,24 @@ export function registerSettings() {
 
   // Hull damage visuals — choose ONE system (or none) so they don't stack.
   //   decal      → persistent scorch PNG pinned to the hull (pins through rotation)
+  //   painted    → layered damage painted into the hull (hull-damage-paint.js);
+  //                same hit flag as decal, so switching redraws existing damage
   //   tokenmagic → Token Magic FX splash filter on the token
   //   off        → no hull damage visual
   game.settings.register("sta2e-toolkit", "hullDamageStyle", {
     name:    "Hull Damage Visuals",
-    hint:    "How a starship shows hull damage when a hit penetrates its shields. Scorch decals stamp a persistent mark pinned to the hull. Token Magic uses the splash filter. Off disables both.",
+    hint:    "How a starship shows hull damage when a hit penetrates its shields. Scorch decals stamp a persistent mark pinned to the hull. Painted damage burns through the plating to the decks beneath, with glowing edges that cool over a few rounds (prototype). Token Magic uses the splash filter. Off disables them.",
     scope:   "world",
     config:  true,
     type:    String,
     choices: {
       decal:      "Scorch decals (pinned to hull)",
+      painted:    "Painted damage (layered hull, prototype)",
       tokenmagic: "Token Magic splash",
       off:        "Off",
     },
     default: "decal",
+    onChange: () => refreshAllHullDecals(),
   });
 
   // Global size multiplier for scorch decals (1.0 = default). Lower = smaller.
@@ -1847,6 +1852,22 @@ export function registerSettings() {
       // Rebuild this client's pools immediately rather than at the next scene
       // update, so the setting reads as instant.
       import("./scene-warp-vfx.js").then(m => m.syncSceneWarp()).catch(() => { /* canvas not up */ });
+    },
+  });
+
+  // Client scope: a per-machine frame-rate choice, like the Scene Warp quality.
+  game.settings.register("sta2e-toolkit", "waterQuality", {
+    name: "Water Surface — Quality (this device)",
+    hint: "How Water Surface Regions are drawn on this device. Low uses a coarser shoreline "
+        + "and one wave layer; Off draws no water at all. Affects only your own view.",
+    scope: "client", config: true, type: String, default: "high",
+    choices: {
+      high: "High — full shoreline detail, two wave layers",
+      low:  "Low — coarser shoreline, one wave layer",
+      off:  "Off — no water drawn",
+    },
+    onChange: () => {
+      import("./water-surface-behavior.js").then(m => m.resyncWater()).catch(() => { /* canvas not up */ });
     },
   });
 

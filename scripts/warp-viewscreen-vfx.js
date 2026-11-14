@@ -34,6 +34,7 @@
 
 import { regionBounds, regionCentre, regionPolygons } from "./spawn-regions.js";
 import { validScreenCorners, alignedImageGeometry } from "./viewscreen-alignment.js";
+import { buildHazardLightningPath, sampleHazardLightningPath } from "./hazard-lightning-path.js";
 import {
   VFX_Z_BASE,
   PALETTE_SIZE,
@@ -54,7 +55,6 @@ import {
   buildWispTexture   as _buildWispTexture,
   buildGrainFrames   as _buildGrainFrames,
   buildScanlineTexture as _buildScanlineTexture,
-  buildLightningPath as _buildLightningPath,
   strokePolyline     as _strokePolyline,
   passThrough        as _passThrough,
   cachedSetting,
@@ -780,6 +780,9 @@ function _syncHaze(inst, cfg, env) {
   inst.hazeLayer.visible = on;
   if (!on) return;
 
+  if (spec.texture === "cloud" && !inst.hazeTextures) {
+    inst.hazeTextures = Array.from({ length: 3 }, () => _buildCloudTexture({ contrast: 1.1, floor: 0.2, warp: 0.45 }));
+  }
   const b  = inst.frame.bounds;
   const vp = inst.frame.vp;
   const cx = b.x + b.width / 2;
@@ -798,9 +801,12 @@ function _syncHaze(inst, cfg, env) {
   for (let i = 0; i < inst.hazeSprites.length; i++) {
     const sp = inst.hazeSprites[i];
     const st = inst.hazeState[i];
+    sp.texture = spec.texture === "cloud" ? inst.hazeTextures[i % inst.hazeTextures.length] : inst.radialTex;
+    sp.rotation = spec.texture === "cloud" ? st.phase * 0.15 : 0;
     // A single blob sits exactly on the away vector, which is what keeps warp
     // identical; several fan out across a third of a turn either side of it.
-    const spreadAng = spec.count > 1 ? (i / (spec.count - 1) - 0.5) * 2.1 : 0;
+    const spreadAng = spec.texture === "cloud" ? i / spec.count * Math.PI * 2
+      : spec.count > 1 ? (i / (spec.count - 1) - 0.5) * 2.1 : 0;
     const ang  = base + spreadAng;
     const dist = spec.count > 1 ? spec.offset * (0.6 + st.dist * 0.9) : spec.offset;
 
@@ -813,6 +819,7 @@ function _syncHaze(inst, cfg, env) {
     sp.height = st.size;
     sp.tint   = cfg.accentTint;
     sp.alpha  = spec.alpha * cfg.intensity * (spec.count > 1 ? 0.55 + st.alphaVar * 0.9 : 1);
+    st.baseAlpha = sp.alpha;
   }
 }
 
@@ -999,10 +1006,8 @@ function _buildLayers(inst) {
 /**
  * The lightning pool.
  *
- * Built only for an environment that strikes, and sized to the largest strike it
- * can throw. Graphics are redrawn per *strike*, not per frame — between strikes
- * they are simply hidden, and the flicker moves alpha rather than re-tracing the
- * path, so a storm costs a redraw a second or two rather than sixty.
+ * Built only for an environment that strikes. Seeded paths are revealed while
+ * their leaders grow, then held still through the flicker and fade.
  */
 function _buildBoltPool(inst, spec) {
   if (inst.bolts.length || !spec) return;
@@ -1023,7 +1028,6 @@ function _buildBoltPool(inst, spec) {
  * that is roughly what an overexposed bright line actually does to a sensor.
  */
 function _drawBolt(g, spec, core, glow, path) {
-  g.clear();
   _strokePolyline(g, { width: spec.glowWidth, color: glow, alpha: 0.30 }, path.main);
   for (const b of path.branches) {
     _strokePolyline(g, { width: spec.glowWidth * 0.55, color: glow, alpha: 0.22 }, b);
@@ -1035,18 +1039,13 @@ function _drawBolt(g, spec, core, glow, path) {
 }
 
 /**
- * Throw one strike's worth of bolts through the point the flash lit.
- *
- * Each bolt is a full chord *through* the strike point rather than a line ending
- * at it, so it enters and leaves the frame like something arcing past the ship
- * instead of terminating politely inside the viewscreen. The mask clips the
- * overshoot for free, which is why the chord is simply made longer than the
- * region's diagonal and left alone.
+ * Launch hazard-style leaders outward from the point the flash lit.
+ * The existing viewscreen mask clips every glow and branch.
  */
 function _strikeBolts(inst, cfg, spec, at) {
   if (!inst.bolts.length) return;
   const b = inst.frame.bounds;
-  const reach = Math.hypot(b.width, b.height) * 0.75;
+  const reach = Math.min(b.width, b.height) * 0.65;
   const core = _lighten(cfg.accentTint, 0.72);
   const glow = cfg.accentTint;
   const n = spec.min + ((Math.random() * (spec.max - spec.min + 1)) | 0);
@@ -1054,22 +1053,16 @@ function _strikeBolts(inst, cfg, spec, at) {
   for (let i = 0; i < inst.bolts.length; i++) {
     const g = inst.bolts[i];
     if (i >= n) { g.visible = false; continue; }
-    const ang = Math.random() * Math.PI * 2;
-    const dx  = Math.cos(ang) * reach;
-    const dy  = Math.sin(ang) * reach;
-    // Struck through `at`, with the split between the two halves randomised so
-    // the strike point is not always the midpoint of the bolt.
-    const f = 0.3 + Math.random() * 0.4;
-    const path = _buildLightningPath(
-      at.x - dx * f, at.y - dy * f,
-      at.x + dx * (1 - f), at.y + dy * (1 - f),
-      spec,
-    );
-    _drawBolt(g, spec, core, glow, path);
+    g.clear();
+    g._hazardPaths = Array.from({ length: 3 }, () =>
+      buildHazardLightningPath(at.x, at.y, reach, Math.random() * 10000));
+    g._hazardColors = { core, glow };
     g.visible = true;
     g.alpha = 1;
   }
   inst.boltLayer.visible = true;
+  inst.boltLayer.alpha = 1;
+  inst.boltComplete = false;
   inst.boltAge = 1;   // non-zero starts the flicker on the next tick
 }
 
@@ -1354,6 +1347,9 @@ function _destroyInstance(inst) {
   try { inst.container.destroy({ children: true }); } catch { /**/ }
   try { inst.texture?.destroy?.(true); } catch { /**/ }
   try { inst.radialTex?.destroy?.(true); } catch { /**/ }
+  for (const tex of inst.hazeTextures ?? []) {
+    try { tex.destroy(true); } catch { /**/ }
+  }
   try { inst.scanTex?.destroy?.(true); } catch { /**/ }
   for (const t of inst.envTextures ?? []) { try { t?.destroy?.(true); } catch { /**/ } }
   for (const t of inst.grainFrames ?? []) { try { t?.destroy?.(true); } catch { /**/ } }
@@ -1527,7 +1523,8 @@ function _fireStrobe(inst, cfg, spec, strength) {
   const size = Math.min(b.width, b.height) * spec.scale;
   // One point drives both halves of the strike, so the discharge glow sits on
   // the bolt rather than somewhere else on the screen.
-  const at = { x: b.x + Math.random() * b.width, y: b.y + Math.random() * b.height };
+  const at = { x: b.x + (.2 + Math.random() * .6) * b.width,
+    y: b.y + (.2 + Math.random() * .6) * b.height };
   inst.bloom.position.set(at.x, at.y);
   inst.bloom.width   = size;
   inst.bloom.height  = size;
@@ -1551,16 +1548,14 @@ function _fireStrobe(inst, cfg, spec, strength) {
 /**
  * Fade and flicker the bolts currently in the air.
  *
- * Alpha only — the paths are not re-traced. A real bolt does not fade smoothly;
- * it stutters as the channel re-strikes, so the linear decay carries a cosine
- * flutter on top of it. The flutter never reaches zero, because a bolt that
- * blinks fully out and back reads as a dropped frame.
+ * Reveal each seeded segment and its forks before fading the complete strike.
+ * Growth follows arrival times, not an expanding circular mask.
  */
 function _tickBolts(inst, cfg, env, dt) {
   const spec = _envStrobe(env, cfg.lightning, cfg.intensity)?.spec?.bolt;
   if (!spec || inst.boltAge <= 0) return;
   inst.boltAge += dt;
-  const t = inst.boltAge / spec.lifeMs;
+  const t = inst.boltAge / Math.max(1100, spec.lifeMs);
   if (t >= 1) {
     inst.boltAge = 0;
     inst.boltLayer.visible = false;
@@ -1568,7 +1563,18 @@ function _tickBolts(inst, cfg, env, dt) {
     return;
   }
   const flutter = 0.62 + 0.38 * Math.abs(Math.cos(t * Math.PI * spec.flickers));
-  inst.boltLayer.alpha = (1 - t) * flutter;
+  if (t < .75 || !inst.boltComplete) {
+    for (const g of inst.bolts) {
+      if (!g.visible) continue;
+      g.clear();
+      for (const path of g._hazardPaths ?? []) {
+        _drawBolt(g, spec, g._hazardColors.core, g._hazardColors.glow,
+          sampleHazardLightningPath(path, Math.min(1.65, t * 2.2)));
+      }
+    }
+  }
+  inst.boltComplete = t >= .75;
+  inst.boltLayer.alpha = Math.min(1, (1 - t) / .35) * flutter;
 }
 
 /** Hide any bolt in flight — the counterpart to `_clearBloom`. */
@@ -1799,6 +1805,12 @@ function _tickHaze(inst, cfg, env, dt) {
     const sp = inst.hazeSprites[i];
     const st = inst.hazeState[i];
     st.phase += (dt / 1000) * spec.driftRate * st.rate;
+    if (spec.churn) {
+      sp.width = st.size * (1 + Math.sin(st.phase * 0.83) * spec.churn);
+      sp.height = st.size * (1 + Math.cos(st.phase * 0.67) * spec.churn);
+      sp.rotation = st.phase * 0.15;
+      sp.alpha = st.baseAlpha * (0.85 + 0.15 * Math.sin(st.phase * 1.3));
+    }
     const amp = st.size * 0.16;
     sp.position.set(
       st.baseX + Math.cos(st.phase) * amp,

@@ -57,6 +57,7 @@ export function rangeBandColor(rangeBand) {
 export const HAZARD_TYPES = Object.freeze({
   "radiation":     { label: "Radiation",                 context: ["space", "ground"] },
   "plasma-storm":  { label: "Plasma Storm",              context: ["space"] },
+  "ion-storm":     { label: "Ion Storm",                 context: ["space"] },
   "asteroid-field":{ label: "Asteroid Field",            context: ["space"] },
   "nebula-gas":    { label: "Nebula Gas",                context: ["space"] },
   "fire":          { label: "Fire / Plasma Fire",        context: ["space", "ground"] },

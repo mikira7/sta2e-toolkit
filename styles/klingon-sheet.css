@@ -823,6 +823,10 @@
       color: var(--kli-unlit);
       text-shadow: none;
       &:not([value="0"]) { color: var(--kli-alarm); text-shadow: 0 0 6px rgba(255,90,64,.8); }
+      /* The system's _updateBreachValues tags a breached input with these and
+         sta.css fills them orange / red with !important, so the red number
+         vanished into its own cell. Dark ink on the lit cell instead. */
+      &.highlight-damaged, &.highlight-destroyed { color: #1a0200; text-shadow: none; font-weight: 700; }
     }
     .buttons { grid-template-columns: 1fr; }
 

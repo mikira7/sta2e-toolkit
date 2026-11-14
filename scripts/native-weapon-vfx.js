@@ -26,6 +26,7 @@ import {
 } from "./shield-impact-vfx.js";
 import { isSceneWeaponAutoRotateDisabled } from "./scene-warp.js";
 import { vfxDrop } from "./vfx-diagnostics.js";
+import { stampHullDecal } from "./hull-decals.js";
 import {
   BEAM_SHADER_DEFAULTS,
   BEAM_SHADER_RANGES,
@@ -1345,6 +1346,26 @@ function _normalizeRepeatCount(repeatCount) {
   return Math.min(12, Math.max(1, count));
 }
 
+/**
+ * Record a hull hit for the scorch decals / painted damage, as the Sequencer
+ * path in weapon-configs.js does. This engine used to play the hull explosion
+ * and record nothing, so every native-drawn weapon left the hull clean. A hit
+ * counts when the shields were already down, or when this attack breached
+ * them (the shot is drawn passing through to `hullPoint`).
+ */
+function _stampHullHit(target, hullPoint, sourcePoint, opts, kind, delayMs = 0) {
+  const finalDamage = opts.hullImpact?.shieldsDown ? opts.hullImpact.finalDamage
+    : opts.shieldImpact?.breached ? opts.shieldImpact.finalDamage : null;
+  if (finalDamage == null || !hullPoint) return;
+  const at = { x: hullPoint.x, y: hullPoint.y };
+  const from = sourcePoint ? { x: sourcePoint.x, y: sourcePoint.y } : null;
+  const run = () => {
+    stampHullDecal(target, at, { finalDamage, kind, from })
+      ?.catch?.(err => console.warn("STA2e Toolkit | Hull decal stamp failed:", err));
+  };
+  if (delayMs > 0) setTimeout(run, delayMs); else run();
+}
+
 function _shieldImpactForShot(shieldImpact, shotIndex = 0, shotCount = 1) {
   if (!shieldImpact?.preShields) return null;
   const count = Math.max(1, Number(shotCount) || 1);
@@ -1437,6 +1458,7 @@ async function _fireEnergyBolts(isHit, sourceToken, targets, opts) {
         shaded,
       });
       if (isHit) {
+        _stampHullHit(target, hullPoint, sourcePoint, opts, bolt ? "bolt" : "beam", impactDelay);
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: impactDelay });
         else {
           scheduleShieldImpactVFX(sourceToken, target, targetPoint, {
@@ -1537,6 +1559,7 @@ async function _fireEnergyBeams(isHit, sourceToken, targets, opts) {
         // in one frame, so the strike has already landed — the reaction cannot
         // wait for the beam to fade. (This used to be beamDuration - 80, i.e.
         // ~680ms into a 760ms beam.)
+        _stampHullHit(target, hullPoint, sourcePoint, opts, "beam", 0);
         if (opts.hullImpact?.shieldsDown) scheduleHullImpactVFX(target, targetPoint, { ...opts.hullImpact, delayMs: 0 });
         else {
           scheduleShieldImpactVFX(sourceToken, target, targetPoint, {

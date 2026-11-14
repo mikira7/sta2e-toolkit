@@ -280,7 +280,12 @@ function _blob(ctx, cx, cy, r, a, ecc, ang) {
 const NOISE_GRID = 64;
 
 /** Smoothstep-interpolated value noise, sampled in [0,1) and wrapping. */
-function _sampleNoise(grid, size, u, v) {
+/**
+ * `period` (in lattice cells, at most `size`) is where the lookup wraps. The
+ * default wraps at the whole lattice; a tiling texture passes the number of
+ * cells it actually spans, or its right edge never meets its left.
+ */
+function _sampleNoise(grid, size, u, v, period = size) {
   const x  = u * size;
   const y  = v * size;
   const x0 = Math.floor(x);
@@ -288,7 +293,7 @@ function _sampleNoise(grid, size, u, v) {
   const sx = (x - x0) * (x - x0) * (3 - 2 * (x - x0));
   const sy = (y - y0) * (y - y0) * (3 - 2 * (y - y0));
   const at = (xx, yy) =>
-    grid[(((yy % size) + size) % size) * size + (((xx % size) + size) % size)];
+    grid[(((yy % period) + period) % period) * size + (((xx % period) + period) % period)];
   const a = at(x0, y0), b = at(x0 + 1, y0);
   const c = at(x0, y0 + 1), d = at(x0 + 1, y0 + 1);
   const top = a + (b - a) * sx;
@@ -312,13 +317,16 @@ function _sampleNoise(grid, size, u, v) {
  * result was fine speckle — noise, not cloud. At `features: 3` the octaves run
  * 64px, 32px, 16px, 8px, which is an actual fractal spread.
  */
-function _fbm(grid, u, v, octaves, features = 3) {
+function _fbm(grid, u, v, octaves, features = 3, tile = false) {
   let sum = 0, amp = 0.5, norm = 0, cells = features;
   for (let o = 0; o < octaves; o++) {
     // `_sampleNoise` multiplies by the lattice size, so dividing here is what
     // makes `cells` mean "cells across the sprite" rather than "across the grid".
     const k = cells / NOISE_GRID;
-    sum  += _sampleNoise(grid, NOISE_GRID, u * k, v * k) * amp;
+    // A tiling texture wraps each octave at the cells it spans (see
+    // buildNoiseTexture); everything else wraps at the whole lattice as before.
+    const period = tile ? Math.min(NOISE_GRID, Math.round(cells)) : NOISE_GRID;
+    sum  += _sampleNoise(grid, NOISE_GRID, u * k, v * k, period) * amp;
     norm += amp;
     amp  *= 0.5;
     cells *= 2;
@@ -333,8 +341,12 @@ function _fbm(grid, u, v, octaves, features = 3) {
  * turbulence scrolls along the beam — so unlike every other texture here this
  * one has to TILE, and two things make that true:
  *
- *  - `_sampleNoise` already wraps by modulo, so `_fbm` is periodic in u and v
- *    provided every octave lands on a whole number of cells. `features` is
+ *  - `_fbm` is called with `tile`, which wraps each octave's lookup at the
+ *    number of cells it spans. It used to wrap at the whole 64-cell lattice,
+ *    which only meets itself 64 cells along: with `features: 4` the texture
+ *    read cells 0..4 and its edges never matched, so every repeat drew a
+ *    straight seam (bands across the water, blocks in its surf). Each octave
+ *    must still land on a whole number of cells. `features` is
  *    doubled per octave, so **it must be an integer** or a seam runs down the
  *    beam every time the noise scrolls past.
  *  - `wrapMode = REPEAT` is only legal on a power-of-two texture in WebGL 1,
@@ -370,7 +382,7 @@ export function buildNoiseTexture({ size = 128, octaves = 4, features = 4, contr
   for (let y = 0; y < size; y++) {
     const v = y / size;
     for (let x = 0; x < size; x++) {
-      const n = Math.pow(_fbm(grid, x / size, v, octaves, feat), contrast);
+      const n = Math.pow(_fbm(grid, x / size, v, octaves, feat, true), contrast);
       const c = Math.max(0, Math.min(255, Math.round(n * 255)));
       const i = (y * size + x) * 4;
       d[i] = d[i + 1] = d[i + 2] = c;

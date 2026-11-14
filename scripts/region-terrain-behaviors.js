@@ -47,6 +47,14 @@ function _hazardTypeChoices() {
 
 const Base = foundry.data.regionBehaviors.RegionBehaviorType;
 
+// Keep the existing optional hex-string storage (blank means default), while
+// letting Foundry render its native color swatch and picker in the auto-sheet.
+class HazardColorField extends foundry.data.fields.StringField {
+  _toInput(config) {
+    return foundry.applications.elements.HTMLColorPickerElement.create(config);
+  }
+}
+
 export class DifficultTerrainBehaviorType extends Base {
   static LOCALIZATION_PREFIXES = ["BEHAVIOR.TYPES.base"];
 
@@ -104,8 +112,12 @@ export class TerrainHazardBehaviorType extends Base {
         label: "Effect Visibility", hint: `${HAZARD_VFX_SUPPORTED}.` }),
       visualIntensity: new f.NumberField({ required: true, initial: 1, min: .25, max: 2, step: .25,
         label: "Effect Intensity" }),
-      visualColor: new f.StringField({ required: true, blank: true, initial: "",
-        label: "Effect Color", hint: "Optional hex color, e.g. #ff7026. Blank uses the hazard's default." }),
+      visualColor: new HazardColorField({ required: true, blank: true, initial: "",
+        label: "Effect Base Color", hint: "Click the swatch to pick a color. Clear the value to use the hazard's default." }),
+      visualAccentColor: new HazardColorField({ required: true, blank: true, initial: "",
+        label: "Effect Glow / Highlight Color", hint: "Click the swatch to pick a color. Clear the value to keep the original highlights." }),
+      visualTemperature: new f.StringField({ required: true, initial: "heat", choices: { heat: "Heat", cold: "Cold / frost" },
+        label: "Extreme Temperature Style", hint: "Only used by Extreme Temperature hazards." }),
       visualSound: new f.BooleanField({ initial: true, label: "Trigger Sound",
         hint: "Use the hazard sound from module settings. GM-only sounds stay private." }),
     };

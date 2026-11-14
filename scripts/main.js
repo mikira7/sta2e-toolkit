@@ -88,6 +88,8 @@ import { registerRegionPadConfig } from "./region-pad-config.js";
 import { registerRegionSplineTool } from "./region-spline-tool.js";
 import { registerWarpViewscreenBehavior } from "./warp-viewscreen-behavior.js";
 import { registerRegionTerrainBehaviors } from "./region-terrain-behaviors.js";
+import { registerWaterSurfaceBehavior } from "./water-surface-behavior.js";
+import { registerWaterWake } from "./water-wake-vfx.js";
 import { registerRandomTeleportBehavior } from "./random-teleport-behavior.js";
 import { registerDoorLightBehavior } from "./door-light-behavior.js";
 import { registerRegionLogicBehavior } from "./region-logic-behavior.js";
@@ -614,6 +616,7 @@ Hooks.once("init", () => {
   registerRegionSplineTool();
   registerWarpViewscreenBehavior();
   registerRegionTerrainBehaviors();
+  registerWaterSurfaceBehavior();
   registerRandomTeleportBehavior();
   registerDoorLightBehavior();
   registerRegionLogicBehavior();
@@ -2897,6 +2900,8 @@ Hooks.once("setup", () => {
 
   // Planetary ring dust wake — each client follows replicated moves itself.
   registerRingDustWake();
+  // Water Surface wakes — the same local follower, feeding the water shader.
+  registerWaterWake();
 
   // Patch Token._onDragLeftStart / _onDragLeftDrop / _onDragLeftCancel to feed
   // the ZoneDragRuler. Through libWrapper when it is present, so other modules

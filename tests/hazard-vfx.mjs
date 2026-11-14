@@ -49,6 +49,10 @@ assert.equal(C.normalizeHazardVfx({}, 'radiation').color, '#6aef83');
 assert.equal(C.normalizeHazardVfx({ intensity: Infinity, mode: 'bogus', color: '<html>' }).intensity, 1);
 assert.equal(C.normalizeHazardVfx({ intensity: 50 }).intensity, 2);
 assert.equal(C.normalizeHazardVfx({ intensity: 0 }).intensity, .25);
+assert.equal(C.normalizeHazardVfx({ accentColor: '<bad>' }).accentColor, '');
+assert.equal(C.normalizeHazardVfx({ accentColor: '#12AbEF' }).accentColor, '#12AbEF');
+assert.equal(C.normalizeHazardVfx({ temperature: 'cold' }, 'extreme-temp').color, '#80ccff');
+assert.equal(C.normalizeHazardVfx({ temperature: 'cold', color: '#ff9254' }, 'extreme-temp').color, '#ff9254', 'explicit cold colors respected');
 const poly = [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 400 }, { x: 0, y: 400 }];
 const hole = [{ x: 140, y: 140 }, { x: 260, y: 140 }, { x: 260, y: 260 }, { x: 140, y: 260 }];
 assert.equal(V.hazardInteriorDistance({ x: 200, y: 200 }, [poly, hole]), -60);
@@ -104,25 +108,50 @@ context.game.user = gm;
 assert.equal(V.broadcastHazardVfx(token, 'radiation', { sound: false }), true);
 assert.equal(emitted.length, 1);
 assert.equal(audio.length, 1, 'sound can be disabled');
-assert.equal(V.broadcastHazardVfx(token, 'generic', {}), false, 'other hazard types retain existing renderer');
+assert.equal(V.broadcastHazardVfx(token, 'unsupported', {}), false, 'unknown hazard types retain fallback');
 const soundKeys = [];
 context.game.settings.get = (module, key) => { soundKeys.push(key); return 'hazard.ogg'; };
 for (const [offset, [type, sound]] of [
   ['plasma-storm', 'sndHazardPlasmaStorm'], ['asteroid-field', 'sndHazardAsteroid'],
   ['nebula-gas', 'sndHazardNebula'], ['falling-rocks', 'sndHazardFallingRocks'],
+  ['cave-in', 'sndHazardCaveIn'], ['quicksand', null], ['extreme-temp', 'sndHazardExtremeTemp'],
+  ['minefield', 'sndHazardMinefield'], ['generic', 'sndHazardGeneric'],
+  ['ion-storm', 'sndHazardIonStorm'],
 ].entries()) {
   const hz = { id: type, type, vfx: { mode: 'all' } };
   zones = [{ id: 'new-batch', vertices: poly, hazards: [hz] }]; features = [];
   V.syncHazardFields();
   assert.equal(volumes.at(-1).options.uniforms.uKind, offset + 4, `${type} uses its own shader`);
   assert.equal(volumes.at(-1).options.stableCoordinates, true, 'camera anchoring retained');
+  if (type === 'plasma-storm') {
+    const field = volumes.at(-1), u = field.options.uniforms;
+    assert.ok(u.uVortexRadius > 0);
+    assert.ok(V.hazardInteriorDistance({ x: u.uVortexX, y: u.uVortexY }, [poly]) > u.uVortexRadius,
+      'plasma funnel stays inside the boundary');
+    if (u.uEddyRadius > 0) assert.ok(V.hazardInteriorDistance({ x: u.uEddyX, y: u.uEddyY }, [poly]) > u.uEddyRadius);
+    for (let n = 0; n < 25; n++) for (const tick of [...ticks]) tick();
+    assert.equal(field.values.uVortexX, undefined, 'lightning cycles do not relocate the funnel');
+    assert.equal(field.options.uniforms.uVortexX, u.uVortexX);
+  }
+  const previousSounds = soundKeys.length;
   assert.equal(V.handleHazardVfxSocket(message({ type })), true, `${type} token burst works`);
-  assert.equal(soundKeys.at(-1), sound);
+  if (sound) assert.equal(soundKeys.at(-1), sound);
+  else assert.equal(soundKeys.length, previousSounds, 'quicksand does not query an unregistered sound');
   assert.equal(V.handleHazardVfxSocket(message({ type, config: { mode: 'off' } })), false);
   context.game.user = player;
   assert.equal(V.handleHazardVfxSocket(message({ type, config: { mode: 'gm' } })), false);
   context.game.user = gm;
 }
+assert.equal(C.normalizeHazardVfx({ temperature: 'cold' }, 'extreme-temp').temperature, 'cold');
+assert.equal(C.normalizeHazardVfx({ temperature: 'invalid' }, 'extreme-temp').temperature, 'heat');
+assert.equal(V.handleHazardVfxSocket(message({ type: 'extreme-temp', config: { temperature: 'cold', sound: false } })), true);
+assert.equal(volumes.at(-1).options.uniforms.uCold, 1);
+assert.equal(V.handleHazardVfxSocket(message({ type: 'fire', config: { color: '#123456', accentColor: '#abcdef', sound: false } })), true);
+assert.equal(volumes.at(-1).options.uniforms.uR, 0x12 / 255);
+assert.equal(volumes.at(-1).options.uniforms.uAccentEnabled, 1);
+assert.equal(volumes.at(-1).options.uniforms.uAccentR, 0xab / 255);
+assert.equal(volumes.at(-1).options.uniforms.uAccentG, 0xcd / 255);
+assert.equal(volumes.at(-1).options.uniforms.uAccentB, 0xef / 255);
 V.clearHazardVfx();
 assert.equal(ticks.size, 0);
 assert.equal(stage.children.length, 0);

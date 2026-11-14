@@ -766,6 +766,9 @@
       color: #3c5866;
       text-shadow: none;
       &:not([value="0"]) { color: var(--ent-alarm); text-shadow: 0 0 6px rgba(255,59,42,.7); }
+      /* sta.css fills these (set by the system's _updateBreachValues) orange /
+         red with !important; a red number disappears into the fill. */
+      &.highlight-damaged, &.highlight-destroyed { color: #050a10; text-shadow: none; font-weight: 700; }
     }
     .buttons { grid-template-columns: 1fr; }
 

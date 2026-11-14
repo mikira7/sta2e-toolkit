@@ -16,12 +16,43 @@ let registered = false, refreshTimer = null;
 export const HAZARD_SHADER = `
 uniform float uTime, uKind, uIntensity, uR, uG, uB, uWidth, uHeight, uX, uY, uGrid, uBurst;
 uniform float uArcX, uArcY, uArcRadius, uArcSeed;
+uniform float uVortexX, uVortexY, uVortexRadius, uEddyX, uEddyY, uEddyRadius;
+uniform float uCold, uAccentEnabled, uAccentR, uAccentG, uAccentB;
+vec3 accent(vec3 original) { return mix(original,vec3(uAccentR,uAccentG,uAccentB),uAccentEnabled); }
 float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
 float noise(vec2 p) {
  vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
 }
 float fbm(vec2 p) { float v=0.,a=.5; for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.03+7.1;a*=.5;} return v; }
+// Top-down funnel: plasma winds into a dark throat, with hot spiral ribbons.
+// Integer arm counts keep the atan seam continuous as the funnel rotates.
+vec3 plasmaVortex(vec2 p,float time,float seed) {
+ float boundary=length(p);
+ vec2 turbulenceFlow=vec2(fbm(p*3.+vec2(sin(time*.4),cos(time*.3))+seed),
+   fbm(p*3.4+vec2(cos(time*.37),sin(time*.47))+seed+17.))-.5;
+ p+=turbulenceFlow*.18*(1.-smoothstep(.5,.95,boundary));
+ float r=length(p),a=atan(p.y,p.x);
+ float direction=hash(vec2(seed,7.))>.5?1.:-1.;
+ float speed=(1.+hash(vec2(seed,3.))*.8)*direction;
+ float breath=1.+.05*sin(time*.7+seed);
+ r/=breath;
+ float curl=a*3.+log(r+.07)*8.8-time*speed*2.4;
+ // Carry the fine texture around the funnel with the ribbons, keeping the
+ // spiral readable instead of letting stationary noise interrupt its motion.
+ float turn=time*speed*.35,cs=cos(turn),sn=sin(turn);
+ vec2 rotating=mat2(cs,-sn,sn,cs)*p;
+ float turbulence=fbm(rotating*6.+vec2(sin(time*.5),cos(time*.4))*.3);
+ float ribbon=pow(.5+.5*sin(curl+turbulence*1.7),2.7);
+ float filaments=pow(.5+.5*sin(a*7.+log(r+.09)*15.-time*speed*3.6+turbulence*2.4),7.);
+ float outer=1.-smoothstep(.65,.96,boundary);
+ float throat=smoothstep(.07,.22,r);
+ float density=outer*(.1+ribbon*.6+filaments*.2)*throat;
+ float collar=exp(-abs(r-.2)*30.)*(.4+turbulence*.6);
+ float hot=outer*(pow(ribbon,2.)*(.4+.6*(1.-r))+filaments*.25+collar*.3)*throat;
+ float eye=exp(-r*r/.014)*.65;
+ return vec3(density,hot,eye);
+}
 // A leader advances segment-by-segment, with its own travel time and turns.
 // Forks inherit the arrival time at their junction; nothing reveals by radius.
 vec3 leaderNode(vec2 start,float heading,float seed,int count,float scale) {
@@ -86,13 +117,13 @@ vec4 volume(vec2 p) {
    float crest=smoothstep(-.1,.75,swell+churn*.35);
    float flame=smoothstep(.25,.78,fold+crest*.2);
    float hot=pow(flame,4.)*(.35+crest*.65);
-   col=mix(tint*(.4+flame*.4),vec3(1.,.88,.47),hot*.85);
+   col=mix(tint*(.4+flame*.4),accent(vec3(1.,.88,.47)),hot*.85);
    alpha=flame*(.56+crest*.22);
    vec2 emberField=surface*7.+eddy*.6;
    vec2 cell=floor(emberField),spark=fract(emberField)-.5;
    float flicker=smoothstep(.2,.9,.5+.5*sin(t*3.7+hash(cell)*19.));
    float ember=(1.-smoothstep(.015,.1,length(spark)))*step(.96,hash(cell))*flicker;
-   col+=vec3(1.,.55,.14)*ember;alpha+=ember*.7;
+   col+=accent(vec3(1.,.55,.14))*ember;alpha+=ember*.7;
  } else if(uKind<1.5) {
    vec2 world=vec2(uX,uY)+uv*vec2(uWidth,uHeight);
    vec2 local=(world-vec2(uArcX,uArcY))/max(uArcRadius,1.);
@@ -122,7 +153,7 @@ vec4 volume(vec2 p) {
    float orb=exp(-radius*radius/.012)*charge;
    float halo=exp(-radius*radius/.12)*charge*.38;
    alpha=(core+glow+orb+halo)*(1.-smoothstep(.94,1.,radius));
-   col=mix(tint,vec3(.94,.98,1.),clamp(core+orb,0.,1.));
+   col=mix(tint,accent(vec3(.94,.98,1.)),clamp(core+orb,0.,1.));
  } else if(uKind<2.5) {
    // Slowly advected translucent haze, without scanning bands or sharp motes.
    vec2 drift=vec2(t*.045,-t*.035);
@@ -147,17 +178,23 @@ vec4 volume(vec2 p) {
      bloom+=exp(-dist2/(size*size*7.))*presence*.24;
    }
    alpha=haze+orbs+bloom;
-   col=mix(tint*(.65+mist*.3),mix(tint,vec3(.88,1.,.9),.65),clamp(orbs,0.,1.));
+   col=mix(tint*(.65+mist*.3),mix(tint,accent(vec3(.88,1.,.9)),.65),clamp(orbs,0.,1.));
  } else if(uKind<3.5) {
    vec2 warp=vec2(fbm(q*1.1+vec2(t*.09,0)),fbm(q*1.3-vec2(0,t*.08)));
    float n=fbm(q*2.+warp*2.-vec2(t*.18,t*.05));
    float wisps=fbm(q*5.+warp*3.+vec2(t*.1,0));
    alpha=smoothstep(.22,.75,n)*.72;
-   col=tint*(.35+n*.8+wisps*.25);
+   col=mix(tint,accent(tint),smoothstep(.4,.8,wisps))*(.35+n*.8+wisps*.25);
  } else if(uKind<4.5) {
-   // Billowing plasma banks with lightning threading through the hot crests.
+   // Three counter-moving cloud depths and self-shadowed folds give the storm
+   // volume, while keeping the map visible through the low-density troughs.
    vec2 eddy=vec2(fbm(q*.8+vec2(sin(t*.35),cos(t*.4))),fbm(q*.9+vec2(cos(t*.3),sin(t*.5))+31.));
-   float cloud=fbm(q*1.7+eddy*2.5+vec2(sin(t*.6),cos(t*.43))*.35);
+   vec2 folded=q*1.7+eddy*2.5+vec2(sin(t*.6),cos(t*.43))*.35;
+   float cloud=fbm(folded);
+   float under=fbm(q*.7-eddy*1.3+vec2(cos(t*.19),sin(t*.23))*.4);
+   float wisps=fbm(q*4.+eddy*3.-vec2(sin(t*.32),cos(t*.27))*.5);
+   float slope=cloud-fbm(folded+vec2(.09,.13));
+   float light=clamp(.65+slope*4.,.3,1.25);
    float crest=smoothstep(.35,.78,cloud);
    float seed=uArcSeed;
    vec2 world=vec2(uX,uY)+uv*vec2(uWidth,uHeight);
@@ -167,14 +204,40 @@ vec4 volume(vec2 p) {
    float bolt=leaderDistance(local,vec2(0.),angle,seed,age*2.,1.);
    bolt=min(bolt,leaderDistance(local,vec2(0.),angle+2.,seed+41.,age*1.7,1.));
    float flash=smoothstep(.08,.15,age)*(1.-smoothstep(.65,1.3,age));
+   flash*=.55+.45*pow(.5+.5*sin(age*37.+seed),2.);
+   flash+=smoothstep(1.4,1.44,age)*(1.-smoothstep(1.49,1.75,age))*.55;
    float arc=exp(-bolt/.013)*flash,glow=exp(-bolt/.07)*flash*.35;
    if(uBurst>.5) {
      bolt=leaderDistance(p,vec2(0.),hash(vec2(uX,uY))*6.28,7.,t*2.,1.2);
+     vec3 joint=leaderNode(vec2(0.),hash(vec2(uX,uY))*6.28,7.,4,1.2);
+     bolt=min(bolt,leaderDistance(p,joint.xy,hash(vec2(uX,uY))*6.28+1.3,31.,t*2.-joint.z,.55));
      arc+=exp(-bolt/.02)*(.7+.3*sin(t*27.));
+     glow+=exp(-bolt/.13)*.35;
    }
-   alpha=.08+crest*.64+arc+glow;
-   col=mix(tint*(.55+cloud*.9),vec3(.85,.8,1.),clamp(arc+crest*.15,0.,1.));
- } else if(uKind<5.5 || uKind>6.5) {
+   float veins=pow(max(0.,1.-abs(wisps-.5)*4.),6.)*crest;
+   alpha=.05+under*.13+crest*.58+veins*.13+arc+glow;
+   col=tint*(.4+cloud*.8)*light*(.7+under*.35);
+   col=mix(col,accent(vec3(1.,.8,.62)),veins*.35);
+   // Funnel centers are chosen from the inset polygon interior, independently
+   // of the short lightning cycle, so vortices never jump between strikes.
+   vec2 funnel=uBurst>.5 ? p/.85 : (world-vec2(uVortexX,uVortexY))/max(uVortexRadius,1.);
+   float vortexSeed=hash(vec2(uX,uY))*73.;
+   vec3 vortex=plasmaVortex(funnel,t,vortexSeed);
+   if(uBurst<.5 && uEddyRadius>0.) {
+     vec2 small=(world-vec2(uEddyX,uEddyY))/uEddyRadius;
+     vec3 secondary=plasmaVortex(small,t*1.3,vortexSeed+19.);
+     vortex=max(vortex,secondary*vec3(.8,.8,1.));
+   }
+   col*=1.-vortex.z;
+   vec3 ribbonColor=mix(tint*.8,accent(vec3(1.,.86,.65)),clamp(vortex.y*1.7,0.,1.));
+   col=mix(col,ribbonColor,clamp(vortex.x*1.35,0.,.9));
+   alpha=max(alpha,vortex.x*.9+vortex.z*.35);
+   // Lightning lights nearby plasma, including the spiral, rather than just
+   // drawing a bright line over it. The light dies away with the strike.
+   float scatter=exp(-bolt/.22)*(uBurst>.5?.5:flash)*(.25+cloud*.55);
+   col=mix(col,accent(vec3(.9,.88,1.)),clamp(arc+glow+scatter,0.,.95));
+   alpha=max(alpha,scatter*.6);
+ } else if(uKind<5.5 || (uKind>6.5 && uKind<7.5)) {
    bool falling=uKind>6.5;
    vec3 stone=vec3(0.);float coverage=0.,dust=0.;
    if(uBurst>.5) {
@@ -183,13 +246,13 @@ vec4 volume(vec2 p) {
        float k=float(i),seed=hash(vec2(k,uX+uY)),angle=seed*6.283185;
        float travel=(.1+t*.6)*( .5+hash(vec2(k,11.))*.5);
        vec2 center=vec2(cos(angle),sin(angle))*travel;
-       float size=(.035+hash(vec2(k,23.))*.07)*(1.-min(t/2.,.9));
+       float size=(.045+hash(vec2(k,23.))*.09)*(1.-min(t/2.,.9));
        vec2 rock=rockSurface((p-center)/size,seed,t*(seed-.5)*5.);
-       stone=mix(stone,tint*rock.y,rock.x);coverage=max(coverage,rock.x);
+       stone=mix(stone,mix(tint,accent(tint),smoothstep(.5,1.,rock.y)*.65)*rock.y,rock.x);coverage=max(coverage,rock.x);
      }
      float r=length(p),front=.12+t*.3;
-     dust=exp(-pow((r-front)/(.12+t*.09),2.))*(1.-t/2.)*.75;
-     dust*=.45+fbm(p*7.+t*.25);
+     dust=exp(-pow((r-front)/(.16+t*.12),2.))*(1.-t/2.)*.9;
+     dust*=.35+fbm(p*7.+vec2(t*.25,-t*.13));
      dust+=exp(-dot(p,p)/(.035+t*.06))*exp(-t*4.)*.85;
    } else {
      vec2 space=falling?q*.75:q*.75-vec2(t*.055,t*.023);
@@ -199,42 +262,211 @@ vec4 volume(vec2 p) {
        vec2 center=id+.2+.6*vec2(hash(id),hash(id+7.));
        float size=.065+seed*.16,fade=1.;
        vec2 relative=space-center;
-       float phase=fract(t/(2.7+seed*2.)+seed*9.);
+       float clock=t/(falling ? 2.7+seed*2. : 5.+seed*3.)+seed*9.;
+       float phase=fract(clock),cycle=floor(clock);
        if(falling) {
+         size*=1.35;
          float drop=smoothstep(.12,.48,phase);
          relative-=vec2((seed-.5)*.22,-.7*(1.-drop));
          size*=.35+drop*.65;
          fade=smoothstep(.04,.12,phase)*(1.-smoothstep(.5,.63,phase));
          float impact=smoothstep(.46,.5,phase)*(1.-smoothstep(.55,.94,phase));
-         float r=length(space-center),spread=.08+max(0.,phase-.46)*.9;
-         dust+=exp(-pow(r/spread,2.))*impact*.38*(.6+noise(space*15.)*.4);
+         float after=max(0.,phase-.46),spread=.1+after*1.15;
+         vec2 plume=space-center-vec2((seed-.5)*after*.5,-after*.18);
+         float rough=fbm(plume*10.+seed*17.);
+         dust+=exp(-dot(plume,plume)/(spread*spread))*impact*.65*(.3+rough);
+         // Chunks kick out from the impact, then settle as the dust spreads.
+         if(phase>.46 && phase<.94)for(int j=0;j<4;j++) {
+           float k=float(j),a=hash(vec2(seed,k))*6.283185;
+           vec2 piece=center+vec2(cos(a),sin(a))*sqrt(after)*(.35+hash(vec2(k,seed))*.35);
+           vec2 shard=rockSurface((space-piece)/(.025+seed*.035),seed+k,t*(seed-.5)*3.);
+           shard.x*=impact;
+           stone=mix(stone,mix(tint,accent(tint),.25)*shard.y,shard.x);coverage=max(coverage,shard.x);
+         }
        } else {
-         relative-=vec2(sin(t*(.09+seed*.08)+seed*17.),cos(t*.11+seed*21.))*.16;
+         if(seed>.62) {
+           // Two bodies approach one another, break apart at contact, and
+           // leave an advecting debris cloud. Each encounter has its own clock.
+           float a=hash(vec2(seed,cycle))*6.283185;
+           vec2 axis=vec2(cos(a),sin(a));
+           float approach=size*.62+max(0.,.45-phase)*.85;
+           relative-=axis*approach;
+           fade=smoothstep(0.,.06,phase)*(1.-smoothstep(.45,.52,phase));
+           vec2 partner=rockSurface((space-center+axis*approach)/(size*.85),seed+.19,-t*.3);
+           partner.x*=fade;
+           stone=mix(stone,tint*partner.y,partner.x);coverage=max(coverage,partner.x);
+           float after=max(0.,phase-.45),life=smoothstep(.44,.48,phase)*(1.-smoothstep(.7,.98,phase));
+           vec2 plume=space-center-vec2(after*.16,-after*.12);
+           float spread=.07+after*.85;
+           dust+=exp(-dot(plume,plume)/(spread*spread))*life*.55*(.3+fbm(plume*11.+seed*23.));
+           if(phase>.45 && phase<.98)for(int j=0;j<5;j++) {
+             float k=float(j),angle=a+hash(vec2(k,seed+cycle))*6.283185;
+             vec2 fragment=center+vec2(cos(angle),sin(angle))*after*(.4+hash(vec2(seed,k))*.65);
+             vec2 shard=rockSurface((space-fragment)/(.025+seed*.035),seed+k,t*(k-2.));
+             shard.x*=life;
+             stone=mix(stone,mix(tint,accent(tint),.35)*shard.y,shard.x);coverage=max(coverage,shard.x);
+           }
+         } else {
+           relative-=vec2(sin(t*(.09+seed*.08)+seed*17.),cos(t*.11+seed*21.))*.16;
+         }
        }
        vec2 rock=rockSurface(relative/size,seed,t*(seed-.5)*.55);rock.x*=fade;
-       stone=mix(stone,tint*rock.y,rock.x);coverage=max(coverage,rock.x);
+       stone=mix(stone,mix(tint,accent(tint),smoothstep(.5,1.,rock.y)*.65)*rock.y,rock.x);coverage=max(coverage,rock.x);
      }
    }
    alpha=coverage*.94+dust;
    col=(stone*coverage+tint*dust*.75)/max(coverage+dust,.001);
- } else {
-   // Deep, slow nebula layers: diffuse banks and luminous filaments.
-   vec2 warp=vec2(fbm(q*.55+vec2(t*.025,0)),fbm(q*.7+vec2(0,-t*.032))+ .1);
-   float bank=fbm(q*.95+warp*3.);
-   float detail=fbm(q*3.1+warp*2.+vec2(sin(t*.12),cos(t*.15))*.3);
+ } else if(uKind<7.5) {
+   // Cross-currents roll dense banks over one another; bright pockets pulse
+   // behind the foreground wisps rather than scrolling along one fixed track.
+   vec2 drift=vec2(sin(t*.17),cos(t*.13))*.45;
+   vec2 warp=vec2(fbm(q*.55+drift),fbm(q*.7-drift+17.))+ .1;
+   vec2 roll=vec2(sin(q.y*.9+t*.2+warp.x*3.),cos(q.x*.8-t*.16+warp.y*3.))*.22;
+   float bank=fbm(q*.95+warp*3.+roll);
+   float detail=fbm(q*3.1+warp*2.+roll*1.5);
    float filament=pow(max(0.,1.-abs(detail-.5)*4.),5.)*smoothstep(.4,.7,bank);
-   alpha=smoothstep(.16,.82,bank)*.7+filament*.18;
-   col=mix(tint*.5,mix(tint,vec3(.4,.8,.95),.38),smoothstep(.3,.72,bank));
-   col+=filament*.25;
+   float pockets=0.;vec2 cell=floor(q/2.4);
+   for(int iy=-1;iy<=1;iy++)for(int ix=-1;ix<=1;ix++) {
+     vec2 id=cell+vec2(float(ix),float(iy));float seed=hash(id+37.);
+     vec2 center=(id+.2+.6*vec2(hash(id),hash(id+11.)))*2.4;
+     vec2 local=q-center-roll*.6;
+     float pulse=.25+.75*pow(.5+.5*sin(t*(.3+seed*.2)+seed*19.),2.);
+     float radius=.18+seed*.5;
+     pockets+=exp(-dot(local,local)/(radius*radius))*pulse*(.5+detail*.5);
+   }
+   alpha=smoothstep(.16,.82,bank)*.7+filament*.18+pockets*.35;
+   col=mix(tint*.5,mix(tint,accent(vec3(.4,.8,.95)),.38),smoothstep(.3,.72,bank));
+   col+=accent(vec3(1.))*filament*.25;
+   col=mix(col,accent(vec3(.65,.9,1.)),clamp(pockets*.9,0.,.85));
    if(uBurst>.5) {
      float curl=fbm(p*2.8+vec2(sin(t*.7),cos(t*.9))*.5);
-     alpha=max(alpha,.25+curl*.45);
-     col=mix(tint*.65,mix(tint,vec3(.5,.85,1.),.4),curl);
+     float glow=exp(-dot(p-vec2(.2*sin(t),.15*cos(t)),p-vec2(.2*sin(t),.15*cos(t)))*5.)*(.45+.2*sin(t*3.));
+     alpha=max(alpha,.25+curl*.45+glow*.2);
+     col=mix(tint*.65,mix(tint,accent(vec3(.5,.85,1.)),.4),curl);
+     col=mix(col,accent(vec3(.65,.9,1.)),glow);
    }
+ } else if(uKind<8.5) {
+   // Structural cracks, settling rubble, and rolling dust. Separate from the
+   // smaller, isolated falling-rock impacts of the previous batch.
+   vec2 surface=uBurst>.5 ? p*2. : q;
+   float cycle=uBurst>.5 ? t*.5 : fract(t/4.5);
+   float collapse=smoothstep(.12,.42,cycle)*(1.-smoothstep(.72,1.,cycle));
+   vec2 shaken=surface+vec2(sin(t*31.),cos(t*27.))*.018*collapse;
+   float fracture=abs(noise(shaken*3.+fbm(shaken)*2.)-.5);
+   float cracks=exp(-fracture*100.)*collapse;
+   float cloud=fbm(shaken*1.8+vec2(t*.13,-t*.06));
+   float dust=smoothstep(.2,.75,cloud)*collapse*.65;
+   vec3 rubble=vec3(0.);float cover=0.;
+   for(int iy=-1;iy<=1;iy++)for(int ix=-1;ix<=1;ix++) {
+     vec2 id=floor(shaken)+vec2(float(ix),float(iy));float seed=hash(id+53.);
+     vec2 center=id+.2+vec2(hash(id),hash(id+17.))*.6;
+     float fall=smoothstep(.08+seed*.15,.4+seed*.15,cycle);
+     center.y-=.7*(1.-fall);
+     vec2 rock=rockSurface((shaken-center)/(.12+seed*.22),seed,t*(1.-fall));
+     rock.x*=smoothstep(.03,.15,cycle)*(1.-smoothstep(.65,.95,cycle));
+     rubble=mix(rubble,mix(tint,accent(tint),smoothstep(.5,1.,rock.y)*.65)*rock.y,rock.x);cover=max(cover,rock.x);
+   }
+   alpha=cover*.9+dust+cracks*.3;
+   col=(rubble*cover+tint*dust*.65+tint*.25*cracks)/max(cover+dust+cracks,.001);
+ } else if(uKind<9.5) {
+   // Inward-moving ripples and swirling grains imply sinking without moving
+   // or resizing the actual token.
+   vec2 local=uBurst>.5 ? p : fract(q/2.5)*2.-1.;
+   float r=length(local),angle=atan(local.y,local.x);
+   float swirl=angle+2.4*r+t*.55;
+   vec2 grainPos=vec2(cos(swirl),sin(swirl))*r*5.;
+   float sand=fbm(grainPos+vec2(sin(t*.2),cos(t*.3))*.25);
+   float ripple=.5+.5*sin(r*24.+t*2.8+sand*2.);
+   float pit=exp(-r*r*7.);
+   alpha=(.14+sand*.28+ripple*.1)*(1.-smoothstep(.72,1.2,r));
+   col=mix(tint,accent(tint),ripple*.45)*(.45+sand*.6+ripple*.13)*(1.-pit*.65);
+   if(uBurst>.5)alpha+=pit*.25;
+ } else if(uKind<10.5) {
+   vec2 surface=uBurst>.5 ? p*1.7 : q;
+   if(uCold>.5) {
+     vec2 drift=surface*3.+vec2(t*.04,t*.13);
+     vec2 cell=floor(drift),f=fract(drift)-.5;
+     float snow=exp(-dot(f,f)*260.)*step(.78,hash(cell));
+     vec2 crystal=fract(surface*1.6)-.5;
+     float radius=length(crystal),angle=atan(crystal.y,crystal.x)+hash(floor(surface*1.6))*3.;
+     float rays=abs(sin(angle*3.))*radius;
+     float frost=(1.-smoothstep(.004,.025,rays))*(1.-smoothstep(.08,.36,radius));
+     float mist=fbm(surface*1.4+vec2(sin(t*.18),cos(t*.15))*.3);
+     float freeze=.65+.35*sin(t*.6+fbm(surface)*4.);
+     alpha=.08+mist*.22+frost*freeze*.38+snow*.65;
+     // Cold's default palette is icy; explicit colors still tint the frost.
+     vec3 ice=tint;
+     col=mix(ice*.65,accent(vec3(.9,.97,1.)),clamp(frost+snow,0.,1.));
+   } else {
+     float heat=fbm(surface*1.7+vec2(sin(t*.7),cos(t*.5))*.35);
+     float ripple=.5+.5*sin(heat*15.+fbm(surface*.6)*4.+t*1.7);
+     float shimmer=pow(ripple,7.)*(.4+heat*.6);
+     alpha=.06+heat*.19+shimmer*.24;
+     col=mix(tint*.7,accent(vec3(1.,.88,.52)),shimmer*.5);
+   }
+ } else if(uKind<11.5) {
+   if(uBurst>.5) {
+     float r=length(p),noiseField=fbm(p*6.+vec2(t*.8,-t*.6));
+     float front=t*.75;
+     float shock=exp(-pow((r-front)/.035,2.))*exp(-t*1.5);
+     float fireball=(1.-smoothstep(.05+t*.2,.35+t*.3,r+noiseField*.16))*exp(-t*1.7);
+     float smoke=exp(-pow((r-t*.25)/(.15+t*.15),2.))*(1.-t/2.)*noiseField;
+     alpha=fireball*2.+shock*.9+smoke*.6;
+     col=mix(tint*.35,accent(vec3(1.,.88,.57)),clamp(fireball*3.+shock,0.,1.));
+   } else {
+     // Visible mine markers only; the field never plays fake explosions.
+     vec2 cell=floor(q/1.8),local=fract(q/1.8)-.5;
+     local-=(vec2(hash(cell),hash(cell+13.))-.5)*.45;
+     float r=length(local),disc=1.-smoothstep(.065,.08,r);
+     float rim=exp(-abs(r-.09)*180.);
+     float pulse=pow(.5+.5*sin(t*3.+hash(cell)*13.),5.);
+     float light=exp(-r*r*1800.)*(.25+pulse*.75);
+     alpha=disc*.6+rim*.35+light;
+     col=mix(tint*.25,accent(tint),clamp(rim+light,0.,1.));
+   }
+ } else if(uKind>12.5) {
+   // Ionized gas rolls in opposing currents; short leaders illuminate it
+   // from within. Area discharges use the same inset origins as electricity.
+   vec2 flow=vec2(sin(t*.19),cos(t*.14))*.4;
+   vec2 warp=vec2(fbm(q*.55+flow),fbm(q*.62-flow+19.));
+   float bank=fbm(q*.85+warp*3.+vec2(t*.035,-t*.025));
+   float wisps=fbm(q*2.7+warp*2.-flow);
+   vec2 world=vec2(uX,uY)+uv*vec2(uWidth,uHeight);
+   vec2 local=(world-vec2(uArcX,uArcY))/max(uArcRadius,1.);
+   float age=mod(t,2.4),seed=uArcSeed;
+   if(uBurst>.5){local=p;age=t;seed=hash(vec2(uX,uY))*317.;}
+   float light=0.,core=0.;
+   for(int i=0;i<3;i++) {
+     float k=float(i),s=seed+k*43.7,angle=hash(vec2(seed,k))*6.283185;
+     float born=age-.2-hash(vec2(s,3.))*.3;
+     float d=leaderDistance(local,vec2(0.),angle,s,born,1.);
+     vec3 junction=leaderNode(vec2(0.),angle,s,3,1.);
+     d=min(d,leaderDistance(local,junction.xy,angle+1.1,s+91.,born-junction.z,.55));
+     float flash=(.65+.35*sin(t*39.+s))*(1.-smoothstep(1.15,1.65,age));
+     core=max(core,exp(-d/.012)*flash);
+     light=max(light,exp(-d/.15)*flash);
+   }
+   float inset=1.-smoothstep(.85,1.,length(local));
+   core*=inset;light*=inset;
+   alpha=.08+smoothstep(.18,.78,bank)*.48+wisps*.12+light*.24+core*.65;
+   col=mix(tint*.38,tint,smoothstep(.25,.7,bank));
+   col=mix(col,accent(vec3(.72,.9,1.)),clamp(wisps*.25+light*.7+core,0.,1.));
+ } else {
+   vec2 local=uBurst>.5 ? p : fract(q/2.)*2.-1.;
+   float r=length(local),phase=fract(t*.45+hash(floor(q/2.)));
+   if(uBurst>.5)phase=min(t*.45,1.);
+   float ring=exp(-abs(r-phase*.9)*35.)*(1.-phase);
+   float mist=fbm(q*2.+vec2(sin(t*.3),cos(t*.4))*.3);
+   float motes=exp(-dot(fract(q*4.+vec2(0,t*.08))-.5,fract(q*4.+vec2(0,t*.08))-.5)*180.);
+   alpha=ring*.5+mist*.12+motes*.25;
+   col=mix(tint,accent(tint),clamp(ring+motes,0.,1.))*(.65+ring*.4+motes*.2);
  }
  float envelope=uBurst>.5 ? (1.-smoothstep(.45,1.,length(p)))*sin(min(1.,t/2.)*3.14159) : 1.;
  if(uBurst>.5 && uKind>.5 && uKind<1.5) {
    envelope=(1.-smoothstep(.82,1.,length(p)))*smoothstep(0.,.06,t)*(1.-smoothstep(1.65,2.,t));
+ }
+ if(uBurst>.5 && uKind>10.5 && uKind<11.5) {
+   envelope=(1.-smoothstep(.8,1.,length(p)))*smoothstep(0.,.03,t)*(1.-smoothstep(1.3,2.,t));
  }
  alpha=clamp(alpha*uIntensity*envelope,0.,.88);
  return vec4(col*alpha,alpha);
@@ -309,18 +541,29 @@ function createEffect(type, config, bounds, polygons = null) {
   const parent = canvas?.interface ?? canvas?.stage, ticker = canvas?.app?.ticker;
   if (!parent || !ticker) return null;
   const color = parseInt(config.color.slice(1), 16);
-  const hasLightning = type === 'electrical' || type === 'plasma-storm';
+  const accentColor = parseInt((config.accentColor || '#ffffff').slice(1), 16);
+  const hasLightning = type === 'electrical' || type === 'plasma-storm' || type === 'ion-storm';
   const origins = hasLightning && polygons ? electricalOrigins(polygons, bounds, canvas.grid?.size ?? 100) : [];
   if (hasLightning && polygons && !origins.length) return null;
   const originSeed = Math.floor(Math.abs(Math.sin(bounds.x * .013 + bounds.y * .071)) * 10000);
+  const funnel = type === 'plasma-storm'
+    ? origins.reduce((best, point) => !best || point.clearance > best.clearance ? point : best, null) : null;
+  const eddy = funnel ? origins.filter(point =>
+    Math.hypot(point.x - funnel.x, point.y - funnel.y) > funnel.radius + point.radius * .5)
+    .reduce((best, point) => !best || point.clearance > best.clearance ? point : best, null) : null;
   const arcUniforms = epoch => {
     const index = Math.floor(((epoch * .618033989 + originSeed * .754877666) % 1) * origins.length);
     const point = origins[index];
     return { uArcX: point?.x ?? 0, uArcY: point?.y ?? 0, uArcRadius: point?.radius ?? 1, uArcSeed: originSeed + epoch * 17.31 + 5.7 };
   };
   const uniforms = { uTime: 0, uKind: Object.keys(HAZARD_VFX_TYPES).indexOf(type), uIntensity: config.intensity,
+    uCold: config.temperature === 'cold' ? 1 : 0,
+    uAccentEnabled: config.accentColor ? 1 : 0, uAccentR: ((accentColor >> 16) & 255) / 255,
+    uAccentG: ((accentColor >> 8) & 255) / 255, uAccentB: (accentColor & 255) / 255,
     uR: ((color >> 16) & 255) / 255, uG: ((color >> 8) & 255) / 255, uB: (color & 255) / 255,
     uWidth: bounds.width, uHeight: bounds.height, uX: bounds.x, uY: bounds.y,
+    uVortexX: funnel?.x ?? 0, uVortexY: funnel?.y ?? 0, uVortexRadius: funnel?.radius ?? 1,
+    uEddyX: eddy?.x ?? 0, uEddyY: eddy?.y ?? 0, uEddyRadius: eddy ? eddy.radius * .5 : 0,
     uGrid: canvas.grid?.size ?? 100, uBurst: polygons ? 0 : 1, ...arcUniforms(0) };
   const volume = createLocalVolume({ body: HAZARD_SHADER, uniforms, bounds, stableCoordinates: true });
   if (!volume) return null;
@@ -408,8 +651,9 @@ export function handleHazardVfxSocket(msg) {
   if (effect) bursts.add(effect);
   if (config.sound) {
     const key = { fire: 'sndHazardFire', electrical: 'sndHazardElectrical', radiation: 'sndHazardRadiation', 'toxic-gas': 'sndHazardToxicGas',
-      'plasma-storm': 'sndHazardPlasmaStorm', 'asteroid-field': 'sndHazardAsteroid', 'nebula-gas': 'sndHazardNebula', 'falling-rocks': 'sndHazardFallingRocks' }[msg.type];
-    const src = game.settings.get(MODULE, key);
+      'plasma-storm': 'sndHazardPlasmaStorm', 'ion-storm': 'sndHazardIonStorm', 'asteroid-field': 'sndHazardAsteroid', 'nebula-gas': 'sndHazardNebula', 'falling-rocks': 'sndHazardFallingRocks',
+      'cave-in': 'sndHazardCaveIn', 'extreme-temp': 'sndHazardExtremeTemp', minefield: 'sndHazardMinefield', generic: 'sndHazardGeneric' }[msg.type];
+    const src = key ? game.settings.get(MODULE, key) : null;
     if (src) {
       const helper = globalThis.foundry?.audio?.AudioHelper ?? globalThis.AudioHelper;
       Promise.resolve(helper?.play({ src, volume: .7, autoplay: true, loop: false }, false)).catch(console.warn);

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Painted hull damage</title>
+<style>
+body{background:#05070c;color:#c7d9ef;font:14px system-ui;margin:16px}
+.grid{display:flex;flex-wrap:wrap;gap:14px}
+figure{margin:0}figcaption{font-size:12px;color:#8aa;margin-top:4px}
+canvas{background:#000 radial-gradient(#1a2233 1px,transparent 1px) 0 0/22px 22px;display:block}
+pre{color:#91d8ac}
+</style></head><body>
+<h1>Painted hull damage — preview</h1>
+<p>Bundled Constitution refit token, field maths from <code>scripts/hull-damage-field.js</code>, base drawn normally and glow additively, exactly as the renderer layers them.</p>
+<pre id="log">Loading…</pre>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { FIELD_MAX, buildDamageField, composeDamage, silhouettePx } from "/scripts/hull-damage-field.js";
+import { analyzeHull } from "/scripts/hull-sections.js";
+
+const img = new Image();
+// onload rather than decode(): decode() never settles in a background tab.
+await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = "/assets/ships/constitution-refit/constitution-refit-token-1024.webp"; });
+const s = Math.min(1, FIELD_MAX / Math.max(img.naturalWidth, img.naturalHeight));
+const W = Math.round(img.naturalWidth * s), H = Math.round(img.naturalHeight * s);
+const art = document.createElement("canvas"); art.width = W; art.height = H;
+const actx = art.getContext("2d", { willReadFrequently: true });
+actx.drawImage(img, 0, 0, W, H);
+const px = actx.getImageData(0, 0, W, H).data;
+const alpha = new Uint8Array(W * H);
+for (let i = 0; i < W * H; i++) alpha[i] = px[i * 4 + 3];
+const shipPx = silhouettePx(alpha, W, H);
+const geo = { W, H, alpha, shipPx, boxX: W, boxY: H, aniso: 1, scale: 1 };
+
+// Section map: each section tinted, labelled with its kind.
+{
+  const t0 = performance.now();
+  const hull = analyzeHull(alpha, W, H);
+  const ms = performance.now() - t0;
+  geo.hull = hull;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(art, 0, 0);
+  const img = ctx.getImageData(0, 0, W, H);
+  const tints = [[255,80,80],[80,200,255],[120,255,120],[255,200,60],[200,120,255],[255,120,200],[80,255,220],[255,255,120],[160,160,255],[255,160,80],[120,200,160],[220,220,220]];
+  for (let i = 0; i < W * H; i++) {
+    const l = hull.label[i]; if (l < 0) continue;
+    const t = tints[l % tints.length], o = i * 4;
+    const ring = (hull.dist[i] % 8) < 1 ? 0.35 : 0.55;
+    for (let k = 0; k < 3; k++) img.data[o + k] = img.data[o + k] * (1 - ring) + t[k] * ring;
+  }
+  ctx.putImageData(img, 0, 0);
+  ctx.font = "10px system-ui"; ctx.fillStyle = "#000";
+  for (const s of hull.sections) ctx.fillText(`${s.id}:${s.kind} e${s.elongation.toFixed(1)} r${s.roundness.toFixed(2)}`, s.cx - 30, s.cy);
+  c.style.width = (W * 2) + "px";
+  const fig = document.createElement("figure");
+  fig.append(c, Object.assign(document.createElement("figcaption"), { textContent: `Sections — ${hull.sections.length} found in ${ms.toFixed(0)} ms (rings = distance-field contours)` }));
+  document.getElementById("grid").append(fig);
+}
+
+// The whole ship stripped to its frame (field held at 0.6 everywhere, no heat),
+// with and without the hull analysis, so the patterns can be judged on their own.
+for (const [title, withHull] of [["Stripped — section-aware structure", true], ["Stripped — old image-aligned grid", false]]) {
+  const d = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) if (alpha[i] >= 32) d[i] = 0.6;
+  const g2 = withHull ? geo : { ...geo, hull: null };
+  const comp = composeDamage({ d, heat: new Float32Array(W * H) }, g2);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  c.getContext("2d").putImageData(new ImageData(comp.base, W, H), 0, 0);
+  c.style.width = (W * 2) + "px";
+  const fig = document.createElement("figure");
+  fig.append(c, Object.assign(document.createElement("figcaption"), { textContent: title }));
+  document.getElementById("grid").append(fig);
+}
+
+const scenes = window.SCENES = [
+  ["One cooled wound per section (saucer, secondary hull, nacelle, pylon)", [
+    { kind: "torpedo", sev: "heavy", nx: 0.08, ny: -0.2, seed: 101, heat: 0 },
+    { kind: "torpedo", sev: "heavy", nx: 0.0, ny: 0.08, seed: 102, heat: 0 },
+    { kind: "torpedo", sev: "heavy", nx: -0.16, ny: 0.24, seed: 103, heat: 0 },
+    { kind: "beam", sev: "medium", nx: 0.16, ny: 0.1, dir: 0.9, seed: 104, heat: 0.3 },
+  ]],
+  ["Torpedo · light / medium / heavy, hot", [
+    { kind: "torpedo", sev: "light",  nx: -0.18, ny: -0.12, seed: 11, heat: 1 },
+    { kind: "torpedo", sev: "medium", nx: 0.12,  ny: -0.2,  seed: 22, heat: 1 },
+    { kind: "torpedo", sev: "heavy",  nx: 0.02,  ny: 0.16,  seed: 33, heat: 1 },
+  ]],
+  ["Phaser gouges, hot (beam travelling →, ↘)", [
+    { kind: "beam", sev: "medium", nx: -0.1, ny: -0.18, dir: 0, seed: 5, heat: 1 },
+    { kind: "beam", sev: "heavy",  nx: 0.08, ny: 0.12, dir: 0.8, seed: 6, heat: 1 },
+  ]],
+  ["Disruptor splatter, hot", [
+    { kind: "bolt", sev: "medium", nx: -0.1, ny: 0.1, seed: 71, heat: 1 },
+    { kind: "bolt", sev: "heavy",  nx: 0.14, ny: -0.14, seed: 72, heat: 1 },
+  ]],
+  ["Same spot, three hits (deepening)", [
+    { kind: "torpedo", sev: "light", nx: 0, ny: 0, seed: 81, heat: 0.4 },
+    { kind: "beam",    sev: "light", nx: 0.02, ny: 0.01, dir: 2.2, seed: 82, heat: 0.7 },
+    { kind: "torpedo", sev: "medium", nx: -0.01, ny: 0.02, seed: 83, heat: 1 },
+  ]],
+  ["Cooled (heat 0) — scars only", [
+    { kind: "torpedo", sev: "heavy", nx: 0, ny: 0.12, seed: 33, heat: 0 },
+    { kind: "beam", sev: "medium", nx: -0.1, ny: -0.18, dir: 0, seed: 5, heat: 0 },
+  ]],
+];
+
+const log = [];
+for (const [title, hits] of scenes) {
+  const t0 = performance.now();
+  const field = buildDamageField(hits, geo);
+  const comp = composeDamage(field, geo);
+  const ms = performance.now() - t0;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(art, 0, 0);
+  const lay = document.createElement("canvas"); lay.width = W; lay.height = H;
+  const lctx = lay.getContext("2d");
+  lctx.putImageData(new ImageData(comp.base, W, H), 0, 0);
+  ctx.drawImage(lay, 0, 0);
+  lctx.clearRect(0, 0, W, H);
+  lctx.putImageData(new ImageData(comp.glow, W, H), 0, 0);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.drawImage(lay, 0, 0);
+  ctx.fillStyle = "rgba(255,170,90,0.9)";
+  for (const e of comp.embers) ctx.fillRect(e.x, e.y, 1, 1);
+  ctx.globalCompositeOperation = "source-over";
+  c.style.width = (W * 2) + "px";
+  const fig = document.createElement("figure");
+  fig.append(c, Object.assign(document.createElement("figcaption"), { textContent: `${title} — ${ms.toFixed(0)} ms, ${comp.embers.length} embers` }));
+  document.getElementById("grid").append(fig);
+  log.push(`${title}: ${ms.toFixed(1)} ms`);
+}
+document.getElementById("log").textContent = `field ${W}×${H}, shipPx ${shipPx.toFixed(0)}\n` + log.join("\n");
+</script></body></html>
