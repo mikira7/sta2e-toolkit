@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Forcefield doors</title>
+<style>
+body{background:#05070c;color:#c7d9ef;font:14px system-ui;margin:16px}
+.grid{display:flex;flex-wrap:wrap;gap:14px}
+figure{margin:0}figcaption{font-size:12px;color:#8aa;margin-top:4px}
+canvas{display:block;cursor:pointer}
+.deck{background:
+  repeating-linear-gradient(0deg,rgba(0,0,0,.35) 0 2px,transparent 2px 100px),
+  repeating-linear-gradient(90deg,rgba(0,0,0,.35) 0 2px,transparent 2px 100px),
+  linear-gradient(#3a3f47,#2c3037)}
+.pale{background:
+  repeating-linear-gradient(0deg,rgba(0,0,0,.12) 0 2px,transparent 2px 100px),
+  repeating-linear-gradient(90deg,rgba(0,0,0,.12) 0 2px,transparent 2px 100px),
+  #c9c4b8}
+pre{color:#91d8ac;white-space:pre-wrap}
+</style></head><body>
+<h1>Forcefield door — shader preview</h1>
+<p>The real GLSL from <code>scripts/forcefield-shader.js</code>, quads from <code>wallQuad</code> and the ramp from
+<code>rampPower</code> / <code>riseFlicker</code> in <code>scripts/forcefield-data.js</code>, in raw WebGL 1 with the same
+premultiplied blend Foundry uses. 100 px grid. <b>Click</b> a canvas to lower or raise its fields; <b>shift-click</b> to flare
+the nearest field where you clicked.</p>
+<pre id="log">Loading…</pre>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { FF_VERT, FF_FRAG, FF_MAX_HITS } from "/scripts/forcefield-shader.js";
+import { FF_STYLES, FF_RAMP_UP_MS, FF_RAMP_DOWN_MS, wallQuad, rampPower, riseFlicker, hexToRgb, nearestOnWall }
+  from "/scripts/forcefield-data.js";
+
+const GRID = 100, W = 560, H = 340;
+const log = document.getElementById("log");
+const out = [];
+
+// Each case: a cell door across a corridor and a diagonal one.
+const walls = [[140, 30, 140, 310], [250, 290, 500, 60]];
+const cases = [
+  ...Object.keys(FF_STYLES).map(id => [FF_STYLES[id].label, id, "deck", {}]),
+  ["Starfleet on a pale floor", "starfleet", "pale", {}],
+  ["Thickness 60%, intensity 40", "starfleet", "deck", { thickness: 0.6, intensity: 0.4 }],
+  ["Custom colour #c050ff", "starfleet", "deck", { color: "#c050ff" }],
+  ["Lowered (emitters idle)", "starfleet", "deck", { down: true }],
+];
+
+function mat3Quad(q) {
+  // world = T(x,y) * R(rot) * S(len,thick) * T(0,-0.5), column-major for GL.
+  const c = Math.cos(q.rotation), s = Math.sin(q.rotation);
+  const a = c * q.length, b = s * q.length, cc = -s * q.thick, d = c * q.thick;
+  const tx = q.x + cc * -0.5, ty = q.y + d * -0.5;
+  return new Float32Array([a, b, 0, cc, d, 0, tx, ty, 1]);
+}
+const proj = new Float32Array([2 / W, 0, 0, 0, -2 / H, 0, -1, 1, 1]);
+
+function build(label, styleId, floor, opt) {
+  const fig = document.createElement("figure");
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H; cv.className = floor;
+  const cap = document.createElement("figcaption"); cap.textContent = label;
+  fig.append(cv, cap); document.getElementById("grid").append(fig);
+
+  const gl = cv.getContext("webgl", { premultipliedAlpha: true, alpha: true });
+  const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, FF_VERT));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FF_FRAG));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "aVertexPosition");
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  const U = n => gl.getUniformLocation(prog, n);
+
+  const style = FF_STYLES[styleId];
+  const custom = hexToRgb(opt.color);
+  const color = custom ?? hexToRgb(style.color);
+  const core = custom ? custom.map(c => c + (1 - c) * 0.75) : hexToRgb(style.core);
+  const fields = walls.map((c, i) => ({
+    c, q: wallQuad(c, GRID, opt.thickness ?? 0.3), seed: 0.17 + i * 0.41,
+    power: opt.down ? 0 : 1, ramp: null, hits: [],
+  }));
+  let up = !opt.down;
+
+  cv.addEventListener("click", ev => {
+    const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    const now = performance.now();
+    if (ev.shiftKey) {
+      const f = fields.map(f => ({ f, n: nearestOnWall(f.c, x, y) })).sort((a, b) => a.n.dist - b.n.dist)[0];
+      if (f.f.power < 0.3) return;
+      const [x0, y0, x1, y1] = f.f.c, len = Math.hypot(x1 - x0, y1 - y0);
+      const across = ((x - x0) * -(y1 - y0) + (y - y0) * (x1 - x0)) / len;
+      f.f.hits.push({ along: f.n.along, across: Math.max(-f.f.q.thick * 0.3, Math.min(f.f.q.thick * 0.3, across)), age: 0, strength: 1 });
+      if (f.f.hits.length > FF_MAX_HITS) f.f.hits.shift();
+      return;
+    }
+    up = !up;
+    for (const f of fields) f.ramp = { from: f.power, to: up ? 1 : 0, start: now, ms: up ? FF_RAMP_UP_MS : FF_RAMP_DOWN_MS };
+  });
+
+  let last = performance.now();
+  return function frame(now) {
+    const dt = Math.min(now - last, 50) / 1000; last = now;
+    gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    for (const f of fields) {
+      let flicker = 1, flash = 0;
+      if (f.ramp) {
+        const r = rampPower(f.ramp, now);
+        f.power = r.power;
+        flicker = r.rising ? riseFlicker(r.k, f.seed, now) : 1;
+        flash = r.rising ? 0 : Math.sin(Math.PI * Math.min(1, r.k * 1.4)) * (r.k < 0.72 ? 1 : 0);
+        if (!r.moving) f.ramp = null;
+      }
+      for (const h of f.hits) h.age += dt;
+      f.hits = f.hits.filter(h => h.age < 1.2);
+      const hits = new Float32Array(FF_MAX_HITS * 4);
+      f.hits.forEach((h, i) => hits.set([h.along, h.across, h.age, h.strength], i * 4));
+      gl.uniformMatrix3fv(U("translationMatrix"), false, mat3Quad(f.q));
+      gl.uniformMatrix3fv(U("projectionMatrix"), false, proj);
+      gl.uniform1f(U("uAlpha"), 1);
+      gl.uniform1f(U("uTime"), now / 1000);
+      gl.uniform1f(U("uLen"), f.q.length); gl.uniform1f(U("uThick"), f.q.thick);
+      gl.uniform1f(U("uPad"), f.q.pad); gl.uniform1f(U("uSeg"), f.q.seg);
+      gl.uniform1f(U("uGrid"), GRID);
+      gl.uniform3fv(U("uColor"), color); gl.uniform3fv(U("uCore"), core);
+      gl.uniform1f(U("uPower"), f.power * flicker); gl.uniform1f(U("uFlash"), flash);
+      gl.uniform1f(U("uIntensity"), opt.intensity ?? 0.8);
+      gl.uniform1f(U("uPattern"), style.pattern); gl.uniform1f(U("uSeed"), f.seed);
+      gl.uniform4fv(U("uHits[0]"), hits);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+  };
+}
+
+const frames = [];
+for (const c of cases) {
+  try { frames.push(build(...c)); out.push(`ok    ${c[0]}`); }
+  catch (err) { out.push(`FAIL  ${c[0]}: ${err.message}`); }
+}
+log.textContent = out.join("\n");
+window.__ffReport = out;
+const loop = now => { for (const f of frames) f(now); requestAnimationFrame(loop); };
+requestAnimationFrame(loop);
+</script>
+</body></html>

@@ -95,6 +95,8 @@ import { registerDoorLightBehavior } from "./door-light-behavior.js";
 import { registerRegionLogicBehavior } from "./region-logic-behavior.js";
 import { registerRegionLogicEditor } from "./region-logic-editor.js";
 import { registerLightToggleSound } from "./light-toggle-sound.js";
+import { registerForcefieldVfx, flareForcefield } from "./forcefield-vfx.js";
+import { registerForcefieldConfig } from "./forcefield-config.js";
 import { isActiveGM, SET_ACTIVE_GM_ACTION, handleSetActiveGmRequest } from "./gm-authority.js";
 import { REVEAL_FLAG } from "./region-terrain.js";
 import { CLOAK_HIT_SHIMMER_ACTION, playCloakHitShimmer } from "./cloak-hit-vfx.js";
@@ -622,6 +624,8 @@ Hooks.once("init", () => {
   registerRegionLogicBehavior();
   registerRegionLogicEditor();
   registerLightToggleSound();
+  registerForcefieldVfx();
+  registerForcefieldConfig();
   registerSensorContacts();
   registerTokenToolkitHud();
   registerAppearance();
@@ -1182,6 +1186,7 @@ Hooks.once("ready", async () => {
   game.sta2eToolkit.resolveReactorAction     = payload => CombatHUD.resolveReactorAction(payload);
   game.sta2eToolkit.checkOpposedTaskForTokens = checkOpposedTaskForTokens; // standalone opposed-task check (used by npc-roller side-panel path)
   game.sta2eToolkit.EffectConfigMenu = EffectConfigMenu; // class ref for external access
+  game.sta2eToolkit.flareForcefield = flareForcefield; // local flare on a forcefield door (wallId, {x, y}, strength)
   game.sta2eToolkit.openTransporter = openTransporter;   // spawn window, Transporter tab
   game.sta2eToolkit.openShipSpawner = openShipSpawner;   // spawn window, Ships tab
   game.sta2eToolkit.openQSpawner    = openQSpawner;      // spawn window, Q tab
