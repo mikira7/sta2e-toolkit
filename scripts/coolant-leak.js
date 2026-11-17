@@ -228,9 +228,14 @@ export function detachCoolantLeak(stopAudio = true) {
 }
 
 export function registerCoolantLeakHooks() {
-  Hooks.on(SCENE_EFFECT_AUDIO_CHANGED,syncCoolantLeak);
-  Hooks.on("canvasReady",syncCoolantLeak);
-  Hooks.on("canvasTearDown",detachCoolantLeak);
+  // Wrapped, never passed by name: syncCoolantLeak returns false when no leak is
+  // running, and canvasReady is fired with Hooks.call, which stops at the first
+  // listener returning false — so every canvasReady listener registered after
+  // this one (forcefields, sensor contacts, shield idle...) never ran on a scene
+  // change.
+  Hooks.on(SCENE_EFFECT_AUDIO_CHANGED,()=>{ syncCoolantLeak(); });
+  Hooks.on("canvasReady",()=>{ syncCoolantLeak(); });
+  Hooks.on("canvasTearDown",()=>{ detachCoolantLeak(); });
   Hooks.on("updateScene",(scene,changes)=>{
     const flags=changes.flags?.[MODULE];
     const changed=(flags && (COOLANT_LEAK_FLAG in flags || `-=${COOLANT_LEAK_FLAG}` in flags))
